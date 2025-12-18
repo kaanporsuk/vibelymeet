@@ -1,70 +1,12 @@
-import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { Skeleton } from "@/components/Skeleton";
-
-const mockMatches = [
-  {
-    id: "1",
-    name: "Emma",
-    age: 26,
-    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-    lastMessage: "Hey! That event was so fun 😊",
-    time: "2m ago",
-    unread: true,
-    vibes: ["Music", "Travel"],
-  },
-  {
-    id: "2",
-    name: "Alex",
-    age: 28,
-    image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
-    lastMessage: "Would love to grab coffee sometime",
-    time: "1h ago",
-    unread: true,
-    vibes: ["Tech", "Coffee"],
-  },
-  {
-    id: "3",
-    name: "Sofia",
-    age: 24,
-    image: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
-    lastMessage: "You have great taste in music!",
-    time: "3h ago",
-    unread: false,
-    vibes: ["Music", "Art"],
-  },
-  {
-    id: "4",
-    name: "Jordan",
-    age: 27,
-    image: "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400",
-    lastMessage: "That hiking spot looks amazing",
-    time: "1d ago",
-    unread: false,
-    vibes: ["Fitness", "Nature"],
-  },
-  {
-    id: "5",
-    name: "Taylor",
-    age: 25,
-    image: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
-    lastMessage: "Nice to meet you at the event!",
-    time: "2d ago",
-    unread: false,
-    vibes: ["Food", "Travel"],
-  },
-];
+import { useMatches } from "@/hooks/useMatches";
 
 const Matches = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000);
-    return () => clearTimeout(timer);
-  }, []);
+  const { data: matches = [], isLoading } = useMatches();
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -76,7 +18,7 @@ const Matches = () => {
       </header>
 
       <main className="max-w-lg mx-auto">
-        {loading ? (
+        {isLoading ? (
           <div className="divide-y divide-border">
             {Array(5)
               .fill(0)
@@ -90,9 +32,9 @@ const Matches = () => {
                 </div>
               ))}
           </div>
-        ) : mockMatches.length > 0 ? (
+        ) : matches.length > 0 ? (
           <div className="divide-y divide-border">
-            {mockMatches.map((match) => (
+            {matches.map((match) => (
               <button
                 key={match.id}
                 onClick={() => navigate(`/chat/${match.id}`)}
