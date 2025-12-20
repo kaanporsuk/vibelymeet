@@ -1,24 +1,35 @@
 import { useState } from "react";
 import { 
   Settings, 
-  Edit2, 
   LogOut, 
-  ChevronRight, 
   Camera,
   Briefcase,
   Ruler,
   MapPin,
   Sparkles,
   Heart,
-  Zap
+  Zap,
+  Eye,
+  Shield,
+  ChevronRight,
+  Quote,
+  Target
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { BottomNav } from "@/components/BottomNav";
 import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
+import { VibeTag } from "@/components/VibeTag";
+import { ProfilePrompt, PromptSelector } from "@/components/ProfilePrompt";
+import { RelationshipIntent } from "@/components/RelationshipIntent";
+import { LifestyleDetails } from "@/components/LifestyleDetails";
+import { VerificationBadge, VerificationSteps } from "@/components/VerificationBadge";
+import { HeightSelector, HeightDisplay } from "@/components/HeightSelector";
+import { ProfilePreview } from "@/components/ProfilePreview";
 import { useNavigate } from "react-router-dom";
 import {
   Drawer,
@@ -30,15 +41,24 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 
+interface ProfilePromptData {
+  prompt: string;
+  answer: string;
+}
+
 interface UserProfile {
   name: string;
   age: number;
   job: string;
-  height: string;
+  heightCm: number;
   location: string;
   bio: string;
   photos: string[];
   vibes: string[];
+  prompts: ProfilePromptData[];
+  relationshipIntent: string;
+  lifestyle: Record<string, string>;
+  verified: boolean;
   stats: {
     events: number;
     matches: number;
@@ -50,7 +70,7 @@ const initialProfile: UserProfile = {
   name: "Alex",
   age: 27,
   job: "Product Designer",
-  height: "5'11\"",
+  heightCm: 180,
   location: "Brooklyn, NY",
   bio: "Designing by day, DJing by night. Looking for someone who appreciates a good vinyl collection and late-night tacos.",
   photos: [
@@ -60,6 +80,18 @@ const initialProfile: UserProfile = {
     "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
   ],
   vibes: ["Music Lover", "Foodie", "Night Owl", "Creative"],
+  prompts: [
+    { prompt: "A shower thought I had recently", answer: "If aliens exist, they probably have their own dating apps too." },
+    { prompt: "The way to win me over", answer: "Surprise me with a spontaneous adventure. Bonus points for good snacks." },
+    { prompt: "I geek out on", answer: "" },
+  ],
+  relationshipIntent: "relationship",
+  lifestyle: {
+    drinking: "sometimes",
+    smoking: "never",
+    exercise: "often",
+  },
+  verified: true,
   stats: {
     events: 8,
     matches: 12,
@@ -69,140 +101,197 @@ const initialProfile: UserProfile = {
 
 const calculateVibeScore = (profile: UserProfile): number => {
   let score = 0;
-  if (profile.name) score += 10;
-  if (profile.age) score += 10;
-  if (profile.job) score += 10;
-  if (profile.height) score += 5;
+  if (profile.name) score += 8;
+  if (profile.age) score += 5;
+  if (profile.job) score += 8;
+  if (profile.heightCm) score += 5;
   if (profile.location) score += 5;
-  if (profile.bio && profile.bio.length > 20) score += 15;
-  score += Math.min(profile.photos.length * 10, 30);
-  score += Math.min(profile.vibes.length * 3, 15);
+  if (profile.bio && profile.bio.length > 20) score += 12;
+  score += Math.min(profile.photos.length * 8, 24);
+  score += Math.min(profile.vibes.length * 3, 12);
+  score += profile.prompts.filter(p => p.answer).length * 7;
+  if (profile.relationshipIntent) score += 5;
+  if (Object.keys(profile.lifestyle).length > 0) score += 5;
+  if (profile.verified) score += 4;
   return Math.min(score, 100);
 };
 
-type DrawerType = "photos" | "vibes" | "basics" | "bio" | null;
+type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | null;
 
 const Profile = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState(initialProfile);
+  const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const vibeScore = calculateVibeScore(profile);
 
   const handleSave = (type: DrawerType) => {
     setProfile(editForm);
     setActiveDrawer(null);
+    setEditingPromptIndex(null);
   };
 
   const openDrawer = (type: DrawerType) => {
-    setEditForm(profile);
+    setEditForm({ ...profile });
     setActiveDrawer(type);
   };
+
+  const openPromptEditor = (index: number) => {
+    setEditingPromptIndex(index);
+    setEditForm({ ...profile });
+    setActiveDrawer("prompt");
+  };
+
+  const verificationSteps = [
+    { id: "photo", label: "Photo verification", description: "Take a quick selfie", icon: Camera, completed: profile.verified },
+    { id: "phone", label: "Phone number", description: "Verify your number", icon: Shield, completed: true },
+  ];
 
   return (
     <div className="min-h-screen bg-background pb-24">
       {/* Hero Header */}
       <div className="relative">
-        {/* Gradient Background */}
-        <div className="h-32 bg-gradient-primary opacity-80" />
+        {/* Animated Gradient Background */}
+        <div className="h-36 bg-gradient-primary opacity-80 relative overflow-hidden">
+          <motion.div
+            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
+            animate={{ x: ["-100%", "100%"] }}
+            transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
+          />
+        </div>
         
-        {/* Settings Button */}
-        <button 
-          className="absolute top-4 right-4 w-10 h-10 rounded-full glass-card flex items-center justify-center"
-          onClick={() => {}}
-        >
-          <Settings className="w-5 h-5 text-foreground" />
-        </button>
+        {/* Top buttons */}
+        <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+          <button 
+            className="w-10 h-10 rounded-full glass-card flex items-center justify-center"
+            onClick={() => setShowPreview(true)}
+          >
+            <Eye className="w-5 h-5 text-foreground" />
+          </button>
+          <button 
+            className="w-10 h-10 rounded-full glass-card flex items-center justify-center"
+            onClick={() => {}}
+          >
+            <Settings className="w-5 h-5 text-foreground" />
+          </button>
+        </div>
 
-        {/* Profile Photo with Vibe Score */}
-        <div className="absolute -bottom-20 left-1/2 -translate-x-1/2 flex flex-col items-center">
-          <div className="relative">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="relative"
+        {/* Profile Photo with Verification Badge */}
+        <div className="absolute -bottom-16 left-1/2 -translate-x-1/2">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative"
+          >
+            <img
+              src={profile.photos[0]}
+              alt={profile.name}
+              className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
+            />
+            <button 
+              onClick={() => openDrawer("photos")}
+              className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center shadow-lg neon-glow-violet"
             >
-              <img
-                src={profile.photos[0]}
-                alt={profile.name}
-                className="w-28 h-28 rounded-3xl object-cover border-4 border-background shadow-2xl"
-              />
-              <button 
-                onClick={() => openDrawer("photos")}
-                className="absolute -bottom-1 -right-1 w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center shadow-lg neon-glow-violet"
-              >
-                <Camera className="w-4 h-4 text-white" />
-              </button>
-            </motion.div>
-          </div>
+              <Camera className="w-5 h-5 text-primary-foreground" />
+            </button>
+            {profile.verified && (
+              <div className="absolute -top-1 -right-1">
+                <VerificationBadge verified size="lg" />
+              </div>
+            )}
+          </motion.div>
         </div>
       </div>
 
-      <main className="max-w-lg mx-auto px-4 pt-24 space-y-6">
+      <main className="max-w-lg mx-auto px-4 pt-20 space-y-5">
         {/* Name & Location */}
         <motion.div 
           className="text-center space-y-1"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.1 }}
         >
-          <h1 className="text-2xl font-display font-bold text-foreground">
-            {profile.name}, {profile.age}
-          </h1>
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-2xl font-display font-bold text-foreground">
+              {profile.name}, {profile.age}
+            </h1>
+          </div>
           <div className="flex items-center justify-center gap-1 text-muted-foreground">
             <MapPin className="w-3 h-3" />
             <span className="text-sm">{profile.location}</span>
           </div>
         </motion.div>
 
-        {/* Vibe Score Card */}
+        {/* Vibe Score & Preview */}
         <motion.div 
-          className="glass-card p-6 flex items-center gap-6"
+          className="glass-card p-5 flex items-center gap-5"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.15 }}
         >
-          <VibeScore score={vibeScore} size={100} />
+          <VibeScore score={vibeScore} size={90} />
           <div className="flex-1 space-y-2">
             <h3 className="font-display font-semibold text-foreground">Your Vibe Score</h3>
             <p className="text-sm text-muted-foreground">
               {vibeScore < 100 
-                ? "Complete your profile to unlock maximum matches. Every detail counts." 
+                ? "Complete your profile to stand out from the crowd." 
                 : "You're at peak vibe. Time to make some connections."}
             </p>
-            {vibeScore < 100 && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="text-primary p-0 h-auto"
-                onClick={() => openDrawer("photos")}
-              >
-                <Zap className="w-3 h-3 mr-1" />
-                Boost your score →
-              </Button>
-            )}
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-primary p-0 h-auto text-sm"
+              onClick={() => setShowPreview(true)}
+            >
+              <Eye className="w-3 h-3 mr-1" />
+              Preview profile
+            </Button>
           </div>
         </motion.div>
 
         {/* Stats Row */}
         <motion.div 
-          className="grid grid-cols-3 gap-3"
+          className="grid grid-cols-3 gap-2"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.2 }}
         >
           {[
             { label: "Events", value: profile.stats.events, icon: Sparkles },
             { label: "Matches", value: profile.stats.matches, icon: Heart },
             { label: "Convos", value: profile.stats.conversations, icon: Zap },
           ].map((stat) => (
-            <div key={stat.label} className="glass-card p-4 text-center">
+            <div key={stat.label} className="glass-card p-3 text-center">
               <stat.icon className="w-4 h-4 mx-auto mb-1 text-primary" />
-              <p className="text-xl font-display font-bold gradient-text">{stat.value}</p>
+              <p className="text-lg font-display font-bold gradient-text">{stat.value}</p>
               <p className="text-xs text-muted-foreground">{stat.label}</p>
             </div>
           ))}
+        </motion.div>
+
+        {/* Relationship Intent */}
+        <motion.div 
+          className="glass-card p-4 space-y-3"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary" />
+              <h3 className="font-display font-semibold text-foreground">Looking For</h3>
+            </div>
+            <button 
+              onClick={() => openDrawer("intent")}
+              className="text-primary text-sm font-medium flex items-center gap-1"
+            >
+              Edit <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          <RelationshipIntent selected={profile.relationshipIntent} />
         </motion.div>
 
         {/* Bio Section */}
@@ -210,15 +299,15 @@ const Profile = () => {
           className="glass-card p-4 space-y-3"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
+          transition={{ delay: 0.3 }}
         >
           <div className="flex items-center justify-between">
-            <h3 className="font-display font-semibold text-foreground">The Pitch</h3>
+            <h3 className="font-display font-semibold text-foreground">About Me</h3>
             <button 
               onClick={() => openDrawer("bio")}
-              className="text-primary text-sm font-medium"
+              className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              Edit
+              Edit <ChevronRight className="w-3 h-3" />
             </button>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -226,32 +315,54 @@ const Profile = () => {
           </p>
         </motion.div>
 
+        {/* Profile Prompts */}
+        <motion.div 
+          className="space-y-3"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+        >
+          <div className="flex items-center gap-2 px-1">
+            <Quote className="w-4 h-4 text-primary" />
+            <h3 className="font-display font-semibold text-foreground">Conversation Starters</h3>
+          </div>
+          {profile.prompts.map((prompt, index) => (
+            <ProfilePrompt
+              key={index}
+              prompt={prompt.prompt}
+              answer={prompt.answer}
+              onEdit={() => openPromptEditor(index)}
+              editable
+              index={index}
+            />
+          ))}
+        </motion.div>
+
         {/* Vibes Section */}
         <motion.div 
           className="glass-card p-4 space-y-3"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
+          transition={{ delay: 0.4 }}
         >
           <div className="flex items-center justify-between">
-            <h3 className="font-display font-semibold text-foreground">Your Vibes</h3>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary" />
+              <h3 className="font-display font-semibold text-foreground">My Vibes</h3>
+            </div>
             <button 
               onClick={() => openDrawer("vibes")}
-              className="text-primary text-sm font-medium"
+              className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              Edit
+              Edit <ChevronRight className="w-3 h-3" />
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {profile.vibes.map((vibe) => (
-              <span
-                key={vibe}
-                className="px-3 py-1.5 text-sm rounded-full bg-primary/20 text-primary border border-primary/30"
-              >
-                {vibe}
-              </span>
-            ))}
-            {profile.vibes.length === 0 && (
+            {profile.vibes.length > 0 ? (
+              profile.vibes.map((vibe) => (
+                <VibeTag key={vibe} label={vibe} variant="display" />
+              ))
+            ) : (
               <span className="text-sm text-muted-foreground">
                 No vibes yet. Add some personality!
               </span>
@@ -264,15 +375,18 @@ const Profile = () => {
           className="glass-card p-4 space-y-3"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
+          transition={{ delay: 0.45 }}
         >
           <div className="flex items-center justify-between">
-            <h3 className="font-display font-semibold text-foreground">Your Gallery</h3>
+            <div className="flex items-center gap-2">
+              <Camera className="w-4 h-4 text-primary" />
+              <h3 className="font-display font-semibold text-foreground">Photos</h3>
+            </div>
             <button 
               onClick={() => openDrawer("photos")}
-              className="text-primary text-sm font-medium"
+              className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              Manage
+              Manage <ChevronRight className="w-3 h-3" />
             </button>
           </div>
           <PhotoGallery photos={profile.photos} onPhotosChange={() => {}} />
@@ -283,34 +397,64 @@ const Profile = () => {
           className="glass-card p-4 space-y-3"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
+          transition={{ delay: 0.5 }}
         >
           <div className="flex items-center justify-between">
             <h3 className="font-display font-semibold text-foreground">The Basics</h3>
             <button 
               onClick={() => openDrawer("basics")}
-              className="text-primary text-sm font-medium"
+              className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              Edit
+              Edit <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
             {[
               { icon: Briefcase, label: "Work", value: profile.job },
-              { icon: Ruler, label: "Height", value: profile.height },
+              { icon: Ruler, label: "Height", value: profile.heightCm ? `${profile.heightCm} cm` : "Not set" },
               { icon: MapPin, label: "Location", value: profile.location },
             ].map((item) => (
-              <div key={item.label} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center">
-                  <item.icon className="w-4 h-4 text-muted-foreground" />
-                </div>
+              <div key={item.label} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40">
+                <item.icon className="w-4 h-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="text-sm font-medium text-foreground">{item.value || "Not set"}</p>
+                  <p className="text-sm font-medium text-foreground truncate">{item.value || "Not set"}</p>
                 </div>
               </div>
             ))}
           </div>
+        </motion.div>
+
+        {/* Lifestyle Section */}
+        <motion.div 
+          className="glass-card p-4 space-y-3"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55 }}
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="font-display font-semibold text-foreground">Lifestyle</h3>
+            <button 
+              onClick={() => openDrawer("lifestyle")}
+              className="text-primary text-sm font-medium flex items-center gap-1"
+            >
+              Edit <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          <LifestyleDetails values={profile.lifestyle} />
+        </motion.div>
+
+        {/* Verification */}
+        <motion.div 
+          className="glass-card p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+        >
+          <VerificationSteps 
+            steps={verificationSteps}
+            onStartStep={(id) => openDrawer("verification")}
+          />
         </motion.div>
 
         {/* Logout */}
@@ -386,7 +530,7 @@ const Profile = () => {
               Keep it real. Authenticity is attractive.
             </DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4">
+          <div className="px-4 pb-4 space-y-5 overflow-y-auto">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Name</label>
               <Input 
@@ -415,13 +559,11 @@ const Profile = () => {
                 className="glass-card border-border"
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
               <label className="text-sm font-medium text-foreground">Height</label>
-              <Input 
-                value={editForm.height}
-                onChange={(e) => setEditForm({ ...editForm, height: e.target.value })}
-                placeholder="Yes, people will ask"
-                className="glass-card border-border"
+              <HeightSelector 
+                value={editForm.heightCm}
+                onChange={(cm) => setEditForm({ ...editForm, heightCm: cm })}
               />
             </div>
             <div className="space-y-2">
@@ -449,17 +591,17 @@ const Profile = () => {
       <Drawer open={activeDrawer === "bio"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
-            <DrawerTitle className="font-display">Your Pitch</DrawerTitle>
+            <DrawerTitle className="font-display">About Me</DrawerTitle>
             <DrawerDescription>
               You have 3 seconds to make them care. Make it count.
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4">
-            <textarea 
+            <Textarea 
               value={editForm.bio}
               onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
               placeholder="Write something that makes them want to know more..."
-              className="w-full h-32 px-4 py-3 rounded-xl glass-card border border-border resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground placeholder:text-muted-foreground"
+              className="min-h-32 glass-card border-border resize-none"
               maxLength={300}
             />
             <p className="text-xs text-muted-foreground text-right mt-2">
@@ -468,7 +610,7 @@ const Profile = () => {
           </div>
           <DrawerFooter>
             <Button variant="gradient" onClick={() => handleSave("bio")}>
-              Save Pitch
+              Save
             </Button>
             <DrawerClose asChild>
               <Button variant="ghost">Cancel</Button>
@@ -476,6 +618,121 @@ const Profile = () => {
           </DrawerFooter>
         </DrawerContent>
       </Drawer>
+
+      {/* Prompt Editor Drawer */}
+      <Drawer open={activeDrawer === "prompt"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display">Edit Prompt</DrawerTitle>
+            <DrawerDescription>
+              Spark conversations with your answer.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4 space-y-4 overflow-y-auto">
+            {editingPromptIndex !== null && (
+              <>
+                <PromptSelector
+                  selectedPrompt={editForm.prompts[editingPromptIndex]?.prompt || ""}
+                  onSelect={(prompt) => {
+                    const newPrompts = [...editForm.prompts];
+                    newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], prompt };
+                    setEditForm({ ...editForm, prompts: newPrompts });
+                  }}
+                />
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Your Answer</label>
+                  <Textarea 
+                    value={editForm.prompts[editingPromptIndex]?.answer || ""}
+                    onChange={(e) => {
+                      const newPrompts = [...editForm.prompts];
+                      newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], answer: e.target.value };
+                      setEditForm({ ...editForm, prompts: newPrompts });
+                    }}
+                    placeholder="Be authentic, be interesting..."
+                    className="min-h-24 glass-card border-border resize-none"
+                    maxLength={200}
+                  />
+                  <p className="text-xs text-muted-foreground text-right">
+                    {editForm.prompts[editingPromptIndex]?.answer?.length || 0}/200
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <DrawerFooter>
+            <Button variant="gradient" onClick={() => handleSave("prompt")}>
+              Save Prompt
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Intent Editor Drawer */}
+      <Drawer open={activeDrawer === "intent"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display">What are you looking for?</DrawerTitle>
+            <DrawerDescription>
+              Be upfront. It saves everyone time.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4 overflow-y-auto">
+            <RelationshipIntent 
+              selected={editForm.relationshipIntent}
+              onSelect={(intent) => setEditForm({ ...editForm, relationshipIntent: intent })}
+              editable
+            />
+          </div>
+          <DrawerFooter>
+            <Button variant="gradient" onClick={() => handleSave("intent")}>
+              Save
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Lifestyle Editor Drawer */}
+      <Drawer open={activeDrawer === "lifestyle"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display">Lifestyle</DrawerTitle>
+            <DrawerDescription>
+              Help find someone compatible with your lifestyle.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4 overflow-y-auto">
+            <LifestyleDetails 
+              values={editForm.lifestyle}
+              onChange={(key, value) => setEditForm({ 
+                ...editForm, 
+                lifestyle: { ...editForm.lifestyle, [key]: value } 
+              })}
+              editable
+            />
+          </div>
+          <DrawerFooter>
+            <Button variant="gradient" onClick={() => handleSave("lifestyle")}>
+              Save
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Profile Preview */}
+      <AnimatePresence>
+        {showPreview && (
+          <ProfilePreview profile={profile} onClose={() => setShowPreview(false)} />
+        )}
+      </AnimatePresence>
 
       <BottomNav />
     </div>
