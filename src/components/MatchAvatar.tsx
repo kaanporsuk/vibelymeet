@@ -1,40 +1,93 @@
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface MatchAvatarProps {
-  image: string;
   name: string;
+  image: string;
   isNew?: boolean;
+  hasUnread?: boolean;
+  size?: "sm" | "md" | "lg";
   onClick?: () => void;
+  showName?: boolean;
 }
 
-export const MatchAvatar = ({ image, name, isNew, onClick }: MatchAvatarProps) => {
+export const MatchAvatar = ({
+  name,
+  image,
+  isNew = false,
+  hasUnread = false,
+  size = "md",
+  onClick,
+  showName = true,
+}: MatchAvatarProps) => {
+  const sizeClasses = {
+    sm: "w-12 h-12",
+    md: "w-16 h-16",
+    lg: "w-20 h-20",
+  };
+
+  const ringClasses = {
+    sm: "p-0.5",
+    md: "p-[3px]",
+    lg: "p-1",
+  };
+
   return (
-    <button
+    <motion.button
+      whileHover={{ scale: 1.05 }}
+      whileTap={{ scale: 0.95 }}
       onClick={onClick}
-      className="flex flex-col items-center gap-2 shrink-0"
+      className="flex flex-col items-center gap-2 min-w-fit"
     >
       <div className="relative">
+        {/* Animated gradient ring for new matches */}
         <div
           className={cn(
-            "w-16 h-16 rounded-full overflow-hidden border-2 transition-all duration-300",
-            isNew ? "border-neon-pink neon-glow-pink" : "border-border"
+            "rounded-full",
+            ringClasses[size],
+            isNew || hasUnread
+              ? "bg-gradient-primary animate-glow-pulse"
+              : "bg-border"
           )}
         >
-          <img
-            src={image}
-            alt={name}
-            className="w-full h-full object-cover"
-          />
-        </div>
-        {isNew && (
-          <div className="absolute -top-1 -right-1 w-4 h-4 bg-neon-pink rounded-full flex items-center justify-center">
-            <span className="text-[10px] text-white font-bold">!</span>
+          <div className="rounded-full bg-background p-[2px]">
+            <img
+              src={image}
+              alt={name}
+              className={cn(
+                sizeClasses[size],
+                "rounded-full object-cover"
+              )}
+            />
           </div>
+        </div>
+
+        {/* New badge */}
+        {isNew && (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-full bg-gradient-primary text-[10px] font-semibold text-primary-foreground shadow-lg"
+          >
+            NEW
+          </motion.div>
+        )}
+
+        {/* Unread indicator (when not new) */}
+        {hasUnread && !isNew && (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-accent neon-glow-pink"
+          />
         )}
       </div>
-      <span className="text-xs text-muted-foreground truncate w-16 text-center">
-        {name}
-      </span>
-    </button>
+
+      {showName && (
+        <span className="text-xs text-foreground font-medium truncate max-w-[64px]">
+          {name.split(" ")[0]}
+        </span>
+      )}
+    </motion.button>
   );
 };
