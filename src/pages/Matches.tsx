@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/Skeleton";
 import { NewVibesRail } from "@/components/NewVibesRail";
 import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
+import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
+import { MatchAvatar } from "@/components/MatchAvatar";
 import { useMatches } from "@/hooks/useMatches";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,9 @@ const Matches = () => {
       .map((m) => ({
         id: m.id,
         name: m.name,
+        age: m.age,
         image: m.image,
+        vibes: m.vibes,
         isNew: true,
         hasUnread: m.unread,
       }));

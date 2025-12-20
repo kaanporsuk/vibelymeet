@@ -2,6 +2,8 @@ import { useState } from "react";
 import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { MessageCircle, User, X, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
+import { toast } from "sonner";
 
 interface SwipeableMatchCardProps {
   id: string;
@@ -19,6 +21,7 @@ interface SwipeableMatchCardProps {
 }
 
 export const SwipeableMatchCard = ({
+  id,
   name,
   age,
   image,
@@ -26,7 +29,7 @@ export const SwipeableMatchCard = ({
   time,
   unread,
   vibes,
-  compatibility = Math.floor(Math.random() * 20) + 80, // Mock compatibility
+  compatibility = Math.floor(Math.random() * 20) + 80,
   onClick,
   onViewProfile,
   onUnmatch,
@@ -85,41 +88,50 @@ export const SwipeableMatchCard = ({
       </motion.div>
 
       {/* Main card */}
-      <motion.button
+      <motion.div
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.3}
         onDrag={handleDrag}
         onDragEnd={handleDragEnd}
         style={{ x }}
-        onClick={onClick}
         className="relative w-full flex items-center gap-4 p-4 bg-background border-b border-border hover:bg-secondary/30 transition-colors text-left group"
       >
-        {/* Avatar with unread indicator */}
-        <div className="relative shrink-0">
-          <div
-            className={cn(
-              "p-[2px] rounded-full",
-              unread ? "bg-gradient-primary" : "bg-border"
-            )}
-          >
-            <img
-              src={image}
-              alt={name}
-              className="w-14 h-14 rounded-full object-cover bg-background"
-            />
-          </div>
-          {unread && (
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-accent border-2 border-background neon-glow-pink"
-            />
-          )}
-        </div>
+        {/* Avatar with ProfileDetailDrawer */}
+        <ProfileDetailDrawer
+          match={{ id, name, age, image, vibes, compatibility }}
+          trigger={
+            <div className="relative shrink-0 cursor-pointer">
+              <div
+                className={cn(
+                  "p-[2px] rounded-full transition-transform hover:scale-105",
+                  unread ? "bg-gradient-primary" : "bg-border"
+                )}
+              >
+                <img
+                  src={image}
+                  alt={name}
+                  className="w-14 h-14 rounded-full object-cover bg-background"
+                />
+              </div>
+              {unread && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-accent border-2 border-background neon-glow-pink"
+                />
+              )}
+            </div>
+          }
+          onMessage={onClick}
+          onVideoCall={() => toast.info("Video call feature coming soon!")}
+        />
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
+        {/* Content - clickable area for chat */}
+        <button
+          onClick={onClick}
+          className="flex-1 min-w-0 text-left"
+        >
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-foreground">
@@ -155,7 +167,7 @@ export const SwipeableMatchCard = ({
               </span>
             ))}
           </div>
-        </div>
+        </button>
 
         {/* Chat icon */}
         <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -163,7 +175,7 @@ export const SwipeableMatchCard = ({
             <MessageCircle className="w-5 h-5 text-primary" />
           </div>
         </div>
-      </motion.button>
+      </motion.div>
     </div>
   );
 };
