@@ -4,6 +4,7 @@ import VoiceMessagePlayer from "./VoiceMessagePlayer";
 import { EmojiBar, type ReactionEmoji } from "./EmojiBar";
 import { ReactionBadge } from "./ReactionBadge";
 import { ParticleBurst } from "./ParticleBurst";
+import { MessageStatus, type MessageStatusType } from "./MessageStatus";
 import { useState, useRef, useCallback } from "react";
 
 interface Message {
@@ -15,6 +16,7 @@ interface Message {
   duration?: number;
   audioBlob?: Blob;
   reaction?: ReactionEmoji;
+  status?: MessageStatusType;
 }
 
 interface MessageBubbleProps {
@@ -174,14 +176,16 @@ export const MessageBubble = ({
         >
           <p className="text-sm leading-relaxed">{message.text}</p>
           {isLastInGroup && (
-            <p
-              className={cn(
-                "text-[10px] mt-1",
-                isMe ? "text-primary-foreground/70" : "text-muted-foreground"
-              )}
-            >
-              {message.time}
-            </p>
+            <div className={cn(
+              "flex items-center gap-1 mt-1",
+              isMe ? "justify-end" : "justify-start"
+            )}>
+              <MessageStatus
+                status={message.status || "read"}
+                time={message.time}
+                isMyMessage={isMe}
+              />
+            </div>
           )}
 
           {/* Reaction badge */}
