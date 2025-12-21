@@ -51,6 +51,8 @@ const mockMessages = [
   { id: "7", text: "", sender: "them" as const, time: "2:36 PM", type: "voice" as const, duration: 8 },
 ];
 
+type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
+
 interface Message {
   id: string;
   text: string;
@@ -59,6 +61,7 @@ interface Message {
   type: "text" | "video-invite" | "voice";
   duration?: number;
   audioBlob?: Blob;
+  reaction?: ReactionEmoji;
 }
 
 const Chat = () => {
@@ -203,6 +206,16 @@ const Chat = () => {
     }
   };
 
+  const handleReaction = useCallback((messageId: string, emoji: ReactionEmoji | null) => {
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, reaction: emoji || undefined }
+          : msg
+      )
+    );
+  }, []);
+
   const hasText = newMessage.trim().length > 0;
 
   return (
@@ -326,6 +339,7 @@ const Chat = () => {
                   isLastInGroup={message.isLastInGroup}
                   showAvatar={message.showAvatar}
                   avatarUrl={mockOtherUser.avatar_url}
+                  onReaction={handleReaction}
                 />
               )
             )}
