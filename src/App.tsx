@@ -12,28 +12,35 @@ import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import VideoDate from "./pages/VideoDate";
 import NotFound from "./pages/NotFound";
+import { NotificationProvider } from "./contexts/NotificationContext";
+import NotificationContainer from "./components/notifications/NotificationContainer";
+import NotificationDemo from "./components/notifications/NotificationDemo";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner position="top-center" theme="dark" />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/events" element={<Events />} />
-          <Route path="/matches" element={<Matches />} />
-          <Route path="/chat/:id" element={<Chat />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/date/:id" element={<VideoDate />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <NotificationProvider>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner position="top-center" theme="dark" />
+        <BrowserRouter>
+          <NotificationContainer />
+          <NotificationDemo />
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/events" element={<Events />} />
+            <Route path="/matches" element={<Matches />} />
+            <Route path="/chat/:id" element={<Chat />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/date/:id" element={<VideoDate />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </TooltipProvider>
+    </NotificationProvider>
   </QueryClientProvider>
 );
 
