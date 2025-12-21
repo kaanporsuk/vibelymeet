@@ -18,6 +18,8 @@ import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { VideoDateCard } from "@/components/chat/VideoDateCard";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
+import VoiceRecorder from "@/components/chat/VoiceRecorder";
+import VoiceMessagePlayer from "@/components/chat/VoiceMessagePlayer";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
@@ -45,6 +47,8 @@ const mockMessages = [
   { id: "4", text: "Have you been?", sender: "me" as const, time: "2:32 PM", type: "text" as const },
   { id: "5", text: "Not yet, but it's definitely on my list!", sender: "them" as const, time: "2:35 PM", type: "text" as const },
   { id: "6", text: "We should totally go sometime 😊", sender: "them" as const, time: "2:35 PM", type: "text" as const },
+  // Mock voice message
+  { id: "7", text: "", sender: "them" as const, time: "2:36 PM", type: "voice" as const, duration: 8 },
 ];
 
 interface Message {
@@ -52,7 +56,9 @@ interface Message {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite";
+  type: "text" | "video-invite" | "voice";
+  duration?: number;
+  audioBlob?: Blob;
 }
 
 const Chat = () => {
@@ -63,6 +69,7 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
   const [showMediaOptions, setShowMediaOptions] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -155,6 +162,38 @@ const Chat = () => {
     setNewMessage("");
     setShowDateSuggestion(false);
     toast.success("Video date invite sent!");
+  };
+
+  const handleVoiceRecordingComplete = (audioBlob: Blob, duration: number) => {
+    const newMsg: Message = {
+      id: `msg-${Date.now()}`,
+      text: "",
+      sender: "me",
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      type: "voice",
+      duration,
+      audioBlob,
+    };
+
+    setMessages((prev) => [...prev, newMsg]);
+    setIsRecording(false);
+    toast.success("Voice message sent!");
+
+    // Simulate a voice message response
+    setTimeout(() => setIsTyping(true), 1500);
+    setTimeout(() => {
+      setIsTyping(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}`,
+          text: "Love hearing your voice! 💜",
+          sender: "them",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: "text",
+        },
+      ]);
+    }, 3000);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -388,30 +427,46 @@ const Chat = () => {
             </div>
 
             {/* Send / Mic button */}
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={hasText ? handleSend : () => toast.info("Voice messages coming soon!")}
-              className="shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg"
-            >
-              <AnimatePresence mode="wait">
+            {hasText ? (
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={handleSend}
+                className="shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg"
+              >
                 <motion.div
-                  key={hasText ? "send" : "mic"}
                   initial={{ scale: 0, rotate: -90 }}
                   animate={{ scale: 1, rotate: 0 }}
-                  exit={{ scale: 0, rotate: 90 }}
                   transition={{ duration: 0.15 }}
                 >
-                  {hasText ? (
-                    <Send className="w-5 h-5" />
-                  ) : (
-                    <Mic className="w-5 h-5" />
-                  )}
+                  <Send className="w-5 h-5" />
                 </motion.div>
-              </AnimatePresence>
-            </motion.button>
+              </motion.button>
+            ) : (
+              <VoiceRecorder
+                onRecordingComplete={handleVoiceRecordingComplete}
+                onCancel={() => setIsRecording(false)}
+              />
+            )}
           </div>
         </div>
       </div>
+
+      {/* Voice recording overlay */}
+      <AnimatePresence>
+        {isRecording && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center"
+          >
+            <VoiceRecorder
+              onRecordingComplete={handleVoiceRecordingComplete}
+              onCancel={() => setIsRecording(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
