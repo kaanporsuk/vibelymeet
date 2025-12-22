@@ -1,93 +1,285 @@
 import { useState, useMemo } from "react";
-import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { BottomNav } from "@/components/BottomNav";
-import { EventCard } from "@/components/EventCard";
-import { EventCardSkeleton } from "@/components/Skeleton";
+import { motion, AnimatePresence } from "framer-motion";
+import { Calendar, Sparkles } from "lucide-react";
 import { useEvents } from "@/hooks/useEvents";
+import { BottomNav } from "@/components/BottomNav";
+import { FeaturedEventCard } from "@/components/events/FeaturedEventCard";
+import { EventsFilterBar } from "@/components/events/EventsFilterBar";
+import { EventsRail } from "@/components/events/EventsRail";
+import { EventCardPremium } from "@/components/events/EventCardPremium";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const filterTags = ["All", "Music", "Tech", "Food", "Travel", "Books", "Fitness"];
+// Mock data for personalization
+const userVibes = ["Music", "Tech", "Art"];
+const nicheCategories = ["Gaming", "Food", "Wellness"];
 
 const Events = () => {
-  const { data: events = [], isLoading } = useEvents();
+  const { data: events, isLoading } = useEvents();
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState("All");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
-  const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
-      const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesFilter =
-        activeFilter === "All" || event.tags.some((tag) => tag === activeFilter);
-      return matchesSearch && matchesFilter;
-    });
-  }, [events, searchQuery, activeFilter]);
+  // Categorize events
+  const { featuredEvent, trendingEvents, personalizedEvents, nicheEvents, filteredEvents } = useMemo(() => {
+    if (!events) {
+      return {
+        featuredEvent: null,
+        trendingEvents: [],
+        personalizedEvents: [],
+        nicheEvents: [],
+        filteredEvents: [],
+      };
+    }
+
+    // Apply search and filters
+    let filtered = events;
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (event) =>
+          event.title.toLowerCase().includes(query) ||
+          event.tags.some((tag) => tag.toLowerCase().includes(query))
+      );
+    }
+
+    if (activeFilters.length > 0) {
+      filtered = filtered.filter((event) => {
+        // Check date filters
+        const now = new Date();
+        const eventDate = new Date(event.eventDate);
+        const isTonight = eventDate.toDateString() === now.toDateString();
+        const isThisWeekend = (() => {
+          const dayOfWeek = now.getDay();
+          const saturday = new Date(now);
+          saturday.setDate(now.getDate() + (6 - dayOfWeek));
+          const sunday = new Date(saturday);
+          sunday.setDate(saturday.getDate() + 1);
+          return eventDate >= saturday && eventDate <= sunday;
+        })();
+        const isThisWeek = (() => {
+          const endOfWeek = new Date(now);
+          endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+          return eventDate <= endOfWeek;
+        })();
+
+        const dateMatch = 
+          (activeFilters.includes("Tonight") && isTonight) ||
+          (activeFilters.includes("This Weekend") && isThisWeekend) ||
+          (activeFilters.includes("This Week") && isThisWeek) ||
+          (activeFilters.includes("Upcoming") && eventDate > now);
+
+        // Check interest filters
+        const interestFilters = activeFilters.filter(
+          (f) => !["Tonight", "This Weekend", "This Week", "Upcoming"].includes(f)
+        );
+        const interestMatch =
+          interestFilters.length === 0 ||
+          event.tags.some((tag) => interestFilters.includes(tag));
+
+        // If only date filters are active
+        if (interestFilters.length === 0 && activeFilters.some(f => ["Tonight", "This Weekend", "This Week", "Upcoming"].includes(f))) {
+          return dateMatch;
+        }
+        
+        // If only interest filters are active
+        if (!activeFilters.some(f => ["Tonight", "This Weekend", "This Week", "Upcoming"].includes(f))) {
+          return interestMatch;
+        }
+
+        return dateMatch && interestMatch;
+      });
+    }
+
+    // Featured = first upcoming event with most attendees
+    const featured = [...events]
+      .filter((e) => new Date(e.eventDate) > new Date())
+      .sort((a, b) => b.attendees - a.attendees)[0];
+
+    // Trending = high attendee count
+    const trending = events
+      .filter((e) => e.id !== featured?.id)
+      .sort((a, b) => b.attendees - a.attendees)
+      .slice(0, 6);
+
+    // Personalized = matches user vibes
+    const personalized = events
+      .filter((e) => 
+        e.id !== featured?.id && 
+        e.tags.some((tag) => userVibes.includes(tag))
+      )
+      .slice(0, 6);
+
+    // Niche = matches niche categories
+    const niche = events
+      .filter((e) => 
+        e.id !== featured?.id && 
+        e.tags.some((tag) => nicheCategories.includes(tag))
+      )
+      .slice(0, 6);
+
+    return {
+      featuredEvent: featured,
+      trendingEvents: trending,
+      personalizedEvents: personalized,
+      nicheEvents: niche,
+      filteredEvents: filtered,
+    };
+  }, [events, searchQuery, activeFilters]);
+
+  const isFiltering = searchQuery || activeFilters.length > 0;
 
   return (
     <div className="min-h-screen bg-background pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-40 glass-card border-b border-white/10 px-4 py-4 space-y-4">
-        <h1 className="text-2xl font-display font-bold text-foreground text-center">
-          Discover Events
-        </h1>
-
-        {/* Search */}
-        <div className="relative max-w-lg mx-auto">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search events..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-12 rounded-2xl glass-card border-white/10"
-          />
-        </div>
-
-        {/* Filter Tags */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4">
-          {filterTags.map((tag) => (
-            <button
-              key={tag}
-              onClick={() => setActiveFilter(tag)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 shrink-0 ${
-                activeFilter === tag
-                  ? "bg-primary text-primary-foreground neon-glow-violet"
-                  : "glass-card text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tag}
-            </button>
-          ))}
+      <header className="pt-safe-top px-4 py-6">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-primary/10">
+            <Calendar className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="font-display text-2xl font-bold text-foreground">
+              Discover Events
+            </h1>
+            <p className="text-muted-foreground text-sm">
+              Find your next vibe match
+            </p>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6">
-        <div className="grid gap-4">
-          {isLoading
-            ? Array(4)
-                .fill(0)
-                .map((_, i) => <EventCardSkeleton key={i} />)
-            : filteredEvents.length > 0
-            ? filteredEvents.map((event) => (
-                <EventCard
-                  key={event.id}
-                  id={event.id}
-                  title={event.title}
-                  image={event.image}
-                  date={event.date}
-                  time={event.time}
-                  attendees={event.attendees}
-                  tags={event.tags}
-                />
-              ))
-            : (
-              <div className="text-center py-12 space-y-4">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-secondary flex items-center justify-center">
-                  <span className="text-3xl">🔍</span>
+      {/* Filter Bar */}
+      <EventsFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        activeFilters={activeFilters}
+        onFiltersChange={setActiveFilters}
+      />
+
+      {/* Content */}
+      <div className="space-y-8 pt-6">
+        {isLoading ? (
+          <div className="px-4 space-y-8">
+            {/* Featured Skeleton */}
+            <Skeleton className="w-full h-[420px] rounded-3xl" />
+            
+            {/* Rail Skeletons */}
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="space-y-4">
+                <Skeleton className="h-8 w-48 ml-4" />
+                <div className="flex gap-4 overflow-hidden px-4">
+                  {[1, 2, 3].map((j) => (
+                    <Skeleton key={j} className="w-[280px] h-[260px] rounded-2xl flex-shrink-0" />
+                  ))}
                 </div>
-                <p className="text-muted-foreground">No events found</p>
+              </div>
+            ))}
+          </div>
+        ) : isFiltering ? (
+          // Filtered Results Grid
+          <div className="px-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <span className="text-muted-foreground">
+                {filteredEvents.length} events found
+              </span>
+            </div>
+            
+            <AnimatePresence mode="popLayout">
+              {filteredEvents.length > 0 ? (
+                <motion.div
+                  layout
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                >
+                  {filteredEvents.map((event) => (
+                    <motion.div
+                      key={event.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <EventCardPremium
+                        id={event.id}
+                        title={event.title}
+                        image={event.image}
+                        date={event.date}
+                        time={event.time}
+                        attendees={event.attendees}
+                        tags={event.tags}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center py-16"
+                >
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/50 flex items-center justify-center">
+                    <Calendar className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">
+                    No events found
+                  </h3>
+                  <p className="text-muted-foreground">
+                    Try adjusting your filters or search terms
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ) : (
+          // Default Discovery View
+          <>
+            {/* Featured Event */}
+            {featuredEvent && (
+              <div className="px-4">
+                <FeaturedEventCard
+                  id={featuredEvent.id}
+                  title={featuredEvent.title}
+                  description={featuredEvent.description}
+                  image={featuredEvent.image}
+                  eventDate={featuredEvent.eventDate}
+                  attendees={featuredEvent.attendees}
+                  tags={featuredEvent.tags}
+                />
               </div>
             )}
-        </div>
-      </main>
+
+            {/* Trending Tonight */}
+            {trendingEvents.length > 0 && (
+              <EventsRail
+                title="Trending Tonight"
+                emoji="🔥"
+                events={trendingEvents}
+                accentColor="pink"
+              />
+            )}
+
+            {/* For Your Vibe */}
+            {personalizedEvents.length > 0 && (
+              <EventsRail
+                title="For Your Vibe"
+                emoji="✨"
+                events={personalizedEvents}
+                accentColor="violet"
+              />
+            )}
+
+            {/* Niche Communities */}
+            {nicheEvents.length > 0 && (
+              <EventsRail
+                title="Niche Communities"
+                emoji="🎯"
+                events={nicheEvents}
+                accentColor="cyan"
+              />
+            )}
+          </>
+        )}
+      </div>
 
       <BottomNav />
     </div>
