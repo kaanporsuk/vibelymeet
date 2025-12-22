@@ -13,7 +13,8 @@ import {
   Shield,
   ChevronRight,
   Quote,
-  Target
+  Target,
+  Wand2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,7 @@ import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationBadge, VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector, HeightDisplay } from "@/components/HeightSelector";
 import { ProfilePreview } from "@/components/ProfilePreview";
+import ProfileWizard from "@/components/wizard/ProfileWizard";
 import { useNavigate } from "react-router-dom";
 import {
   Drawer,
@@ -125,6 +127,7 @@ const Profile = () => {
   const [editForm, setEditForm] = useState(initialProfile);
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   const vibeScore = calculateVibeScore(profile);
 
@@ -240,15 +243,28 @@ const Profile = () => {
                 ? "Complete your profile to stand out from the crowd." 
                 : "You're at peak vibe. Time to make some connections."}
             </p>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="text-primary p-0 h-auto text-sm"
-              onClick={() => setShowPreview(true)}
-            >
-              <Eye className="w-3 h-3 mr-1" />
-              Preview profile
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="text-primary p-0 h-auto text-sm"
+                onClick={() => setShowPreview(true)}
+              >
+                <Eye className="w-3 h-3 mr-1" />
+                Preview
+              </Button>
+              {vibeScore < 100 && (
+                <Button 
+                  variant="gradient" 
+                  size="sm" 
+                  className="gap-1"
+                  onClick={() => setShowWizard(true)}
+                >
+                  <Wand2 className="w-3 h-3" />
+                  Complete Profile
+                </Button>
+              )}
+            </div>
           </div>
         </motion.div>
 
@@ -733,6 +749,13 @@ const Profile = () => {
           <ProfilePreview profile={profile} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>
+
+      {/* Profile Wizard */}
+      <ProfileWizard
+        isOpen={showWizard}
+        onClose={() => setShowWizard(false)}
+        onComplete={() => setShowWizard(false)}
+      />
 
       <BottomNav />
     </div>
