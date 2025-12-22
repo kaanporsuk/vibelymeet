@@ -12,6 +12,7 @@ import Matches from "./pages/Matches";
 import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import VideoDate from "./pages/VideoDate";
+import VideoLobby from "./pages/VideoLobby";
 import NotFound from "./pages/NotFound";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
@@ -38,6 +39,7 @@ const App = () => (
             <Route path="/chat/:id" element={<Chat />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/date/:id" element={<VideoDate />} />
+            <Route path="/lobby" element={<VideoLobby />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
