@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Sparkles, Users, Ticket, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ interface FeaturedEventCardProps {
 }
 
 export const FeaturedEventCard = ({
+  id,
   title,
   description,
   image,
@@ -23,6 +25,7 @@ export const FeaturedEventCard = ({
   attendees,
   tags,
 }: FeaturedEventCardProps) => {
+  const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isRegistered, setIsRegistered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,7 +65,8 @@ export const FeaturedEventCard = ({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative w-full h-[420px] md:h-[480px] rounded-3xl overflow-hidden"
+      onClick={() => navigate(`/events/${id}`)}
+      className="relative w-full h-[420px] md:h-[480px] rounded-3xl overflow-hidden cursor-pointer"
     >
       {/* Background Image */}
       <div className="absolute inset-0">

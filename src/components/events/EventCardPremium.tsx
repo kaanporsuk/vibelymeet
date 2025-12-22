@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, Ticket, Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ const tagEmojis: Record<string, string> = {
 };
 
 export const EventCardPremium = ({
+  id,
   title,
   image,
   date,
@@ -39,6 +41,7 @@ export const EventCardPremium = ({
   tags,
   vibeMatch = Math.floor(Math.random() * 20) + 80,
 }: EventCardPremiumProps) => {
+  const navigate = useNavigate();
   const [isRegistered, setIsRegistered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -65,6 +68,7 @@ export const EventCardPremium = ({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ y: -4 }}
+      onClick={() => navigate(`/events/${id}`)}
       className="relative w-[280px] md:w-[320px] flex-shrink-0 rounded-2xl overflow-hidden bg-card border border-border/50 group cursor-pointer"
     >
       {/* Confetti Effect */}
