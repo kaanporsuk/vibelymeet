@@ -7,7 +7,7 @@ import { VibeProgressRing } from "@/components/video-date/VibeProgressRing";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
 import { DraggablePIP } from "@/components/video-date/DraggablePIP";
 import { VideoControls } from "@/components/video-date/VideoControls";
-import { PostDateModal } from "@/components/video-date/PostDateModal";
+import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 
 // Mock partner data
@@ -70,25 +70,6 @@ const VideoDate = () => {
       wakeLock?.release();
     };
   }, []);
-
-  const handleVibe = () => {
-    toast.success("Fingers crossed! 🤞 We'll notify you if it's mutual.", {
-      duration: 3000,
-    });
-    setTimeout(() => {
-      navigate("/matches");
-    }, 1500);
-  };
-
-  const handlePass = () => {
-    toast("No worries! Your next date is waiting...", {
-      icon: "👋",
-      duration: 2000,
-    });
-    setTimeout(() => {
-      navigate("/dashboard");
-    }, 500);
-  };
 
   const handleLeave = () => {
     toast("You left the date early. Stay safe! 💜", {
@@ -185,13 +166,12 @@ const VideoDate = () => {
         />
       </div>
 
-      {/* Post-Date Decision Modal */}
-      <PostDateModal
+      {/* Post-Date Checkpoint Modal */}
+      <PostDateCheckpoint
         isOpen={showFeedback}
         partnerName={PARTNER.name}
         partnerImage={PARTNER.image}
-        onPass={handlePass}
-        onVibe={handleVibe}
+        dateDuration={TOTAL_TIME - timeLeft}
       />
     </div>
   );
