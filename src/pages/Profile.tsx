@@ -14,7 +14,8 @@ import {
   ChevronRight,
   Quote,
   Target,
-  Wand2
+  Wand2,
+  Video
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,9 @@ import { VerificationBadge, VerificationSteps } from "@/components/VerificationB
 import { HeightSelector, HeightDisplay } from "@/components/HeightSelector";
 import { ProfilePreview } from "@/components/ProfilePreview";
 import ProfileWizard from "@/components/wizard/ProfileWizard";
+import SafetyHub from "@/components/safety/SafetyHub";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Drawer,
   DrawerClose,
