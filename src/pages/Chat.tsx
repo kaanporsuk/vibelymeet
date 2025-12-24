@@ -7,6 +7,7 @@ import {
   Mic,
   Video,
   X,
+  CalendarDays,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
@@ -16,6 +17,9 @@ import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
+import { DateProposalTicket } from "@/components/schedule/DateProposalTicket";
+import { DateProposal } from "@/hooks/useSchedule";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -63,6 +67,8 @@ const Chat = () => {
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
   const [showMediaOptions, setShowMediaOptions] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [showVibeSync, setShowVibeSync] = useState(false);
+  const [proposals, setProposals] = useState<DateProposal[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
