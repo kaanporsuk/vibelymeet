@@ -211,9 +211,20 @@ const Matches = () => {
                 <Droplet className="w-4 h-4 mr-1.5" />
                 Daily Drops
                 {pendingDropsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-neon-cyan text-[10px] font-bold text-background flex items-center justify-center">
+                  <motion.span 
+                    animate={{ 
+                      scale: [1, 1.2, 1],
+                      boxShadow: [
+                        '0 0 0 0 hsl(var(--neon-cyan) / 0.4)',
+                        '0 0 0 6px hsl(var(--neon-cyan) / 0)',
+                        '0 0 0 0 hsl(var(--neon-cyan) / 0)'
+                      ]
+                    }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                    className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-neon-cyan text-[10px] font-bold text-background flex items-center justify-center"
+                  >
                     {pendingDropsCount}
-                  </span>
+                  </motion.span>
                 )}
               </TabsTrigger>
             </TabsList>
@@ -264,141 +275,156 @@ const Matches = () => {
       </header>
 
       <main className="max-w-lg mx-auto">
-        {/* Conversations Tab */}
-        {activeTab === 'conversations' && (
-          <>
-            {isLoading ? (
-              <div className="p-4 space-y-4">
-                {/* Skeleton for New Vibes Rail */}
-                <div className="glass-card p-4 rounded-2xl">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Skeleton className="w-8 h-8 rounded-full" />
-                    <div className="space-y-1">
-                      <Skeleton className="h-4 w-20" />
-                      <Skeleton className="h-3 w-24" />
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    {Array(4)
-                      .fill(0)
-                      .map((_, i) => (
-                        <div key={i} className="flex flex-col items-center gap-2">
-                          <Skeleton className="w-20 h-20 rounded-full" />
-                          <Skeleton className="h-3 w-12" />
-                        </div>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Skeleton for chat list */}
-                {Array(5)
-                  .fill(0)
-                  .map((_, i) => (
-                    <div key={i} className="flex items-center gap-4 p-4">
-                      <Skeleton className="w-14 h-14 rounded-full" />
-                      <div className="flex-1 space-y-2">
-                        <Skeleton className="h-5 w-32" />
-                        <Skeleton className="h-4 w-48" />
-                        <div className="flex gap-2">
-                          <Skeleton className="h-5 w-16 rounded-full" />
-                          <Skeleton className="h-5 w-16 rounded-full" />
-                        </div>
+        <AnimatePresence mode="wait">
+          {/* Conversations Tab */}
+          {activeTab === 'conversations' && (
+            <motion.div
+              key="conversations"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.2 }}
+            >
+              {isLoading ? (
+                <div className="p-4 space-y-4">
+                  {/* Skeleton for New Vibes Rail */}
+                  <div className="glass-card p-4 rounded-2xl">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Skeleton className="w-8 h-8 rounded-full" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-3 w-24" />
                       </div>
                     </div>
-                  ))}
-              </div>
-            ) : matches.length > 0 ? (
-              <>
-                {/* New Vibes Rail */}
-                <NewVibesRail
-                  vibes={newVibes}
-                  onVibeClick={(id) => navigate(`/chat/${id}`)}
-                />
-
-                {/* Section divider */}
-                {regularMatches.length > 0 && (
-                  <div className="px-4 py-2 flex items-center gap-3">
-                    <div className="flex-1 h-px bg-border" />
-                    <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                      Conversations
-                    </span>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
-                )}
-
-                {/* Chat list */}
-                <AnimatePresence mode="popLayout">
-                  {filteredMatches.length > 0 ? (
-                    <div className="divide-y divide-border/50">
-                      {filteredMatches.map((match, index) => (
-                        <motion.div
-                          key={match.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, x: -100 }}
-                          transition={{ delay: index * 0.03 }}
-                        >
-                          <SwipeableMatchCard
-                            {...match}
-                            onClick={() => navigate(`/chat/${match.id}`)}
-                            onViewProfile={() =>
-                              handleViewProfile(match.id, match.name)
-                            }
-                            onUnmatch={() => handleUnmatch(match.name)}
-                          />
-                        </motion.div>
-                      ))}
+                    <div className="flex gap-4">
+                      {Array(4)
+                        .fill(0)
+                        .map((_, i) => (
+                          <div key={i} className="flex flex-col items-center gap-2">
+                            <Skeleton className="w-20 h-20 rounded-full" />
+                            <Skeleton className="h-3 w-12" />
+                          </div>
+                        ))}
                     </div>
-                  ) : searchQuery ? (
+                  </div>
+
+                  {/* Skeleton for chat list */}
+                  {Array(5)
+                    .fill(0)
+                    .map((_, i) => (
+                      <div key={i} className="flex items-center gap-4 p-4">
+                        <Skeleton className="w-14 h-14 rounded-full" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-5 w-32" />
+                          <Skeleton className="h-4 w-48" />
+                          <div className="flex gap-2">
+                            <Skeleton className="h-5 w-16 rounded-full" />
+                            <Skeleton className="h-5 w-16 rounded-full" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              ) : matches.length > 0 ? (
+                <>
+                  {/* New Vibes Rail */}
+                  <NewVibesRail
+                    vibes={newVibes}
+                    onVibeClick={(id) => navigate(`/chat/${id}`)}
+                  />
+
+                  {/* Section divider */}
+                  {regularMatches.length > 0 && (
+                    <div className="px-4 py-2 flex items-center gap-3">
+                      <div className="flex-1 h-px bg-border" />
+                      <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                        Conversations
+                      </span>
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
+                  )}
+
+                  {/* Chat list */}
+                  <AnimatePresence mode="popLayout">
+                    {filteredMatches.length > 0 ? (
+                      <div className="divide-y divide-border/50">
+                        {filteredMatches.map((match, index) => (
+                          <motion.div
+                            key={match.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, x: -100 }}
+                            transition={{ delay: index * 0.03 }}
+                          >
+                            <SwipeableMatchCard
+                              {...match}
+                              onClick={() => navigate(`/chat/${match.id}`)}
+                              onViewProfile={() =>
+                                handleViewProfile(match.id, match.name)
+                              }
+                              onUnmatch={() => handleUnmatch(match.name)}
+                            />
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : searchQuery ? (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="flex flex-col items-center py-12 px-4 text-center"
+                      >
+                        <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4">
+                          <Search className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                        <h3 className="text-lg font-display font-semibold text-foreground mb-2">
+                          No matches found
+                        </h3>
+                        <p className="text-muted-foreground text-sm">
+                          Try a different search term
+                        </p>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+
+                  {/* Tip at bottom */}
+                  {regularMatches.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
-                      className="flex flex-col items-center py-12 px-4 text-center"
+                      transition={{ delay: 0.5 }}
+                      className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50"
                     >
-                      <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4">
-                        <Search className="w-8 h-8 text-muted-foreground" />
-                      </div>
-                      <h3 className="text-lg font-display font-semibold text-foreground mb-2">
-                        No matches found
-                      </h3>
-                      <p className="text-muted-foreground text-sm">
-                        Try a different search term
+                      <p className="text-sm text-muted-foreground text-center">
+                        <span className="text-primary">Pro tip:</span> Swipe right to
+                        view their profile, left to unmatch
                       </p>
                     </motion.div>
-                  ) : null}
-                </AnimatePresence>
-
-                {/* Tip at bottom */}
-                {regularMatches.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.5 }}
-                    className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50"
-                  >
-                    <p className="text-sm text-muted-foreground text-center">
-                      <span className="text-primary">Pro tip:</span> Swipe right to
-                      view their profile, left to unmatch
-                    </p>
-                  </motion.div>
-                )}
-              </>
-            ) : (
-              <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
-            )}
-          </>
-        )}
+                  )}
+                </>
+              ) : (
+                <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
+              )}
+            </motion.div>
+          )}
 
         {/* Daily Drops Tab */}
         {activeTab === 'drops' && (
-          <div className="p-4">
+          <motion.div 
+            key="drops"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.2 }}
+            className="p-4"
+          >
             <DropsTabContent
               drops={MOCK_DROPS}
               onOpenChat={handleOpenDropChat}
               onViewProfile={handleViewDropProfile}
             />
-          </div>
+          </motion.div>
         )}
+        </AnimatePresence>
       </main>
 
       <BottomNav />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Video, Clock, CircleDot } from 'lucide-react';
+import { X, Video, Clock, CircleDot, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,23 +14,40 @@ import {
 } from '@/components/ui/alert-dialog';
 import { DailyDrop } from '@/types/dailyDrop';
 import { VibeTag } from '@/components/VibeTag';
+import { calculateVibeScore, getVibeScoreLabel, getSharedTags } from '@/utils/vibeScoreUtils';
 
 interface DropRevealScreenProps {
   drop: DailyDrop;
   onSendReply: () => void;
   onPass: () => void;
   onOpenVibeStudio: () => void;
+  userVibeTags?: string[];
 }
 
 export function DropRevealScreen({
   drop,
   onSendReply,
   onPass,
-  onOpenVibeStudio
+  onOpenVibeStudio,
+  userVibeTags = ['Creative Soul', 'Night Owl', 'Adventure Seeker'] // Mock user tags for demo
 }: DropRevealScreenProps) {
   const [showPassConfirm, setShowPassConfirm] = useState(false);
   const [expiryTime, setExpiryTime] = useState({ hours: 23, minutes: 59 });
   const [isRevealed, setIsRevealed] = useState(false);
+
+  const { candidate } = drop;
+
+  // Calculate vibe score
+  const vibeScore = calculateVibeScore({
+    userTags: userVibeTags,
+    candidateTags: candidate.vibeTags,
+    candidateLastActiveAt: candidate.lastActiveAt,
+    candidateHasVideo: !!candidate.vibeVideoUrl,
+    candidateBioLength: candidate.bio?.length || 0
+  });
+
+  const sharedTags = getSharedTags(userVibeTags, candidate.vibeTags);
+  const scoreLabel = getVibeScoreLabel(vibeScore);
 
   // Trigger reveal animation
   useEffect(() => {
@@ -75,8 +92,6 @@ export function DropRevealScreen({
     onSendReply();
   };
 
-  const { candidate } = drop;
-
   return (
     <>
       <AnimatePresence>
@@ -114,14 +129,20 @@ export function DropRevealScreen({
       >
         {/* Profile Card */}
         <div className="glass-card overflow-hidden">
-          {/* Header with scarcity indicators */}
+          {/* Header with Vibe Score and scarcity indicators */}
           <div className="flex items-center justify-between px-4 py-3 bg-secondary/50">
-            <div className="flex items-center gap-2 text-destructive">
-              <Clock className="w-4 h-4" />
-              <span className="text-sm font-medium">
-                Expires in {expiryTime.hours}h {expiryTime.minutes}m
-              </span>
-            </div>
+            {/* Vibe Score Badge */}
+            <motion.div 
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.5, type: 'spring' }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-primary/30 to-accent/30 border border-primary/30"
+            >
+              <Sparkles className="w-4 h-4 text-primary" />
+              <span className="text-sm font-bold text-primary">{vibeScore}%</span>
+              <span className="text-xs text-muted-foreground">{scoreLabel}</span>
+            </motion.div>
+            
             <div className="flex items-center gap-2">
               <motion.div
                 animate={{ opacity: [0.5, 1, 0.5] }}
@@ -129,8 +150,37 @@ export function DropRevealScreen({
               >
                 <CircleDot className="w-3 h-3 text-green-500 fill-green-500" />
               </motion.div>
-              <span className="text-sm text-green-500">Active Recently</span>
+              <span className="text-xs text-green-500">Active</span>
             </div>
+          </div>
+
+          {/* Shared tags indicator */}
+          {sharedTags.length > 0 && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+              className="px-4 py-2 bg-primary/10 border-b border-primary/20"
+            >
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">You both love:</span>
+                <div className="flex gap-1">
+                  {sharedTags.slice(0, 3).map((tag, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full bg-primary/20 text-primary font-medium">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Expiry timer */}
+          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20">
+            <Clock className="w-3.5 h-3.5 text-destructive" />
+            <span className="text-xs font-medium text-destructive">
+              Expires in {expiryTime.hours}h {expiryTime.minutes}m
+            </span>
           </div>
 
           {/* Video/Photo area */}
