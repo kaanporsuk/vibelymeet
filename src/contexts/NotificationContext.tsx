@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 
-export type NotificationType = 'match' | 'message' | 'event';
+export type NotificationType = 'match' | 'message' | 'event' | 'date_proposal';
 
 export interface BaseNotification {
   id: string;
@@ -34,13 +34,24 @@ export interface EventNotification extends BaseNotification {
   isSticky?: boolean;
 }
 
-export type Notification = MatchNotification | MessageNotification | EventNotification;
+export interface DateProposalNotification extends BaseNotification {
+  type: 'date_proposal';
+  proposalId: string;
+  matchName: string;
+  matchAvatar: string;
+  action: 'accepted' | 'declined' | 'received';
+  dateInfo: string;
+  mode: 'video' | 'in-person';
+}
+
+export type Notification = MatchNotification | MessageNotification | EventNotification | DateProposalNotification;
 
 // Input types without id and timestamp
 export type MatchNotificationInput = Omit<MatchNotification, 'id' | 'timestamp'>;
 export type MessageNotificationInput = Omit<MessageNotification, 'id' | 'timestamp'>;
 export type EventNotificationInput = Omit<EventNotification, 'id' | 'timestamp'>;
-export type NotificationInput = MatchNotificationInput | MessageNotificationInput | EventNotificationInput;
+export type DateProposalNotificationInput = Omit<DateProposalNotification, 'id' | 'timestamp'>;
+export type NotificationInput = MatchNotificationInput | MessageNotificationInput | EventNotificationInput | DateProposalNotificationInput;
 
 interface NotificationContextType {
   notifications: Notification[];

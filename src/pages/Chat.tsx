@@ -68,6 +68,105 @@ const mockMessages: Message[] = [
   { id: "7", text: "", sender: "them", time: "2:36 PM", type: "voice", duration: 8 },
 ];
 
+// Mock incoming game messages for testing all 6 games
+const generateMockGameMessages = (): GameMessage[] => [
+  {
+    id: "game-mock-1",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:40 PM",
+    gamePayload: {
+      gameType: "2truths",
+      step: "active",
+      data: {
+        statements: ["I've been skydiving", "I speak 4 languages", "I met a celebrity"],
+        lieIndex: 1,
+      },
+    },
+  },
+  {
+    id: "game-mock-2",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:42 PM",
+    gamePayload: {
+      gameType: "would_rather",
+      step: "active",
+      data: {
+        optionA: "Travel to the past",
+        optionB: "Travel to the future",
+        senderVote: "A" as const,
+      },
+    },
+  },
+  {
+    id: "game-mock-3",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:44 PM",
+    gamePayload: {
+      gameType: "charades",
+      step: "active",
+      data: {
+        emojis: ["🚢", "🧊", "❤️", "🎻"],
+        answer: "Titanic",
+        guesses: [],
+      },
+    },
+  },
+  {
+    id: "game-mock-4",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:46 PM",
+    gamePayload: {
+      gameType: "scavenger",
+      step: "active",
+      data: {
+        prompt: "Show me your favorite mug",
+        senderPhotoUrl: "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=400",
+        isUnlocked: false,
+      },
+    },
+  },
+  {
+    id: "game-mock-5",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:48 PM",
+    gamePayload: {
+      gameType: "roulette",
+      step: "active",
+      data: {
+        question: "What's a dream you've never told anyone?",
+        senderAnswer: "I secretly want to write a novel",
+        isUnlocked: false,
+      },
+    },
+  },
+  {
+    id: "game-mock-6",
+    senderId: "user-1",
+    type: "game_interactive",
+    sender: "them",
+    time: "2:50 PM",
+    gamePayload: {
+      gameType: "intuition",
+      step: "active",
+      data: {
+        prediction: "Staying In",
+        options: ["Staying In", "Going Out"] as [string, string],
+        senderChoice: 0 as const,
+      },
+    },
+  },
+];
+
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -81,7 +180,7 @@ const Chat = () => {
   const [proposals, setProposals] = useState<DateProposal[]>([]);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
+  const [gameMessages, setGameMessages] = useState<GameMessage[]>(generateMockGameMessages);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -96,7 +195,15 @@ const Chat = () => {
   });
 
   const handleGameSelect = (gameType: GameType) => {
+    setShowArcade(false);
     setActiveGameCreator(gameType);
+  };
+
+  const handleGameCreated = (payload: GamePayload) => {
+    const newGame = createGameMessage(payload);
+    setGameMessages(prev => [...prev, newGame]);
+    setActiveGameCreator(null);
+    toast.success("Game sent!");
   };
 
   const handleGameUpdate = (messageId: string, updatedPayload: GamePayload) => {
@@ -346,6 +453,16 @@ const Chat = () => {
               </div>
             ))}
 
+            {/* Game Messages */}
+            {gameMessages.map((gameMsg) => (
+              <GameBubbleRenderer
+                key={gameMsg.id}
+                message={gameMsg}
+                matchName={mockOtherUser.name}
+                onGameUpdate={handleGameUpdate}
+              />
+            ))}
+
             {/* Typing indicator */}
             <AnimatePresence>
               {isTyping && (
@@ -434,6 +551,15 @@ const Chat = () => {
               <CalendarDays className="w-5 h-5" />
             </motion.button>
 
+            {/* Arcade button for games */}
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowArcade(true)}
+              className="shrink-0 w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
+            >
+              <Gamepad2 className="w-5 h-5" />
+            </motion.button>
+
             {/* Text input */}
             <div className="flex-1 relative">
               <textarea
@@ -501,6 +627,46 @@ const Chat = () => {
         matchAvatar={mockOtherUser.avatar_url}
         matchId={mockOtherUser.id}
         onProposalSent={(proposal) => setProposals((prev) => [...prev, proposal])}
+      />
+
+      {/* Vibe Arcade Menu */}
+      <VibeArcadeMenu
+        isOpen={showArcade}
+        onClose={() => setShowArcade(false)}
+        onSelectGame={handleGameSelect}
+      />
+
+      {/* Game Creators */}
+      <TwoTruthsCreator
+        isOpen={activeGameCreator === "2truths"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(statements, lieIndex) => handleGameCreated({ gameType: "2truths", step: "active", data: { statements, lieIndex } })}
+      />
+      <WouldRatherCreator
+        isOpen={activeGameCreator === "would_rather"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(optionA, optionB, vote) => handleGameCreated({ gameType: "would_rather", step: "active", data: { optionA, optionB, senderVote: vote } })}
+      />
+      <CharadesCreator
+        isOpen={activeGameCreator === "charades"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(answer, emojis) => handleGameCreated({ gameType: "charades", step: "active", data: { answer, emojis, guesses: [] } })}
+      />
+      <ScavengerCreator
+        isOpen={activeGameCreator === "scavenger"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(prompt, photoUrl) => handleGameCreated({ gameType: "scavenger", step: "active", data: { prompt, senderPhotoUrl: photoUrl, isUnlocked: false } })}
+      />
+      <RouletteCreator
+        isOpen={activeGameCreator === "roulette"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(question, answer) => handleGameCreated({ gameType: "roulette", step: "active", data: { question, senderAnswer: answer, isUnlocked: false } })}
+      />
+      <IntuitionCreator
+        isOpen={activeGameCreator === "intuition"}
+        onClose={() => setActiveGameCreator(null)}
+        onSubmit={(options, prediction) => handleGameCreated({ gameType: "intuition", step: "active", data: { prediction: options[prediction], options, senderChoice: prediction } })}
+        matchName={mockOtherUser.name}
       />
     </div>
   );
