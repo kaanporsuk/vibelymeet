@@ -6,6 +6,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { EventCard } from "@/components/EventCard";
 import { MatchAvatar } from "@/components/MatchAvatar";
 import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
+import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
 import { useNextEvent, useEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { differenceInSeconds } from "date-fns";
@@ -63,6 +64,9 @@ const Dashboard = () => {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-8">
+        {/* Daily Drop - Top Priority */}
+        <DailyDropSection />
+
         {/* Next Event Hero */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
