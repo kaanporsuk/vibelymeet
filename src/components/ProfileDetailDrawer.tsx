@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+
+// Mock video URL
+const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
 
 // Mock extended profile data
 const mockProfileData = {
@@ -29,6 +33,8 @@ const mockProfileData = {
     "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800",
   ],
   hasVideoIntro: true,
+  vibeVideoUrl: MOCK_VIBE_VIDEO,
+  vibeCaption: "Marathon Training 🏃‍♂️",
   job: "Product Designer",
   location: "Brooklyn, NY",
   height: 168,
@@ -110,99 +116,114 @@ export const ProfileDetailDrawer = ({
           ref={scrollRef}
           className="h-full overflow-y-auto overscroll-contain pb-32"
         >
-          {/* Photo Gallery */}
+          {/* Hero Section - Vibe Video or Photo Gallery */}
           <div className="relative aspect-[3/4] max-h-[60vh] bg-secondary">
-            <AnimatePresence mode="wait">
-              <motion.img
-                key={currentPhotoIndex}
-                src={photos[currentPhotoIndex]}
-                alt={`${match.name}'s photo`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="w-full h-full object-cover"
+            {mockProfileData.hasVideoIntro ? (
+              /* Vibe Video Hero */
+              <VibePlayer
+                videoUrl={mockProfileData.vibeVideoUrl}
+                thumbnailUrl={photos[0]}
+                vibeCaption={mockProfileData.vibeCaption}
+                autoPlay={true}
+                showControls={true}
+                className="w-full h-full"
               />
-            </AnimatePresence>
+            ) : (
+              /* Photo Gallery Fallback */
+              <>
+                <AnimatePresence mode="wait">
+                  <motion.img
+                    key={currentPhotoIndex}
+                    src={photos[currentPhotoIndex]}
+                    alt={`${match.name}'s photo`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="w-full h-full object-cover"
+                  />
+                </AnimatePresence>
 
-            {/* Photo indicators */}
-            <div className="absolute top-4 left-4 right-4 flex gap-1">
-              {photos.map((_, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex-1 h-1 rounded-full transition-all",
-                    i === currentPhotoIndex
-                      ? "bg-primary-foreground"
-                      : "bg-primary-foreground/30"
-                  )}
-                />
-              ))}
-            </div>
+                {/* Photo indicators */}
+                <div className="absolute top-4 left-4 right-4 flex gap-1">
+                  {photos.map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "flex-1 h-1 rounded-full transition-all",
+                        i === currentPhotoIndex
+                          ? "bg-primary-foreground"
+                          : "bg-primary-foreground/30"
+                      )}
+                    />
+                  ))}
+                </div>
 
-            {/* Close button */}
+                {/* Photo navigation */}
+                <div className="absolute inset-0 flex">
+                  <button
+                    onClick={prevPhoto}
+                    className="flex-1 focus:outline-none"
+                    aria-label="Previous photo"
+                  />
+                  <button
+                    onClick={nextPhoto}
+                    className="flex-1 focus:outline-none"
+                    aria-label="Next photo"
+                  />
+                </div>
+
+                {/* Navigation arrows (desktop) */}
+                {photos.length > 1 && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={prevPhoto}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={nextPhoto}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </Button>
+                  </>
+                )}
+
+                {/* Play Intro Video Button */}
+                {mockProfileData.hasVideoIntro && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowVideoOverlay(true)}
+                    className="absolute bottom-4 left-4 flex items-center gap-2 px-4 py-2.5 rounded-full bg-background/80 backdrop-blur-md border border-border/50 text-foreground font-medium shadow-lg"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+                      <Play className="w-4 h-4 text-primary-foreground fill-primary-foreground ml-0.5" />
+                    </div>
+                    <span className="text-sm">Watch Intro</span>
+                  </motion.button>
+                )}
+              </>
+            )}
+
+            {/* Close button (always visible) */}
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setOpen(false)}
-              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+              className="absolute top-4 right-4 z-30 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
             >
               <X className="w-5 h-5" />
             </Button>
 
-            {/* Photo navigation */}
-            <div className="absolute inset-0 flex">
-              <button
-                onClick={prevPhoto}
-                className="flex-1 focus:outline-none"
-                aria-label="Previous photo"
-              />
-              <button
-                onClick={nextPhoto}
-                className="flex-1 focus:outline-none"
-                aria-label="Next photo"
-              />
-            </div>
-
-            {/* Navigation arrows (desktop) */}
-            {photos.length > 1 && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={prevPhoto}
-                  className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
-                >
-                  <ChevronLeft className="w-5 h-5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={nextPhoto}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
-                >
-                  <ChevronRight className="w-5 h-5" />
-                </Button>
-              </>
-            )}
-
-            {/* Play Intro Video Button */}
-            {mockProfileData.hasVideoIntro && (
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowVideoOverlay(true)}
-                className="absolute bottom-4 left-4 flex items-center gap-2 px-4 py-2.5 rounded-full bg-background/80 backdrop-blur-md border border-border/50 text-foreground font-medium shadow-lg"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-                  <Play className="w-4 h-4 text-primary-foreground fill-primary-foreground ml-0.5" />
-                </div>
-                <span className="text-sm">Watch Intro</span>
-              </motion.button>
-            )}
-
             {/* Gradient overlay at bottom */}
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent pointer-events-none" />
           </div>
 
           {/* Profile Content */}
