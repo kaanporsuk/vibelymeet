@@ -95,6 +95,24 @@ const VibeFeed = () => {
 
   const currentVideo = mockVibeVideos[currentIndex];
 
+  // Preload adjacent videos for smooth playback
+  useEffect(() => {
+    const preloadVideo = (index: number) => {
+      if (index >= 0 && index < mockVibeVideos.length) {
+        const video = videoRefs.current[index];
+        if (video && video.preload !== "auto") {
+          video.preload = "auto";
+          video.load();
+        }
+      }
+    };
+
+    // Preload current, next, and previous videos
+    preloadVideo(currentIndex);
+    preloadVideo(currentIndex + 1);
+    preloadVideo(currentIndex - 1);
+  }, [currentIndex]);
+
   // Handle video playback based on current index
   useEffect(() => {
     videoRefs.current.forEach((video, index) => {
@@ -258,7 +276,7 @@ const VibeFeed = () => {
                 loop
                 muted={isMuted}
                 playsInline
-                preload="metadata"
+                preload={Math.abs(index - currentIndex) <= 1 ? "auto" : "metadata"}
               />
 
               {/* Gradient Overlays */}
