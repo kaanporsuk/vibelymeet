@@ -8,6 +8,7 @@ import {
   Video,
   X,
   CalendarDays,
+  Gamepad2,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
@@ -20,6 +21,15 @@ import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
 import { DateProposalTicket } from "@/components/schedule/DateProposalTicket";
 import { DateProposal } from "@/hooks/useSchedule";
+import { VibeArcadeMenu } from "@/components/arcade/VibeArcadeMenu";
+import { GameBubbleRenderer } from "@/components/arcade/GameBubbleRenderer";
+import { TwoTruthsCreator } from "@/components/arcade/creators/TwoTruthsCreator";
+import { WouldRatherCreator } from "@/components/arcade/creators/WouldRatherCreator";
+import { CharadesCreator } from "@/components/arcade/creators/CharadesCreator";
+import { ScavengerCreator } from "@/components/arcade/creators/ScavengerCreator";
+import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
+import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
+import { GameType, GameMessage, GamePayload } from "@/types/games";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -69,8 +79,33 @@ const Chat = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
   const [proposals, setProposals] = useState<DateProposal[]>([]);
+  const [showArcade, setShowArcade] = useState(false);
+  const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
+  const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Game creation handlers
+  const createGameMessage = (payload: GamePayload): GameMessage => ({
+    id: `game-${Date.now()}`,
+    senderId: "me",
+    type: "game_interactive",
+    sender: "me",
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    gamePayload: payload,
+  });
+
+  const handleGameSelect = (gameType: GameType) => {
+    setActiveGameCreator(gameType);
+  };
+
+  const handleGameUpdate = (messageId: string, updatedPayload: GamePayload) => {
+    setGameMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId ? { ...msg, gamePayload: updatedPayload } : msg
+      )
+    );
+  };
 
   // Keywords that trigger date suggestion
   const dateKeywords = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
