@@ -16,7 +16,8 @@ import {
   Target,
   Wand2,
   Video,
-  Pencil
+  Pencil,
+  CalendarDays
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -298,12 +299,36 @@ const Profile = () => {
           </div>
         </motion.div>
 
+        {/* My Vibe Schedule */}
+        <motion.div 
+          className="glass-card p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <button 
+            onClick={() => navigate("/schedule")}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-neon-cyan/20 flex items-center justify-center">
+                <CalendarDays className="w-5 h-5 text-neon-cyan" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-semibold text-foreground">My Vibe Schedule</h3>
+                <p className="text-xs text-muted-foreground">Set when you're open for dates</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </button>
+        </motion.div>
+
         {/* Stats Row */}
         <motion.div 
           className="grid grid-cols-3 gap-2"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.25 }}
         >
           {[
             { label: "Events", value: profile.stats.events, icon: Sparkles },
