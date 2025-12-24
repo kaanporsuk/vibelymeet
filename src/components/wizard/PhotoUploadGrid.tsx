@@ -1,25 +1,32 @@
 import { useState, useRef } from "react";
-import { motion, AnimatePresence, Reorder } from "framer-motion";
-import { Crown, Plus, Camera, Plane, Music, Utensils, Dumbbell, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Crown, Camera, Plane, Music, Utensils, Dumbbell, X } from "lucide-react";
 
 interface PhotoUploadGridProps {
   photos: string[];
   onPhotosChange: (photos: string[]) => void;
+  onFilesChange?: (files: (File | null)[]) => void;
 }
 
 const placeholders = [
   { icon: Crown, text: "Main photo", hint: "Your best shot!" },
-  { icon: Plane, text: "Travel pic", hint: "Show your adventures ✈️" },
-  { icon: Music, text: "Hobby shot", hint: "What you love 🎵" },
-  { icon: Utensils, text: "Food moment", hint: "Foodie vibes 🍕" },
-  { icon: Dumbbell, text: "Active you", hint: "Show your energy 💪" },
-  { icon: Camera, text: "Fun photo", hint: "Make them smile 😄" },
+  { icon: Plane, text: "Travel pic", hint: "Show your adventures" },
+  { icon: Music, text: "Hobby shot", hint: "What you love" },
+  { icon: Utensils, text: "Food moment", hint: "Foodie vibes" },
+  { icon: Dumbbell, text: "Active you", hint: "Show your energy" },
+  { icon: Camera, text: "Fun photo", hint: "Make them smile" },
 ];
 
-const PhotoUploadGrid = ({ photos, onPhotosChange }: PhotoUploadGridProps) => {
+const PhotoUploadGrid = ({ photos, onPhotosChange, onFilesChange }: PhotoUploadGridProps) => {
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [files, setFiles] = useState<(File | null)[]>(Array(6).fill(null));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
+
+  const updateFiles = (newFiles: (File | null)[]) => {
+    setFiles(newFiles);
+    onFilesChange?.(newFiles);
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, slot: number) => {
     const file = e.target.files?.[0];
@@ -29,6 +36,10 @@ const PhotoUploadGrid = ({ photos, onPhotosChange }: PhotoUploadGridProps) => {
         const newPhotos = [...photos];
         newPhotos[slot] = reader.result as string;
         onPhotosChange(newPhotos);
+        
+        const newFiles = [...files];
+        newFiles[slot] = file;
+        updateFiles(newFiles);
       };
       reader.readAsDataURL(file);
     }
@@ -45,6 +56,10 @@ const PhotoUploadGrid = ({ photos, onPhotosChange }: PhotoUploadGridProps) => {
         const newPhotos = [...photos];
         newPhotos[slot] = reader.result as string;
         onPhotosChange(newPhotos);
+        
+        const newFiles = [...files];
+        newFiles[slot] = file;
+        updateFiles(newFiles);
       };
       reader.readAsDataURL(file);
     }
@@ -54,6 +69,10 @@ const PhotoUploadGrid = ({ photos, onPhotosChange }: PhotoUploadGridProps) => {
     const newPhotos = [...photos];
     newPhotos[slot] = "";
     onPhotosChange(newPhotos);
+    
+    const newFiles = [...files];
+    newFiles[slot] = null;
+    updateFiles(newFiles);
   };
 
   const triggerUpload = (slot: number) => {
@@ -172,7 +191,7 @@ const PhotoUploadGrid = ({ photos, onPhotosChange }: PhotoUploadGridProps) => {
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        Drag & drop photos or tap to upload • At least 3 photos recommended
+        Drag & drop photos or tap to upload
       </p>
     </div>
   );

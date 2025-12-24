@@ -1,85 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { dailyDropService } from '@/services/vibelyService';
 import { 
-  MatchCandidate, 
   DailyDrop, 
   DropZoneState, 
   DropHistory,
-  getDailyDropCandidate,
   DROP_HOUR 
 } from '@/types/dailyDrop';
-
-const STORAGE_KEY = 'vibely_drop_history';
-
-// Mock users with varied activity levels
-const MOCK_CANDIDATES: MatchCandidate[] = [
-  {
-    id: 'drop-1',
-    name: 'Maya',
-    age: 26,
-    lastActiveAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2h ago
-    avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
-    vibeTags: ['Creative Soul', 'Night Owl', 'Foodie'],
-    bio: 'Artist by day, stargazer by night. Looking for someone who appreciates the beauty in chaos.',
-    location: 'Brooklyn, NY'
-  },
-  {
-    id: 'drop-2',
-    name: 'Jordan',
-    age: 28,
-    lastActiveAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6h ago
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-    vibeTags: ['Adventure Seeker', 'Dog Parent', 'Coffee Snob'],
-    bio: 'Weekend hiker, weekday coder. My dog is my best wingman.',
-    location: 'Austin, TX'
-  },
-  {
-    id: 'drop-3',
-    name: 'Aria',
-    age: 25,
-    lastActiveAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(), // 12h ago
-    avatarUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
-    vibeTags: ['Bookworm', 'Wine Lover', 'Plant Parent'],
-    bio: 'Currently reading: too many books at once. Plant collection: also too many.',
-    location: 'Seattle, WA'
-  },
-  {
-    id: 'drop-4',
-    name: 'Marcus',
-    age: 30,
-    lastActiveAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 24h ago
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-    vibeTags: ['Musician', 'Vinyl Collector', 'Homebody'],
-    bio: 'Jazz enthusiast. Making playlists for every mood. Let me make one for you.',
-    location: 'Chicago, IL'
-  },
-  // Old user - should NOT appear (5 days ago)
-  {
-    id: 'old-user-test',
-    name: 'Ghost User',
-    age: 27,
-    lastActiveAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
-    avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-    vibeTags: ['Inactive', 'Test'],
-    bio: 'This user should never appear in drops.',
-    location: 'Nowhere'
-  }
-];
-
-function getStoredHistory(): DropHistory {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch (e) {
-    console.error('Failed to parse drop history', e);
-  }
-  return { seenUserIds: [], lastDropDate: '' };
-}
-
-function saveHistory(history: DropHistory): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
-}
 
 function isDropTimeReached(): boolean {
   const now = new Date();
@@ -109,40 +36,59 @@ function getTimeUntilNextDrop(): { hours: number; minutes: number; seconds: numb
   return { hours, minutes, seconds };
 }
 
-function getTodayKey(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
 export function useDailyDrop() {
+  const { user } = useAuth();
   const [state, setState] = useState<DropZoneState>('locked');
   const [currentDrop, setCurrentDrop] = useState<DailyDrop | null>(null);
   const [countdown, setCountdown] = useState(getTimeUntilNextDrop());
-  const [history, setHistory] = useState<DropHistory>(getStoredHistory);
+  const [history, setHistory] = useState<DropHistory>({ seenUserIds: [], lastDropDate: '' });
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize drop state
+  // Initialize drop state from database
   useEffect(() => {
-    const todayKey = getTodayKey();
-    const storedHistory = getStoredHistory();
-    
-    // Check if we already have a drop for today
-    if (storedHistory.lastDropDate === todayKey && storedHistory.todayDropId) {
-      // Already viewed today
-      setState('locked');
-    } else if (isDropTimeReached()) {
-      // Time to show a new drop
-      const candidate = getDailyDropCandidate(MOCK_CANDIDATES, storedHistory.seenUserIds);
-      
-      if (candidate) {
-        setState('ready');
-      } else {
-        setState('empty');
+    const initializeDrop = async () => {
+      if (!user) {
+        setState('locked');
+        setIsLoading(false);
+        return;
       }
-    } else {
-      setState('locked');
-    }
-    
-    setHistory(storedHistory);
-  }, []);
+
+      try {
+        // Check for existing drop today
+        const existingDrop = await dailyDropService.getTodaysDrop(user.id);
+        
+        if (existingDrop) {
+          setCurrentDrop(existingDrop);
+          
+          if (existingDrop.status === 'replied') {
+            setState('pending');
+          } else if (existingDrop.status === 'viewed') {
+            setState('reveal');
+          } else if (existingDrop.status === 'passed') {
+            setState('locked');
+          } else {
+            setState('ready');
+          }
+        } else if (isDropTimeReached()) {
+          // No drop yet today, check if we can generate one
+          setState('ready');
+        } else {
+          setState('locked');
+        }
+
+        // Load history
+        const dropHistory = dailyDropService.getDropHistory(user.id);
+        setHistory(dropHistory);
+      } catch (error) {
+        console.error('Failed to initialize daily drop:', error);
+        setState('locked');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeDrop();
+  }, [user]);
 
   // Countdown timer
   useEffect(() => {
@@ -154,41 +100,47 @@ export function useDailyDrop() {
   }, []);
 
   // Unlock and view the drop
-  const unlockDrop = useCallback(() => {
-    const candidate = getDailyDropCandidate(MOCK_CANDIDATES, history.seenUserIds);
-    
-    if (!candidate) {
-      setState('empty');
-      return;
+  const unlockDrop = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      // First check if we already have today's drop
+      let drop = await dailyDropService.getTodaysDrop(user.id);
+      
+      if (!drop) {
+        // Generate a new drop
+        drop = await dailyDropService.generateDrop(user.id);
+      }
+      
+      if (!drop) {
+        setState('empty');
+        return;
+      }
+      
+      // Mark as viewed
+      dailyDropService.updateDropStatus(user.id, drop.id, 'viewed');
+      dailyDropService.recordSeenUser(user.id, drop.candidate.id, 'viewed');
+      
+      setCurrentDrop({ ...drop, status: 'viewed' });
+      setState('reveal');
+      
+      // Update local history
+      setHistory(prev => ({
+        seenUserIds: [...prev.seenUserIds, drop!.candidate.id],
+        lastDropDate: new Date().toISOString().split('T')[0],
+        todayDropId: drop!.id
+      }));
+    } catch (error) {
+      console.error('Failed to unlock drop:', error);
     }
-    
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    
-    const drop: DailyDrop = {
-      id: `drop-${Date.now()}`,
-      candidate,
-      droppedAt: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      status: 'viewed'
-    };
-    
-    setCurrentDrop(drop);
-    setState('reveal');
-    
-    // Update history
-    const newHistory: DropHistory = {
-      seenUserIds: [...history.seenUserIds, candidate.id],
-      lastDropDate: getTodayKey(),
-      todayDropId: drop.id
-    };
-    setHistory(newHistory);
-    saveHistory(newHistory);
-  }, [history]);
+  }, [user]);
 
   // Send vibe reply
-  const sendVibeReply = useCallback(() => {
-    if (!currentDrop) return;
+  const sendVibeReply = useCallback(async (videoUrl?: string) => {
+    if (!currentDrop || !user) return;
+    
+    dailyDropService.updateDropStatus(user.id, currentDrop.id, 'replied');
+    dailyDropService.recordSeenUser(user.id, currentDrop.candidate.id, 'replied');
     
     setCurrentDrop({
       ...currentDrop,
@@ -196,18 +148,21 @@ export function useDailyDrop() {
       replySentAt: new Date().toISOString()
     });
     setState('pending');
-  }, [currentDrop]);
+  }, [currentDrop, user]);
 
   // Pass on the drop
-  const passDrop = useCallback(() => {
-    if (!currentDrop) return;
+  const passDrop = useCallback(async () => {
+    if (!currentDrop || !user) return;
+    
+    dailyDropService.updateDropStatus(user.id, currentDrop.id, 'passed');
+    dailyDropService.recordSeenUser(user.id, currentDrop.candidate.id, 'passed');
     
     setCurrentDrop({
       ...currentDrop,
       status: 'passed'
     });
     setState('locked');
-  }, [currentDrop]);
+  }, [currentDrop, user]);
 
   // Get time remaining until drop expires
   const getExpiryCountdown = useCallback(() => {
@@ -227,16 +182,19 @@ export function useDailyDrop() {
 
   // Reset for testing
   const resetHistory = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    if (!user) return;
+    
+    dailyDropService.resetHistory(user.id);
     setHistory({ seenUserIds: [], lastDropDate: '' });
     setState('ready');
     setCurrentDrop(null);
-  }, []);
+  }, [user]);
 
   return {
     state,
     currentDrop,
     countdown,
+    isLoading,
     unlockDrop,
     sendVibeReply,
     passDrop,

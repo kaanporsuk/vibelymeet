@@ -115,6 +115,74 @@ export const profileService = {
   },
 
   /**
+   * Get all available vibe tags
+   */
+  async getVibeTags(): Promise<{ id: string; label: string; emoji: string; category: string }[]> {
+    const { data, error } = await supabase
+      .from("vibe_tags")
+      .select("id, label, emoji, category")
+      .order("label");
+
+    if (error) throw error;
+    return (data || []).map(tag => ({
+      id: tag.id,
+      label: tag.label,
+      emoji: tag.emoji,
+      category: tag.category || 'lifestyle'
+    }));
+  },
+
+  /**
+   * Get vibe tag IDs by labels
+   */
+  async getVibeTagIdsByLabels(labels: string[]): Promise<string[]> {
+    if (labels.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from("vibe_tags")
+      .select("id, label")
+      .in("label", labels);
+
+    if (error) throw error;
+    return (data || []).map(tag => tag.id);
+  },
+
+  /**
+   * Save complete profile (photos, bio, vibes)
+   */
+  async saveCompleteProfile(
+    profileId: string,
+    data: {
+      photos?: string[];
+      bio?: string;
+      videoIntroUrl?: string;
+      vibeLabels?: string[];
+    }
+  ) {
+    // Update profile fields
+    const updates: Record<string, unknown> = {};
+    if (data.photos) updates.photos = data.photos;
+    if (data.bio) updates.bio = data.bio;
+    if (data.videoIntroUrl) updates.video_intro_url = data.videoIntroUrl;
+    updates.is_onboarding_complete = true;
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update(updates)
+      .eq("id", profileId);
+
+    if (profileError) throw profileError;
+
+    // Save vibes if provided
+    if (data.vibeLabels && data.vibeLabels.length > 0) {
+      const vibeTagIds = await this.getVibeTagIdsByLabels(data.vibeLabels);
+      if (vibeTagIds.length > 0) {
+        await this.setProfileVibes(profileId, vibeTagIds);
+      }
+    }
+  },
+
+  /**
    * Get discoverable profiles
    */
   async getDiscoverableProfiles(excludeUserId?: string, limit = 50) {
@@ -489,6 +557,29 @@ export const videoService = {
       .from('vibe-videos')
       .upload(filename, videoBlob, {
         contentType: 'video/webm',
+        upsert: true
+      });
+
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('vibe-videos')
+      .getPublicUrl(data.path);
+
+    return publicUrl;
+  },
+
+  /**
+   * Upload a photo to storage
+   */
+  async uploadPhoto(userId: string, photoFile: File | Blob, index: number): Promise<string> {
+    const ext = photoFile instanceof File ? photoFile.name.split('.').pop() || 'jpg' : 'jpg';
+    const filename = `${userId}/photo-${index}-${Date.now()}.${ext}`;
+    
+    const { data, error } = await supabase.storage
+      .from('vibe-videos')
+      .upload(filename, photoFile, {
+        contentType: photoFile.type || 'image/jpeg',
         upsert: true
       });
 
