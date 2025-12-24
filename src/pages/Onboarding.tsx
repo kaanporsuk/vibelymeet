@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Sparkles, Upload, X } from "lucide-react";
+import { ArrowRight, Sparkles, Upload, X, Video, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProgressBar } from "@/components/ProgressBar";
@@ -40,9 +40,10 @@ const Onboarding = () => {
     gender: "",
     vibes: [] as string[],
     photos: [] as string[],
+    hasVibeVideo: false,
   });
 
-  const totalSteps = 4;
+  const totalSteps = 5;
 
   const nextStep = () => {
     if (step < totalSteps - 1) {
@@ -65,7 +66,6 @@ const Onboarding = () => {
   };
 
   const handlePhotoUpload = () => {
-    // Simulate photo upload with placeholder
     const placeholders = [
       "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
       "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
@@ -87,6 +87,12 @@ const Onboarding = () => {
     }));
   };
 
+  const handleRecordVibe = () => {
+    // Store form data in sessionStorage to preserve state
+    sessionStorage.setItem("onboardingData", JSON.stringify({ ...formData, returnStep: step }));
+    navigate("/vibe-studio");
+  };
+
   const canProceed = () => {
     switch (step) {
       case 0:
@@ -97,6 +103,8 @@ const Onboarding = () => {
         return formData.vibes.length >= 3;
       case 3:
         return formData.photos.length >= 1;
+      case 4:
+        return true; // Vibe video is optional but encouraged
       default:
         return false;
     }
@@ -338,22 +346,133 @@ const Onboarding = () => {
                 </p>
               </motion.div>
             )}
+
+            {/* Step 4: Record Your First Vibe */}
+            {step === 4 && (
+              <motion.div
+                key="vibe-video"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-8"
+              >
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-display font-bold text-foreground">
+                    Record Your First Vibe
+                  </h2>
+                  <p className="text-muted-foreground">
+                    A 15-second video intro gets you 5x more matches
+                  </p>
+                </div>
+
+                {/* Video Preview Card */}
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="relative aspect-[9/16] max-h-[50vh] mx-auto rounded-3xl overflow-hidden"
+                >
+                  {formData.hasVibeVideo ? (
+                    <div className="w-full h-full bg-secondary flex items-center justify-center">
+                      <div className="text-center space-y-2">
+                        <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center">
+                          <Play className="w-8 h-8 text-green-500" />
+                        </div>
+                        <p className="text-green-400 font-medium">Vibe Recorded!</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleRecordVibe}
+                      className="w-full h-full glass-card border-2 border-dashed border-primary/50 flex flex-col items-center justify-center gap-4 hover:border-primary hover:bg-primary/5 transition-all group"
+                    >
+                      <motion.div
+                        animate={{
+                          scale: [1, 1.1, 1],
+                          boxShadow: [
+                            "0 0 0 0 hsl(var(--neon-violet) / 0.4)",
+                            "0 0 0 20px hsl(var(--neon-violet) / 0)",
+                          ],
+                        }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                        className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center"
+                      >
+                        <Video className="w-10 h-10 text-white" />
+                      </motion.div>
+                      <div className="space-y-1 text-center">
+                        <p className="text-lg font-display font-bold gradient-text">
+                          Tap to Record
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          15 seconds to show your vibe
+                        </p>
+                      </div>
+                    </button>
+                  )}
+                </motion.div>
+
+                {/* Benefits List */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <div className="w-6 h-6 rounded-full bg-neon-cyan/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs">✓</span>
+                    </div>
+                    <span>Others see your personality before matching</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <div className="w-6 h-6 rounded-full bg-neon-pink/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs">✓</span>
+                    </div>
+                    <span>Stand out in the guest list</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <div className="w-6 h-6 rounded-full bg-neon-violet/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs">✓</span>
+                    </div>
+                    <span>Better conversation starters</span>
+                  </div>
+                </div>
+
+                {!formData.hasVibeVideo && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    You can skip for now and record later from your profile
+                  </p>
+                )}
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </div>
 
       {/* Continue Button */}
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background to-transparent">
-        <Button
-          onClick={nextStep}
-          disabled={!canProceed()}
-          variant="gradient"
-          size="xl"
-          className="w-full max-w-md mx-auto flex"
-        >
-          {step === totalSteps - 1 ? "Start Vibing" : "Continue"}
-          <ArrowRight className="w-5 h-5 ml-2" />
-        </Button>
+        <div className="flex flex-col gap-3 max-w-md mx-auto">
+          {step === 4 && !formData.hasVibeVideo && (
+            <Button
+              onClick={handleRecordVibe}
+              variant="gradient"
+              size="xl"
+              className="w-full"
+            >
+              <Video className="w-5 h-5 mr-2" />
+              Record Your Vibe
+            </Button>
+          )}
+          <Button
+            onClick={nextStep}
+            disabled={!canProceed()}
+            variant={step === 4 && !formData.hasVibeVideo ? "outline" : "gradient"}
+            size="xl"
+            className="w-full"
+          >
+            {step === totalSteps - 1 
+              ? formData.hasVibeVideo 
+                ? "Start Vibing" 
+                : "Skip for Now"
+              : "Continue"}
+            <ArrowRight className="w-5 h-5 ml-2" />
+          </Button>
+        </div>
       </div>
     </div>
   );
