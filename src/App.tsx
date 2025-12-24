@@ -24,6 +24,7 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import NotificationDemo from "./components/notifications/NotificationDemo";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
 
@@ -40,20 +41,20 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
-              <Route path="/onboarding" element={<Onboarding />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/events" element={<Events />} />
-              <Route path="/events/:id" element={<EventDetails />} />
-              <Route path="/matches" element={<Matches />} />
-              <Route path="/chat/:id" element={<Chat />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/date/:id" element={<VideoDate />} />
-              <Route path="/lobby" element={<VideoLobby />} />
-              <Route path="/admin/create-event" element={<AdminCreateEvent />} />
-              <Route path="/match-celebration" element={<MatchCelebration />} />
-              <Route path="/vibe-studio" element={<VibeStudio />} />
-              <Route path="/vibe-feed" element={<VibeFeed />} />
-              <Route path="/schedule" element={<Schedule />} />
+              <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+              <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+              <Route path="/events" element={<ProtectedRoute><Events /></ProtectedRoute>} />
+              <Route path="/events/:id" element={<ProtectedRoute><EventDetails /></ProtectedRoute>} />
+              <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
+              <Route path="/chat/:id" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+              <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+              <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
+              <Route path="/lobby" element={<ProtectedRoute><VideoLobby /></ProtectedRoute>} />
+              <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
+              <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
+              <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
+              <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
+              <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
