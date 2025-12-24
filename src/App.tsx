@@ -16,6 +16,7 @@ import VideoDate from "./pages/VideoDate";
 import VideoLobby from "./pages/VideoLobby";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
 import MatchCelebration from "./pages/MatchCelebration";
+import VibeStudio from "./pages/VibeStudio";
 import NotFound from "./pages/NotFound";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -48,6 +49,7 @@ const App = () => (
               <Route path="/lobby" element={<VideoLobby />} />
               <Route path="/admin/create-event" element={<AdminCreateEvent />} />
               <Route path="/match-celebration" element={<MatchCelebration />} />
+              <Route path="/vibe-studio" element={<VibeStudio />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>

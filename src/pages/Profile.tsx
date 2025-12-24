@@ -15,7 +15,8 @@ import {
   Quote,
   Target,
   Wand2,
-  Video
+  Video,
+  Pencil
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,8 @@ import { HeightSelector, HeightDisplay } from "@/components/HeightSelector";
 import { ProfilePreview } from "@/components/ProfilePreview";
 import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
+import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -64,6 +67,8 @@ interface UserProfile {
   relationshipIntent: string;
   lifestyle: Record<string, string>;
   verified: boolean;
+  vibeVideoUrl: string | null;
+  vibeCaption: string;
   stats: {
     events: number;
     matches: number;
@@ -97,6 +102,8 @@ const initialProfile: UserProfile = {
     exercise: "often",
   },
   verified: true,
+  vibeVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  vibeCaption: "DJing & Vinyl Hunting 🎵",
   stats: {
     events: 8,
     matches: 12,
@@ -131,6 +138,7 @@ const Profile = () => {
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showVibeStudio, setShowVibeStudio] = useState(false);
 
   const vibeScore = calculateVibeScore(profile);
 
@@ -185,24 +193,43 @@ const Profile = () => {
           </button>
         </div>
 
-        {/* Profile Photo with Verification Badge */}
+        {/* Profile Photo / Vibe Video with Update Button */}
         <div className="absolute -bottom-16 left-1/2 -translate-x-1/2">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="relative"
           >
-            <img
-              src={profile.photos[0]}
-              alt={profile.name}
-              className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
-            />
+            {profile.vibeVideoUrl ? (
+              <div className="relative w-32 h-32 rounded-3xl overflow-hidden border-4 border-background shadow-2xl">
+                <VibePlayer
+                  videoUrl={profile.vibeVideoUrl}
+                  vibeCaption={profile.vibeCaption}
+                  isOwner
+                  onUpdateClick={() => setShowVibeStudio(true)}
+                  className="w-full h-full"
+                />
+              </div>
+            ) : (
+              <img
+                src={profile.photos[0]}
+                alt={profile.name}
+                className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
+              />
+            )}
+            
+            {/* Update Vibe / Camera Button */}
             <button 
-              onClick={() => openDrawer("photos")}
+              onClick={() => profile.vibeVideoUrl ? setShowVibeStudio(true) : openDrawer("photos")}
               className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center shadow-lg neon-glow-violet"
             >
-              <Camera className="w-5 h-5 text-primary-foreground" />
+              {profile.vibeVideoUrl ? (
+                <Pencil className="w-5 h-5 text-primary-foreground" />
+              ) : (
+                <Camera className="w-5 h-5 text-primary-foreground" />
+              )}
             </button>
+            
             {profile.verified && (
               <div className="absolute -top-1 -right-1">
                 <VerificationBadge verified size="lg" />
@@ -758,6 +785,14 @@ const Profile = () => {
         isOpen={showWizard}
         onClose={() => setShowWizard(false)}
         onComplete={() => setShowWizard(false)}
+      />
+
+      {/* Vibe Studio Modal */}
+      <VibeStudioModal
+        open={showVibeStudio}
+        onOpenChange={setShowVibeStudio}
+        onSave={(url) => setProfile({ ...profile, vibeVideoUrl: url })}
+        existingVideoUrl={profile.vibeVideoUrl || undefined}
       />
 
       <BottomNav />

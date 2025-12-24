@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 interface VibePlayerProps {
   videoUrl: string;
-  thumbnailUrl: string;
+  thumbnailUrl?: string;
   vibeCaption?: string;
   autoPlay?: boolean;
   showControls?: boolean;
