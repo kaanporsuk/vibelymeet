@@ -1,0 +1,182 @@
+import { useState, useEffect, useCallback } from 'react';
+
+const NOTIFICATION_PERMISSION_KEY = 'vibely_notification_permission';
+const SCHEDULED_NOTIFICATIONS_KEY = 'vibely_scheduled_notifications';
+
+interface ScheduledNotification {
+  id: string;
+  title: string;
+  body: string;
+  scheduledAt: string; // ISO date
+  type: 'daily_drop' | 'date_reminder';
+  data?: Record<string, unknown>;
+}
+
+export function usePushNotifications() {
+  const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [isSupported, setIsSupported] = useState(false);
+
+  // Check support and permission on mount
+  useEffect(() => {
+    const supported = 'Notification' in window;
+    setIsSupported(supported);
+    
+    if (supported) {
+      setPermission(Notification.permission);
+    }
+  }, []);
+
+  // Request permission
+  const requestPermission = useCallback(async (): Promise<boolean> => {
+    if (!isSupported) return false;
+    
+    try {
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      localStorage.setItem(NOTIFICATION_PERMISSION_KEY, result);
+      return result === 'granted';
+    } catch (error) {
+      console.error('Failed to request notification permission:', error);
+      return false;
+    }
+  }, [isSupported]);
+
+  // Send immediate notification
+  const sendNotification = useCallback((title: string, options?: NotificationOptions): Notification | null => {
+    if (!isSupported || permission !== 'granted') return null;
+
+    try {
+      const notification = new Notification(title, {
+        icon: '/favicon.ico',
+        badge: '/favicon.ico',
+        ...options,
+      });
+
+      return notification;
+    } catch (error) {
+      console.error('Failed to send notification:', error);
+      return null;
+    }
+  }, [isSupported, permission]);
+
+  // Schedule a notification (stores in localStorage, checked by service worker or timer)
+  const scheduleNotification = useCallback((notification: Omit<ScheduledNotification, 'id'>): string => {
+    const id = `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    try {
+      const stored = localStorage.getItem(SCHEDULED_NOTIFICATIONS_KEY);
+      const notifications: ScheduledNotification[] = stored ? JSON.parse(stored) : [];
+      
+      notifications.push({ ...notification, id });
+      localStorage.setItem(SCHEDULED_NOTIFICATIONS_KEY, JSON.stringify(notifications));
+      
+      return id;
+    } catch (error) {
+      console.error('Failed to schedule notification:', error);
+      return id;
+    }
+  }, []);
+
+  // Cancel scheduled notification
+  const cancelScheduledNotification = useCallback((id: string): void => {
+    try {
+      const stored = localStorage.getItem(SCHEDULED_NOTIFICATIONS_KEY);
+      if (!stored) return;
+      
+      const notifications: ScheduledNotification[] = JSON.parse(stored);
+      const filtered = notifications.filter(n => n.id !== id);
+      localStorage.setItem(SCHEDULED_NOTIFICATIONS_KEY, JSON.stringify(filtered));
+    } catch (error) {
+      console.error('Failed to cancel notification:', error);
+    }
+  }, []);
+
+  // Check and fire due notifications
+  const checkScheduledNotifications = useCallback(() => {
+    if (permission !== 'granted') return;
+
+    try {
+      const stored = localStorage.getItem(SCHEDULED_NOTIFICATIONS_KEY);
+      if (!stored) return;
+
+      const notifications: ScheduledNotification[] = JSON.parse(stored);
+      const now = new Date();
+      const remaining: ScheduledNotification[] = [];
+
+      notifications.forEach(notif => {
+        const scheduledTime = new Date(notif.scheduledAt);
+        if (scheduledTime <= now) {
+          sendNotification(notif.title, { body: notif.body, tag: notif.id });
+        } else {
+          remaining.push(notif);
+        }
+      });
+
+      localStorage.setItem(SCHEDULED_NOTIFICATIONS_KEY, JSON.stringify(remaining));
+    } catch (error) {
+      console.error('Failed to check scheduled notifications:', error);
+    }
+  }, [permission, sendNotification]);
+
+  // Schedule daily drop notification for 6 PM
+  const scheduleDailyDropNotification = useCallback(() => {
+    const now = new Date();
+    const dropTime = new Date(now);
+    dropTime.setHours(18, 0, 0, 0);
+
+    // If it's past 6 PM, schedule for tomorrow
+    if (now >= dropTime) {
+      dropTime.setDate(dropTime.getDate() + 1);
+    }
+
+    return scheduleNotification({
+      title: '💧 Your Daily Drop is Here!',
+      body: 'A new curated match is waiting for you. Open Vibely to see who it is!',
+      scheduledAt: dropTime.toISOString(),
+      type: 'daily_drop',
+    });
+  }, [scheduleNotification]);
+
+  // Schedule date reminder notification
+  const scheduleDateReminder = useCallback((
+    matchName: string,
+    dateTime: Date,
+    minutesBefore: number = 15
+  ) => {
+    const reminderTime = new Date(dateTime.getTime() - minutesBefore * 60 * 1000);
+
+    // Don't schedule if the reminder time has already passed
+    if (reminderTime <= new Date()) return null;
+
+    return scheduleNotification({
+      title: `📅 Date with ${matchName} starting soon!`,
+      body: `Your video date starts in ${minutesBefore} minutes. Get ready!`,
+      scheduledAt: reminderTime.toISOString(),
+      type: 'date_reminder',
+      data: { matchName, dateTime: dateTime.toISOString() },
+    });
+  }, [scheduleNotification]);
+
+  // Check scheduled notifications periodically
+  useEffect(() => {
+    if (!isSupported || permission !== 'granted') return;
+
+    checkScheduledNotifications();
+    const interval = setInterval(checkScheduledNotifications, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [isSupported, permission, checkScheduledNotifications]);
+
+  return {
+    isSupported,
+    permission,
+    isGranted: permission === 'granted',
+    isDenied: permission === 'denied',
+    requestPermission,
+    sendNotification,
+    scheduleNotification,
+    cancelScheduledNotification,
+    scheduleDailyDropNotification,
+    scheduleDateReminder,
+  };
+}

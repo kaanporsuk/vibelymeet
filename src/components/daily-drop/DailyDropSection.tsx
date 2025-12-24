@@ -5,7 +5,9 @@ import { useDailyDrop } from '@/hooks/useDailyDrop';
 import { DropZoneWidget } from './DropZoneWidget';
 import { DropRevealScreen } from './DropRevealScreen';
 import { VibeSentSuccess } from './VibeSentSuccess';
+import { VibeReplyModal } from './VibeReplyModal';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 export function DailyDropSection() {
   const navigate = useNavigate();
@@ -20,15 +22,20 @@ export function DailyDropSection() {
   } = useDailyDrop();
 
   const [showSuccess, setShowSuccess] = useState(false);
-
-  const handleSendReply = () => {
-    sendVibeReply();
-    setShowSuccess(true);
-  };
+  const [showVibeReplyModal, setShowVibeReplyModal] = useState(false);
 
   const handleOpenVibeStudio = () => {
-    // In a real app, this would open the camera modal
-    console.log('Opening Vibe Studio...');
+    setShowVibeReplyModal(true);
+  };
+
+  const handleSendVibeReply = (videoBlob: Blob | null) => {
+    if (videoBlob) {
+      console.log('Video recorded:', videoBlob.size, 'bytes');
+      toast.success('Recording your vibe reply...');
+    }
+    sendVibeReply();
+    setShowVibeReplyModal(false);
+    setShowSuccess(true);
   };
 
   const handleSuccessContinue = () => {
@@ -56,9 +63,19 @@ export function DailyDropSection() {
         </div>
         <DropRevealScreen
           drop={currentDrop}
-          onSendReply={handleSendReply}
+          onSendReply={handleOpenVibeStudio}
           onPass={passDrop}
           onOpenVibeStudio={handleOpenVibeStudio}
+        />
+        
+        {/* Vibe Reply Modal */}
+        <VibeReplyModal
+          open={showVibeReplyModal}
+          onOpenChange={setShowVibeReplyModal}
+          recipientName={currentDrop.candidate.name}
+          recipientAvatar={currentDrop.candidate.avatarUrl}
+          onSendReply={handleSendVibeReply}
+          maxDuration={15}
         />
       </section>
     );
