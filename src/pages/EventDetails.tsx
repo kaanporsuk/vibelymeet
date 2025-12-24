@@ -6,20 +6,28 @@ import {
   Calendar, 
   Clock, 
   Sparkles, 
-  AlertTriangle,
-  Ticket,
-  Check,
   Share2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
-import WhosGoingSection from "@/components/events/WhosGoingSection";
 import VenueCard from "@/components/events/VenueCard";
 import MiniProfileModal from "@/components/events/MiniProfileModal";
 import TicketStub from "@/components/events/TicketStub";
+import GuestListTeaser from "@/components/events/GuestListTeaser";
+import GuestListRoster from "@/components/events/GuestListRoster";
+import PricingBar from "@/components/events/PricingBar";
+import PaymentModal from "@/components/events/PaymentModal";
+import ManageBookingModal from "@/components/events/ManageBookingModal";
+import CancelBookingModal from "@/components/events/CancelBookingModal";
 
-// Mock event data
+// Mock user data
+const mockUser = {
+  id: "current-user",
+  gender: "Male" as const,
+};
+
+// Mock event data with pricing
 const mockEvent = {
   id: "1",
   title: "Techno & Tech: Developer Speed Dating",
@@ -27,83 +35,54 @@ const mockEvent = {
   coverImage: "https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=800&q=80",
   category: "🕹️ Tech & Gaming",
   vibeMatch: 92,
-  eventDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
+  eventDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
   time: "7:00 PM - 10:00 PM",
   isVirtual: true,
   venue: "The Digital Lounge",
   address: "123 Innovation St, Tech City",
-  price: "Free",
-  spotsLeft: 4,
-  totalSpots: 24,
-  genderBalance: "Women",
+  priceMale: 25.00,
+  priceFemale: 10.00,
+  maxMen: 12,
+  maxWomen: 12,
+  currentMen: 8,
+  currentWomen: 10,
   tags: ["🎧 Electronic", "💻 Tech", "⚡ Speed Date"],
 };
 
-const mockAttendees = [
-  {
-    id: "1",
-    name: "Alex Chen",
-    age: 28,
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80",
-    bio: "Senior dev by day, DJ by night. Looking for someone to debug my heart 💔→❤️",
-    vibeTag: "Night Owl",
-    photos: ["https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80"],
-  },
-  {
-    id: "2",
-    name: "Sarah Kim",
-    age: 26,
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80",
-    bio: "UX designer who loves hiking and craft coffee. Let's explore the city together!",
-    vibeTag: "Creative Soul",
-    photos: ["https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&q=80"],
-  },
-  {
-    id: "3",
-    name: "Marcus Johnson",
-    age: 31,
-    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80",
-    bio: "Startup founder, amateur chef. I make a mean pasta carbonara 🍝",
-    vibeTag: "Foodie",
-    photos: ["https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400&q=80"],
-  },
-  {
-    id: "4",
-    name: "Emma Watson",
-    age: 27,
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80",
-    bio: "Data scientist who loves board games and deep conversations.",
-    vibeTag: "Intellectual",
-    photos: ["https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400&q=80"],
-  },
-  {
-    id: "5",
-    name: "James Liu",
-    age: 29,
-    avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80",
-    bio: "Frontend wizard, anime enthusiast. Looking for my co-op partner.",
-    vibeTag: "Gamer",
-    photos: ["https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400&q=80"],
-  },
-  {
-    id: "6",
-    name: "Olivia Brown",
-    age: 25,
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80",
-    bio: "Product manager with a passion for travel and photography 📸",
-    vibeTag: "Wanderer",
-    photos: ["https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80"],
-  },
+// Mock attendees for teaser (before purchase)
+const mockTeaserAttendees = [
+  { id: "1", name: "???", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80", vibeTags: ["🎵 Techno Lover", "☕ Coffee Snob"] },
+  { id: "2", name: "???", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80", vibeTags: ["🎨 Creative", "📚 Bookworm"] },
+  { id: "3", name: "???", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80", vibeTags: ["🍳 Foodie", "✈️ Traveler"] },
+  { id: "4", name: "???", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80", vibeTags: ["🧘 Wellness", "🎬 Film Buff"] },
+  { id: "5", name: "???", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80", vibeTags: ["🎮 Gamer", "💻 Tech"] },
+  { id: "6", name: "???", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80", vibeTags: ["📸 Photography", "🌿 Nature"] },
+];
+
+// Mock attendees for roster (after purchase)
+const mockRosterAttendees = [
+  { id: "1", name: "Alex Chen", age: 28, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80", vibeTag: "Night Owl", matchPercent: 92, bio: "Senior dev by day, DJ by night", photos: [] },
+  { id: "2", name: "Sarah Kim", age: 26, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80", vibeTag: "Creative Soul", matchPercent: 88, bio: "UX designer who loves hiking", photos: [] },
+  { id: "3", name: "Marcus Johnson", age: 31, avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80", vibeTag: "Foodie", matchPercent: 75, bio: "Startup founder, amateur chef", photos: [] },
+  { id: "4", name: "Emma Watson", age: 27, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80", vibeTag: "Intellectual", matchPercent: 95, bio: "Data scientist who loves board games", photos: [] },
+  { id: "5", name: "James Liu", age: 29, avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80", vibeTag: "Gamer", matchPercent: 82, bio: "Frontend wizard, anime enthusiast", photos: [] },
+  { id: "6", name: "Olivia Brown", age: 25, avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80", vibeTag: "Wanderer", matchPercent: 79, bio: "Product manager with a passion for travel", photos: [] },
 ];
 
 const EventDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  
+  // Registration state
   const [isRegistered, setIsRegistered] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<typeof mockAttendees[0] | null>(null);
-  const [showTicket, setShowTicket] = useState(false);
   const [scrollY, setScrollY] = useState(0);
+  
+  // Modal states
+  const [selectedProfile, setSelectedProfile] = useState<typeof mockRosterAttendees[0] | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showManageBooking, setShowManageBooking] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showTicket, setShowTicket] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
@@ -119,16 +98,24 @@ const EventDetails = () => {
     });
   };
 
-  const handleRegister = async () => {
-    setIsRegistering(true);
+  // Calculate capacity status
+  const getCapacityStatus = () => {
+    const spotsLeft = mockUser.gender === "Male" 
+      ? mockEvent.maxMen - mockEvent.currentMen 
+      : mockEvent.maxWomen - mockEvent.currentWomen;
     
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    setIsRegistering(false);
+    if (spotsLeft <= 2) return { status: "almostFull" as const, spotsLeft };
+    if (spotsLeft <= 5) return { status: "filling" as const, spotsLeft };
+    return { status: "available" as const, spotsLeft };
+  };
+
+  const capacityInfo = getCapacityStatus();
+  const userPrice = mockUser.gender === "Male" ? mockEvent.priceMale : mockEvent.priceFemale;
+
+  const handlePaymentSuccess = () => {
+    setShowPaymentModal(false);
     setIsRegistered(true);
     
-    // Confetti burst
     confetti({
       particleCount: 100,
       spread: 70,
@@ -140,8 +127,17 @@ const EventDetails = () => {
       description: "Check your email for confirmation",
     });
 
-    // Show ticket after a brief delay
     setTimeout(() => setShowTicket(true), 800);
+  };
+
+  const handleCancelConfirm = () => {
+    setShowCancelModal(false);
+    setShowManageBooking(false);
+    setIsRegistered(false);
+    
+    toast.success("Spot cancelled", {
+      description: "Your spot has been released to the waitlist",
+    });
   };
 
   const handleShare = async () => {
@@ -246,12 +242,36 @@ const EventDetails = () => {
           </p>
         </div>
 
-        {/* Who's Going */}
-        <WhosGoingSection
-          attendees={mockAttendees}
-          totalCount={mockEvent.totalSpots - mockEvent.spotsLeft}
-          onAttendeeClick={setSelectedProfile}
-        />
+        {/* Guest List - Conditional Rendering */}
+        <AnimatePresence mode="wait">
+          {isRegistered ? (
+            <motion.div
+              key="roster"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <GuestListRoster
+                attendees={mockRosterAttendees}
+                totalCount={mockEvent.currentMen + mockEvent.currentWomen}
+                onAttendeeClick={setSelectedProfile}
+                onTicketClick={() => setShowManageBooking(true)}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="teaser"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+            >
+              <GuestListTeaser
+                attendees={mockTeaserAttendees}
+                totalCount={mockEvent.currentMen + mockEvent.currentWomen}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Venue */}
         <div className="space-y-2">
@@ -265,87 +285,74 @@ const EventDetails = () => {
         </div>
       </div>
 
-      {/* Sticky Bottom Bar */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 glass-card border-t border-border rounded-none z-40">
-        <div className="max-w-lg mx-auto flex items-center justify-between gap-4">
-          {/* Price & Spots */}
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold text-foreground">{mockEvent.price}</span>
-              {mockEvent.spotsLeft <= 5 && (
-                <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-xs font-medium text-destructive flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3" />
-                  {mockEvent.spotsLeft} spots left
-                </span>
-              )}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              Only {mockEvent.spotsLeft} spots for {mockEvent.genderBalance}
-            </span>
-          </div>
+      {/* Sticky Bottom Bar - Only show when not registered */}
+      {!isRegistered && (
+        <PricingBar
+          price={userPrice}
+          capacityStatus={capacityInfo.status}
+          spotsLeft={capacityInfo.spotsLeft}
+          genderLabel={mockUser.gender}
+          onPurchase={() => setShowPaymentModal(true)}
+        />
+      )}
 
-          {/* CTA Button */}
-          <AnimatePresence mode="wait">
-            {isRegistered ? (
+      {/* Registered Bottom Bar */}
+      {isRegistered && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
+          <div className="max-w-lg mx-auto p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <motion.div
-                key="registered"
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="flex items-center gap-2"
+                animate={{ scale: [1, 1.1, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="w-10 h-10 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center"
               >
-                <Button
-                  variant="outline"
-                  className="gap-2 border-primary text-primary"
-                  onClick={() => setShowTicket(true)}
-                >
-                  <Ticket className="w-4 h-4" />
-                  View Ticket
-                </Button>
+                <Sparkles className="w-5 h-5 text-white" />
               </motion.div>
-            ) : (
-              <motion.div key="register">
-                <Button
-                  variant="gradient"
-                  size="lg"
-                  onClick={handleRegister}
-                  disabled={isRegistering}
-                  className="relative overflow-hidden min-w-[160px]"
-                >
-                  <AnimatePresence mode="wait">
-                    {isRegistering ? (
-                      <motion.div
-                        key="spinner"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="flex items-center gap-2"
-                      >
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                          className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full"
-                        />
-                        <span>Securing...</span>
-                      </motion.div>
-                    ) : (
-                      <motion.span
-                        key="text"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="flex items-center gap-2"
-                      >
-                        <Sparkles className="w-4 h-4" />
-                        Secure My Spot
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              <div>
+                <p className="font-semibold text-foreground">You're In!</p>
+                <p className="text-xs text-muted-foreground">See you there</p>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
+              Manage Booking
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Modals */}
+      <PaymentModal
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSuccess={handlePaymentSuccess}
+        eventTitle={mockEvent.title}
+        eventDate={formatDate(mockEvent.eventDate)}
+        userGender={mockUser.gender}
+        priceMale={mockEvent.priceMale}
+        priceFemale={mockEvent.priceFemale}
+      />
+
+      <ManageBookingModal
+        isOpen={showManageBooking}
+        onClose={() => setShowManageBooking(false)}
+        onCancel={() => {
+          setShowManageBooking(false);
+          setShowCancelModal(true);
+        }}
+        eventTitle={mockEvent.title}
+        eventDate={formatDate(mockEvent.eventDate)}
+        eventTime={mockEvent.time}
+        venue={mockEvent.venue}
+        ticketNumber="VBL-2024-001"
+        price={userPrice}
+      />
+
+      <CancelBookingModal
+        isOpen={showCancelModal}
+        onClose={() => setShowCancelModal(false)}
+        onConfirm={handleCancelConfirm}
+        eventTitle={mockEvent.title}
+      />
 
       {/* Mini Profile Modal */}
       <MiniProfileModal
