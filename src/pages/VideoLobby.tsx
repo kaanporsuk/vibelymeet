@@ -1,18 +1,21 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelfCheckMirror } from "@/components/video-date/SelfCheckMirror";
 import { PartnerTeaseCard } from "@/components/video-date/PartnerTeaseCard";
 import { TipsCarousel } from "@/components/video-date/TipsCarousel";
 
-// Mock partner data
+// Mock partner data with Vibe Video
 const MOCK_PARTNER = {
-  isBlindDate: true,
+  isBlindDate: false, // Changed to false so we can show the video
   name: "Sarah",
   photo: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop",
   vibeTags: ["🎵 Techno Lover", "☕ Coffee Snob", "🌙 Night Owl", "📚 Bookworm"],
+  hasVibeVideo: true,
+  vibeVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  vibeCaption: "Learning to DJ 🎧",
 };
 
 const VideoLobby = () => {
@@ -101,8 +104,32 @@ const VideoLobby = () => {
               onToggleBlur={() => setIsBlurOn(!isBlurOn)}
             />
 
-            {/* Partner Card & Tips */}
+            {/* Partner Card & Vibe Video */}
             <div className="flex flex-col gap-6 w-full max-w-sm">
+              {/* Partner's Vibe Video (The Hype) */}
+              {MOCK_PARTNER.hasVibeVideo && isReady && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="glass-card rounded-2xl overflow-hidden"
+                >
+                  <div className="relative aspect-[9/16] max-h-[300px]">
+                    <video
+                      src={MOCK_PARTNER.vibeVideoUrl}
+                      className="w-full h-full object-cover"
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-background/90 to-transparent">
+                      <p className="text-xs text-muted-foreground">Currently vibing on...</p>
+                      <p className="text-sm font-medium text-foreground">{MOCK_PARTNER.vibeCaption}</p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
               <PartnerTeaseCard
                 isBlindDate={MOCK_PARTNER.isBlindDate}
                 partnerName={MOCK_PARTNER.name}

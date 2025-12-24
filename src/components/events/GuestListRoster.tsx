@@ -1,5 +1,9 @@
 import { motion } from "framer-motion";
 import { Users, Sparkles, Crown, Ticket } from "lucide-react";
+import { VibeVideoThumbnail } from "@/components/vibe-video/VibeVideoThumbnail";
+
+// Mock video URL for demo
+const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
 
 interface Attendee {
   id: string;
@@ -10,6 +14,8 @@ interface Attendee {
   matchPercent: number;
   bio: string;
   photos: string[];
+  hasVibeVideo?: boolean;
+  vibeVideoUrl?: string;
 }
 
 interface GuestListRosterProps {
@@ -60,66 +66,72 @@ const GuestListRoster = ({
       {/* Roster Grid */}
       <div className="overflow-x-auto -mx-4 px-4">
         <div className="flex gap-4 pb-2">
-          {attendees.map((attendee, index) => (
-            <motion.button
-              key={attendee.id}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.08 }}
-              whileHover={{ scale: 1.05, y: -4 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => onAttendeeClick(attendee)}
-              className="flex-shrink-0"
-            >
-              <div className="relative glass-card rounded-2xl p-3 w-[110px] border border-border/50 hover:border-primary/50 transition-colors">
-                {/* Match Badge */}
-                {attendee.matchPercent >= 80 && (
-                  <motion.div
-                    initial={{ scale: 0, rotate: -20 }}
-                    animate={{ scale: 1, rotate: 0 }}
-                    transition={{ delay: index * 0.08 + 0.2 }}
-                    className="absolute -top-2 -right-2 z-10"
-                  >
-                    <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-[10px] font-bold text-primary-foreground shadow-lg">
-                      <Sparkles className="w-3 h-3" />
-                      {attendee.matchPercent}%
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Avatar */}
-                <div className="relative w-16 h-16 mx-auto mb-2">
-                  <img
-                    src={attendee.avatar}
-                    alt={attendee.name}
-                    className="w-full h-full object-cover rounded-full ring-2 ring-border"
-                  />
-                  {attendee.matchPercent >= 90 && (
+          {attendees.map((attendee, index) => {
+            // Randomly assign some attendees with vibe videos for demo
+            const hasVibeVideo = attendee.hasVibeVideo ?? index % 3 !== 2;
+            
+            return (
+              <motion.button
+                key={attendee.id}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: index * 0.08 }}
+                whileHover={{ scale: 1.05, y: -4 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => onAttendeeClick(attendee)}
+                className="flex-shrink-0"
+              >
+                <div className="relative glass-card rounded-2xl p-3 w-[110px] border border-border/50 hover:border-primary/50 transition-colors">
+                  {/* Match Badge */}
+                  {attendee.matchPercent >= 80 && (
                     <motion.div
-                      animate={{ rotate: [0, 10, -10, 0] }}
-                      transition={{ duration: 2, repeat: Infinity }}
-                      className="absolute -bottom-1 -right-1"
+                      initial={{ scale: 0, rotate: -20 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{ delay: index * 0.08 + 0.2 }}
+                      className="absolute -top-2 -right-2 z-10"
                     >
-                      <Crown className="w-5 h-5 text-yellow-400 drop-shadow-lg" />
+                      <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-[10px] font-bold text-primary-foreground shadow-lg">
+                        <Sparkles className="w-3 h-3" />
+                        {attendee.matchPercent}%
+                      </div>
                     </motion.div>
                   )}
-                </div>
 
-                {/* Name & Age */}
-                <div className="text-center mb-1">
-                  <p className="text-sm font-semibold text-foreground truncate">
-                    {attendee.name.split(" ")[0]}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{attendee.age}</p>
-                </div>
+                  {/* Avatar with Vibe Video Thumbnail */}
+                  <div className="relative mx-auto mb-2">
+                    <VibeVideoThumbnail
+                      thumbnailUrl={attendee.avatar}
+                      videoUrl={attendee.vibeVideoUrl || MOCK_VIBE_VIDEO}
+                      hasVibeVideo={hasVibeVideo}
+                      size="md"
+                    />
+                    {attendee.matchPercent >= 90 && (
+                      <motion.div
+                        animate={{ rotate: [0, 10, -10, 0] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                        className="absolute -bottom-1 -right-1 z-10"
+                      >
+                        <Crown className="w-5 h-5 text-yellow-400 drop-shadow-lg" />
+                      </motion.div>
+                    )}
+                  </div>
 
-                {/* Vibe Tag */}
-                <div className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-center truncate">
-                  {attendee.vibeTag}
+                  {/* Name & Age */}
+                  <div className="text-center mb-1">
+                    <p className="text-sm font-semibold text-foreground truncate">
+                      {attendee.name.split(" ")[0]}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{attendee.age}</p>
+                  </div>
+
+                  {/* Vibe Tag */}
+                  <div className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground text-center truncate">
+                    {attendee.vibeTag}
+                  </div>
                 </div>
-              </div>
-            </motion.button>
-          ))}
+              </motion.button>
+            );
+          })}
         </div>
       </div>
 
