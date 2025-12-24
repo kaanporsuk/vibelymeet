@@ -24,6 +24,10 @@ export interface DateProposal {
   message: string;
   status: "pending" | "accepted" | "declined";
   sentAt: Date;
+  isIncoming?: boolean;
+  senderName?: string;
+  senderAvatar?: string;
+  matchId?: string;
 }
 
 const TIME_BLOCK_INFO: Record<TimeBlock, { label: string; hours: string }> = {
@@ -108,9 +112,54 @@ const generateMockMatchSchedule = (): ScheduleData => {
   return schedule;
 };
 
+// Mock incoming proposals for testing
+const generateMockIncomingProposals = (): DateProposal[] => {
+  const today = startOfDay(new Date());
+  return [
+    {
+      id: "incoming-1",
+      date: addDays(today, 2),
+      block: "evening" as TimeBlock,
+      mode: "video",
+      message: "Would love to video chat and get to know you better!",
+      status: "pending",
+      sentAt: new Date(Date.now() - 3600000),
+      isIncoming: true,
+      senderName: "Emma",
+      senderAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
+      matchId: "user-1",
+    },
+    {
+      id: "incoming-2",
+      date: addDays(today, 5),
+      block: "afternoon" as TimeBlock,
+      mode: "in-person",
+      message: "There's this great coffee place downtown!",
+      status: "pending",
+      sentAt: new Date(Date.now() - 7200000),
+      isIncoming: true,
+      senderName: "Sophie",
+      senderAvatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
+      matchId: "user-2",
+    },
+    {
+      id: "past-1",
+      date: addDays(today, -3),
+      block: "evening" as TimeBlock,
+      mode: "video",
+      message: "Great chatting with you!",
+      status: "accepted",
+      sentAt: new Date(Date.now() - 86400000 * 4),
+      isIncoming: false,
+      senderName: "Alex",
+      matchId: "user-3",
+    },
+  ];
+};
+
 export const useSchedule = () => {
   const [mySchedule, setMySchedule] = useState<ScheduleData>(generateMockMySchedule);
-  const [proposals, setProposals] = useState<DateProposal[]>([]);
+  const [proposals, setProposals] = useState<DateProposal[]>(generateMockIncomingProposals);
 
   // Generate 2-week date range
   const dateRange = useMemo(() => {
@@ -182,7 +231,9 @@ export const useSchedule = () => {
     date: Date, 
     block: TimeBlock, 
     mode: "video" | "in-person",
-    message: string
+    message: string,
+    matchName?: string,
+    matchId?: string
   ): DateProposal => {
     const proposal: DateProposal = {
       id: `proposal-${Date.now()}`,
@@ -192,10 +243,21 @@ export const useSchedule = () => {
       message,
       status: "pending",
       sentAt: new Date(),
+      isIncoming: false,
+      senderName: matchName,
+      matchId,
     };
     
     setProposals(prev => [...prev, proposal]);
     return proposal;
+  }, []);
+
+  const respondToProposal = useCallback((proposalId: string, accept: boolean) => {
+    setProposals(prev => prev.map(p => 
+      p.id === proposalId 
+        ? { ...p, status: accept ? "accepted" : "declined" } 
+        : p
+    ));
   }, []);
 
   return {
@@ -206,6 +268,7 @@ export const useSchedule = () => {
     copyPreviousWeek,
     proposals,
     sendProposal,
+    respondToProposal,
     getTimeBlockInfo,
   };
 };
