@@ -8,8 +8,8 @@ interface Attendee {
   avatar: string;
   vibeTag: string;
   matchPercent: number;
-  bio?: string;
-  photos?: string[];
+  bio: string;
+  photos: string[];
 }
 
 interface GuestListRosterProps {
