@@ -300,6 +300,17 @@ const Chat = () => {
               )
             )}
 
+            {/* Date Proposals */}
+            {proposals.map((proposal) => (
+              <div key={proposal.id} className="flex justify-end">
+                <DateProposalTicket
+                  proposal={proposal}
+                  isOwn={true}
+                  matchName={mockOtherUser.name}
+                />
+              </div>
+            ))}
+
             {/* Typing indicator */}
             <AnimatePresence>
               {isTyping && (
@@ -379,6 +390,15 @@ const Chat = () => {
               </motion.div>
             </motion.button>
 
+            {/* Calendar button for scheduling */}
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowVibeSync(true)}
+              className="shrink-0 w-10 h-10 rounded-full bg-neon-cyan/20 flex items-center justify-center text-neon-cyan hover:bg-neon-cyan/30 transition-colors"
+            >
+              <CalendarDays className="w-5 h-5" />
+            </motion.button>
+
             {/* Text input */}
             <div className="flex-1 relative">
               <textarea
@@ -437,6 +457,16 @@ const Chat = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Vibe Sync Modal */}
+      <VibeSyncModal
+        isOpen={showVibeSync}
+        onClose={() => setShowVibeSync(false)}
+        matchName={mockOtherUser.name}
+        matchAvatar={mockOtherUser.avatar_url}
+        matchId={mockOtherUser.id}
+        onProposalSent={(proposal) => setProposals((prev) => [...prev, proposal])}
+      />
     </div>
   );
 };
