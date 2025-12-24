@@ -16,6 +16,7 @@ interface AuthContextType {
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isAdmin: boolean;
   signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     // Set up auth state listener FIRST
@@ -50,9 +52,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Defer profile fetch to avoid deadlock
           setTimeout(() => {
             fetchUserProfile(session.user.id);
+            checkAdminRole(session.user.id);
           }, 0);
         } else {
           setUser(null);
+          setIsAdmin(false);
         }
       }
     );
@@ -62,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
+        checkAdminRole(session.user.id);
       }
       setIsLoading(false);
     });
@@ -80,6 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (supabaseUser) {
       setUser(transformSupabaseUser(supabaseUser, profile || undefined));
     }
+  };
+
+  const checkAdminRole = async (userId: string) => {
+    const { data } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('role', 'admin')
+      .maybeSingle();
+    
+    setIsAdmin(!!data);
   };
 
   const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
@@ -118,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
+    setIsAdmin(false);
   };
 
   const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
@@ -138,13 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         break;
     }
     
-    // Note: is_paused column needs to be added via migration
     setUser({ ...user, isPaused: true, pauseUntil });
   };
 
   const resumeAccount = async () => {
     if (!user) return;
-    // Note: is_paused column needs to be added via migration
     setUser({ ...user, isPaused: false, pauseUntil: null });
   };
 
@@ -155,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         isAuthenticated: !!session,
         isLoading,
+        isAdmin,
         signUp,
         signIn,
         logout,
