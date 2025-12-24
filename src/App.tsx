@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import VideoDate from "./pages/VideoDate";
 import VideoLobby from "./pages/VideoLobby";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
+import MatchCelebration from "./pages/MatchCelebration";
 import NotFound from "./pages/NotFound";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -46,6 +47,7 @@ const App = () => (
               <Route path="/date/:id" element={<VideoDate />} />
               <Route path="/lobby" element={<VideoLobby />} />
               <Route path="/admin/create-event" element={<AdminCreateEvent />} />
+              <Route path="/match-celebration" element={<MatchCelebration />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
