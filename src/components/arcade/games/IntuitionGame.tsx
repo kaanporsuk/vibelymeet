@@ -4,6 +4,7 @@ import { IntuitionPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
 import confetti from "canvas-confetti";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 
 interface IntuitionGameProps {
   payload: IntuitionPayload;
@@ -15,17 +16,21 @@ interface IntuitionGameProps {
 export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }: IntuitionGameProps) => {
   const [response, setResponse] = useState<'correct' | 'wrong' | null>(payload.data.receiverResponse || null);
   const prediction = payload.data.options[payload.data.senderChoice];
+  const { playFeedback } = useSoundEffects();
 
   const handleRespond = (res: 'correct' | 'wrong') => {
     setResponse(res);
     
     if (res === 'correct') {
+      playFeedback('correct');
       confetti({
         particleCount: 80,
         spread: 60,
         origin: { y: 0.6 },
         colors: ['#8B5CF6', '#06B6D4', '#FFD700'],
       });
+    } else {
+      playFeedback('wrong');
     }
     
     onRespond?.(res);

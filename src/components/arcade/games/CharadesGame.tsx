@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { CharadesPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import confetti from "canvas-confetti";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 
 interface CharadesGameProps {
   payload: CharadesPayload;
@@ -50,6 +51,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
   const [guess, setGuess] = useState("");
   const [isGuessed, setIsGuessed] = useState(payload.data.isGuessed || false);
   const [showWrong, setShowWrong] = useState(false);
+  const { playFeedback } = useSoundEffects();
 
   const handleSubmit = useCallback(() => {
     if (!guess.trim() || isOwn || isGuessed) return;
@@ -58,7 +60,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
     
     if (correct) {
       setIsGuessed(true);
-      // Applause animation
+      playFeedback('correct');
       confetti({
         particleCount: 150,
         spread: 100,
@@ -67,13 +69,14 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
         shapes: ['circle', 'star'],
       });
     } else {
+      playFeedback('wrong');
       setShowWrong(true);
       setTimeout(() => setShowWrong(false), 1500);
     }
     
     onGuess?.(guess);
     setGuess("");
-  }, [guess, isOwn, isGuessed, payload.data.answer, onGuess]);
+  }, [guess, isOwn, isGuessed, payload.data.answer, onGuess, playFeedback]);
 
   return (
     <motion.div

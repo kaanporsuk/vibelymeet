@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { WouldRatherPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Zap } from "lucide-react";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 
 interface WouldRatherGameProps {
   payload: WouldRatherPayload;
@@ -14,13 +15,22 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
   const [myVote, setMyVote] = useState<'A' | 'B' | null>(
     isOwn ? payload.data.senderVote || null : payload.data.receiverVote || null
   );
+  const { playFeedback } = useSoundEffects();
   
   const bothVoted = payload.data.senderVote && payload.data.receiverVote;
   const isMatch = payload.data.isMatch;
 
+  // Play match sound when both vote the same
+  useEffect(() => {
+    if (isMatch && bothVoted) {
+      playFeedback('match');
+    }
+  }, [isMatch, bothVoted, playFeedback]);
+
   const handleVote = (choice: 'A' | 'B') => {
     if (myVote) return;
     setMyVote(choice);
+    playFeedback('click');
     onVote?.(choice);
   };
 

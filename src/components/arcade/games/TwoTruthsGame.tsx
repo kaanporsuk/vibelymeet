@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { TwoTruthsPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import confetti from "canvas-confetti";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 
 interface TwoTruthsGameProps {
   payload: TwoTruthsPayload;
@@ -13,7 +14,7 @@ interface TwoTruthsGameProps {
 export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) => {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(payload.data.guessedIndex ?? null);
   const isCompleted = payload.step === 'completed';
-  const isCorrect = payload.data.isCorrect;
+  const { playFeedback } = useSoundEffects();
 
   const handleGuess = (index: number) => {
     if (isOwn || isCompleted || selectedIndex !== null) return;
@@ -22,13 +23,15 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
     const correct = index === payload.data.lieIndex;
     
     if (correct) {
-      // Trigger confetti
+      playFeedback('correct');
       confetti({
         particleCount: 100,
         spread: 70,
         origin: { y: 0.6 },
         colors: ['#8B5CF6', '#06B6D4', '#D946EF'],
       });
+    } else {
+      playFeedback('wrong');
     }
     
     onGuess?.(index);
