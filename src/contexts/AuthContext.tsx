@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 interface User {
   id: string;
   name: string;
-  phone: string;
+  email: string;
   avatarUrl: string;
   isPaused: boolean;
   pauseUntil: Date | null;
@@ -11,81 +13,114 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (phone: string) => Promise<void>;
-  verifyOtp: (otp: string) => Promise<boolean>;
-  loginWithGoogle: () => Promise<void>;
-  loginWithApple: () => Promise<void>;
-  logout: () => void;
+  signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  logout: () => Promise<void>;
   pauseAccount: (duration: 'day' | 'week' | 'indefinite') => void;
   resumeAccount: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const MOCK_USER: User = {
-  id: 'user-1',
-  name: 'Alex',
-  phone: '+1 (555) 123-4567',
-  avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-  isPaused: false,
-  pauseUntil: null,
-};
+function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<string, unknown>): User {
+  return {
+    id: supabaseUser.id,
+    name: (profileData?.name as string) || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
+    email: supabaseUser.email || '',
+    avatarUrl: (profileData?.avatar_url as string) || supabaseUser.user_metadata?.avatar_url || '',
+    isPaused: (profileData?.is_paused as boolean) || false,
+    pauseUntil: profileData?.pause_until ? new Date(profileData.pause_until as string) : null,
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Check localStorage for existing auth
-    const storedAuth = localStorage.getItem('vibely_auth');
-    if (storedAuth) {
-      try {
-        const parsed = JSON.parse(storedAuth);
-        setUser(parsed.user);
-      } catch {
-        localStorage.removeItem('vibely_auth');
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        if (session?.user) {
+          // Defer profile fetch to avoid deadlock
+          setTimeout(() => {
+            fetchUserProfile(session.user.id);
+          }, 0);
+        } else {
+          setUser(null);
+        }
       }
-    }
-    setIsLoading(false);
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = async (phone: string): Promise<void> => {
-    // Mock API call - simulate sending OTP
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    // OTP sent successfully (mocked)
-  };
+  const fetchUserProfile = async (userId: string) => {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
-  const verifyOtp = async (otp: string): Promise<boolean> => {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    // Mock: any 4-digit OTP starting with 1 is valid
-    if (otp.length === 4 && otp.startsWith('1')) {
-      setUser(MOCK_USER);
-      localStorage.setItem('vibely_auth', JSON.stringify({ user: MOCK_USER }));
-      return true;
+    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+    if (supabaseUser) {
+      setUser(transformSupabaseUser(supabaseUser, profile || undefined));
     }
-    return false;
   };
 
-  const loginWithGoogle = async (): Promise<void> => {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setUser(MOCK_USER);
-    localStorage.setItem('vibely_auth', JSON.stringify({ user: MOCK_USER }));
+  const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: redirectUrl,
+        data: { name }
+      }
+    });
+
+    if (error) return { error };
+
+    // Create profile if user was created
+    if (data.user) {
+      await supabase.from('profiles').insert({
+        id: data.user.id,
+        name,
+        age: 25,
+        gender: 'prefer_not_to_say',
+      });
+    }
+
+    return { error: null };
   };
 
-  const loginWithApple = async (): Promise<void> => {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setUser(MOCK_USER);
-    localStorage.setItem('vibely_auth', JSON.stringify({ user: MOCK_USER }));
+  const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('vibely_auth');
+    setSession(null);
   };
 
-  const pauseAccount = (duration: 'day' | 'week' | 'indefinite') => {
+  const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
     if (!user) return;
     
     let pauseUntil: Date | null = null;
@@ -103,28 +138,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         break;
     }
     
-    const updatedUser = { ...user, isPaused: true, pauseUntil };
-    setUser(updatedUser);
-    localStorage.setItem('vibely_auth', JSON.stringify({ user: updatedUser }));
+    // Note: is_paused column needs to be added via migration
+    setUser({ ...user, isPaused: true, pauseUntil });
   };
 
-  const resumeAccount = () => {
+  const resumeAccount = async () => {
     if (!user) return;
-    const updatedUser = { ...user, isPaused: false, pauseUntil: null };
-    setUser(updatedUser);
-    localStorage.setItem('vibely_auth', JSON.stringify({ user: updatedUser }));
+    // Note: is_paused column needs to be added via migration
+    setUser({ ...user, isPaused: false, pauseUntil: null });
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAuthenticated: !!user,
+        session,
+        isAuthenticated: !!session,
         isLoading,
-        login,
-        verifyOtp,
-        loginWithGoogle,
-        loginWithApple,
+        signUp,
+        signIn,
         logout,
         pauseAccount,
         resumeAccount,
