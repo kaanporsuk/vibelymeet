@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronRight, ChevronLeft, Check, Sparkles, Rocket, Camera, MessageCircle, Heart } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Check, Sparkles, Rocket, Camera, MessageCircle, Heart, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
@@ -8,6 +8,8 @@ import WizardProgressRing from "./WizardProgressRing";
 import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
+import { useAuth } from "@/contexts/AuthContext";
+import { profileService, videoService } from "@/services/vibelyService";
 
 interface ProfileWizardProps {
   isOpen: boolean;
@@ -53,13 +55,16 @@ const coachTexts = {
 };
 
 const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>(Array(6).fill(""));
+  const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(Array(6).fill(null));
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [vibes, setVibes] = useState<string[]>([]);
   const [showSaved, setShowSaved] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Calculate progress
   const calculateProgress = () => {
@@ -123,10 +128,62 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     }
   };
 
-  const handleComplete = () => {
-    onComplete();
-    toast.success("Profile complete! You're ready to vibe! 🎉");
-    onClose();
+  // Handle photo changes - store both preview URLs and file references
+  const handlePhotosChange = (newPhotos: string[], files?: (File | null)[]) => {
+    setPhotos(newPhotos);
+    if (files) {
+      setPhotoFiles(files);
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!user) {
+      toast.error("Please sign in to save your profile");
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      // Upload photos that are file objects (local uploads)
+      const uploadedPhotoUrls: string[] = [];
+      
+      for (let i = 0; i < photos.length; i++) {
+        const photo = photos[i];
+        const file = photoFiles[i];
+        
+        if (photo && file) {
+          // Local file, upload it
+          const url = await videoService.uploadPhoto(user.id, file, i);
+          uploadedPhotoUrls.push(url);
+        } else if (photo && photo.startsWith('http')) {
+          // Already a URL (maybe from previous session)
+          uploadedPhotoUrls.push(photo);
+        }
+      }
+
+      // Build bio from prompts
+      const bio = prompts
+        .filter(p => p.answer.trim())
+        .map(p => `${p.emoji} ${p.question}\n${p.answer}`)
+        .join('\n\n');
+
+      // Save everything to the database
+      await profileService.saveCompleteProfile(user.id, {
+        photos: uploadedPhotoUrls,
+        bio: bio || undefined,
+        vibeLabels: vibes
+      });
+
+      toast.success("Profile complete! You're ready to vibe! 🎉");
+      onComplete();
+      onClose();
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      toast.error("Failed to save profile. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -184,16 +241,24 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                   variant="gradient"
                   size="xl"
                   onClick={handleComplete}
+                  disabled={isSaving}
                   className="relative overflow-hidden"
                 >
-                  <motion.span
-                    animate={{ scale: [1, 1.05, 1] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                    className="flex items-center gap-2"
-                  >
-                    <Sparkles className="w-5 h-5" />
-                    Start Matching
-                  </motion.span>
+                  {isSaving ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    <motion.span
+                      animate={{ scale: [1, 1.05, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                      className="flex items-center gap-2"
+                    >
+                      <Sparkles className="w-5 h-5" />
+                      Start Matching
+                    </motion.span>
+                  )}
                 </Button>
               </motion.div>
             </motion.div>
@@ -297,7 +362,11 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                   exit={{ opacity: 0, x: -50 }}
                   transition={{ type: "spring", damping: 25 }}
                 >
-                  <PhotoUploadGrid photos={photos} onPhotosChange={setPhotos} />
+                  <PhotoUploadGrid 
+                    photos={photos} 
+                    onPhotosChange={(newPhotos) => handlePhotosChange(newPhotos, photoFiles)} 
+                    onFilesChange={setPhotoFiles}
+                  />
                 </motion.div>
               )}
 
@@ -349,11 +418,20 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                 <Button
                   variant="gradient"
                   onClick={handleComplete}
-                  disabled={progress < 100}
+                  disabled={progress < 100 || isSaving}
                   className="gap-2"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  {progress >= 100 ? "Complete Profile" : `${progress}% Complete`}
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      {progress >= 100 ? "Complete Profile" : `${progress}% Complete`}
+                    </>
+                  )}
                 </Button>
               )}
             </div>
