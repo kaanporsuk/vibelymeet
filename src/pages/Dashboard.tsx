@@ -1,14 +1,19 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, ChevronRight, Sparkles } from "lucide-react";
+import { Clock, ChevronRight, Sparkles, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 import { EventCard } from "@/components/EventCard";
 import { MatchAvatar } from "@/components/MatchAvatar";
 import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
 import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
+import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
+import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { useNextEvent, useEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
+import { useSchedule } from "@/hooks/useSchedule";
+import { useDateReminders } from "@/hooks/useDateReminders";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { differenceInSeconds } from "date-fns";
 
 const Dashboard = () => {
@@ -16,8 +21,30 @@ const Dashboard = () => {
   const { data: nextEvent, isLoading: eventLoading } = useNextEvent();
   const { data: events = [], isLoading: eventsLoading } = useEvents();
   const { data: matches = [], isLoading: matchesLoading } = useDashboardMatches();
+  const { proposals } = useSchedule();
+  const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
+  const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
   
   const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  // Schedule daily drop notification when granted
+  useEffect(() => {
+    if (isGranted) {
+      scheduleDailyDropNotification();
+    }
+  }, [isGranted, scheduleDailyDropNotification]);
+
+  // Schedule date reminders for accepted proposals
+  useEffect(() => {
+    if (isGranted && proposals.length > 0) {
+      proposals
+        .filter(p => p.status === 'accepted')
+        .forEach(p => {
+          scheduleDateReminder(p.senderName || 'Your match', p.date, 15);
+        });
+    }
+  }, [isGranted, proposals, scheduleDateReminder]);
 
   // Countdown timer
   useEffect(() => {
@@ -50,6 +77,13 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background pb-24">
+      {/* Notification Permission Flow */}
+      <NotificationPermissionFlow
+        open={showNotificationFlow}
+        onOpenChange={setShowNotificationFlow}
+        onRequestPermission={requestPermission}
+      />
+
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-white/10 px-4 py-4">
         <div className="flex items-center justify-between max-w-lg mx-auto">
@@ -57,14 +91,46 @@ const Dashboard = () => {
             <p className="text-sm text-muted-foreground">Good evening,</p>
             <h1 className="text-xl font-display font-bold text-foreground">Alex</h1>
           </div>
-          <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
+          <div className="flex items-center gap-2">
+            {/* Mini date countdown if upcoming */}
+            {nextReminder && nextReminder.urgency !== 'none' && (
+              <MiniDateCountdown
+                reminder={nextReminder}
+                onClick={() => navigate('/schedule')}
+              />
+            )}
+            <NotificationPermissionButton
+              isGranted={isGranted}
+              onClick={() => setShowNotificationFlow(true)}
+            />
+            <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-8">
-        {/* Daily Drop - Top Priority */}
+        {/* Imminent Date Reminder - Top Priority */}
+        {imminentReminders.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
+              <Video className="w-5 h-5 text-destructive animate-pulse" />
+              Starting Soon
+            </h2>
+            {imminentReminders.map(reminder => (
+              <DateReminderCard
+                key={reminder.id}
+                reminder={reminder}
+                onJoinDate={() => navigate('/video-date')}
+                onEnableNotifications={() => setShowNotificationFlow(true)}
+                notificationsEnabled={isGranted}
+              />
+            ))}
+          </section>
+        )}
+
+        {/* Daily Drop */}
         <DailyDropSection />
 
         {/* Next Event Hero */}

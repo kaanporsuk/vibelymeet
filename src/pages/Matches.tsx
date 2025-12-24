@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, SlidersHorizontal, MessageCircle } from "lucide-react";
+import { Search, SlidersHorizontal, MessageCircle, Droplet } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { Skeleton } from "@/components/Skeleton";
 import { NewVibesRail } from "@/components/NewVibesRail";
@@ -9,9 +9,11 @@ import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { MatchAvatar } from "@/components/MatchAvatar";
+import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
 import { useMatches } from "@/hooks/useMatches";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,11 +26,82 @@ import { toast } from "sonner";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
+// Mock drops data
+const MOCK_DROPS: DropMatch[] = [
+  {
+    id: 'drop-match-1',
+    candidate: {
+      id: 'maya',
+      name: 'Maya',
+      age: 26,
+      lastActiveAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
+      vibeTags: ['Creative Soul', 'Night Owl', 'Foodie'],
+      bio: 'Artist by day, stargazer by night.',
+      location: 'Brooklyn, NY'
+    },
+    status: 'matched',
+    sentAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    matchedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+    hasUnreadMessage: true,
+  },
+  {
+    id: 'drop-match-2',
+    candidate: {
+      id: 'jordan',
+      name: 'Jordan',
+      age: 28,
+      lastActiveAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
+      vibeTags: ['Adventure Seeker', 'Dog Parent'],
+      bio: 'Weekend hiker, weekday coder.',
+      location: 'Austin, TX'
+    },
+    status: 'sent',
+    sentAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'drop-match-3',
+    candidate: {
+      id: 'aria',
+      name: 'Aria',
+      age: 25,
+      lastActiveAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+      avatarUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
+      vibeTags: ['Bookworm', 'Wine Lover'],
+      bio: 'Currently reading: too many books.',
+      location: 'Seattle, WA'
+    },
+    status: 'received',
+    sentAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: 'drop-match-4',
+    candidate: {
+      id: 'marcus',
+      name: 'Marcus',
+      age: 30,
+      lastActiveAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+      avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
+      vibeTags: ['Musician', 'Vinyl Collector'],
+      bio: 'Jazz enthusiast.',
+      location: 'Chicago, IL'
+    },
+    status: 'passed',
+    sentAt: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
+  },
+];
+
 const Matches = () => {
   const navigate = useNavigate();
   const { data: matches = [], isLoading } = useMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const [activeTab, setActiveTab] = useState("conversations");
+
+  // Count pending drops
+  const pendingDropsCount = MOCK_DROPS.filter(d => d.status === 'received' || d.status === 'sent').length;
+  const matchedDropsCount = MOCK_DROPS.filter(d => d.status === 'matched').length;
 
   // Separate new vibes (matches within 24h) from regular matches
   const { newVibes, regularMatches } = useMemo(() => {
@@ -91,6 +164,17 @@ const Matches = () => {
     });
   };
 
+  const handleOpenDropChat = (dropId: string) => {
+    const drop = MOCK_DROPS.find(d => d.id === dropId);
+    if (drop) {
+      navigate(`/chat/${drop.candidate.id}`);
+    }
+  };
+
+  const handleViewDropProfile = (dropId: string) => {
+    toast.info("Viewing profile...");
+  };
+
   const sortOptions: { value: SortOption; label: string }[] = [
     { value: "recent", label: "Most Recent" },
     { value: "unread", label: "Unread First" },
@@ -116,8 +200,27 @@ const Matches = () => {
             )}
           </div>
 
-          {/* Search and filter bar */}
-          {matches.length > 0 && (
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-3">
+              <TabsTrigger value="conversations" className="text-sm">
+                <MessageCircle className="w-4 h-4 mr-1.5" />
+                Chats
+              </TabsTrigger>
+              <TabsTrigger value="drops" className="text-sm relative">
+                <Droplet className="w-4 h-4 mr-1.5" />
+                Daily Drops
+                {pendingDropsCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-neon-cyan text-[10px] font-bold text-background flex items-center justify-center">
+                    {pendingDropsCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {/* Search and filter bar - only for conversations */}
+          {activeTab === 'conversations' && matches.length > 0 && (
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -161,124 +264,140 @@ const Matches = () => {
       </header>
 
       <main className="max-w-lg mx-auto">
-        {isLoading ? (
-          <div className="p-4 space-y-4">
-            {/* Skeleton for New Vibes Rail */}
-            <div className="glass-card p-4 rounded-2xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Skeleton className="w-8 h-8 rounded-full" />
-                <div className="space-y-1">
-                  <Skeleton className="h-4 w-20" />
-                  <Skeleton className="h-3 w-24" />
+        {/* Conversations Tab */}
+        {activeTab === 'conversations' && (
+          <>
+            {isLoading ? (
+              <div className="p-4 space-y-4">
+                {/* Skeleton for New Vibes Rail */}
+                <div className="glass-card p-4 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Skeleton className="w-8 h-8 rounded-full" />
+                    <div className="space-y-1">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                  </div>
+                  <div className="flex gap-4">
+                    {Array(4)
+                      .fill(0)
+                      .map((_, i) => (
+                        <div key={i} className="flex flex-col items-center gap-2">
+                          <Skeleton className="w-20 h-20 rounded-full" />
+                          <Skeleton className="h-3 w-12" />
+                        </div>
+                      ))}
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-4">
-                {Array(4)
+
+                {/* Skeleton for chat list */}
+                {Array(5)
                   .fill(0)
                   .map((_, i) => (
-                    <div key={i} className="flex flex-col items-center gap-2">
-                      <Skeleton className="w-20 h-20 rounded-full" />
-                      <Skeleton className="h-3 w-12" />
+                    <div key={i} className="flex items-center gap-4 p-4">
+                      <Skeleton className="w-14 h-14 rounded-full" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-4 w-48" />
+                        <div className="flex gap-2">
+                          <Skeleton className="h-5 w-16 rounded-full" />
+                          <Skeleton className="h-5 w-16 rounded-full" />
+                        </div>
+                      </div>
                     </div>
                   ))}
               </div>
-            </div>
+            ) : matches.length > 0 ? (
+              <>
+                {/* New Vibes Rail */}
+                <NewVibesRail
+                  vibes={newVibes}
+                  onVibeClick={(id) => navigate(`/chat/${id}`)}
+                />
 
-            {/* Skeleton for chat list */}
-            {Array(5)
-              .fill(0)
-              .map((_, i) => (
-                <div key={i} className="flex items-center gap-4 p-4">
-                  <Skeleton className="w-14 h-14 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-5 w-32" />
-                    <Skeleton className="h-4 w-48" />
-                    <div className="flex gap-2">
-                      <Skeleton className="h-5 w-16 rounded-full" />
-                      <Skeleton className="h-5 w-16 rounded-full" />
-                    </div>
+                {/* Section divider */}
+                {regularMatches.length > 0 && (
+                  <div className="px-4 py-2 flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                      Conversations
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
-                </div>
-              ))}
-          </div>
-        ) : matches.length > 0 ? (
-          <>
-            {/* New Vibes Rail */}
-            <NewVibesRail
-              vibes={newVibes}
-              onVibeClick={(id) => navigate(`/chat/${id}`)}
-            />
+                )}
 
-            {/* Section divider */}
-            {regularMatches.length > 0 && (
-              <div className="px-4 py-2 flex items-center gap-3">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                  Conversations
-                </span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-            )}
-
-            {/* Chat list */}
-            <AnimatePresence mode="popLayout">
-              {filteredMatches.length > 0 ? (
-                <div className="divide-y divide-border/50">
-                  {filteredMatches.map((match, index) => (
+                {/* Chat list */}
+                <AnimatePresence mode="popLayout">
+                  {filteredMatches.length > 0 ? (
+                    <div className="divide-y divide-border/50">
+                      {filteredMatches.map((match, index) => (
+                        <motion.div
+                          key={match.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, x: -100 }}
+                          transition={{ delay: index * 0.03 }}
+                        >
+                          <SwipeableMatchCard
+                            {...match}
+                            onClick={() => navigate(`/chat/${match.id}`)}
+                            onViewProfile={() =>
+                              handleViewProfile(match.id, match.name)
+                            }
+                            onUnmatch={() => handleUnmatch(match.name)}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  ) : searchQuery ? (
                     <motion.div
-                      key={match.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -100 }}
-                      transition={{ delay: index * 0.03 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex flex-col items-center py-12 px-4 text-center"
                     >
-                      <SwipeableMatchCard
-                        {...match}
-                        onClick={() => navigate(`/chat/${match.id}`)}
-                        onViewProfile={() =>
-                          handleViewProfile(match.id, match.name)
-                        }
-                        onUnmatch={() => handleUnmatch(match.name)}
-                      />
+                      <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4">
+                        <Search className="w-8 h-8 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-lg font-display font-semibold text-foreground mb-2">
+                        No matches found
+                      </h3>
+                      <p className="text-muted-foreground text-sm">
+                        Try a different search term
+                      </p>
                     </motion.div>
-                  ))}
-                </div>
-              ) : searchQuery ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex flex-col items-center py-12 px-4 text-center"
-                >
-                  <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4">
-                    <Search className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-lg font-display font-semibold text-foreground mb-2">
-                    No matches found
-                  </h3>
-                  <p className="text-muted-foreground text-sm">
-                    Try a different search term
-                  </p>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
+                  ) : null}
+                </AnimatePresence>
 
-            {/* Tip at bottom */}
-            {regularMatches.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-                className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50"
-              >
-                <p className="text-sm text-muted-foreground text-center">
-                  <span className="text-primary">Pro tip:</span> Swipe right to
-                  view their profile, left to unmatch
-                </p>
-              </motion.div>
+                {/* Tip at bottom */}
+                {regularMatches.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                    className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50"
+                  >
+                    <p className="text-sm text-muted-foreground text-center">
+                      <span className="text-primary">Pro tip:</span> Swipe right to
+                      view their profile, left to unmatch
+                    </p>
+                  </motion.div>
+                )}
+              </>
+            ) : (
+              <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
             )}
           </>
-        ) : (
-          <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
+        )}
+
+        {/* Daily Drops Tab */}
+        {activeTab === 'drops' && (
+          <div className="p-4">
+            <DropsTabContent
+              drops={MOCK_DROPS}
+              onOpenChat={handleOpenDropChat}
+              onViewProfile={handleViewDropProfile}
+            />
+          </div>
         )}
       </main>
 
