@@ -28,10 +28,15 @@ export function usePushNotifications() {
 
   // Request permission
   const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!isSupported) return false;
+    if (!isSupported) {
+      console.warn('Push notifications not supported on this platform');
+      return false;
+    }
     
     try {
+      // This triggers the browser's native permission dialog
       const result = await Notification.requestPermission();
+      console.log('Notification permission result:', result);
       setPermission(result);
       localStorage.setItem(NOTIFICATION_PERMISSION_KEY, result);
       return result === 'granted';
