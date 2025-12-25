@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Sparkles, Calendar, Video, Heart } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -7,6 +8,8 @@ interface EmptyMatchesStateProps {
 }
 
 export const EmptyMatchesState = ({ onBrowseEvents }: EmptyMatchesStateProps) => {
+  const navigate = useNavigate();
+  
   const features = [
     { icon: Video, text: "5-minute video dates" },
     { icon: Heart, text: "Real connections" },
@@ -99,6 +102,7 @@ export const EmptyMatchesState = ({ onBrowseEvents }: EmptyMatchesStateProps) =>
       <motion.button
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
+        onClick={() => navigate("/how-it-works")}
         className="mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         How does Vibely work? →

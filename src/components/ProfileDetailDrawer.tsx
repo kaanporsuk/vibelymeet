@@ -64,6 +64,11 @@ interface ProfileDetailDrawerProps {
     image: string;
     vibes: string[];
     compatibility?: number;
+    photos?: string[];
+    job?: string;
+    location?: string;
+    height?: number;
+    bio?: string;
   };
   trigger: React.ReactNode;
   onMessage: () => void;
@@ -81,7 +86,18 @@ export const ProfileDetailDrawer = ({
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const photos = mockProfileData.photos;
+  // Use photos from match prop if available, otherwise fall back to mock data
+  const photos = match.photos && match.photos.length > 0 
+    ? match.photos 
+    : mockProfileData.photos;
+  
+  const profileData = {
+    job: match.job || mockProfileData.job,
+    location: match.location || mockProfileData.location,
+    height: match.height || mockProfileData.height,
+    bio: match.bio || mockProfileData.bio,
+  };
+  
   const compatibility = match.compatibility ?? Math.floor(Math.random() * 15) + 85;
 
   const nextPhoto = () => {
@@ -240,22 +256,22 @@ export const ProfileDetailDrawer = ({
                     {match.name}, {match.age}
                   </h2>
                   <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
-                    {mockProfileData.job && (
+                    {profileData.job && (
                       <span className="flex items-center gap-1">
                         <Briefcase className="w-4 h-4" />
-                        {mockProfileData.job}
+                        {profileData.job}
                       </span>
                     )}
-                    {mockProfileData.location && (
+                    {profileData.location && (
                       <span className="flex items-center gap-1">
                         <MapPin className="w-4 h-4" />
-                        {mockProfileData.location}
+                        {profileData.location}
                       </span>
                     )}
-                    {mockProfileData.height && (
+                    {profileData.height && (
                       <span className="flex items-center gap-1">
                         <Ruler className="w-4 h-4" />
-                        {mockProfileData.height} cm
+                        {profileData.height} cm
                       </span>
                     )}
                   </div>
@@ -336,10 +352,46 @@ export const ProfileDetailDrawer = ({
             </motion.div>
 
             {/* Bio */}
+            {/* Photo Gallery */}
+            {photos.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="glass-card p-5 rounded-2xl"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-lg">📸</span>
+                  <h3 className="font-display font-semibold text-foreground">Photos</h3>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {photos.map((photo, index) => (
+                    <motion.div
+                      key={index}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="relative aspect-square rounded-xl overflow-hidden cursor-pointer"
+                      onClick={() => setCurrentPhotoIndex(index)}
+                    >
+                      <img
+                        src={photo}
+                        alt={`${match.name}'s photo ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                      {index === currentPhotoIndex && (
+                        <div className="absolute inset-0 border-2 border-primary rounded-xl" />
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Bio */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
+              transition={{ delay: 0.2 }}
               className="glass-card p-5 rounded-2xl"
             >
               <div className="flex items-center gap-2 mb-3">
@@ -347,7 +399,7 @@ export const ProfileDetailDrawer = ({
                 <h3 className="font-display font-semibold text-foreground">About Me</h3>
               </div>
               <p className="text-muted-foreground leading-relaxed">
-                {mockProfileData.bio}
+                {profileData.bio}
               </p>
             </motion.div>
 
@@ -355,7 +407,7 @@ export const ProfileDetailDrawer = ({
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
+              transition={{ delay: 0.25 }}
               className="space-y-4"
             >
               {mockProfileData.prompts.map((prompt, index) => (
@@ -363,7 +415,7 @@ export const ProfileDetailDrawer = ({
                   key={prompt.question}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 + index * 0.05 }}
+                  transition={{ delay: 0.25 + index * 0.05 }}
                   className="glass-card p-5 rounded-2xl"
                 >
                   <p className="text-sm text-primary font-medium mb-2">

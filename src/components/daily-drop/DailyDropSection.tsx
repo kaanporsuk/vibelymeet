@@ -1,18 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RotateCcw, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useDailyDrop } from '@/hooks/useDailyDrop';
 import { DropZoneWidget } from './DropZoneWidget';
 import { DropRevealScreen } from './DropRevealScreen';
 import { VibeSentSuccess } from './VibeSentSuccess';
 import { VibeReplyModal } from './VibeReplyModal';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { useAuth } from '@/contexts/AuthContext';
 
 export function DailyDropSection() {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const {
     state,
     currentDrop,
@@ -20,8 +17,7 @@ export function DailyDropSection() {
     isLoading,
     unlockDrop,
     sendVibeReply,
-    passDrop,
-    resetHistory
+    passDrop
   } = useDailyDrop();
 
   const [showSuccess, setShowSuccess] = useState(false);
@@ -104,18 +100,6 @@ export function DailyDropSection() {
         <h2 className="text-lg font-display font-semibold text-foreground">
           Daily Drop
         </h2>
-        {/* Dev/Test: Reset button - only show for authenticated users */}
-        {user && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={resetHistory}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            <RotateCcw className="w-3 h-3 mr-1" />
-            Reset
-          </Button>
-        )}
       </div>
       
       <DropZoneWidget

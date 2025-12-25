@@ -19,11 +19,11 @@ import MatchCelebration from "./pages/MatchCelebration";
 import VibeStudio from "./pages/VibeStudio";
 import VibeFeed from "./pages/VibeFeed";
 import Schedule from "./pages/Schedule";
+import HowItWorks from "./pages/HowItWorks";
 import NotFound from "./pages/NotFound";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
-import NotificationDemo from "./components/notifications/NotificationDemo";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -37,7 +37,6 @@ const App = () => (
           <Sonner position="top-center" theme="dark" />
           <BrowserRouter>
             <NotificationContainer />
-            <NotificationDemo />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />
@@ -55,6 +54,7 @@ const App = () => (
               <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
               <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
               <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
+              <Route path="/how-it-works" element={<HowItWorks />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
