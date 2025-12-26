@@ -14,6 +14,7 @@ import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useNotifications } from "@/contexts/NotificationContext";
 import { differenceInSeconds } from "date-fns";
 
 const Dashboard = () => {
@@ -24,9 +25,15 @@ const Dashboard = () => {
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
   const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
+  const { unreadCount, markAllAsRead } = useNotifications();
   
   const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  const handleNotificationClick = () => {
+    markAllAsRead();
+    setShowNotificationFlow(true);
+  };
 
   // Schedule daily drop notification when granted
   useEffect(() => {
@@ -101,7 +108,8 @@ const Dashboard = () => {
             )}
             <NotificationPermissionButton
               isGranted={isGranted}
-              onClick={() => setShowNotificationFlow(true)}
+              onClick={handleNotificationClick}
+              unreadCount={unreadCount}
             />
             <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
               <Sparkles className="w-5 h-5 text-white" />

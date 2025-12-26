@@ -55,8 +55,10 @@ export type NotificationInput = MatchNotificationInput | MessageNotificationInpu
 
 interface NotificationContextType {
   notifications: Notification[];
+  unreadCount: number;
   addNotification: (notification: NotificationInput) => string;
   dismissNotification: (id: string) => void;
+  markAllAsRead: () => void;
   clearAll: () => void;
 }
 
@@ -67,6 +69,9 @@ const generateId = () => `notification-${++notificationId}-${Date.now()}`;
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+
+  const unreadCount = notifications.filter(n => !n.dismissed && !readIds.has(n.id)).length;
 
   const addNotification = useCallback((notification: NotificationInput) => {
     const id = generateId();
@@ -90,14 +95,28 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const dismissNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
   }, []);
+
+  const markAllAsRead = useCallback(() => {
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      notifications.forEach(n => next.add(n.id));
+      return next;
+    });
+  }, [notifications]);
 
   const clearAll = useCallback(() => {
     setNotifications([]);
+    setReadIds(new Set());
   }, []);
 
   return (
-    <NotificationContext.Provider value={{ notifications, addNotification, dismissNotification, clearAll }}>
+    <NotificationContext.Provider value={{ notifications, unreadCount, addNotification, dismissNotification, markAllAsRead, clearAll }}>
       {children}
     </NotificationContext.Provider>
   );

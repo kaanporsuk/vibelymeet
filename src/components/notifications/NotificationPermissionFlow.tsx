@@ -170,19 +170,30 @@ export function NotificationPermissionFlow({
   );
 }
 
-// Mini trigger button for Dashboard
+// Mini trigger button for Dashboard - now takes unreadCount
 export function NotificationPermissionButton({
   isGranted,
   onClick,
+  unreadCount = 0,
 }: {
   isGranted: boolean;
   onClick: () => void;
+  unreadCount?: number;
 }) {
   if (isGranted) {
     return (
-      <div className="p-2 rounded-full bg-emerald-500/20 text-emerald-400">
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={onClick}
+        className="relative p-2 rounded-full bg-emerald-500/20 text-emerald-400"
+      >
         <BellRing className="w-5 h-5" />
-      </div>
+        {unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground flex items-center justify-center">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </motion.button>
     );
   }
 
