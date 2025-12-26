@@ -129,7 +129,7 @@ const calculateVibeScore = (profile: UserProfile): number => {
   return Math.min(score, 100);
 };
 
-type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | null;
+type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | null;
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -194,42 +194,36 @@ const Profile = () => {
           </button>
         </div>
 
-        {/* Profile Photo / Vibe Video with Update Button */}
+        {/* Profile Photo with Update Button - Always show main photo */}
         <div className="absolute -bottom-16 left-1/2 -translate-x-1/2">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="relative"
           >
-            {profile.vibeVideoUrl ? (
-              <div className="relative w-32 h-32 rounded-3xl overflow-hidden border-4 border-background shadow-2xl">
-                <VibePlayer
-                  videoUrl={profile.vibeVideoUrl}
-                  vibeCaption={profile.vibeCaption}
-                  isOwner
-                  onUpdateClick={() => setShowVibeStudio(true)}
-                  className="w-full h-full"
-                />
-              </div>
-            ) : (
-              <img
-                src={profile.photos[0]}
-                alt={profile.name}
-                className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
-              />
-            )}
+            <img
+              src={profile.photos[0]}
+              alt={profile.name}
+              className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
+            />
             
-            {/* Update Vibe / Camera Button */}
+            {/* Camera Button for photos */}
             <button 
-              onClick={() => profile.vibeVideoUrl ? setShowVibeStudio(true) : openDrawer("photos")}
+              onClick={() => openDrawer("photos")}
               className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center shadow-lg neon-glow-violet"
             >
-              {profile.vibeVideoUrl ? (
-                <Pencil className="w-5 h-5 text-primary-foreground" />
-              ) : (
-                <Camera className="w-5 h-5 text-primary-foreground" />
-              )}
+              <Camera className="w-5 h-5 text-primary-foreground" />
             </button>
+            
+            {/* Vibe Video indicator */}
+            {profile.vibeVideoUrl && (
+              <button
+                onClick={() => openDrawer("vibe-video")}
+                className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
+              >
+                <Video className="w-4 h-4 text-background" />
+              </button>
+            )}
             
             {profile.verified && (
               <div className="absolute -top-1 -right-1">
@@ -811,6 +805,87 @@ const Profile = () => {
         onClose={() => setShowWizard(false)}
         onComplete={() => setShowWizard(false)}
       />
+
+      {/* Vibe Video Drawer */}
+      <Drawer open={activeDrawer === "vibe-video"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display flex items-center gap-2">
+              <Video className="w-5 h-5 text-neon-cyan" />
+              My Vibe Video
+            </DrawerTitle>
+            <DrawerDescription>
+              Your 15-second video intro. Show your personality!
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4 overflow-y-auto">
+            {profile.vibeVideoUrl ? (
+              <div className="space-y-4">
+                <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
+                  <VibePlayer
+                    videoUrl={profile.vibeVideoUrl}
+                    vibeCaption={profile.vibeCaption}
+                    isOwner
+                    onUpdateClick={() => {
+                      setActiveDrawer(null);
+                      setShowVibeStudio(true);
+                    }}
+                    className="w-full h-full"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setProfile({ ...profile, vibeVideoUrl: null });
+                      setActiveDrawer(null);
+                    }}
+                  >
+                    Delete Video
+                  </Button>
+                  <Button
+                    variant="gradient"
+                    className="flex-1"
+                    onClick={() => {
+                      setActiveDrawer(null);
+                      setShowVibeStudio(true);
+                    }}
+                  >
+                    Update Video
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 space-y-4">
+                <div className="w-20 h-20 mx-auto rounded-full bg-neon-cyan/20 flex items-center justify-center">
+                  <Video className="w-10 h-10 text-neon-cyan" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground mb-1">No Vibe Video Yet</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Record a 15-second intro to stand out from the crowd
+                  </p>
+                </div>
+                <Button
+                  variant="gradient"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    setShowVibeStudio(true);
+                  }}
+                >
+                  Record My Vibe
+                </Button>
+              </div>
+            )}
+          </div>
+          <DrawerFooter>
+            <DrawerClose asChild>
+              <Button variant="ghost">Close</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
       {/* Vibe Studio Modal */}
       <VibeStudioModal

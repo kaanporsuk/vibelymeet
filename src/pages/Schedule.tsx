@@ -17,16 +17,26 @@ import { toast } from "sonner";
 
 const SchedulePage = () => {
   const navigate = useNavigate();
-  const { proposals, respondToProposal, getTimeBlockInfo } = useSchedule();
+  const { proposals, respondToProposal, getTimeBlockInfo, mySchedule, toggleSlot } = useSchedule();
   const { addNotification } = useNotifications();
   const { reminders, imminentReminders, soonReminders } = useDateReminders(proposals);
   const { isGranted, requestPermission } = usePushNotifications();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+  const [, forceUpdate] = useState({});
 
   const handleAcceptProposal = (proposalId: string) => {
     const proposal = proposals.find(p => p.id === proposalId);
     respondToProposal(proposalId, true);
-    toast.success("Date accepted!");
+    
+    // Add the accepted date to the schedule
+    if (proposal) {
+      toggleSlot(proposal.date, proposal.block);
+    }
+    
+    // Force re-render to update VibeSchedule
+    forceUpdate({});
+    
+    toast.success("Date accepted and added to your schedule!");
     
     // Send notification to proposer (mock)
     if (proposal?.senderName) {
@@ -63,7 +73,7 @@ const SchedulePage = () => {
   const upcomingReminders = [...imminentReminders, ...soonReminders];
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col">
+    <div className="min-h-[100dvh] bg-background flex flex-col pb-20">
       {/* Notification Permission Flow */}
       <NotificationPermissionFlow
         open={showNotificationFlow}
@@ -92,7 +102,7 @@ const SchedulePage = () => {
         />
       </header>
 
-      {/* Schedule Content */}
+      {/* Schedule Content - Scrollable */}
       <motion.main
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -116,14 +126,16 @@ const SchedulePage = () => {
           </div>
         )}
 
-        <VibeSchedule />
+        <VibeSchedule key={Object.keys(mySchedule).length} />
         
         {/* My Dates Section */}
-        <MyDatesSection
-          proposals={proposals}
-          onAccept={handleAcceptProposal}
-          onDecline={handleDeclineProposal}
-        />
+        <div className="pb-4">
+          <MyDatesSection
+            proposals={proposals}
+            onAccept={handleAcceptProposal}
+            onDecline={handleDeclineProposal}
+          />
+        </div>
       </motion.main>
 
       <BottomNav />

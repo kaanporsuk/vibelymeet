@@ -12,6 +12,7 @@ import EventDetails from "./pages/EventDetails";
 import Matches from "./pages/Matches";
 import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
 import VideoLobby from "./pages/VideoLobby";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
@@ -47,6 +48,7 @@ const App = () => (
               <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
               <Route path="/chat/:id" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
               <Route path="/lobby" element={<ProtectedRoute><VideoLobby /></ProtectedRoute>} />
               <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
