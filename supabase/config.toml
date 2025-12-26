@@ -1,1 +1,4 @@
 project_id = "schdyxcunwcvddlcshwd"
+
+[functions.webrtc-signaling]
+verify_jwt = false
