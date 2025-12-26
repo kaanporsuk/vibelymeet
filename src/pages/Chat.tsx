@@ -30,6 +30,7 @@ import { ScavengerCreator } from "@/components/arcade/creators/ScavengerCreator"
 import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
 import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
+import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -183,6 +184,9 @@ const Chat = () => {
   const [gameMessages, setGameMessages] = useState<GameMessage[]>(generateMockGameMessages);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Real-time message subscription
+  useRealtimeMessages({ matchId: id || null, enabled: !!id });
 
   // Game creation handlers
   const createGameMessage = (payload: GamePayload): GameMessage => ({
