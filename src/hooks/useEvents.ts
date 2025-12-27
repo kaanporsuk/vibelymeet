@@ -23,7 +23,7 @@ export const useEvents = () => {
       
       const { data, error } = await supabase
         .from("events")
-        .select("*")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
         .gte("event_date", now) // Only fetch future events
         .order("event_date", { ascending: true });
 
@@ -54,7 +54,7 @@ export const useNextEvent = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("events")
-        .select("*")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
         .gte("event_date", new Date().toISOString())
         .order("event_date", { ascending: true })
         .limit(1)

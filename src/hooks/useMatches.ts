@@ -45,7 +45,7 @@ export const useMatches = (userId: string = DEMO_USER_ID) => {
 
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at")
         .in("id", otherProfileIds);
 
       // Get vibes for these profiles
