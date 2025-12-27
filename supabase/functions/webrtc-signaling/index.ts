@@ -1,11 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Type definitions for WebRTC (Deno doesn't have these by default)
+// Initialize Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// Type definitions for WebRTC
 interface RTCSessionDescription {
   type: string;
   sdp: string;
@@ -17,7 +23,7 @@ interface RTCIceCandidate {
   sdpMLineIndex?: number;
 }
 
-// In-memory store for signaling (in production, use Redis or Supabase Realtime)
+// In-memory store for signaling
 const rooms = new Map<string, {
   participants: Map<string, { 
     socket: WebSocket;
@@ -34,6 +40,71 @@ interface SignalingMessage {
   userId: string;
   targetUserId?: string;
   payload?: any;
+  token?: string; // JWT token for authentication
+}
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Validate UUID format
+function isValidUUID(id: string): boolean {
+  return UUID_REGEX.test(id);
+}
+
+// Authenticate user from JWT token
+async function authenticateUser(token: string): Promise<string | null> {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.log("Authentication failed:", error?.message);
+      return null;
+    }
+    return user.id;
+  } catch (error) {
+    console.error("Auth error:", error);
+    return null;
+  }
+}
+
+// Extract token from Authorization header
+function extractToken(authHeader: string | null): string | null {
+  if (!authHeader) return null;
+  const parts = authHeader.split(' ');
+  if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+    return parts[1];
+  }
+  return null;
+}
+
+// Validate room access - check if user is a participant in the video session
+async function validateRoomAccess(userId: string, roomId: string): Promise<boolean> {
+  try {
+    // Room ID should match a video session ID
+    const { data, error } = await supabase
+      .from('video_sessions')
+      .select('id, participant_1_id, participant_2_id')
+      .eq('id', roomId)
+      .maybeSingle();
+    
+    if (error) {
+      console.log("Room access check error:", error.message);
+      return false;
+    }
+    
+    if (!data) {
+      console.log("Room not found in video_sessions:", roomId);
+      // For now, allow room creation if no video session exists yet
+      // This supports the use case where session is created after room
+      return true;
+    }
+    
+    const hasAccess = data.participant_1_id === userId || data.participant_2_id === userId;
+    console.log(`Room access check for ${userId} in room ${roomId}: ${hasAccess}`);
+    return hasAccess;
+  } catch (error) {
+    console.error("Room validation error:", error);
+    return false;
+  }
 }
 
 serve(async (req) => {
@@ -44,6 +115,7 @@ serve(async (req) => {
 
   const { headers } = req;
   const upgradeHeader = headers.get("upgrade") || "";
+  const authHeader = headers.get("authorization");
 
   // Handle WebSocket upgrade for real-time signaling
   if (upgradeHeader.toLowerCase() === "websocket") {
@@ -51,37 +123,89 @@ serve(async (req) => {
     
     let currentRoom: string | null = null;
     let currentUserId: string | null = null;
+    let authenticatedUserId: string | null = null;
 
     socket.onopen = () => {
       console.log("WebSocket connection opened");
     };
 
-    socket.onmessage = (event) => {
+    socket.onmessage = async (event) => {
       try {
         const message: SignalingMessage = JSON.parse(event.data);
-        console.log("Received message:", message.type, "from:", message.userId);
+        console.log("Received message:", message.type);
 
-        switch (message.type) {
-          case 'join':
-            handleJoin(socket, message);
-            currentRoom = message.roomId;
-            currentUserId = message.userId;
-            break;
-          case 'offer':
-            handleOffer(message);
-            break;
-          case 'answer':
-            handleAnswer(message);
-            break;
-          case 'ice-candidate':
-            handleIceCandidate(message);
-            break;
-          case 'leave':
-            handleLeave(message);
-            break;
+        // Validate input - roomId and userId must be valid UUIDs
+        if (message.roomId && !isValidUUID(message.roomId)) {
+          socket.send(JSON.stringify({ type: 'error', message: 'Invalid room ID format' }));
+          return;
+        }
+        
+        if (message.userId && !isValidUUID(message.userId)) {
+          socket.send(JSON.stringify({ type: 'error', message: 'Invalid user ID format' }));
+          return;
+        }
+
+        // Authenticate on first join message
+        if (message.type === 'join') {
+          if (message.token) {
+            authenticatedUserId = await authenticateUser(message.token);
+          }
+          
+          if (!authenticatedUserId) {
+            socket.send(JSON.stringify({ type: 'error', message: 'Authentication required' }));
+            socket.close(4001, 'Unauthorized');
+            return;
+          }
+
+          // Verify the userId matches the authenticated user
+          if (message.userId !== authenticatedUserId) {
+            socket.send(JSON.stringify({ type: 'error', message: 'User ID mismatch' }));
+            socket.close(4003, 'Forbidden');
+            return;
+          }
+
+          // Validate room access
+          const hasAccess = await validateRoomAccess(authenticatedUserId, message.roomId);
+          if (!hasAccess) {
+            socket.send(JSON.stringify({ type: 'error', message: 'Access denied to this room' }));
+            socket.close(4003, 'Forbidden');
+            return;
+          }
+
+          handleJoin(socket, message);
+          currentRoom = message.roomId;
+          currentUserId = authenticatedUserId;
+        } else {
+          // For non-join messages, verify we're authenticated
+          if (!authenticatedUserId || !currentUserId) {
+            socket.send(JSON.stringify({ type: 'error', message: 'Not authenticated' }));
+            return;
+          }
+
+          // Verify the userId matches the authenticated user
+          if (message.userId !== authenticatedUserId) {
+            socket.send(JSON.stringify({ type: 'error', message: 'User ID mismatch' }));
+            return;
+          }
+
+          switch (message.type) {
+            case 'offer':
+              handleOffer(message);
+              break;
+            case 'answer':
+              handleAnswer(message);
+              break;
+            case 'ice-candidate':
+              handleIceCandidate(message);
+              break;
+            case 'leave':
+              handleLeave(message);
+              break;
+          }
         }
       } catch (error) {
         console.error("Error processing message:", error);
+        socket.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
       }
     };
 
@@ -99,15 +223,42 @@ serve(async (req) => {
     return response;
   }
 
-  // REST API endpoints for HTTP-based signaling
+  // REST API endpoints - require authentication
+  const token = extractToken(authHeader);
+  const authenticatedUserId = token ? await authenticateUser(token) : null;
+
   const url = new URL(req.url);
   const path = url.pathname.split('/').filter(Boolean);
 
   try {
     if (req.method === 'POST' && path[0] === 'room') {
-      // Create or join a room
+      // Require authentication
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const body = await req.json();
-      const { roomId, userId } = body;
+      const { roomId } = body;
+
+      // Validate roomId format
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Validate room access
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied to this room' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       if (!rooms.has(roomId)) {
         rooms.set(roomId, {
@@ -124,6 +275,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         success: true,
         roomId,
+        userId: authenticatedUserId, // Return the authenticated userId
         participantCount,
         message: participantCount === 0 ? 'Room created' : 'Joined room',
       }), {
@@ -132,8 +284,30 @@ serve(async (req) => {
     }
 
     if (req.method === 'POST' && path[0] === 'offer') {
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const body = await req.json();
-      const { roomId, userId, offer } = body;
+      const { roomId, offer } = body;
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       const room = rooms.get(roomId);
       if (!room) {
@@ -143,8 +317,8 @@ serve(async (req) => {
         });
       }
 
-      room.offers.set(userId, offer);
-      console.log(`Offer stored for user ${userId} in room ${roomId}`);
+      room.offers.set(authenticatedUserId, offer);
+      console.log(`Offer stored for user ${authenticatedUserId} in room ${roomId}`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -152,10 +326,31 @@ serve(async (req) => {
     }
 
     if (req.method === 'GET' && path[0] === 'offer') {
-      const roomId = url.searchParams.get('roomId');
-      const excludeUserId = url.searchParams.get('excludeUserId');
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-      const room = rooms.get(roomId || '');
+      const roomId = url.searchParams.get('roomId');
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const room = rooms.get(roomId);
       if (!room) {
         return new Response(JSON.stringify({ error: 'Room not found' }), {
           status: 404,
@@ -165,7 +360,7 @@ serve(async (req) => {
 
       // Get offer from another user
       for (const [userId, offer] of room.offers) {
-        if (userId !== excludeUserId) {
+        if (userId !== authenticatedUserId) {
           return new Response(JSON.stringify({ offer, fromUserId: userId }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
@@ -178,8 +373,37 @@ serve(async (req) => {
     }
 
     if (req.method === 'POST' && path[0] === 'answer') {
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const body = await req.json();
-      const { roomId, userId, targetUserId, answer } = body;
+      const { roomId, targetUserId, answer } = body;
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (targetUserId && !isValidUUID(targetUserId)) {
+        return new Response(JSON.stringify({ error: 'Invalid target user ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       const room = rooms.get(roomId);
       if (!room) {
@@ -189,8 +413,8 @@ serve(async (req) => {
         });
       }
 
-      room.answers.set(`${userId}->${targetUserId}`, answer);
-      console.log(`Answer stored from ${userId} to ${targetUserId}`);
+      room.answers.set(`${authenticatedUserId}->${targetUserId}`, answer);
+      console.log(`Answer stored from ${authenticatedUserId} to ${targetUserId}`);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -198,10 +422,31 @@ serve(async (req) => {
     }
 
     if (req.method === 'GET' && path[0] === 'answer') {
-      const roomId = url.searchParams.get('roomId');
-      const userId = url.searchParams.get('userId');
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-      const room = rooms.get(roomId || '');
+      const roomId = url.searchParams.get('roomId');
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const room = rooms.get(roomId);
       if (!room) {
         return new Response(JSON.stringify({ error: 'Room not found' }), {
           status: 404,
@@ -211,7 +456,7 @@ serve(async (req) => {
 
       // Find answer directed to this user
       for (const [key, answer] of room.answers) {
-        if (key.endsWith(`->${userId}`)) {
+        if (key.endsWith(`->${authenticatedUserId}`)) {
           const fromUserId = key.split('->')[0];
           return new Response(JSON.stringify({ answer, fromUserId }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -225,8 +470,30 @@ serve(async (req) => {
     }
 
     if (req.method === 'POST' && path[0] === 'ice-candidate') {
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const body = await req.json();
-      const { roomId, userId, candidate } = body;
+      const { roomId, candidate } = body;
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       const room = rooms.get(roomId);
       if (!room) {
@@ -236,10 +503,10 @@ serve(async (req) => {
         });
       }
 
-      if (!room.iceCandidates.has(userId)) {
-        room.iceCandidates.set(userId, []);
+      if (!room.iceCandidates.has(authenticatedUserId)) {
+        room.iceCandidates.set(authenticatedUserId, []);
       }
-      room.iceCandidates.get(userId)!.push(candidate);
+      room.iceCandidates.get(authenticatedUserId)!.push(candidate);
 
       return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -247,10 +514,31 @@ serve(async (req) => {
     }
 
     if (req.method === 'GET' && path[0] === 'ice-candidates') {
-      const roomId = url.searchParams.get('roomId');
-      const excludeUserId = url.searchParams.get('excludeUserId');
+      if (!authenticatedUserId) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
-      const room = rooms.get(roomId || '');
+      const roomId = url.searchParams.get('roomId');
+
+      if (!roomId || !isValidUUID(roomId)) {
+        return new Response(JSON.stringify({ error: 'Invalid room ID format' }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const hasAccess = await validateRoomAccess(authenticatedUserId, roomId);
+      if (!hasAccess) {
+        return new Response(JSON.stringify({ error: 'Access denied' }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const room = rooms.get(roomId);
       if (!room) {
         return new Response(JSON.stringify({ error: 'Room not found' }), {
           status: 404,
@@ -260,7 +548,7 @@ serve(async (req) => {
 
       const candidates: RTCIceCandidate[] = [];
       for (const [userId, userCandidates] of room.iceCandidates) {
-        if (userId !== excludeUserId) {
+        if (userId !== authenticatedUserId) {
           candidates.push(...userCandidates);
         }
       }
