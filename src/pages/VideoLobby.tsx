@@ -176,7 +176,6 @@ const VideoLobby = () => {
 
               <TipsCarousel />
             </div>
-            </div>
           </div>
         </div>
       </main>
