@@ -26,7 +26,7 @@ export const profileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -40,7 +40,7 @@ export const profileService = {
   async getProfile(profileId: string) {
     const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .eq("id", profileId)
       .maybeSingle();
 
@@ -188,7 +188,7 @@ export const profileService = {
   async getDiscoverableProfiles(excludeUserId?: string, limit = 50) {
     let query = supabase
       .from("profiles")
-      .select("*")
+      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -239,7 +239,7 @@ export const dailyDropService = {
       // Fetch candidate profile
       const { data: candidate } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
         .eq("id", todaysDrop.candidateId)
         .maybeSingle();
       
@@ -270,7 +270,7 @@ export const dailyDropService = {
     // Get active candidates (not in history, not the current user)
     const { data: profiles, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .neq("id", userId)
       .order("updated_at", { ascending: false })
       .limit(20);
@@ -392,7 +392,7 @@ export const messageService = {
     // Initial fetch
     supabase
       .from("messages")
-      .select("*")
+      .select("id, match_id, sender_id, content, created_at, read_at")
       .eq("match_id", matchId)
       .order("created_at", { ascending: true })
       .then(({ data }) => {
@@ -413,7 +413,7 @@ export const messageService = {
         async () => {
           const { data } = await supabase
             .from("messages")
-            .select("*")
+            .select("id, match_id, sender_id, content, created_at, read_at")
             .eq("match_id", matchId)
             .order("created_at", { ascending: true });
           
@@ -548,7 +548,7 @@ export const dateProposalService = {
 
 export const videoService = {
   /**
-   * Upload a video to storage
+   * Upload a video to storage and return signed URL
    */
   async uploadVideo(userId: string, videoBlob: Blob, type: 'intro' | 'reply' = 'intro'): Promise<string> {
     const filename = `${userId}/${type}-${Date.now()}.webm`;
@@ -562,15 +562,17 @@ export const videoService = {
 
     if (error) throw error;
 
-    const { data: { publicUrl } } = supabase.storage
+    // Use signed URL for private bucket (1 hour expiry)
+    const { data: signedData, error: signedError } = await supabase.storage
       .from('vibe-videos')
-      .getPublicUrl(data.path);
+      .createSignedUrl(data.path, 3600);
 
-    return publicUrl;
+    if (signedError) throw signedError;
+    return signedData.signedUrl;
   },
 
   /**
-   * Upload a photo to storage
+   * Upload a photo to storage and return signed URL
    */
   async uploadPhoto(userId: string, photoFile: File | Blob, index: number): Promise<string> {
     const ext = photoFile instanceof File ? photoFile.name.split('.').pop() || 'jpg' : 'jpg';
@@ -585,11 +587,25 @@ export const videoService = {
 
     if (error) throw error;
 
-    const { data: { publicUrl } } = supabase.storage
+    // Use signed URL for private bucket (1 hour expiry)
+    const { data: signedData, error: signedError } = await supabase.storage
       .from('vibe-videos')
-      .getPublicUrl(data.path);
+      .createSignedUrl(data.path, 3600);
 
-    return publicUrl;
+    if (signedError) throw signedError;
+    return signedData.signedUrl;
+  },
+
+  /**
+   * Get a signed URL for an existing file path
+   */
+  async getSignedUrl(path: string, expiresIn: number = 3600): Promise<string> {
+    const { data, error } = await supabase.storage
+      .from('vibe-videos')
+      .createSignedUrl(path, expiresIn);
+
+    if (error) throw error;
+    return data.signedUrl;
   },
 
   /**

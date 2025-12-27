@@ -279,6 +279,30 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limits: {
+        Row: {
+          messages_count: number | null
+          messages_window_start: string | null
+          uploads_count: number | null
+          uploads_window_start: string | null
+          user_id: string
+        }
+        Insert: {
+          messages_count?: number | null
+          messages_window_start?: string | null
+          uploads_count?: number | null
+          uploads_window_start?: string | null
+          user_id: string
+        }
+        Update: {
+          messages_count?: number | null
+          messages_window_start?: string | null
+          uploads_count?: number | null
+          uploads_window_start?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string

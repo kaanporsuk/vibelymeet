@@ -26,7 +26,7 @@ export const useProfile = (profileId: string) => {
     queryFn: async (): Promise<Profile | null> => {
       const { data: profile, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations")
         .eq("id", profileId)
         .maybeSingle();
 
@@ -68,7 +68,7 @@ export const useVibeTags = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("vibe_tags")
-        .select("*")
+        .select("id, label, emoji, category")
         .order("label");
 
       if (error) throw error;
