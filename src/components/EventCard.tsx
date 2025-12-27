@@ -1,8 +1,10 @@
+import { useState, useEffect } from "react";
 import { Calendar, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
 import { toast } from "sonner";
+import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface EventCardProps {
   id: string;
@@ -16,6 +18,7 @@ interface EventCardProps {
 }
 
 export const EventCard = ({
+  id,
   title,
   image,
   date,
@@ -24,19 +27,33 @@ export const EventCard = ({
   tags,
   isRegistered: initialRegistered = false,
 }: EventCardProps) => {
+  const queryClient = useQueryClient();
+  const { data: userRegistrations = [] } = useUserRegistrations();
+  const { registerForEvent } = useRegisterForEvent();
+  
   const [isRegistered, setIsRegistered] = useState(initialRegistered);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Sync with server registration state
+  useEffect(() => {
+    setIsRegistered(userRegistrations.includes(id));
+  }, [userRegistrations, id]);
+
   const handleRegister = async () => {
     setIsLoading(true);
-    // Optimistic UI
-    setIsRegistered(true);
     
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const success = await registerForEvent(id);
+    
+    if (success) {
+      setIsRegistered(true);
+      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      toast.success(`You're registered for ${title}! 🎉`);
+    } else {
+      toast.error("Failed to register. Please try again.");
+    }
     
     setIsLoading(false);
-    toast.success(`You're registered for ${title}! 🎉`);
   };
 
   return (

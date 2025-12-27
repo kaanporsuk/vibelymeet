@@ -44,7 +44,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useAuth } from "@/contexts/AuthContext";
+import { useLogout } from "@/hooks/useLogout";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { toast } from "sonner";
 
@@ -67,7 +67,7 @@ interface PrivacySettings {
 
 const Settings = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { handleLogout } = useLogout();
   const { isGranted, requestPermission } = usePushNotifications();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
@@ -91,14 +91,9 @@ const Settings = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigate("/");
-      toast.success("Logged out successfully");
-    } catch (error) {
-      toast.error("Failed to log out");
-    }
+  const onLogoutConfirm = async () => {
+    setShowLogoutDialog(false);
+    await handleLogout();
   };
 
   const handleDeleteAccount = () => {
@@ -403,7 +398,7 @@ const Settings = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout}>Log Out</AlertDialogAction>
+            <AlertDialogAction onClick={onLogoutConfirm}>Log Out</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

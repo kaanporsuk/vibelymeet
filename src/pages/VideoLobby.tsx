@@ -1,31 +1,67 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Loader2, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SelfCheckMirror } from "@/components/video-date/SelfCheckMirror";
 import { PartnerTeaseCard } from "@/components/video-date/PartnerTeaseCard";
 import { TipsCarousel } from "@/components/video-date/TipsCarousel";
+import { supabase } from "@/integrations/supabase/client";
 
-// Mock partner data with Vibe Video
-const MOCK_PARTNER = {
-  isBlindDate: false, // Changed to false so we can show the video
-  name: "Sarah",
+interface PartnerProfile {
+  name: string;
+  photo: string;
+  vibeTags: string[];
+  vibeVideoUrl: string | null;
+  vibeCaption: string;
+}
+
+// Default partner data
+const DEFAULT_PARTNER: PartnerProfile = {
+  name: "Your Match",
   photo: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop",
-  vibeTags: ["🎵 Techno Lover", "☕ Coffee Snob", "🌙 Night Owl", "📚 Bookworm"],
-  hasVibeVideo: true,
-  vibeVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-  vibeCaption: "Learning to DJ 🎧",
+  vibeTags: ["🎵 Music Lover", "☕ Coffee Enthusiast"],
+  vibeVideoUrl: null,
+  vibeCaption: "",
 };
 
 const VideoLobby = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const partnerId = searchParams.get("partnerId");
+  
+  const [partner, setPartner] = useState<PartnerProfile>(DEFAULT_PARTNER);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isBlurOn, setIsBlurOn] = useState(false);
   const [countdown, setCountdown] = useState(30);
   const [isReady, setIsReady] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+
+  // Fetch partner profile if partnerId provided
+  useEffect(() => {
+    const fetchPartner = async () => {
+      if (!partnerId) return;
+      
+      const { data } = await supabase
+        .from("profiles")
+        .select("name, avatar_url, bio")
+        .eq("id", partnerId)
+        .maybeSingle();
+      
+      if (data) {
+        setPartner({
+          name: data.name,
+          photo: data.avatar_url || DEFAULT_PARTNER.photo,
+          vibeTags: DEFAULT_PARTNER.vibeTags,
+          vibeVideoUrl: null, // Would fetch from storage if available
+          vibeCaption: data.bio?.slice(0, 50) || "",
+        });
+      }
+    };
+    
+    fetchPartner();
+  }, [partnerId]);
 
   // Countdown timer
   useEffect(() => {
@@ -107,7 +143,7 @@ const VideoLobby = () => {
             {/* Partner Card & Vibe Video */}
             <div className="flex flex-col gap-6 w-full max-w-sm">
               {/* Partner's Vibe Video (The Hype) */}
-              {MOCK_PARTNER.hasVibeVideo && isReady && (
+              {partner.vibeVideoUrl && isReady && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -115,7 +151,7 @@ const VideoLobby = () => {
                 >
                   <div className="relative aspect-[9/16] max-h-[300px]">
                     <video
-                      src={MOCK_PARTNER.vibeVideoUrl}
+                      src={partner.vibeVideoUrl}
                       className="w-full h-full object-cover"
                       autoPlay
                       loop
@@ -124,21 +160,22 @@ const VideoLobby = () => {
                     />
                     <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-background/90 to-transparent">
                       <p className="text-xs text-muted-foreground">Currently vibing on...</p>
-                      <p className="text-sm font-medium text-foreground">{MOCK_PARTNER.vibeCaption}</p>
+                      <p className="text-sm font-medium text-foreground">{partner.vibeCaption}</p>
                     </div>
                   </div>
                 </motion.div>
               )}
 
               <PartnerTeaseCard
-                isBlindDate={MOCK_PARTNER.isBlindDate}
-                partnerName={MOCK_PARTNER.name}
-                partnerPhoto={MOCK_PARTNER.photo}
-                vibeTags={MOCK_PARTNER.vibeTags}
+                isBlindDate={false}
+                partnerName={partner.name}
+                partnerPhoto={partner.photo}
+                vibeTags={partner.vibeTags}
                 countdown={countdown}
               />
 
               <TipsCarousel />
+            </div>
             </div>
           </div>
         </div>

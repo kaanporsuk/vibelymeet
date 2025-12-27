@@ -19,9 +19,12 @@ export const useEvents = () => {
   return useQuery({
     queryKey: ["events"],
     queryFn: async (): Promise<Event[]> => {
+      const now = new Date().toISOString();
+      
       const { data, error } = await supabase
         .from("events")
         .select("*")
+        .gte("event_date", now) // Only fetch future events
         .order("event_date", { ascending: true });
 
       if (error) throw error;

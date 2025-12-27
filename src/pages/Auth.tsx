@@ -259,10 +259,19 @@ const Auth = () => {
               </form>
 
               {/* Toggle Mode */}
-              <div className="text-center">
+              <div className="text-center space-y-2">
+                {mode === "signin" && (
+                  <button
+                    type="button"
+                    className="text-sm text-primary hover:text-primary/80 transition-colors"
+                    onClick={() => navigate("/reset-password")}
+                  >
+                    Forgot password?
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors block w-full"
                   onClick={() => {
                     setMode(mode === "signin" ? "signup" : "signin");
                     setError("");
