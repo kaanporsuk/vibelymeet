@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -29,6 +30,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const peerConnectionRef = useRef<PeerConnection | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+
+  // Get current auth token
+  const getAuthToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.access_token || null;
+    } catch (error) {
+      console.error("Failed to get auth token:", error);
+      return null;
+    }
+  }, []);
 
   // Check if media permissions are granted
   const checkPermissions = useCallback(async () => {
@@ -141,18 +153,27 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     return { pc, localStream, remoteStream };
   }, [options]);
 
-  // Connect to signaling server
-  const connectSignaling = useCallback((roomId: string, userId: string) => {
+  // Connect to signaling server with authentication
+  const connectSignaling = useCallback(async (roomId: string, userId: string) => {
+    console.log("Connecting to signaling server...");
+    
+    // Get auth token for authentication
+    const token = await getAuthToken();
+    if (!token) {
+      throw new Error("Authentication required for video calls");
+    }
+
     return new Promise<WebSocket>((resolve, reject) => {
-      console.log("Connecting to signaling server...");
       const ws = new WebSocket(SIGNALING_URL);
       
       ws.onopen = () => {
         console.log("Signaling connection opened");
+        // Send join message with authentication token
         ws.send(JSON.stringify({
           type: 'join',
           roomId,
           userId,
+          token, // Include auth token for server-side validation
         }));
         resolve(ws);
       };
@@ -162,13 +183,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         reject(error);
       };
 
-      ws.onclose = () => {
-        console.log("Signaling connection closed");
+      ws.onclose = (event) => {
+        console.log("Signaling connection closed:", event.code, event.reason);
+        if (event.code === 4001) {
+          toast.error("Authentication failed for video call");
+        } else if (event.code === 4003) {
+          toast.error("Access denied to this video room");
+        }
       };
 
       wsRef.current = ws;
     });
-  }, []);
+  }, [getAuthToken]);
 
   // Handle signaling messages
   const setupSignalingHandlers = useCallback((ws: WebSocket, peerConnection: PeerConnection) => {
@@ -177,6 +203,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       console.log("Signaling message received:", message.type);
 
       switch (message.type) {
+        case 'error':
+          console.error("Signaling error:", message.message);
+          toast.error(message.message || "Video call error");
+          break;
+
         case 'room-joined':
           console.log("Joined room, existing participants:", message.participants);
           // If there are existing participants, create offer
@@ -255,8 +286,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const startCall = useCallback(async (roomId?: string) => {
     setIsConnecting(true);
     
+    // Get authenticated user ID
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+      toast.error("Please sign in to start a video call");
+      setIsConnecting(false);
+      return false;
+    }
+    
     const callRoomId = roomId || options?.roomId || `room-${Date.now()}`;
-    const callUserId = options?.userId || `user-${Date.now()}`;
+    const callUserId = session.user.id; // Use authenticated user ID
     
     try {
       const hasAccess = await checkPermissions();
@@ -269,13 +308,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const peerConnection = createPeerConnection(localStream);
       peerConnectionRef.current = peerConnection;
 
-      // Connect to signaling server
+      // Connect to signaling server with authentication
       try {
         const ws = await connectSignaling(callRoomId, callUserId);
         setupSignalingHandlers(ws, peerConnection);
       } catch (error) {
         console.error("Failed to connect to signaling server:", error);
-        // Fall back to demo mode
+        // Fall back to demo mode for development
         console.log("Falling back to demo mode...");
         setTimeout(() => {
           setIsConnected(true);
@@ -294,14 +333,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, [checkPermissions, initializeMedia, createPeerConnection, connectSignaling, setupSignalingHandlers, options]);
 
   // End the call
-  const endCall = useCallback(() => {
+  const endCall = useCallback(async () => {
+    // Get current user ID for leave message
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id || options?.userId;
+
     // Close WebSocket
     if (wsRef.current) {
       if (wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'leave',
           roomId: options?.roomId,
-          userId: options?.userId,
+          userId,
         }));
       }
       wsRef.current.close();
