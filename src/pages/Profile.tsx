@@ -39,7 +39,7 @@ import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useLogout } from "@/hooks/useLogout";
 import {
   Drawer,
   DrawerClose,
@@ -133,6 +133,7 @@ type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | 
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { handleLogout } = useLogout();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState(initialProfile);
@@ -526,7 +527,7 @@ const Profile = () => {
         <Button
           variant="ghost"
           className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-          onClick={() => navigate("/")}
+          onClick={handleLogout}
         >
           <LogOut className="w-4 h-4 mr-2" />
           Log Out

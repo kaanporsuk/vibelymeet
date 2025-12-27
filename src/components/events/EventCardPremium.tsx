@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Users, Ticket, Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface EventCardPremiumProps {
   id: string;
@@ -42,23 +44,41 @@ export const EventCardPremium = ({
   vibeMatch = Math.floor(Math.random() * 20) + 80,
 }: EventCardPremiumProps) => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: userRegistrations = [] } = useUserRegistrations();
+  const { registerForEvent } = useRegisterForEvent();
+  
   const [isRegistered, setIsRegistered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
+  // Sync with server registration state
+  useEffect(() => {
+    setIsRegistered(userRegistrations.includes(id));
+  }, [userRegistrations, id]);
+
   const handleRegister = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    setIsRegistered(true);
-    setIsLoading(false);
-    setShowConfetti(true);
     
-    toast.success("You're on the list! 🎉", {
-      description: `See you at ${title}`,
-    });
+    const success = await registerForEvent(id);
+    
+    if (success) {
+      setIsRegistered(true);
+      setShowConfetti(true);
+      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      
+      toast.success("You're on the list! 🎉", {
+        description: `See you at ${title}`,
+      });
 
-    setTimeout(() => setShowConfetti(false), 1500);
+      setTimeout(() => setShowConfetti(false), 1500);
+    } else {
+      toast.error("Failed to register. Please try again.");
+    }
+    
+    setIsLoading(false);
   };
 
   return (
