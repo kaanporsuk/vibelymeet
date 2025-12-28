@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft,
   Bell,
-  BellOff,
   Shield,
   User,
   Lock,
@@ -12,10 +11,7 @@ import {
   EyeOff,
   LogOut,
   Trash2,
-  Moon,
-  Sun,
   Volume2,
-  VolumeX,
   ChevronRight,
   MessageSquare,
   Heart,
@@ -44,7 +40,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
 import { useLogout } from "@/hooks/useLogout";
+import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { toast } from "sonner";
 
@@ -68,6 +66,7 @@ interface PrivacySettings {
 const Settings = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
+  const { deleteAccount, isDeleting } = useDeleteAccount();
   const { isGranted, requestPermission } = usePushNotifications();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
@@ -96,10 +95,8 @@ const Settings = () => {
     await handleLogout();
   };
 
-  const handleDeleteAccount = () => {
-    toast.success("Account deletion requested. You'll receive an email confirmation.");
-    setShowDeleteDialog(false);
-    navigate("/");
+  const handleDeleteAccount = async () => {
+    await deleteAccount();
   };
 
   const updateNotification = (key: keyof NotificationSettings, value: boolean) => {
@@ -404,25 +401,12 @@ const Settings = () => {
       </AlertDialog>
 
       {/* Delete Account Confirmation */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action cannot be undone. All your data, matches, and conversations will be permanently deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteAccount}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete Account
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteAccountModal
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        onConfirm={handleDeleteAccount}
+        isDeleting={isDeleting}
+      />
 
       <BottomNav />
     </div>
