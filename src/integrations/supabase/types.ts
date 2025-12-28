@@ -227,55 +227,85 @@ export type Database = {
       }
       profiles: {
         Row: {
+          about_me: string | null
           age: number
           avatar_url: string | null
           bio: string | null
+          birth_date: string | null
+          company: string | null
           created_at: string
           events_attended: number | null
           gender: string
           height_cm: number | null
           id: string
+          interested_in: string[] | null
           job: string | null
+          lifestyle: Json | null
           location: string | null
+          location_data: Json | null
+          looking_for: string | null
           name: string
           photos: string[] | null
+          prompts: Json | null
+          tagline: string | null
           total_conversations: number | null
           total_matches: number | null
           updated_at: string
+          video_intro_url: string | null
         }
         Insert: {
+          about_me?: string | null
           age: number
           avatar_url?: string | null
           bio?: string | null
+          birth_date?: string | null
+          company?: string | null
           created_at?: string
           events_attended?: number | null
           gender: string
           height_cm?: number | null
           id: string
+          interested_in?: string[] | null
           job?: string | null
+          lifestyle?: Json | null
           location?: string | null
+          location_data?: Json | null
+          looking_for?: string | null
           name: string
           photos?: string[] | null
+          prompts?: Json | null
+          tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
           updated_at?: string
+          video_intro_url?: string | null
         }
         Update: {
+          about_me?: string | null
           age?: number
           avatar_url?: string | null
           bio?: string | null
+          birth_date?: string | null
+          company?: string | null
           created_at?: string
           events_attended?: number | null
           gender?: string
           height_cm?: number | null
           id?: string
+          interested_in?: string[] | null
           job?: string | null
+          lifestyle?: Json | null
           location?: string | null
+          location_data?: Json | null
+          looking_for?: string | null
           name?: string
           photos?: string[] | null
+          prompts?: Json | null
+          tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
           updated_at?: string
+          video_intro_url?: string | null
         }
         Relationships: []
       }

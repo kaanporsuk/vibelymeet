@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Settings, 
   LogOut, 
@@ -17,7 +17,9 @@ import {
   Wand2,
   Video,
   Pencil,
-  CalendarDays
+  CalendarDays,
+  Cake,
+  Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,7 @@ import { ProfilePrompt, PromptSelector } from "@/components/ProfilePrompt";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationBadge, VerificationSteps } from "@/components/VerificationBadge";
-import { HeightSelector, HeightDisplay } from "@/components/HeightSelector";
+import { HeightSelector } from "@/components/HeightSelector";
 import { ProfilePreview } from "@/components/ProfilePreview";
 import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
@@ -40,6 +42,7 @@ import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
+import { toast } from "sonner";
 import {
   Drawer,
   DrawerClose,
@@ -49,26 +52,42 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import {
+  fetchMyProfile,
+  updateMyProfile,
+  autoDetectLocation,
+  getZodiacSign,
+  getZodiacEmoji,
+  calculateAge,
+  type ProfileData,
+  type GeoLocation,
+} from "@/services/profileService";
 
 interface ProfilePromptData {
-  prompt: string;
+  question: string;
   answer: string;
 }
 
 interface UserProfile {
+  id: string;
   name: string;
-  age: number;
-  job: string;
-  heightCm: number;
-  location: string;
-  bio: string;
+  birthDate: Date | null;
+  age: number | null;
+  zodiac: string | null;
+  tagline: string | null;
+  job: string | null;
+  company: string | null;
+  heightCm: number | null;
+  location: string | null;
+  locationData: { lat: number; lng: number } | null;
+  aboutMe: string | null;
   photos: string[];
   vibes: string[];
   prompts: ProfilePromptData[];
-  relationshipIntent: string;
+  lookingFor: string | null;
   lifestyle: Record<string, string>;
   verified: boolean;
-  vibeVideoUrl: string | null;
+  videoIntroUrl: string | null;
   vibeCaption: string;
   stats: {
     events: number;
@@ -78,12 +97,18 @@ interface UserProfile {
 }
 
 const initialProfile: UserProfile = {
+  id: "",
   name: "Alex",
+  birthDate: new Date("1997-03-15"),
   age: 27,
+  zodiac: "Pisces",
+  tagline: null,
   job: "Product Designer",
+  company: null,
   heightCm: 180,
   location: "Brooklyn, NY",
-  bio: "Designing by day, DJing by night. Looking for someone who appreciates a good vinyl collection and late-night tacos.",
+  locationData: null,
+  aboutMe: "Designing by day, DJing by night. Looking for someone who appreciates a good vinyl collection and late-night tacos.",
   photos: [
     "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
     "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400",
@@ -92,18 +117,18 @@ const initialProfile: UserProfile = {
   ],
   vibes: ["Music Lover", "Foodie", "Night Owl", "Creative"],
   prompts: [
-    { prompt: "A shower thought I had recently", answer: "If aliens exist, they probably have their own dating apps too." },
-    { prompt: "The way to win me over", answer: "Surprise me with a spontaneous adventure. Bonus points for good snacks." },
-    { prompt: "I geek out on", answer: "" },
+    { question: "A shower thought I had recently", answer: "If aliens exist, they probably have their own dating apps too." },
+    { question: "The way to win me over", answer: "Surprise me with a spontaneous adventure. Bonus points for good snacks." },
+    { question: "I geek out on", answer: "" },
   ],
-  relationshipIntent: "relationship",
+  lookingFor: "relationship",
   lifestyle: {
     drinking: "sometimes",
     smoking: "never",
     exercise: "often",
   },
   verified: true,
-  vibeVideoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  videoIntroUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
   vibeCaption: "DJing & Vinyl Hunting 🎵",
   stats: {
     events: 8,
@@ -115,39 +140,137 @@ const initialProfile: UserProfile = {
 const calculateVibeScore = (profile: UserProfile): number => {
   let score = 0;
   if (profile.name) score += 8;
-  if (profile.age) score += 5;
+  if (profile.birthDate) score += 5;
   if (profile.job) score += 8;
   if (profile.heightCm) score += 5;
   if (profile.location) score += 5;
-  if (profile.bio && profile.bio.length > 20) score += 12;
+  if (profile.aboutMe && profile.aboutMe.length > 20) score += 12;
   score += Math.min(profile.photos.length * 8, 24);
   score += Math.min(profile.vibes.length * 3, 12);
   score += profile.prompts.filter(p => p.answer).length * 7;
-  if (profile.relationshipIntent) score += 5;
+  if (profile.lookingFor) score += 5;
   if (Object.keys(profile.lifestyle).length > 0) score += 5;
   if (profile.verified) score += 4;
+  if (profile.tagline) score += 2;
   return Math.min(score, 100);
 };
 
-type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | null;
+type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | "tagline" | null;
 
 const Profile = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
-  const [editForm, setEditForm] = useState(initialProfile);
+  const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+
+  // Fetch profile on mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await fetchMyProfile();
+        if (data) {
+          setProfile({
+            id: data.id,
+            name: data.name,
+            birthDate: data.birthDate,
+            age: data.age,
+            zodiac: data.zodiac,
+            tagline: data.tagline,
+            job: data.job,
+            company: data.company,
+            heightCm: data.heightCm,
+            location: data.location,
+            locationData: data.locationData,
+            aboutMe: data.aboutMe,
+            photos: data.photos,
+            vibes: data.vibes,
+            prompts: data.prompts.length > 0 ? data.prompts : initialProfile.prompts,
+            lookingFor: data.lookingFor,
+            lifestyle: data.lifestyle,
+            verified: false, // TODO: Add verification status to DB
+            videoIntroUrl: data.videoIntroUrl,
+            vibeCaption: "",
+            stats: data.stats,
+          });
+        }
+      } catch (error) {
+        console.error("Error loading profile:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProfile();
+  }, []);
 
   const vibeScore = calculateVibeScore(profile);
 
-  const handleSave = (type: DrawerType) => {
-    setProfile(editForm);
-    setActiveDrawer(null);
-    setEditingPromptIndex(null);
+  const handleSave = async (type: DrawerType) => {
+    setIsSaving(true);
+    try {
+      const updates: Partial<ProfileData> = {};
+
+      switch (type) {
+        case "basics":
+          updates.name = editForm.name;
+          updates.birthDate = editForm.birthDate;
+          updates.job = editForm.job;
+          updates.company = editForm.company;
+          updates.heightCm = editForm.heightCm;
+          updates.location = editForm.location;
+          updates.locationData = editForm.locationData;
+          break;
+        case "bio":
+          updates.aboutMe = editForm.aboutMe;
+          break;
+        case "vibes":
+          updates.vibes = editForm.vibes;
+          break;
+        case "intent":
+          updates.lookingFor = editForm.lookingFor;
+          break;
+        case "lifestyle":
+          updates.lifestyle = editForm.lifestyle;
+          break;
+        case "photos":
+          updates.photos = editForm.photos;
+          updates.avatarUrl = editForm.photos[0] || null;
+          break;
+        case "prompt":
+          updates.prompts = editForm.prompts;
+          break;
+        case "tagline":
+          updates.tagline = editForm.tagline;
+          break;
+      }
+
+      await updateMyProfile(updates);
+      
+      // Update local state with recalculated values
+      const updatedProfile = { ...editForm };
+      if (updatedProfile.birthDate) {
+        updatedProfile.age = calculateAge(updatedProfile.birthDate);
+        updatedProfile.zodiac = getZodiacSign(updatedProfile.birthDate);
+      }
+      
+      setProfile(updatedProfile);
+      setActiveDrawer(null);
+      setEditingPromptIndex(null);
+      toast.success("Profile updated!");
+    } catch (error) {
+      console.error("Error saving profile:", error);
+      toast.error("Failed to save changes");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const openDrawer = (type: DrawerType) => {
@@ -161,10 +284,42 @@ const Profile = () => {
     setActiveDrawer("prompt");
   };
 
+  const handleLocationDetect = async () => {
+    setIsDetectingLocation(true);
+    try {
+      const location: GeoLocation = await autoDetectLocation();
+      setEditForm(prev => ({
+        ...prev,
+        location: location.formatted,
+        locationData: { lat: location.lat, lng: location.lng },
+      }));
+      toast.success("Location detected!");
+    } catch (error) {
+      console.error("Location detection error:", error);
+      toast.error("Could not detect location. Please enter manually.");
+    } finally {
+      setIsDetectingLocation(false);
+    }
+  };
+
   const verificationSteps = [
     { id: "photo", label: "Photo verification", description: "Take a quick selfie", icon: Camera, completed: profile.verified },
     { id: "phone", label: "Phone number", description: "Verify your number", icon: Shield, completed: true },
   ];
+
+  // Format date for input
+  const formatDateForInput = (date: Date | null): string => {
+    if (!date) return "";
+    return date.toISOString().split("T")[0];
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -195,7 +350,7 @@ const Profile = () => {
           </button>
         </div>
 
-        {/* Profile Photo with Update Button - Always show main photo */}
+        {/* Profile Photo with Update Button */}
         <div className="absolute -bottom-16 left-1/2 -translate-x-1/2">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
@@ -203,7 +358,7 @@ const Profile = () => {
             className="relative"
           >
             <img
-              src={profile.photos[0]}
+              src={profile.photos[0] || "https://via.placeholder.com/128"}
               alt={profile.name}
               className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
             />
@@ -217,7 +372,7 @@ const Profile = () => {
             </button>
             
             {/* Vibe Video indicator */}
-            {profile.vibeVideoUrl && (
+            {profile.videoIntroUrl && (
               <button
                 onClick={() => openDrawer("vibe-video")}
                 className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
@@ -236,9 +391,9 @@ const Profile = () => {
       </div>
 
       <main className="max-w-lg mx-auto px-4 pt-20 space-y-5">
-        {/* Name & Location */}
+        {/* Name, Age, Zodiac & Location */}
         <motion.div 
-          className="text-center space-y-1"
+          className="text-center space-y-2"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -247,10 +402,37 @@ const Profile = () => {
             <h1 className="text-2xl font-display font-bold text-foreground">
               {profile.name}, {profile.age}
             </h1>
+            {profile.zodiac && (
+              <span className="text-lg" title={profile.zodiac}>
+                {getZodiacEmoji(profile.zodiac)}
+              </span>
+            )}
           </div>
+          
+          {/* Tagline */}
+          <div className="flex items-center justify-center gap-1">
+            {profile.tagline ? (
+              <button 
+                onClick={() => openDrawer("tagline")}
+                className="text-sm text-primary italic hover:underline flex items-center gap-1"
+              >
+                "{profile.tagline}"
+                <Pencil className="w-3 h-3" />
+              </button>
+            ) : (
+              <button 
+                onClick={() => openDrawer("tagline")}
+                className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1"
+              >
+                <Pencil className="w-3 h-3" />
+                Add tagline
+              </button>
+            )}
+          </div>
+          
           <div className="flex items-center justify-center gap-1 text-muted-foreground">
             <MapPin className="w-3 h-3" />
-            <span className="text-sm">{profile.location}</span>
+            <span className="text-sm">{profile.location || "Location not set"}</span>
           </div>
         </motion.div>
 
@@ -357,7 +539,7 @@ const Profile = () => {
               Edit <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          <RelationshipIntent selected={profile.relationshipIntent} />
+          <RelationshipIntent selected={profile.lookingFor || ""} />
         </motion.div>
 
         {/* Bio Section */}
@@ -377,7 +559,7 @@ const Profile = () => {
             </button>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            {profile.bio || "Write something that makes them swipe right..."}
+            {profile.aboutMe || "Write something that makes them swipe right..."}
           </p>
         </motion.div>
 
@@ -395,7 +577,7 @@ const Profile = () => {
           {profile.prompts.map((prompt, index) => (
             <ProfilePrompt
               key={index}
-              prompt={prompt.prompt}
+              prompt={prompt.question}
               answer={prompt.answer}
               onEdit={() => openPromptEditor(index)}
               editable
@@ -476,15 +658,16 @@ const Profile = () => {
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { icon: Briefcase, label: "Work", value: profile.job },
+              { icon: Cake, label: "Birthday", value: profile.birthDate ? `${profile.birthDate.toLocaleDateString()} (${profile.zodiac})` : "Not set" },
+              { icon: Briefcase, label: "Work", value: profile.job || "Not set" },
               { icon: Ruler, label: "Height", value: profile.heightCm ? `${profile.heightCm} cm` : "Not set" },
-              { icon: MapPin, label: "Location", value: profile.location },
+              { icon: MapPin, label: "Location", value: profile.location || "Not set" },
             ].map((item) => (
               <div key={item.label} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40">
                 <item.icon className="w-4 h-4 text-muted-foreground" />
-                <div>
+                <div className="min-w-0">
                   <p className="text-xs text-muted-foreground">{item.label}</p>
-                  <p className="text-sm font-medium text-foreground truncate">{item.value || "Not set"}</p>
+                  <p className="text-sm font-medium text-foreground truncate">{item.value}</p>
                 </div>
               </div>
             ))}
@@ -551,7 +734,8 @@ const Profile = () => {
             />
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("photos")}>
+            <Button variant="gradient" onClick={() => handleSave("photos")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save Changes
             </Button>
             <DrawerClose asChild>
@@ -577,7 +761,8 @@ const Profile = () => {
             />
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("vibes")}>
+            <Button variant="gradient" onClick={() => handleSave("vibes")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save Vibes
             </Button>
             <DrawerClose asChild>
@@ -607,19 +792,23 @@ const Profile = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Age</label>
+              <label className="text-sm font-medium text-foreground">Date of Birth</label>
               <Input 
-                type="number"
-                value={editForm.age}
-                onChange={(e) => setEditForm({ ...editForm, age: parseInt(e.target.value) || 0 })}
-                placeholder="How many trips around the sun?"
+                type="date"
+                value={formatDateForInput(editForm.birthDate)}
+                onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value ? new Date(e.target.value) : null })}
                 className="glass-card border-border"
               />
+              {editForm.birthDate && (
+                <p className="text-xs text-muted-foreground">
+                  Age: {calculateAge(editForm.birthDate)} • Zodiac: {getZodiacSign(editForm.birthDate)} {getZodiacEmoji(getZodiacSign(editForm.birthDate))}
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Job</label>
               <Input 
-                value={editForm.job}
+                value={editForm.job || ""}
                 onChange={(e) => setEditForm({ ...editForm, job: e.target.value })}
                 placeholder="What pays the bills?"
                 className="glass-card border-border"
@@ -628,22 +817,38 @@ const Profile = () => {
             <div className="space-y-3">
               <label className="text-sm font-medium text-foreground">Height</label>
               <HeightSelector 
-                value={editForm.heightCm}
+                value={editForm.heightCm || 170}
                 onChange={(cm) => setEditForm({ ...editForm, heightCm: cm })}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Location</label>
-              <Input 
-                value={editForm.location}
-                onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
-                placeholder="Where's home base?"
-                className="glass-card border-border"
-              />
+              <div className="flex gap-2">
+                <Input 
+                  value={editForm.location || ""}
+                  onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                  placeholder="Where's home base?"
+                  className="glass-card border-border flex-1"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleLocationDetect}
+                  disabled={isDetectingLocation}
+                  title="Auto-detect location"
+                >
+                  {isDetectingLocation ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <MapPin className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("basics")}>
+            <Button variant="gradient" onClick={() => handleSave("basics")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save Changes
             </Button>
             <DrawerClose asChild>
@@ -664,18 +869,19 @@ const Profile = () => {
           </DrawerHeader>
           <div className="px-4 pb-4">
             <Textarea 
-              value={editForm.bio}
-              onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+              value={editForm.aboutMe || ""}
+              onChange={(e) => setEditForm({ ...editForm, aboutMe: e.target.value.slice(0, 140) })}
               placeholder="Write something that makes them want to know more..."
               className="min-h-32 glass-card border-border resize-none"
-              maxLength={300}
+              maxLength={140}
             />
             <p className="text-xs text-muted-foreground text-right mt-2">
-              {editForm.bio.length}/300
+              {(editForm.aboutMe || "").length}/140
             </p>
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("bio")}>
+            <Button variant="gradient" onClick={() => handleSave("bio")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save
             </Button>
             <DrawerClose asChild>
@@ -698,10 +904,10 @@ const Profile = () => {
             {editingPromptIndex !== null && (
               <>
                 <PromptSelector
-                  selectedPrompt={editForm.prompts[editingPromptIndex]?.prompt || ""}
+                  selectedPrompt={editForm.prompts[editingPromptIndex]?.question || ""}
                   onSelect={(prompt) => {
                     const newPrompts = [...editForm.prompts];
-                    newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], prompt };
+                    newPrompts[editingPromptIndex] = { ...newPrompts[editingPromptIndex], question: prompt };
                     setEditForm({ ...editForm, prompts: newPrompts });
                   }}
                 />
@@ -726,7 +932,8 @@ const Profile = () => {
             )}
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("prompt")}>
+            <Button variant="gradient" onClick={() => handleSave("prompt")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save Prompt
             </Button>
             <DrawerClose asChild>
@@ -747,13 +954,14 @@ const Profile = () => {
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
             <RelationshipIntent 
-              selected={editForm.relationshipIntent}
-              onSelect={(intent) => setEditForm({ ...editForm, relationshipIntent: intent })}
+              selected={editForm.lookingFor || ""}
+              onSelect={(intent) => setEditForm({ ...editForm, lookingFor: intent })}
               editable
             />
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("intent")}>
+            <Button variant="gradient" onClick={() => handleSave("intent")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save
             </Button>
             <DrawerClose asChild>
@@ -783,8 +991,42 @@ const Profile = () => {
             />
           </div>
           <DrawerFooter>
-            <Button variant="gradient" onClick={() => handleSave("lifestyle")}>
+            <Button variant="gradient" onClick={() => handleSave("lifestyle")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
               Save
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
+      {/* Tagline Editor Drawer */}
+      <Drawer open={activeDrawer === "tagline"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display">Your Tagline</DrawerTitle>
+            <DrawerDescription>
+              A short slogan that captures who you are or what you're about.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4">
+            <Input 
+              value={editForm.tagline || ""}
+              onChange={(e) => setEditForm({ ...editForm, tagline: e.target.value.slice(0, 30) })}
+              placeholder="e.g., Living my best life ✨"
+              className="glass-card border-border"
+              maxLength={30}
+            />
+            <p className="text-xs text-muted-foreground text-right mt-2">
+              {(editForm.tagline || "").length}/30
+            </p>
+          </div>
+          <DrawerFooter>
+            <Button variant="gradient" onClick={() => handleSave("tagline")} disabled={isSaving}>
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Save Tagline
             </Button>
             <DrawerClose asChild>
               <Button variant="ghost">Cancel</Button>
@@ -796,7 +1038,23 @@ const Profile = () => {
       {/* Profile Preview */}
       <AnimatePresence>
         {showPreview && (
-          <ProfilePreview profile={profile} onClose={() => setShowPreview(false)} />
+          <ProfilePreview profile={{
+            name: profile.name,
+            age: profile.age || 0,
+            job: profile.job || "",
+            heightCm: profile.heightCm || 0,
+            location: profile.location || "",
+            bio: profile.aboutMe || "",
+            photos: profile.photos,
+            vibes: profile.vibes,
+            prompts: profile.prompts.map(p => ({ prompt: p.question, answer: p.answer })),
+            relationshipIntent: profile.lookingFor || "",
+            lifestyle: profile.lifestyle,
+            verified: profile.verified,
+            vibeVideoUrl: profile.videoIntroUrl,
+            vibeCaption: profile.vibeCaption,
+            stats: profile.stats,
+          }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>
 
@@ -820,11 +1078,11 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
-            {profile.vibeVideoUrl ? (
+            {profile.videoIntroUrl ? (
               <div className="space-y-4">
                 <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
                   <VibePlayer
-                    videoUrl={profile.vibeVideoUrl}
+                    videoUrl={profile.videoIntroUrl}
                     vibeCaption={profile.vibeCaption}
                     isOwner
                     onUpdateClick={() => {
@@ -838,9 +1096,11 @@ const Profile = () => {
                   <Button
                     variant="outline"
                     className="flex-1"
-                    onClick={() => {
-                      setProfile({ ...profile, vibeVideoUrl: null });
+                    onClick={async () => {
+                      await updateMyProfile({ videoIntroUrl: null });
+                      setProfile({ ...profile, videoIntroUrl: null });
                       setActiveDrawer(null);
+                      toast.success("Video deleted");
                     }}
                   >
                     Delete Video
@@ -892,8 +1152,12 @@ const Profile = () => {
       <VibeStudioModal
         open={showVibeStudio}
         onOpenChange={setShowVibeStudio}
-        onSave={(url) => setProfile({ ...profile, vibeVideoUrl: url })}
-        existingVideoUrl={profile.vibeVideoUrl || undefined}
+        onSave={async (url) => {
+          await updateMyProfile({ videoIntroUrl: url });
+          setProfile({ ...profile, videoIntroUrl: url });
+          toast.success("Vibe video saved!");
+        }}
+        existingVideoUrl={profile.videoIntroUrl || undefined}
       />
 
       <BottomNav />
