@@ -1,113 +1,266 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Sparkles, Upload, X, Video, Play } from "lucide-react";
+import { 
+  ArrowRight, 
+  Sparkles, 
+  Upload, 
+  X, 
+  Video, 
+  Play, 
+  MapPin, 
+  Loader2,
+  ChevronLeft 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ProgressBar } from "@/components/ProgressBar";
-import { VibeTag } from "@/components/VibeTag";
+import { VibeTagSelector } from "@/components/VibeTagSelector";
+import { HeightSelector } from "@/components/HeightSelector";
+import { LifestyleDetails } from "@/components/LifestyleDetails";
+import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { toast } from "sonner";
-
-const vibeOptions = [
-  { label: "Foodie", emoji: "🍜" },
-  { label: "Gamer", emoji: "🎮" },
-  { label: "Night Owl", emoji: "🦉" },
-  { label: "Fitness", emoji: "💪" },
-  { label: "Creative", emoji: "🎨" },
-  { label: "Traveler", emoji: "✈️" },
-  { label: "Music Lover", emoji: "🎵" },
-  { label: "Bookworm", emoji: "📚" },
-  { label: "Tech Nerd", emoji: "💻" },
-  { label: "Nature", emoji: "🌿" },
-  { label: "Film Buff", emoji: "🎬" },
-  { label: "Coffee Addict", emoji: "☕" },
-];
+import { 
+  createProfile, 
+  autoDetectLocation, 
+  type GeoLocation,
+  type ProfileData 
+} from "@/services/profileService";
 
 const genderOptions = [
   { label: "Woman", value: "woman" },
   { label: "Man", value: "man" },
   { label: "Non-binary", value: "non-binary" },
   { label: "Other", value: "other" },
-  { label: "Prefer not to say", value: "prefer-not" },
 ];
+
+const interestedInOptions = [
+  { label: "Women", value: "women" },
+  { label: "Men", value: "men" },
+  { label: "Everyone", value: "everyone" },
+];
+
+interface OnboardingFormData {
+  name: string;
+  birthDate: string;
+  gender: string;
+  interestedIn: string;
+  location: string;
+  locationData: { lat: number; lng: number } | null;
+  heightCm: number;
+  job: string;
+  aboutMe: string;
+  vibes: string[];
+  lookingFor: string;
+  lifestyle: Record<string, string>;
+  photos: string[];
+  photoFiles: (File | null)[];
+  hasVibeVideo: boolean;
+}
+
+const STORAGE_KEY = "vibely_onboarding_progress";
 
 const Onboarding = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
-  const [formData, setFormData] = useState({
-    name: "",
-    age: "",
-    gender: "",
-    vibes: [] as string[],
-    photos: [] as string[],
-    hasVibeVideo: false,
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  
+  const [formData, setFormData] = useState<OnboardingFormData>(() => {
+    // Restore from localStorage if available
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          photoFiles: [], // Files can't be serialized
+        };
+      } catch {
+        // Invalid saved data
+      }
+    }
+    return {
+      name: "",
+      birthDate: "",
+      gender: "",
+      interestedIn: "",
+      location: "",
+      locationData: null,
+      heightCm: 170,
+      job: "",
+      aboutMe: "",
+      vibes: [],
+      lookingFor: "",
+      lifestyle: {},
+      photos: [],
+      photoFiles: [],
+      hasVibeVideo: false,
+    };
   });
 
-  const totalSteps = 5;
+  const totalSteps = 8;
+
+  // Save progress to localStorage
+  useEffect(() => {
+    const dataToSave = { ...formData, photoFiles: [] };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+  }, [formData]);
+
+  // Calculate age from birth date
+  const calculateAge = (birthDateStr: string): number => {
+    const birthDate = new Date(birthDateStr);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
 
   const nextStep = () => {
     if (step < totalSteps - 1) {
       setStep(step + 1);
     } else {
-      toast.success("Welcome to Vibely! 🎉");
-      navigate("/dashboard");
+      handleComplete();
     }
   };
 
-  const handleVibeSelect = (vibe: string) => {
-    setFormData((prev) => {
-      const newVibes = prev.vibes.includes(vibe)
-        ? prev.vibes.filter((v) => v !== vibe)
-        : prev.vibes.length < 5
-        ? [...prev.vibes, vibe]
-        : prev.vibes;
-      return { ...prev, vibes: newVibes };
-    });
+  const prevStep = () => {
+    if (step > 0) {
+      setStep(step - 1);
+    }
   };
 
-  const handlePhotoUpload = () => {
-    const placeholders = [
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
-      "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
-    ];
-    if (formData.photos.length < 3) {
-      setFormData((prev) => ({
+  const handleComplete = async () => {
+    setIsSubmitting(true);
+    try {
+      const profileData: Partial<ProfileData> = {
+        name: formData.name,
+        birthDate: formData.birthDate ? new Date(formData.birthDate) : null,
+        gender: formData.gender,
+        interestedIn: formData.interestedIn ? [formData.interestedIn] : [],
+        location: formData.location,
+        locationData: formData.locationData,
+        heightCm: formData.heightCm,
+        job: formData.job,
+        aboutMe: formData.aboutMe,
+        vibes: formData.vibes,
+        lookingFor: formData.lookingFor,
+        lifestyle: formData.lifestyle,
+        photos: formData.photos,
+        avatarUrl: formData.photos[0] || null,
+      };
+
+      await createProfile(profileData);
+      
+      // Clear saved progress
+      localStorage.removeItem(STORAGE_KEY);
+      
+      toast.success("Welcome to Vibely! 🎉");
+      navigate("/dashboard");
+    } catch (error) {
+      console.error("Profile creation error:", error);
+      toast.error("Failed to create profile. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleLocationDetect = async () => {
+    setIsDetectingLocation(true);
+    try {
+      const location: GeoLocation = await autoDetectLocation();
+      setFormData(prev => ({
         ...prev,
-        photos: [...prev.photos, placeholders[prev.photos.length]],
+        location: location.formatted,
+        locationData: { lat: location.lat, lng: location.lng },
+      }));
+      toast.success("Location detected!");
+    } catch (error) {
+      console.error("Location detection error:", error);
+      toast.error("Could not detect location. Please enter manually.");
+    } finally {
+      setIsDetectingLocation(false);
+    }
+  };
+
+  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    if (formData.photos.length < 6) {
+      const url = URL.createObjectURL(file);
+      setFormData(prev => ({
+        ...prev,
+        photos: [...prev.photos, url],
+        photoFiles: [...prev.photoFiles, file],
       }));
       toast.success("Photo added!");
     }
   };
 
   const removePhoto = (index: number) => {
-    setFormData((prev) => ({
+    setFormData(prev => ({
       ...prev,
       photos: prev.photos.filter((_, i) => i !== index),
+      photoFiles: prev.photoFiles.filter((_, i) => i !== index),
     }));
   };
 
   const handleRecordVibe = () => {
-    // Store form data in sessionStorage to preserve state
     sessionStorage.setItem("onboardingData", JSON.stringify({ ...formData, returnStep: step }));
     navigate("/vibe-studio");
   };
 
-  const canProceed = () => {
+  const canProceed = (): boolean => {
     switch (step) {
-      case 0:
+      case 0: // Welcome
         return true;
-      case 1:
-        return formData.name && formData.age && formData.gender;
-      case 2:
+      case 1: // Identity
+        if (!formData.name || !formData.birthDate || !formData.gender || !formData.interestedIn) {
+          return false;
+        }
+        // Validate age >= 18
+        const age = calculateAge(formData.birthDate);
+        return age >= 18;
+      case 2: // Location
+        return !!formData.location;
+      case 3: // Details (height, job)
+        return formData.heightCm >= 140 && formData.heightCm <= 220;
+      case 4: // About Me
+        return formData.aboutMe.length >= 10 && formData.aboutMe.length <= 140;
+      case 5: // Vibes & Lifestyle
         return formData.vibes.length >= 3;
-      case 3:
-        return formData.photos.length >= 1;
-      case 4:
-        return true; // Vibe video is optional but encouraged
+      case 6: // Looking For
+        return !!formData.lookingFor;
+      case 7: // Photos & Video
+        return formData.photos.length >= 2;
       default:
         return false;
     }
+  };
+
+  const getButtonText = (): string => {
+    if (step === 0) return "Let's Go";
+    if (step === totalSteps - 1) return isSubmitting ? "Creating Profile..." : "Complete Profile";
+    return "Continue";
+  };
+
+  // Date validation helper
+  const getMaxDate = (): string => {
+    const date = new Date();
+    date.setFullYear(date.getFullYear() - 18);
+    return date.toISOString().split("T")[0];
+  };
+
+  const getMinDate = (): string => {
+    const date = new Date();
+    date.setFullYear(date.getFullYear() - 100);
+    return date.toISOString().split("T")[0];
   };
 
   return (
@@ -120,11 +273,20 @@ const Onboarding = () => {
 
       {/* Progress */}
       <div className="fixed top-0 left-0 right-0 z-50 p-4 bg-background/80 backdrop-blur-lg">
-        <ProgressBar currentStep={step + 1} totalSteps={totalSteps} />
+        <div className="flex items-center gap-4 max-w-md mx-auto">
+          {step > 0 && (
+            <button onClick={prevStep} className="p-2 rounded-full hover:bg-secondary transition-colors">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div className="flex-1">
+            <ProgressBar currentStep={step + 1} totalSteps={totalSteps} />
+          </div>
+        </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 flex items-center justify-center px-6 pt-16 pb-24">
+      <div className="flex-1 flex items-center justify-center px-6 pt-20 pb-28 overflow-y-auto">
         <div className="w-full max-w-md">
           <AnimatePresence mode="wait">
             {/* Step 0: Welcome */}
@@ -184,7 +346,7 @@ const Onboarding = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="space-y-8"
+                className="space-y-6"
               >
                 <div className="text-center space-y-2">
                   <h2 className="text-3xl font-display font-bold text-foreground">
@@ -195,51 +357,60 @@ const Onboarding = () => {
                   </p>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-5">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">
-                      What's your name?
-                    </label>
+                    <label className="text-sm font-medium text-foreground">First Name</label>
                     <Input
                       placeholder="Your first name"
                       value={formData.name}
-                      onChange={(e) =>
-                        setFormData({ ...formData, name: e.target.value })
-                      }
-                      className="h-14 rounded-2xl glass-card border-white/10 text-foreground placeholder:text-muted-foreground"
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="h-14 rounded-2xl glass-card border-border text-foreground placeholder:text-muted-foreground"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">
-                      How old are you?
-                    </label>
+                    <label className="text-sm font-medium text-foreground">Date of Birth</label>
                     <Input
-                      type="number"
-                      placeholder="Age"
-                      min={18}
-                      max={99}
-                      value={formData.age}
-                      onChange={(e) =>
-                        setFormData({ ...formData, age: e.target.value })
-                      }
-                      className="h-14 rounded-2xl glass-card border-white/10 text-foreground placeholder:text-muted-foreground"
+                      type="date"
+                      value={formData.birthDate}
+                      onChange={(e) => setFormData({ ...formData, birthDate: e.target.value })}
+                      max={getMaxDate()}
+                      min={getMinDate()}
+                      className="h-14 rounded-2xl glass-card border-border text-foreground"
                     />
+                    {formData.birthDate && calculateAge(formData.birthDate) < 18 && (
+                      <p className="text-xs text-destructive">You must be 18 or older to use Vibely</p>
+                    )}
                   </div>
 
                   <div className="space-y-3">
-                    <label className="text-sm font-medium text-foreground">
-                      I identify as
-                    </label>
+                    <label className="text-sm font-medium text-foreground">I identify as</label>
                     <div className="grid grid-cols-2 gap-3">
                       {genderOptions.map((option) => (
                         <button
                           key={option.value}
-                          onClick={() =>
-                            setFormData({ ...formData, gender: option.value })
-                          }
+                          onClick={() => setFormData({ ...formData, gender: option.value })}
                           className={`p-4 rounded-2xl text-sm font-medium transition-all duration-300 ${
                             formData.gender === option.value
+                              ? "bg-primary/20 border-2 border-primary neon-glow-violet text-foreground"
+                              : "glass-card border-2 border-transparent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-foreground">I'm interested in</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      {interestedInOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setFormData({ ...formData, interestedIn: option.value })}
+                          className={`p-4 rounded-2xl text-sm font-medium transition-all duration-300 ${
+                            formData.interestedIn === option.value
                               ? "bg-primary/20 border-2 border-primary neon-glow-violet text-foreground"
                               : "glass-card border-2 border-transparent text-muted-foreground hover:text-foreground"
                           }`}
@@ -253,8 +424,147 @@ const Onboarding = () => {
               </motion.div>
             )}
 
-            {/* Step 2: Vibe Check */}
+            {/* Step 2: Location */}
             {step === 2 && (
+              <motion.div
+                key="location"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-display font-bold text-foreground">
+                    Where are you based?
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Find people and events near you
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <Button
+                    variant="outline"
+                    onClick={handleLocationDetect}
+                    disabled={isDetectingLocation}
+                    className="w-full h-14 rounded-2xl glass-card border-primary/50 text-foreground"
+                  >
+                    {isDetectingLocation ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Detecting location...
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-5 h-5 mr-2 text-primary" />
+                        Auto-Detect My Location
+                      </>
+                    )}
+                  </Button>
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-xs text-muted-foreground">or enter manually</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">City, Country</label>
+                    <Input
+                      placeholder="e.g., Brooklyn, NY"
+                      value={formData.location}
+                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                      className="h-14 rounded-2xl glass-card border-border text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+
+                  {formData.locationData && (
+                    <p className="text-xs text-muted-foreground text-center">
+                      📍 Location saved ({formData.locationData.lat.toFixed(2)}, {formData.locationData.lng.toFixed(2)})
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Step 3: Details */}
+            {step === 3 && (
+              <motion.div
+                key="details"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-display font-bold text-foreground">
+                    A few more details
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Help others get to know you better
+                  </p>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-foreground">Height</label>
+                    <HeightSelector
+                      value={formData.heightCm}
+                      onChange={(cm) => setFormData({ ...formData, heightCm: cm })}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Job Title</label>
+                    <Input
+                      placeholder="What do you do?"
+                      value={formData.job}
+                      onChange={(e) => setFormData({ ...formData, job: e.target.value })}
+                      className="h-14 rounded-2xl glass-card border-border text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Step 4: About Me */}
+            {step === 4 && (
+              <motion.div
+                key="about"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-display font-bold text-foreground">
+                    About Me
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Write something that makes them swipe right
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="Share something about yourself..."
+                    value={formData.aboutMe}
+                    onChange={(e) => setFormData({ ...formData, aboutMe: e.target.value.slice(0, 140) })}
+                    className="min-h-32 rounded-2xl glass-card border-border text-foreground placeholder:text-muted-foreground resize-none"
+                    maxLength={140}
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Min 10 characters</span>
+                    <span className={formData.aboutMe.length >= 140 ? "text-neon-pink" : ""}>
+                      {formData.aboutMe.length}/140
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Step 5: Vibes & Lifestyle */}
+            {step === 5 && (
               <motion.div
                 key="vibes"
                 initial={{ opacity: 0, y: 20 }}
@@ -264,32 +574,61 @@ const Onboarding = () => {
               >
                 <div className="text-center space-y-2">
                   <h2 className="text-3xl font-display font-bold text-foreground">
-                    What's your vibe? ✨
+                    Your Vibes ✨
                   </h2>
                   <p className="text-muted-foreground">
                     Pick 3-5 that describe you best
                   </p>
-                  <p className="text-sm text-neon-pink">
-                    {formData.vibes.length}/5 selected
-                  </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  {vibeOptions.map((vibe) => (
-                    <VibeTag
-                      key={vibe.label}
-                      label={vibe.label}
-                      emoji={vibe.emoji}
-                      selected={formData.vibes.includes(vibe.label)}
-                      onClick={() => handleVibeSelect(vibe.label)}
-                    />
-                  ))}
+                <VibeTagSelector
+                  selectedVibes={formData.vibes}
+                  onVibesChange={(vibes) => setFormData({ ...formData, vibes })}
+                  maxSelections={5}
+                />
+
+                <div className="pt-4 border-t border-border">
+                  <h3 className="text-lg font-display font-semibold text-foreground mb-4">Lifestyle</h3>
+                  <LifestyleDetails
+                    values={formData.lifestyle}
+                    onChange={(key, value) => setFormData({
+                      ...formData,
+                      lifestyle: { ...formData.lifestyle, [key]: value }
+                    })}
+                    editable
+                  />
                 </div>
               </motion.div>
             )}
 
-            {/* Step 3: Photos */}
-            {step === 3 && (
+            {/* Step 6: Looking For */}
+            {step === 6 && (
+              <motion.div
+                key="looking-for"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="space-y-6"
+              >
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-display font-bold text-foreground">
+                    What are you looking for?
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Be upfront. It saves everyone time.
+                  </p>
+                </div>
+
+                <RelationshipIntent
+                  selected={formData.lookingFor}
+                  onSelect={(intent) => setFormData({ ...formData, lookingFor: intent })}
+                  editable
+                />
+              </motion.div>
+            )}
+
+            {/* Step 7: Photos & Vibe Video */}
+            {step === 7 && (
               <motion.div
                 key="photos"
                 initial={{ opacity: 0, y: 20 }}
@@ -302,12 +641,12 @@ const Onboarding = () => {
                     Show your best self
                   </h2>
                   <p className="text-muted-foreground">
-                    Add at least 1 photo to continue
+                    Add at least 2 photos to continue
                   </p>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  {[0, 1, 2].map((index) => (
+                  {[0, 1, 2, 3, 4, 5].map((index) => (
                     <div
                       key={index}
                       className="aspect-[3/4] rounded-2xl overflow-hidden relative"
@@ -325,17 +664,23 @@ const Onboarding = () => {
                           >
                             <X className="w-4 h-4 text-white" />
                           </button>
+                          {index === 0 && (
+                            <div className="absolute bottom-2 left-2 px-2 py-1 rounded-full bg-primary text-primary-foreground text-xs font-medium">
+                              Main
+                            </div>
+                          )}
                         </>
                       ) : (
-                        <button
-                          onClick={handlePhotoUpload}
-                          className="w-full h-full glass-card border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-2 hover:border-primary/50 transition-colors"
-                        >
+                        <label className="w-full h-full glass-card border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-2 hover:border-primary/50 transition-colors cursor-pointer">
                           <Upload className="w-6 h-6 text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">
-                            Add
-                          </span>
-                        </button>
+                          <span className="text-xs text-muted-foreground">Add</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoUpload}
+                            className="hidden"
+                          />
+                        </label>
                       )}
                     </div>
                   ))}
@@ -344,133 +689,74 @@ const Onboarding = () => {
                 <p className="text-xs text-center text-muted-foreground">
                   Tip: Photos with your face visible get 3x more matches
                 </p>
-              </motion.div>
-            )}
 
-            {/* Step 4: Record Your First Vibe */}
-            {step === 4 && (
-              <motion.div
-                key="vibe-video"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-8"
-              >
-                <div className="text-center space-y-2">
-                  <h2 className="text-3xl font-display font-bold text-foreground">
-                    Record Your First Vibe
-                  </h2>
-                  <p className="text-muted-foreground">
-                    A 15-second video intro gets you 5x more matches
-                  </p>
-                </div>
+                {/* Vibe Video Section */}
+                <div className="pt-4 border-t border-border space-y-4">
+                  <div className="text-center">
+                    <h3 className="text-lg font-display font-semibold text-foreground">
+                      Record Your Vibe (Optional)
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      A 15-second video intro gets you 5x more matches
+                    </p>
+                  </div>
 
-                {/* Video Preview Card */}
-                <motion.div
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.2 }}
-                  className="relative aspect-[9/16] max-h-[50vh] mx-auto rounded-3xl overflow-hidden"
-                >
                   {formData.hasVibeVideo ? (
-                    <div className="w-full h-full bg-secondary flex items-center justify-center">
-                      <div className="text-center space-y-2">
-                        <div className="w-16 h-16 mx-auto rounded-full bg-green-500/20 flex items-center justify-center">
-                          <Play className="w-8 h-8 text-green-500" />
+                    <div className="glass-card p-4 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                          <Play className="w-6 h-6 text-green-500" />
                         </div>
-                        <p className="text-green-400 font-medium">Vibe Recorded!</p>
+                        <div>
+                          <p className="font-medium text-foreground">Vibe Recorded!</p>
+                          <p className="text-xs text-muted-foreground">Looking great</p>
+                        </div>
                       </div>
+                      <Button variant="outline" size="sm" onClick={handleRecordVibe}>
+                        Re-record
+                      </Button>
                     </div>
                   ) : (
-                    <button
-                      onClick={handleRecordVibe}
-                      className="w-full h-full glass-card border-2 border-dashed border-primary/50 flex flex-col items-center justify-center gap-4 hover:border-primary hover:bg-primary/5 transition-all group"
-                    >
-                      <motion.div
-                        animate={{
-                          scale: [1, 1.1, 1],
-                          boxShadow: [
-                            "0 0 0 0 hsl(var(--neon-violet) / 0.4)",
-                            "0 0 0 20px hsl(var(--neon-violet) / 0)",
-                          ],
-                        }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center"
+                    <div className="flex gap-3">
+                      <Button
+                        variant="outline"
+                        className="flex-1 h-12 rounded-2xl"
+                        onClick={handleRecordVibe}
                       >
-                        <Video className="w-10 h-10 text-white" />
-                      </motion.div>
-                      <div className="space-y-1 text-center">
-                        <p className="text-lg font-display font-bold gradient-text">
-                          Tap to Record
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          15 seconds to show your vibe
-                        </p>
-                      </div>
-                    </button>
+                        <Video className="w-5 h-5 mr-2 text-primary" />
+                        Record Vibe
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="h-12 rounded-2xl text-muted-foreground"
+                        onClick={() => setFormData({ ...formData, hasVibeVideo: false })}
+                      >
+                        Skip for now
+                      </Button>
+                    </div>
                   )}
-                </motion.div>
-
-                {/* Benefits List */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <div className="w-6 h-6 rounded-full bg-neon-cyan/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs">✓</span>
-                    </div>
-                    <span>Others see your personality before matching</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <div className="w-6 h-6 rounded-full bg-neon-pink/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs">✓</span>
-                    </div>
-                    <span>Stand out in the guest list</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                    <div className="w-6 h-6 rounded-full bg-neon-violet/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs">✓</span>
-                    </div>
-                    <span>Better conversation starters</span>
-                  </div>
                 </div>
-
-                {!formData.hasVibeVideo && (
-                  <p className="text-xs text-center text-muted-foreground">
-                    You can skip for now and record later from your profile
-                  </p>
-                )}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
 
-      {/* Continue Button */}
-      <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background to-transparent">
-        <div className="flex flex-col gap-3 max-w-md mx-auto">
-          {step === 4 && !formData.hasVibeVideo && (
-            <Button
-              onClick={handleRecordVibe}
-              variant="gradient"
-              size="xl"
-              className="w-full"
-            >
-              <Video className="w-5 h-5 mr-2" />
-              Record Your Vibe
-            </Button>
-          )}
+      {/* Bottom CTA */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-lg border-t border-border">
+        <div className="max-w-md mx-auto">
           <Button
+            variant="gradient"
+            size="lg"
+            className="w-full h-14 rounded-2xl text-lg font-display"
             onClick={nextStep}
-            disabled={!canProceed()}
-            variant={step === 4 && !formData.hasVibeVideo ? "outline" : "gradient"}
-            size="xl"
-            className="w-full"
+            disabled={!canProceed() || isSubmitting}
           >
-            {step === totalSteps - 1 
-              ? formData.hasVibeVideo 
-                ? "Start Vibing" 
-                : "Skip for Now"
-              : "Continue"}
-            <ArrowRight className="w-5 h-5 ml-2" />
+            {isSubmitting ? (
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : null}
+            {getButtonText()}
+            {!isSubmitting && step < totalSteps - 1 && <ArrowRight className="w-5 h-5 ml-2" />}
           </Button>
         </div>
       </div>
