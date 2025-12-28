@@ -1,0 +1,114 @@
+import { supabase } from "@/integrations/supabase/client";
+
+const BUCKET_NAME = "profile-photos";
+
+export interface UploadResult {
+  url: string;
+  path: string;
+}
+
+/**
+ * Upload a photo to Supabase storage
+ */
+export const uploadPhoto = async (
+  file: File,
+  userId: string,
+  index: number
+): Promise<UploadResult> => {
+  // Generate unique filename
+  const fileExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const fileName = `${userId}/${Date.now()}_${index}.${fileExt}`;
+
+  // Upload to Supabase storage
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .upload(fileName, file, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("Upload error:", error);
+    throw new Error(`Failed to upload photo: ${error.message}`);
+  }
+
+  // Get public URL
+  const { data: urlData } = supabase.storage
+    .from(BUCKET_NAME)
+    .getPublicUrl(data.path);
+
+  return {
+    url: urlData.publicUrl,
+    path: data.path,
+  };
+};
+
+/**
+ * Upload multiple photos
+ */
+export const uploadPhotos = async (
+  files: (File | null)[],
+  userId: string
+): Promise<string[]> => {
+  const uploadPromises = files
+    .map((file, index) => {
+      if (!file) return null;
+      return uploadPhoto(file, userId, index);
+    })
+    .filter(Boolean);
+
+  const results = await Promise.all(uploadPromises as Promise<UploadResult>[]);
+  return results.map((r) => r.url);
+};
+
+/**
+ * Delete a photo from storage
+ */
+export const deletePhoto = async (photoUrl: string): Promise<void> => {
+  // Extract path from URL
+  const urlParts = photoUrl.split(`${BUCKET_NAME}/`);
+  if (urlParts.length < 2) return;
+
+  const path = urlParts[1];
+
+  const { error } = await supabase.storage.from(BUCKET_NAME).remove([path]);
+
+  if (error) {
+    console.error("Delete error:", error);
+    throw new Error(`Failed to delete photo: ${error.message}`);
+  }
+};
+
+/**
+ * Check if a URL is a blob URL (local) vs a storage URL
+ */
+export const isBlobUrl = (url: string): boolean => {
+  return url.startsWith("blob:");
+};
+
+/**
+ * Convert local blob URLs to storage URLs by uploading files
+ */
+export const persistPhotos = async (
+  photos: string[],
+  files: (File | null)[],
+  userId: string
+): Promise<string[]> => {
+  const persistedUrls: string[] = [];
+
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    const file = files[i];
+
+    if (isBlobUrl(photo) && file) {
+      // Upload the file and get storage URL
+      const result = await uploadPhoto(file, userId, i);
+      persistedUrls.push(result.url);
+    } else if (!isBlobUrl(photo)) {
+      // Already a storage URL, keep it
+      persistedUrls.push(photo);
+    }
+  }
+
+  return persistedUrls;
+};
