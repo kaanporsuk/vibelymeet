@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.delete-account]
 verify_jwt = false
+
+[functions.email-verification]
+verify_jwt = false

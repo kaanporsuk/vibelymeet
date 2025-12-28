@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      email_verifications: {
+        Row: {
+          code: string
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: []
+      }
       event_registrations: {
         Row: {
           attended: boolean | null
@@ -234,6 +264,7 @@ export type Database = {
           birth_date: string | null
           company: string | null
           created_at: string
+          email_verified: boolean | null
           events_attended: number | null
           gender: string
           height_cm: number | null
@@ -251,6 +282,7 @@ export type Database = {
           total_conversations: number | null
           total_matches: number | null
           updated_at: string
+          verified_email: string | null
           video_intro_url: string | null
         }
         Insert: {
@@ -261,6 +293,7 @@ export type Database = {
           birth_date?: string | null
           company?: string | null
           created_at?: string
+          email_verified?: boolean | null
           events_attended?: number | null
           gender: string
           height_cm?: number | null
@@ -278,6 +311,7 @@ export type Database = {
           total_conversations?: number | null
           total_matches?: number | null
           updated_at?: string
+          verified_email?: string | null
           video_intro_url?: string | null
         }
         Update: {
@@ -288,6 +322,7 @@ export type Database = {
           birth_date?: string | null
           company?: string | null
           created_at?: string
+          email_verified?: boolean | null
           events_attended?: number | null
           gender?: string
           height_cm?: number | null
@@ -305,6 +340,7 @@ export type Database = {
           total_conversations?: number | null
           total_matches?: number | null
           updated_at?: string
+          verified_email?: string | null
           video_intro_url?: string | null
         }
         Relationships: []

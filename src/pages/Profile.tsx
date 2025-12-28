@@ -19,7 +19,8 @@ import {
   Pencil,
   CalendarDays,
   Cake,
-  Loader2
+  Loader2,
+  Mail
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -40,9 +41,11 @@ import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Drawer,
   DrawerClose,
@@ -170,11 +173,20 @@ const Profile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
 
-  // Fetch profile on mount
+  // Fetch profile and user email on mount
   useEffect(() => {
     const loadProfile = async () => {
       try {
+        // Get user email
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.email) {
+          setUserEmail(user.email);
+        }
+
         const data = await fetchMyProfile();
         if (data) {
           setProfile({
@@ -195,7 +207,7 @@ const Profile = () => {
             prompts: data.prompts.length > 0 ? data.prompts : initialProfile.prompts,
             lookingFor: data.lookingFor,
             lifestyle: data.lifestyle,
-            verified: false, // TODO: Add verification status to DB
+            verified: false,
             videoIntroUrl: data.videoIntroUrl,
             vibeCaption: "",
             stats: data.stats,
@@ -303,9 +315,16 @@ const Profile = () => {
   };
 
   const verificationSteps = [
+    { id: "email", label: "Email verification", description: emailVerified ? "Verified" : "Verify your email", icon: Mail, completed: emailVerified },
     { id: "photo", label: "Photo verification", description: "Take a quick selfie", icon: Camera, completed: profile.verified },
-    { id: "phone", label: "Phone number", description: "Verify your number", icon: Shield, completed: true },
+    { id: "phone", label: "Phone number", description: "Verify your number", icon: Shield, completed: false },
   ];
+
+  const handleVerificationStep = (stepId: string) => {
+    if (stepId === "email" && !emailVerified) {
+      setShowEmailVerification(true);
+    }
+  };
 
   // Format date for input
   const formatDateForInput = (date: Date | null): string => {
@@ -702,7 +721,7 @@ const Profile = () => {
         >
           <VerificationSteps 
             steps={verificationSteps}
-            onStartStep={(id) => openDrawer("verification")}
+            onStartStep={handleVerificationStep}
           />
         </motion.div>
 

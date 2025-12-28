@@ -21,12 +21,14 @@ import { HeightSelector } from "@/components/HeightSelector";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   createProfile, 
   autoDetectLocation, 
   type GeoLocation,
   type ProfileData 
 } from "@/services/profileService";
+import { persistPhotos } from "@/services/storageService";
 
 const genderOptions = [
   { label: "Woman", value: "woman" },
@@ -137,6 +139,29 @@ const Onboarding = () => {
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("Please log in to complete your profile");
+        navigate("/auth");
+        return;
+      }
+
+      // Upload photos to Supabase storage
+      let uploadedPhotos = formData.photos;
+      if (formData.photoFiles.length > 0) {
+        try {
+          uploadedPhotos = await persistPhotos(
+            formData.photos,
+            formData.photoFiles,
+            user.id
+          );
+        } catch (uploadError) {
+          console.error("Photo upload error:", uploadError);
+          toast.error("Some photos failed to upload, but we'll continue...");
+        }
+      }
+
       const profileData: Partial<ProfileData> = {
         name: formData.name,
         birthDate: formData.birthDate ? new Date(formData.birthDate) : null,
@@ -150,8 +175,8 @@ const Onboarding = () => {
         vibes: formData.vibes,
         lookingFor: formData.lookingFor,
         lifestyle: formData.lifestyle,
-        photos: formData.photos,
-        avatarUrl: formData.photos[0] || null,
+        photos: uploadedPhotos,
+        avatarUrl: uploadedPhotos[0] || null,
       };
 
       await createProfile(profileData);
