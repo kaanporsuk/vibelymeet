@@ -1175,6 +1175,17 @@ const Profile = () => {
         existingVideoUrl={profile.videoIntroUrl || undefined}
       />
 
+      {/* Email Verification Flow */}
+      <EmailVerificationFlow
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        onVerified={() => {
+          setEmailVerified(true);
+          toast.success("Email verified successfully!");
+        }}
+        userEmail={userEmail}
+      />
+
       <BottomNav />
     </div>
   );
