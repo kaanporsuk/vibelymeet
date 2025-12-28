@@ -1049,11 +1049,7 @@ const Profile = () => {
             vibes: profile.vibes,
             prompts: profile.prompts.map(p => ({ prompt: p.question, answer: p.answer })),
             relationshipIntent: profile.lookingFor || "",
-            lifestyle: profile.lifestyle,
             verified: profile.verified,
-            vibeVideoUrl: profile.videoIntroUrl,
-            vibeCaption: profile.vibeCaption,
-            stats: profile.stats,
           }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>
