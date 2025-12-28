@@ -14,6 +14,94 @@ export type Database = {
   }
   public: {
     Tables: {
+      daily_drops: {
+        Row: {
+          candidate_id: string
+          created_at: string
+          drop_date: string
+          dropped_at: string
+          expires_at: string
+          id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string
+          drop_date?: string
+          dropped_at?: string
+          expires_at?: string
+          id?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string
+          drop_date?: string
+          dropped_at?: string
+          expires_at?: string
+          id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_drops_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      date_proposals: {
+        Row: {
+          activity: string
+          created_at: string
+          id: string
+          match_id: string
+          proposed_date: string
+          proposer_id: string
+          recipient_id: string
+          responded_at: string | null
+          status: string
+          time_block: string
+        }
+        Insert: {
+          activity: string
+          created_at?: string
+          id?: string
+          match_id: string
+          proposed_date: string
+          proposer_id: string
+          recipient_id: string
+          responded_at?: string | null
+          status?: string
+          time_block: string
+        }
+        Update: {
+          activity?: string
+          created_at?: string
+          id?: string
+          match_id?: string
+          proposed_date?: string
+          proposer_id?: string
+          recipient_id?: string
+          responded_at?: string | null
+          status?: string
+          time_block?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "date_proposals_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_verifications: {
         Row: {
           code: string
