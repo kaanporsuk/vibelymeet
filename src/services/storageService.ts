@@ -8,6 +8,22 @@ export interface UploadResult {
 }
 
 /**
+ * Get a signed URL for a photo (1 hour expiration)
+ */
+export const getSignedPhotoUrl = async (path: string): Promise<string | null> => {
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUrl(path, 3600); // 1 hour expiration
+
+  if (error) {
+    console.error("Signed URL error:", error);
+    return null;
+  }
+
+  return data.signedUrl;
+};
+
+/**
  * Upload a photo to Supabase storage
  */
 export const uploadPhoto = async (
@@ -32,13 +48,18 @@ export const uploadPhoto = async (
     throw new Error(`Failed to upload photo: ${error.message}`);
   }
 
-  // Get public URL
-  const { data: urlData } = supabase.storage
+  // Get signed URL (bucket is now private)
+  const { data: signedData, error: signedError } = await supabase.storage
     .from(BUCKET_NAME)
-    .getPublicUrl(data.path);
+    .createSignedUrl(data.path, 3600); // 1 hour expiration
+
+  if (signedError) {
+    console.error("Signed URL error:", signedError);
+    throw new Error(`Failed to get signed URL: ${signedError.message}`);
+  }
 
   return {
-    url: urlData.publicUrl,
+    url: signedData.signedUrl,
     path: data.path,
   };
 };
