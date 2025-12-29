@@ -99,44 +99,32 @@ interface UserProfile {
   };
 }
 
+// Empty initial state for new users - no mock data
 const initialProfile: UserProfile = {
   id: "",
-  name: "Alex",
-  birthDate: new Date("1997-03-15"),
-  age: 27,
-  zodiac: "Pisces",
+  name: "",
+  birthDate: null,
+  age: null,
+  zodiac: null,
   tagline: null,
-  job: "Product Designer",
+  job: null,
   company: null,
-  heightCm: 180,
-  location: "Brooklyn, NY",
+  heightCm: null,
+  location: null,
   locationData: null,
-  aboutMe: "Designing by day, DJing by night. Looking for someone who appreciates a good vinyl collection and late-night tacos.",
-  photos: [
-    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
-    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400",
-    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
-    "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
-  ],
-  vibes: ["Music Lover", "Foodie", "Night Owl", "Creative"],
-  prompts: [
-    { question: "A shower thought I had recently", answer: "If aliens exist, they probably have their own dating apps too." },
-    { question: "The way to win me over", answer: "Surprise me with a spontaneous adventure. Bonus points for good snacks." },
-    { question: "I geek out on", answer: "" },
-  ],
-  lookingFor: "relationship",
-  lifestyle: {
-    drinking: "sometimes",
-    smoking: "never",
-    exercise: "often",
-  },
-  verified: true,
-  videoIntroUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-  vibeCaption: "DJing & Vinyl Hunting 🎵",
+  aboutMe: null,
+  photos: [],
+  vibes: [],
+  prompts: [],
+  lookingFor: null,
+  lifestyle: {},
+  verified: false,
+  videoIntroUrl: null,
+  vibeCaption: "",
   stats: {
-    events: 8,
-    matches: 12,
-    conversations: 5,
+    events: 0,
+    matches: 0,
+    conversations: 0,
   },
 };
 
@@ -204,7 +192,7 @@ const Profile = () => {
             aboutMe: data.aboutMe,
             photos: data.photos,
             vibes: data.vibes,
-            prompts: data.prompts.length > 0 ? data.prompts : initialProfile.prompts,
+            prompts: data.prompts || [],
             lookingFor: data.lookingFor,
             lifestyle: data.lifestyle,
             verified: false,
@@ -593,16 +581,29 @@ const Profile = () => {
             <Quote className="w-4 h-4 text-primary" />
             <h3 className="font-display font-semibold text-foreground">Conversation Starters</h3>
           </div>
-          {profile.prompts.map((prompt, index) => (
-            <ProfilePrompt
-              key={index}
-              prompt={prompt.question}
-              answer={prompt.answer}
-              onEdit={() => openPromptEditor(index)}
-              editable
-              index={index}
-            />
-          ))}
+          {profile.prompts.length > 0 ? (
+            profile.prompts.map((prompt, index) => (
+              <ProfilePrompt
+                key={index}
+                prompt={prompt.question}
+                answer={prompt.answer}
+                onEdit={() => openPromptEditor(index)}
+                editable
+                index={index}
+              />
+            ))
+          ) : (
+            <button 
+              onClick={() => openDrawer("prompt")}
+              className="w-full glass-card p-6 border-2 border-dashed border-border/50 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Quote className="w-5 h-5 text-primary" />
+              </div>
+              <span className="font-medium">Add your first Conversation Starter</span>
+              <span className="text-sm text-muted-foreground">Give matches something fun to respond to</span>
+            </button>
+          )}
         </motion.div>
 
         {/* Vibes Section */}

@@ -82,7 +82,7 @@ async function validateRoomAccess(userId: string, roomId: string): Promise<boole
     // Room ID should match a video session ID
     const { data, error } = await supabase
       .from('video_sessions')
-      .select('id, participant_1_id, participant_2_id')
+      .select('id, participant_1_id, participant_2_id, ended_at')
       .eq('id', roomId)
       .maybeSingle();
     
@@ -92,10 +92,16 @@ async function validateRoomAccess(userId: string, roomId: string): Promise<boole
     }
     
     if (!data) {
-      console.log("Room not found in video_sessions:", roomId);
-      // For now, allow room creation if no video session exists yet
-      // This supports the use case where session is created after room
-      return true;
+      console.log("Room access denied - no video_session exists:", roomId);
+      // Require video_session to exist before allowing room access
+      // This prevents unauthorized users from joining rooms before legitimate sessions are created
+      return false;
+    }
+    
+    // Don't allow joining ended sessions
+    if (data.ended_at) {
+      console.log("Room access denied - session already ended:", roomId);
+      return false;
     }
     
     const hasAccess = data.participant_1_id === userId || data.participant_2_id === userId;
