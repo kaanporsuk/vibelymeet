@@ -364,8 +364,11 @@ export type Database = {
           location_data: Json | null
           looking_for: string | null
           name: string
+          photo_verified: boolean | null
+          photo_verified_at: string | null
           photos: string[] | null
           prompts: Json | null
+          proof_selfie_url: string | null
           tagline: string | null
           total_conversations: number | null
           total_matches: number | null
@@ -393,8 +396,11 @@ export type Database = {
           location_data?: Json | null
           looking_for?: string | null
           name: string
+          photo_verified?: boolean | null
+          photo_verified_at?: string | null
           photos?: string[] | null
           prompts?: Json | null
+          proof_selfie_url?: string | null
           tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
@@ -422,8 +428,11 @@ export type Database = {
           location_data?: Json | null
           looking_for?: string | null
           name?: string
+          photo_verified?: boolean | null
+          photo_verified_at?: string | null
           photos?: string[] | null
           prompts?: Json | null
+          proof_selfie_url?: string | null
           tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
