@@ -9,6 +9,7 @@ import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
 import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
 import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useNextEvent, useEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
@@ -94,10 +95,7 @@ const Dashboard = () => {
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-white/10 px-4 py-4">
         <div className="flex items-center justify-between max-w-lg mx-auto">
-          <div>
-            <p className="text-sm text-muted-foreground">Good evening,</p>
-            <h1 className="text-xl font-display font-bold text-foreground">Alex</h1>
-          </div>
+          <DashboardGreeting />
           <div className="flex items-center gap-2">
             {/* Mini date countdown if upcoming */}
             {nextReminder && nextReminder.urgency !== 'none' && (

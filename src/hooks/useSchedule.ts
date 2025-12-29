@@ -43,24 +43,28 @@ const generateSlotKey = (date: Date, block: TimeBlock): string => {
   return `${format(date, "yyyy-MM-dd")}_${block}`;
 };
 
-// Generate initial mock data for the current user
-const generateMockMySchedule = (): ScheduleData => {
+// Generate empty schedule for new users - clean slate policy
+const generateEmptyMySchedule = (): ScheduleData => {
+  // New users start with no slots set - clean slate
+  return {};
+};
+
+// Generate mock data for a match's schedule
+const generateMockMatchSchedule = (): ScheduleData => {
   const schedule: ScheduleData = {};
   const today = startOfDay(new Date());
   
-  // Set some open slots
   const openSlots = [
     { daysFromNow: 0, block: "evening" as TimeBlock },
-    { daysFromNow: 1, block: "afternoon" as TimeBlock },
+    { daysFromNow: 1, block: "morning" as TimeBlock },
     { daysFromNow: 1, block: "evening" as TimeBlock },
-    { daysFromNow: 2, block: "morning" as TimeBlock },
+    { daysFromNow: 2, block: "afternoon" as TimeBlock },
     { daysFromNow: 3, block: "evening" as TimeBlock },
-    { daysFromNow: 3, block: "night" as TimeBlock },
-    { daysFromNow: 5, block: "afternoon" as TimeBlock },
+    { daysFromNow: 4, block: "evening" as TimeBlock },
+    { daysFromNow: 5, block: "morning" as TimeBlock },
     { daysFromNow: 5, block: "evening" as TimeBlock },
     { daysFromNow: 6, block: "evening" as TimeBlock },
-    { daysFromNow: 7, block: "morning" as TimeBlock },
-    { daysFromNow: 7, block: "evening" as TimeBlock },
+    { daysFromNow: 8, block: "afternoon" as TimeBlock },
     { daysFromNow: 8, block: "night" as TimeBlock },
   ];
 
@@ -70,96 +74,18 @@ const generateMockMySchedule = (): ScheduleData => {
     schedule[key] = { date, block, status: "open" };
   });
 
-  // Add an event (Friday Speed Dating)
-  const fridayEvent = addDays(today, (5 - today.getDay() + 7) % 7 || 7); // Next Friday
-  const eventKey = generateSlotKey(fridayEvent, "evening");
-  schedule[eventKey] = { 
-    date: fridayEvent, 
-    block: "evening", 
-    status: "event",
-    eventName: "Speed Dating Night",
-    eventId: "event-1"
-  };
-
   return schedule;
 };
 
-// Generate mock data for a match's schedule
-const generateMockMatchSchedule = (): ScheduleData => {
-  const schedule: ScheduleData = {};
-  const today = startOfDay(new Date());
-  
-  const openSlots = [
-    { daysFromNow: 0, block: "evening" as TimeBlock }, // Overlaps with user!
-    { daysFromNow: 1, block: "morning" as TimeBlock },
-    { daysFromNow: 1, block: "evening" as TimeBlock }, // Overlaps with user!
-    { daysFromNow: 2, block: "afternoon" as TimeBlock },
-    { daysFromNow: 3, block: "evening" as TimeBlock }, // Overlaps with user!
-    { daysFromNow: 4, block: "evening" as TimeBlock },
-    { daysFromNow: 5, block: "morning" as TimeBlock },
-    { daysFromNow: 5, block: "evening" as TimeBlock }, // Overlaps with user!
-    { daysFromNow: 6, block: "evening" as TimeBlock }, // Overlaps with user!
-    { daysFromNow: 8, block: "afternoon" as TimeBlock },
-    { daysFromNow: 8, block: "night" as TimeBlock }, // Overlaps with user!
-  ];
-
-  openSlots.forEach(({ daysFromNow, block }) => {
-    const date = addDays(today, daysFromNow);
-    const key = generateSlotKey(date, block);
-    schedule[key] = { date, block, status: "open" };
-  });
-
-  return schedule;
-};
-
-// Mock incoming proposals for testing
-const generateMockIncomingProposals = (): DateProposal[] => {
-  const today = startOfDay(new Date());
-  return [
-    {
-      id: "incoming-1",
-      date: addDays(today, 2),
-      block: "evening" as TimeBlock,
-      mode: "video",
-      message: "Would love to video chat and get to know you better!",
-      status: "pending",
-      sentAt: new Date(Date.now() - 3600000),
-      isIncoming: true,
-      senderName: "Emma",
-      senderAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-      matchId: "user-1",
-    },
-    {
-      id: "incoming-2",
-      date: addDays(today, 5),
-      block: "afternoon" as TimeBlock,
-      mode: "in-person",
-      message: "There's this great coffee place downtown!",
-      status: "pending",
-      sentAt: new Date(Date.now() - 7200000),
-      isIncoming: true,
-      senderName: "Sophie",
-      senderAvatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
-      matchId: "user-2",
-    },
-    {
-      id: "past-1",
-      date: addDays(today, -3),
-      block: "evening" as TimeBlock,
-      mode: "video",
-      message: "Great chatting with you!",
-      status: "accepted",
-      sentAt: new Date(Date.now() - 86400000 * 4),
-      isIncoming: false,
-      senderName: "Alex",
-      matchId: "user-3",
-    },
-  ];
+// Empty proposals for new users - clean slate policy
+const generateEmptyProposals = (): DateProposal[] => {
+  // New users start with no proposals - clean slate
+  return [];
 };
 
 export const useSchedule = () => {
-  const [mySchedule, setMySchedule] = useState<ScheduleData>(generateMockMySchedule);
-  const [proposals, setProposals] = useState<DateProposal[]>(generateMockIncomingProposals);
+  const [mySchedule, setMySchedule] = useState<ScheduleData>(generateEmptyMySchedule);
+  const [proposals, setProposals] = useState<DateProposal[]>(generateEmptyProposals);
 
   // Generate 2-week date range
   const dateRange = useMemo(() => {

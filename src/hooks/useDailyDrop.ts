@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { dailyDropService } from '@/services/vibelyService';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   DailyDrop, 
   DropZoneState, 
   DropHistory,
-  DROP_HOUR 
+  DROP_HOUR,
+  MatchCandidate
 } from '@/types/dailyDrop';
 
 function isDropTimeReached(): boolean {
@@ -36,6 +37,20 @@ function getTimeUntilNextDrop(): { hours: number; minutes: number; seconds: numb
   return { hours, minutes, seconds };
 }
 
+// Transform DB profile to MatchCandidate
+function transformToMatchCandidate(profile: Record<string, unknown>, vibes: string[] = []): MatchCandidate {
+  return {
+    id: profile.id as string,
+    name: profile.name as string,
+    age: profile.age as number,
+    avatarUrl: (profile.avatar_url as string) || (profile.photos as string[])?.[0] || '',
+    bio: (profile.bio as string) || '',
+    vibeTags: vibes,
+    lastActiveAt: (profile.updated_at as string) || new Date().toISOString(),
+    location: profile.location as string | undefined,
+  };
+}
+
 export function useDailyDrop() {
   const { user } = useAuth();
   const [state, setState] = useState<DropZoneState>('locked');
@@ -43,6 +58,42 @@ export function useDailyDrop() {
   const [countdown, setCountdown] = useState(getTimeUntilNextDrop());
   const [history, setHistory] = useState<DropHistory>({ seenUserIds: [], lastDropDate: '' });
   const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch candidate profile with vibes
+  const fetchCandidateWithVibes = useCallback(async (candidateId: string): Promise<MatchCandidate | null> => {
+    const { data: candidate } = await supabase
+      .from("profiles")
+      .select("id, name, age, job, location, bio, avatar_url, photos")
+      .eq("id", candidateId)
+      .maybeSingle();
+    
+    if (!candidate) return null;
+    
+    // Fetch vibes
+    const { data: vibeData } = await supabase
+      .from("profile_vibes")
+      .select("vibe_tags(label)")
+      .eq("profile_id", candidateId);
+    
+    type VibeResult = { vibe_tags: { label: string } | null };
+    const vibes = (vibeData as VibeResult[])?.map(v => v.vibe_tags?.label).filter(Boolean) as string[] || [];
+    
+    return transformToMatchCandidate(candidate, vibes);
+  }, []);
+
+  // Transform DB drop to DailyDrop
+  const transformDrop = useCallback(async (dbDrop: Record<string, unknown>): Promise<DailyDrop | null> => {
+    const candidate = await fetchCandidateWithVibes(dbDrop.candidate_id as string);
+    if (!candidate) return null;
+    
+    return {
+      id: dbDrop.id as string,
+      candidate,
+      droppedAt: dbDrop.dropped_at as string,
+      expiresAt: dbDrop.expires_at as string,
+      status: dbDrop.status as DailyDrop['status'],
+    };
+  }, [fetchCandidateWithVibes]);
 
   // Initialize drop state from database
   useEffect(() => {
@@ -54,31 +105,53 @@ export function useDailyDrop() {
       }
 
       try {
-        // Check for existing drop today
-        const existingDrop = await dailyDropService.getTodaysDrop(user.id);
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Check for existing drop today from database
+        const { data: existingDrop, error } = await supabase
+          .from("daily_drops")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("drop_date", today)
+          .maybeSingle();
+        
+        if (error) {
+          console.error("Error fetching daily drop:", error);
+        }
         
         if (existingDrop) {
-          setCurrentDrop(existingDrop);
-          
-          if (existingDrop.status === 'replied') {
-            setState('pending');
-          } else if (existingDrop.status === 'viewed') {
-            setState('reveal');
-          } else if (existingDrop.status === 'passed') {
-            setState('locked');
-          } else {
-            setState('ready');
+          const drop = await transformDrop(existingDrop);
+          if (drop) {
+            setCurrentDrop(drop);
+            
+            if (existingDrop.status === 'replied') {
+              setState('pending');
+            } else if (existingDrop.status === 'viewed') {
+              setState('reveal');
+            } else if (existingDrop.status === 'passed') {
+              setState('locked');
+            } else {
+              setState('ready');
+            }
           }
         } else if (isDropTimeReached()) {
-          // No drop yet today, check if we can generate one
           setState('ready');
         } else {
           setState('locked');
         }
 
-        // Load history
-        const dropHistory = dailyDropService.getDropHistory(user.id);
-        setHistory(dropHistory);
+        // Load seen user history from all previous drops
+        const { data: allDrops } = await supabase
+          .from("daily_drops")
+          .select("candidate_id, drop_date")
+          .eq("user_id", user.id);
+        
+        if (allDrops && allDrops.length > 0) {
+          const seenUserIds = allDrops.map(d => d.candidate_id);
+          const lastDropDate = allDrops.reduce((latest, d) => 
+            d.drop_date > latest ? d.drop_date : latest, allDrops[0].drop_date);
+          setHistory({ seenUserIds, lastDropDate });
+        }
       } catch (error) {
         console.error('Failed to initialize daily drop:', error);
         setState('locked');
@@ -88,7 +161,56 @@ export function useDailyDrop() {
     };
 
     initializeDrop();
-  }, [user]);
+  }, [user, transformDrop]);
+
+  // Realtime subscription for daily_drops updates
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`daily_drops:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'daily_drops',
+          filter: `user_id=eq.${user.id}`
+        },
+        async (payload) => {
+          console.log('Daily drop realtime update:', payload);
+          const today = new Date().toISOString().split('T')[0];
+          
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const dbDrop = payload.new as Record<string, unknown>;
+            
+            // Only update if it's today's drop
+            if (dbDrop.drop_date === today) {
+              const drop = await transformDrop(dbDrop);
+              if (drop) {
+                setCurrentDrop(drop);
+                
+                const status = dbDrop.status as string;
+                if (status === 'replied') {
+                  setState('pending');
+                } else if (status === 'viewed') {
+                  setState('reveal');
+                } else if (status === 'passed') {
+                  setState('locked');
+                } else {
+                  setState('ready');
+                }
+              }
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, transformDrop]);
 
   // Countdown timer
   useEffect(() => {
@@ -104,43 +226,95 @@ export function useDailyDrop() {
     if (!user) return;
 
     try {
-      // First check if we already have today's drop
-      let drop = await dailyDropService.getTodaysDrop(user.id);
+      const today = new Date().toISOString().split('T')[0];
       
-      if (!drop) {
-        // Generate a new drop
-        drop = await dailyDropService.generateDrop(user.id);
+      // Check if we already have today's drop
+      const { data: existingDrop } = await supabase
+        .from("daily_drops")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("drop_date", today)
+        .maybeSingle();
+      
+      if (existingDrop) {
+        const drop = await transformDrop(existingDrop);
+        if (drop) {
+          // Update status to viewed
+          await supabase
+            .from("daily_drops")
+            .update({ status: 'viewed' })
+            .eq("id", existingDrop.id);
+          
+          setCurrentDrop({ ...drop, status: 'viewed' });
+          setState('reveal');
+        }
+        return;
       }
       
-      if (!drop) {
+      // Generate a new drop - find a candidate not seen before
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, age, job, location, bio, avatar_url, photos")
+        .neq("id", user.id)
+        .order("updated_at", { ascending: false })
+        .limit(20);
+      
+      if (!profiles?.length) {
         setState('empty');
         return;
       }
       
-      // Mark as viewed
-      dailyDropService.updateDropStatus(user.id, drop.id, 'viewed');
-      dailyDropService.recordSeenUser(user.id, drop.candidate.id, 'viewed');
+      // Filter out seen users
+      const freshCandidates = profiles.filter(p => !history.seenUserIds.includes(p.id));
+      if (freshCandidates.length === 0) {
+        setState('empty');
+        return;
+      }
       
-      setCurrentDrop({ ...drop, status: 'viewed' });
-      setState('reveal');
+      const candidateProfile = freshCandidates[0];
       
-      // Update local history
-      setHistory(prev => ({
-        seenUserIds: [...prev.seenUserIds, drop!.candidate.id],
-        lastDropDate: new Date().toISOString().split('T')[0],
-        todayDropId: drop!.id
-      }));
+      // Insert new drop into database
+      const { data: newDropData, error } = await supabase
+        .from("daily_drops")
+        .insert({
+          user_id: user.id,
+          candidate_id: candidateProfile.id,
+          status: 'viewed',
+          drop_date: today
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        console.error("Error creating daily drop:", error);
+        return;
+      }
+      
+      const drop = await transformDrop(newDropData);
+      if (drop) {
+        setCurrentDrop({ ...drop, status: 'viewed' });
+        setState('reveal');
+        
+        // Update history
+        setHistory(prev => ({
+          seenUserIds: [...prev.seenUserIds, candidateProfile.id],
+          lastDropDate: today,
+          todayDropId: newDropData.id
+        }));
+      }
     } catch (error) {
       console.error('Failed to unlock drop:', error);
     }
-  }, [user]);
+  }, [user, history.seenUserIds, transformDrop]);
 
   // Send vibe reply
   const sendVibeReply = useCallback(async (videoUrl?: string) => {
     if (!currentDrop || !user) return;
     
-    dailyDropService.updateDropStatus(user.id, currentDrop.id, 'replied');
-    dailyDropService.recordSeenUser(user.id, currentDrop.candidate.id, 'replied');
+    await supabase
+      .from("daily_drops")
+      .update({ status: 'replied' })
+      .eq("id", currentDrop.id);
     
     setCurrentDrop({
       ...currentDrop,
@@ -154,8 +328,10 @@ export function useDailyDrop() {
   const passDrop = useCallback(async () => {
     if (!currentDrop || !user) return;
     
-    dailyDropService.updateDropStatus(user.id, currentDrop.id, 'passed');
-    dailyDropService.recordSeenUser(user.id, currentDrop.candidate.id, 'passed');
+    await supabase
+      .from("daily_drops")
+      .update({ status: 'passed' })
+      .eq("id", currentDrop.id);
     
     setCurrentDrop({
       ...currentDrop,
@@ -181,10 +357,15 @@ export function useDailyDrop() {
   }, [currentDrop]);
 
   // Reset for testing
-  const resetHistory = useCallback(() => {
+  const resetHistory = useCallback(async () => {
     if (!user) return;
     
-    dailyDropService.resetHistory(user.id);
+    // Delete all drops for this user (for testing only)
+    await supabase
+      .from("daily_drops")
+      .delete()
+      .eq("user_id", user.id);
+    
     setHistory({ seenUserIds: [], lastDropDate: '' });
     setState('ready');
     setCurrentDrop(null);
