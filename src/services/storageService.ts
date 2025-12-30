@@ -86,11 +86,13 @@ export const uploadPhotos = async (
  * Delete a photo from storage
  */
 export const deletePhoto = async (photoUrl: string): Promise<void> => {
-  // Extract path from URL
-  const urlParts = photoUrl.split(`${BUCKET_NAME}/`);
-  if (urlParts.length < 2) return;
+  // Works for both public and signed URLs.
+  const splitOn = `/${BUCKET_NAME}/`;
+  const idx = photoUrl.indexOf(splitOn);
+  if (idx === -1) return;
 
-  const path = urlParts[1];
+  const pathWithQuery = photoUrl.slice(idx + splitOn.length);
+  const path = pathWithQuery.split("?")[0];
 
   const { error } = await supabase.storage.from(BUCKET_NAME).remove([path]);
 
@@ -99,6 +101,7 @@ export const deletePhoto = async (photoUrl: string): Promise<void> => {
     throw new Error(`Failed to delete photo: ${error.message}`);
   }
 };
+
 
 /**
  * Check if a URL is a blob URL (local) vs a storage URL

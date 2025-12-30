@@ -3,6 +3,7 @@ import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { MessageCircle, User, X, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { toast } from "sonner";
 
 interface SwipeableMatchCardProps {
@@ -14,6 +15,7 @@ interface SwipeableMatchCardProps {
   time: string;
   unread: boolean;
   vibes: string[];
+  photoVerified?: boolean;
   compatibility?: number;
   onClick: () => void;
   onViewProfile: () => void;
@@ -29,6 +31,7 @@ export const SwipeableMatchCard = ({
   time,
   unread,
   vibes,
+  photoVerified,
   compatibility = Math.floor(Math.random() * 20) + 80,
   onClick,
   onViewProfile,
@@ -112,7 +115,11 @@ export const SwipeableMatchCard = ({
                   src={image}
                   alt={name}
                   className="w-14 h-14 rounded-full object-cover bg-background"
+                  loading="lazy"
                 />
+              </div>
+              <div className="absolute -bottom-1 -right-1">
+                <PhotoVerifiedMark verified={!!photoVerified} />
               </div>
               {unread && (
                 <motion.div

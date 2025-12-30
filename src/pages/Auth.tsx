@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,9 +27,32 @@ const Auth = () => {
   const [glowIntensity, setGlowIntensity] = useState(0);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate("/dashboard");
-    }
+    const routeAfterAuth = async () => {
+      if (!isAuthenticated) return;
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          navigate("/auth");
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("gender, photos")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        const photosCount = (profile?.photos as string[] | null)?.length ?? 0;
+        const needsOnboarding = !profile || profile.gender === "prefer_not_to_say" || photosCount < 2;
+
+        navigate(needsOnboarding ? "/onboarding" : "/dashboard");
+      } catch {
+        navigate("/dashboard");
+      }
+    };
+
+    routeAfterAuth();
   }, [isAuthenticated, navigate]);
 
   // Update glow intensity based on form completion
