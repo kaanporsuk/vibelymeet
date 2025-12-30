@@ -13,6 +13,7 @@ export interface Match {
   vibes: string[];
   isNew: boolean;
   matchId: string;
+  photoVerified?: boolean;
 }
 
 // Demo user ID for now (until auth is implemented)
@@ -45,7 +46,7 @@ export const useMatches = (userId: string = DEMO_USER_ID) => {
 
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at")
+        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, photo_verified, events_attended, total_matches, total_conversations, updated_at")
         .in("id", otherProfileIds);
 
       // Get vibes for these profiles
@@ -98,6 +99,7 @@ export const useMatches = (userId: string = DEMO_USER_ID) => {
           vibes: vibesByProfile[otherProfileId]?.slice(0, 2) || [],
           isNew,
           matchId: match.id,
+          photoVerified: !!(profile as any)?.photo_verified,
         };
       });
     },

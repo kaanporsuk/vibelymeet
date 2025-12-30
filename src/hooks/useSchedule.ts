@@ -43,49 +43,57 @@ const generateSlotKey = (date: Date, block: TimeBlock): string => {
   return `${format(date, "yyyy-MM-dd")}_${block}`;
 };
 
-// Generate empty schedule for new users - clean slate policy
-const generateEmptyMySchedule = (): ScheduleData => {
-  // New users start with no slots set - clean slate
-  return {};
+// Generate empty schedule for new users - persisted locally
+const STORAGE_KEY = "vibely_my_schedule_v1";
+
+const loadPersistedSchedule = (): ScheduleData => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw) as { openKeys?: string[] };
+    const openKeys = parsed?.openKeys ?? [];
+
+    const schedule: ScheduleData = {};
+    openKeys.forEach((key) => {
+      const [datePart, block] = key.split("_") as [string, TimeBlock];
+      if (!datePart || !block) return;
+
+      // datePart is yyyy-MM-dd, safe for Date construction in local time by adding T00:00
+      const date = new Date(`${datePart}T00:00:00`);
+      schedule[key] = { date, block, status: "open" };
+    });
+
+    return schedule;
+  } catch {
+    return {};
+  }
 };
 
-// Generate mock data for a match's schedule
-const generateMockMatchSchedule = (): ScheduleData => {
-  const schedule: ScheduleData = {};
-  const today = startOfDay(new Date());
-  
-  const openSlots = [
-    { daysFromNow: 0, block: "evening" as TimeBlock },
-    { daysFromNow: 1, block: "morning" as TimeBlock },
-    { daysFromNow: 1, block: "evening" as TimeBlock },
-    { daysFromNow: 2, block: "afternoon" as TimeBlock },
-    { daysFromNow: 3, block: "evening" as TimeBlock },
-    { daysFromNow: 4, block: "evening" as TimeBlock },
-    { daysFromNow: 5, block: "morning" as TimeBlock },
-    { daysFromNow: 5, block: "evening" as TimeBlock },
-    { daysFromNow: 6, block: "evening" as TimeBlock },
-    { daysFromNow: 8, block: "afternoon" as TimeBlock },
-    { daysFromNow: 8, block: "night" as TimeBlock },
-  ];
+const persistSchedule = (schedule: ScheduleData) => {
+  try {
+    const openKeys = Object.entries(schedule)
+      .filter(([, slot]) => slot.status === "open")
+      .map(([key]) => key);
 
-  openSlots.forEach(({ daysFromNow, block }) => {
-    const date = addDays(today, daysFromNow);
-    const key = generateSlotKey(date, block);
-    schedule[key] = { date, block, status: "open" };
-  });
-
-  return schedule;
-};
-
-// Empty proposals for new users - clean slate policy
-const generateEmptyProposals = (): DateProposal[] => {
-  // New users start with no proposals - clean slate
-  return [];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ openKeys }));
+  } catch {
+    // ignore
+  }
 };
 
 export const useSchedule = () => {
-  const [mySchedule, setMySchedule] = useState<ScheduleData>(generateEmptyMySchedule);
+  const [mySchedule, setMySchedule] = useState<ScheduleData>(() => loadPersistedSchedule());
   const [proposals, setProposals] = useState<DateProposal[]>(generateEmptyProposals);
+
+  // Persist schedule changes
+  const persistRef = useMemo(() => ({ t: 0 }), []);
+  useMemo(() => {
+    // cheap debounce to avoid excessive writes during rapid taps
+    window.clearTimeout(persistRef.t);
+    persistRef.t = window.setTimeout(() => persistSchedule(mySchedule), 150);
+    return undefined;
+  }, [mySchedule, persistRef]);
 
   // Generate 2-week date range
   const dateRange = useMemo(() => {
@@ -95,95 +103,99 @@ export const useSchedule = () => {
 
   const toggleSlot = useCallback((date: Date, block: TimeBlock) => {
     const key = generateSlotKey(date, block);
-    
-    setMySchedule(prev => {
+
+    setMySchedule((prev) => {
       const currentSlot = prev[key];
-      
+
       // Can't toggle event slots
       if (currentSlot?.status === "event") {
         return prev;
       }
-      
-      // Toggle between open and busy
+
+      // Toggle between open and empty
       if (currentSlot?.status === "open") {
         const { [key]: _, ...rest } = prev;
         return rest;
       }
-      
+
       return {
         ...prev,
-        [key]: { date, block, status: "open" }
+        [key]: { date, block, status: "open" },
       };
     });
   }, []);
 
-  const getSlotStatus = useCallback((date: Date, block: TimeBlock): TimeSlot | null => {
-    const key = generateSlotKey(date, block);
-    return mySchedule[key] || null;
-  }, [mySchedule]);
+  const getSlotStatus = useCallback(
+    (date: Date, block: TimeBlock): TimeSlot | null => {
+      const key = generateSlotKey(date, block);
+      return mySchedule[key] || null;
+    },
+    [mySchedule]
+  );
 
   const copyPreviousWeek = useCallback(() => {
-    setMySchedule(prev => {
+    setMySchedule((prev) => {
       const newSchedule = { ...prev };
       const today = startOfDay(new Date());
       const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
-      
+
       // Copy from days 0-6 to days 7-13
       for (let i = 0; i < 7; i++) {
         const sourceDate = addDays(currentWeekStart, i);
         const targetDate = addDays(currentWeekStart, i + 7);
-        
-        (['morning', 'afternoon', 'evening', 'night'] as TimeBlock[]).forEach(block => {
+
+        (["morning", "afternoon", "evening", "night"] as TimeBlock[]).forEach((block) => {
           const sourceKey = generateSlotKey(sourceDate, block);
           const targetKey = generateSlotKey(targetDate, block);
           const sourceSlot = prev[sourceKey];
-          
+
           // Only copy open slots, not events
           if (sourceSlot?.status === "open") {
-            newSchedule[targetKey] = { 
-              date: targetDate, 
-              block, 
-              status: "open" 
+            newSchedule[targetKey] = {
+              date: targetDate,
+              block,
+              status: "open",
             };
           }
         });
       }
-      
+
       return newSchedule;
     });
   }, []);
 
-  const sendProposal = useCallback((
-    date: Date, 
-    block: TimeBlock, 
-    mode: "video" | "in-person",
-    message: string,
-    matchName?: string,
-    matchId?: string
-  ): DateProposal => {
-    const proposal: DateProposal = {
-      id: `proposal-${Date.now()}`,
-      date,
-      block,
-      mode,
-      message,
-      status: "pending",
-      sentAt: new Date(),
-      isIncoming: false,
-      senderName: matchName,
-      matchId,
-    };
-    
-    setProposals(prev => [...prev, proposal]);
-    return proposal;
-  }, []);
+  const sendProposal = useCallback(
+    (
+      date: Date,
+      block: TimeBlock,
+      mode: "video" | "in-person",
+      message: string,
+      matchName?: string,
+      matchId?: string
+    ): DateProposal => {
+      const proposal: DateProposal = {
+        id: `proposal-${Date.now()}`,
+        date,
+        block,
+        mode,
+        message,
+        status: "pending",
+        sentAt: new Date(),
+        isIncoming: false,
+        senderName: matchName,
+        matchId,
+      };
+
+      setProposals((prev) => [...prev, proposal]);
+      return proposal;
+    },
+    []
+  );
 
   const respondToProposal = useCallback((proposalId: string, accept: boolean) => {
-    setProposals(prev => prev.map(p => 
-      p.id === proposalId 
-        ? { ...p, status: accept ? "accepted" : "declined" } 
-        : p
-    ));
+    setProposals((prev) =>
+      prev.map((p) => (p.id === proposalId ? { ...p, status: accept ? "accepted" : "declined" } : p))
+    );
   }, []);
 
   return {
@@ -198,6 +210,7 @@ export const useSchedule = () => {
     getTimeBlockInfo,
   };
 };
+
 
 // Hook for viewing mutual availability with a match
 export const useMutualAvailability = (matchId: string) => {

@@ -27,7 +27,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { BottomNav } from "@/components/BottomNav";
+import { persistPhotos } from "@/services/storageService";
 import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
@@ -158,6 +158,7 @@ const Profile = () => {
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
+  const [editPhotoFiles, setEditPhotoFiles] = useState<(File | null)[]>([]);
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
@@ -182,6 +183,14 @@ const Profile = () => {
 
         const data = await fetchMyProfile();
         if (data) {
+          const prompts = (data.prompts && data.prompts.length > 0)
+            ? data.prompts
+            : [
+                { question: "", answer: "" },
+                { question: "", answer: "" },
+                { question: "", answer: "" },
+              ];
+
           setProfile({
             id: data.id,
             name: data.name,
@@ -197,7 +206,7 @@ const Profile = () => {
             aboutMe: data.aboutMe,
             photos: data.photos,
             vibes: data.vibes,
-            prompts: data.prompts || [],
+            prompts,
             lookingFor: data.lookingFor,
             lifestyle: data.lifestyle,
             verified: false,
@@ -246,10 +255,16 @@ const Profile = () => {
         case "lifestyle":
           updates.lifestyle = editForm.lifestyle;
           break;
-        case "photos":
-          updates.photos = editForm.photos;
-          updates.avatarUrl = editForm.photos[0] || null;
+        case "photos": {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error("Not authenticated");
+
+          // Upload any newly-added local photos (blob URLs) and keep existing storage URLs.
+          const persisted = await persistPhotos(editForm.photos, editPhotoFiles, user.id);
+          updates.photos = persisted;
+          updates.avatarUrl = persisted[0] || null;
           break;
+        }
         case "prompt":
           updates.prompts = editForm.prompts;
           break;
@@ -259,17 +274,26 @@ const Profile = () => {
       }
 
       await updateMyProfile(updates);
-      
+
       // Update local state with recalculated values
-      const updatedProfile = { ...editForm };
+      const updatedProfile: UserProfile = {
+        ...editForm,
+        ...(type === "photos" && updates.photos ? { photos: updates.photos as string[] } : {}),
+      };
+
       if (updatedProfile.birthDate) {
         updatedProfile.age = calculateAge(updatedProfile.birthDate);
         updatedProfile.zodiac = getZodiacSign(updatedProfile.birthDate);
       }
-      
+
+      if (type === "photos" && updates.photos) {
+        updatedProfile.photos = updates.photos as string[];
+      }
+
       setProfile(updatedProfile);
       setActiveDrawer(null);
       setEditingPromptIndex(null);
+      setEditPhotoFiles([]);
       toast.success("Profile updated!");
     } catch (error) {
       console.error("Error saving profile:", error);
@@ -280,6 +304,25 @@ const Profile = () => {
   };
 
   const openDrawer = (type: DrawerType) => {
+    if (type === "prompt") {
+      const next = { ...profile };
+      if (!next.prompts || next.prompts.length === 0) {
+        next.prompts = [
+          { question: "", answer: "" },
+          { question: "", answer: "" },
+          { question: "", answer: "" },
+        ];
+      }
+      setEditForm(next);
+      setEditingPromptIndex(0);
+      setActiveDrawer(type);
+      return;
+    }
+
+    if (type === "photos") {
+      setEditPhotoFiles(profile.photos.map(() => null));
+    }
+
     setEditForm({ ...profile });
     setActiveDrawer(type);
   };
@@ -289,6 +332,7 @@ const Profile = () => {
     setEditForm({ ...profile });
     setActiveDrawer("prompt");
   };
+
 
   const handleLocationDetect = async () => {
     setIsDetectingLocation(true);
@@ -760,10 +804,12 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
-            <PhotoGallery 
-              photos={editForm.photos} 
+            <PhotoGallery
+              photos={editForm.photos}
               onPhotosChange={(photos) => setEditForm({ ...editForm, photos })}
-              editable 
+              photoFiles={editPhotoFiles}
+              onPhotoFilesChange={setEditPhotoFiles}
+              editable
             />
           </div>
           <DrawerFooter>

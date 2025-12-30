@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { VibeTag } from "@/components/VibeTag";
 import { VerificationBadge } from "@/components/VerificationBadge";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { cn } from "@/lib/utils";
 
 interface ProfilePreviewProps {
@@ -27,6 +28,7 @@ interface ProfilePreviewProps {
     heightCm: number;
     vibes: string[];
     verified: boolean;
+    photoVerified?: boolean;
     prompts: { prompt: string; answer: string }[];
     relationshipIntent: string;
   };
@@ -134,7 +136,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                 </h1>
                 <VerificationBadge verified={profile.verified} size="lg" />
               </div>
-              
+
               <div className="flex items-center gap-3 mt-1 text-white/80">
                 {profile.job && (
                   <span className="flex items-center gap-1 text-sm">
@@ -150,6 +152,8 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                 )}
               </div>
             </div>
+
+            <PhotoVerifiedMark verified={!!profile.photoVerified} size="md" />
           </div>
         </div>
       </div>
