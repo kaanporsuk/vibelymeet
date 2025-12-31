@@ -15,6 +15,7 @@ interface NewVibe {
   vibes: string[];
   isNew: boolean;
   hasUnread?: boolean;
+  photoVerified?: boolean;
 }
 
 interface NewVibesRailProps {
@@ -102,6 +103,7 @@ export const NewVibesRail = ({ vibes, onVibeClick }: NewVibesRailProps) => {
                   image={vibe.image}
                   isNew={vibe.isNew}
                   hasUnread={vibe.hasUnread}
+                  photoVerified={vibe.photoVerified}
                   size="lg"
                 />
               }

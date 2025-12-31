@@ -102,6 +102,74 @@ export const deletePhoto = async (photoUrl: string): Promise<void> => {
   }
 };
 
+/**
+ * Check if a signed URL is expired or about to expire (within 5 minutes)
+ */
+export const isSignedUrlExpiring = (url: string): boolean => {
+  try {
+    const urlObj = new URL(url);
+    const token = urlObj.searchParams.get("token");
+    if (!token) return true;
+    
+    // JWT token - decode the middle part (payload)
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+    
+    const payload = JSON.parse(atob(parts[1]));
+    const exp = payload.exp;
+    if (!exp) return true;
+    
+    // Check if expires within 5 minutes
+    const expiresAt = exp * 1000;
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    return expiresAt - now < fiveMinutes;
+  } catch {
+    return true;
+  }
+};
+
+/**
+ * Extract storage path from a signed URL
+ */
+export const extractPathFromSignedUrl = (url: string): string | null => {
+  const splitOn = `/${BUCKET_NAME}/`;
+  const idx = url.indexOf(splitOn);
+  if (idx === -1) return null;
+
+  const pathWithQuery = url.slice(idx + splitOn.length);
+  return pathWithQuery.split("?")[0];
+};
+
+/**
+ * Refresh signed URLs that are expiring or expired
+ */
+export const refreshSignedUrls = async (urls: string[]): Promise<string[]> => {
+  const refreshed: string[] = [];
+
+  for (const url of urls) {
+    if (isBlobUrl(url)) {
+      refreshed.push(url);
+      continue;
+    }
+
+    // Check if URL needs refreshing
+    if (isSignedUrlExpiring(url)) {
+      const path = extractPathFromSignedUrl(url);
+      if (path) {
+        const newUrl = await getSignedPhotoUrl(path);
+        refreshed.push(newUrl || url);
+      } else {
+        refreshed.push(url);
+      }
+    } else {
+      refreshed.push(url);
+    }
+  }
+
+  return refreshed;
+};
 
 /**
  * Check if a URL is a blob URL (local) vs a storage URL

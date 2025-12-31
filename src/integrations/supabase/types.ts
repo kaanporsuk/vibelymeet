@@ -487,6 +487,36 @@ export type Database = {
         }
         Relationships: []
       }
+      user_schedules: {
+        Row: {
+          created_at: string
+          id: string
+          slot_date: string
+          slot_key: string
+          status: string
+          time_block: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          slot_date: string
+          slot_key: string
+          status?: string
+          time_block: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          slot_date?: string
+          slot_key?: string
+          status?: string
+          time_block?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       vibe_tags: {
         Row: {
           category: string | null
