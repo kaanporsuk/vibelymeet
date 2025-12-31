@@ -1,11 +1,13 @@
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 
 interface MatchAvatarProps {
   name: string;
   image: string;
   isNew?: boolean;
   hasUnread?: boolean;
+  photoVerified?: boolean;
   size?: "sm" | "md" | "lg";
   onClick?: () => void;
   showName?: boolean;
@@ -16,6 +18,7 @@ export const MatchAvatar = ({
   image,
   isNew = false,
   hasUnread = false,
+  photoVerified = false,
   size = "md",
   onClick,
   showName = true,
@@ -80,6 +83,11 @@ export const MatchAvatar = ({
             animate={{ scale: 1 }}
             className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-accent neon-glow-pink"
           />
+        )}
+
+        {/* Photo verified badge */}
+        {photoVerified && !isNew && !hasUnread && (
+          <PhotoVerifiedMark verified className="absolute -top-0.5 -right-0.5" />
         )}
       </div>
 

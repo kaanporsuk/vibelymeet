@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
-import { addDays, format, startOfWeek, isSameDay, isAfter, isBefore, startOfDay } from "date-fns";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { addDays, format, startOfWeek, startOfDay } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
 
 export type TimeBlock = "morning" | "afternoon" | "evening" | "night";
 export type SlotStatus = "busy" | "open" | "event";
@@ -13,7 +14,7 @@ export interface TimeSlot {
 }
 
 export interface ScheduleData {
-  [key: string]: TimeSlot; // key format: "YYYY-MM-DD_block"
+  [key: string]: TimeSlot;
 }
 
 export interface DateProposal {
@@ -43,85 +44,74 @@ const generateSlotKey = (date: Date, block: TimeBlock): string => {
   return `${format(date, "yyyy-MM-dd")}_${block}`;
 };
 
-// Generate empty schedule for new users - persisted locally
-const STORAGE_KEY = "vibely_my_schedule_v1";
-
-const loadPersistedSchedule = (): ScheduleData => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as { openKeys?: string[] };
-    const openKeys = parsed?.openKeys ?? [];
-
-    const schedule: ScheduleData = {};
-    openKeys.forEach((key) => {
-      const [datePart, block] = key.split("_") as [string, TimeBlock];
-      if (!datePart || !block) return;
-
-      // datePart is yyyy-MM-dd, safe for Date construction in local time by adding T00:00
-      const date = new Date(`${datePart}T00:00:00`);
-      schedule[key] = { date, block, status: "open" };
-    });
-
-    return schedule;
-  } catch {
-    return {};
-  }
-};
-
-const persistSchedule = (schedule: ScheduleData) => {
-  try {
-    const openKeys = Object.entries(schedule)
-      .filter(([, slot]) => slot.status === "open")
-      .map(([key]) => key);
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ openKeys }));
-  } catch {
-    // ignore
-  }
-};
-
 export const useSchedule = () => {
-  const [mySchedule, setMySchedule] = useState<ScheduleData>(() => loadPersistedSchedule());
-  const [proposals, setProposals] = useState<DateProposal[]>(generateEmptyProposals);
+  const [mySchedule, setMySchedule] = useState<ScheduleData>({});
+  const [proposals, setProposals] = useState<DateProposal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Persist schedule changes
-  const persistRef = useMemo(() => ({ t: 0 }), []);
-  useMemo(() => {
-    // cheap debounce to avoid excessive writes during rapid taps
-    window.clearTimeout(persistRef.t);
-    persistRef.t = window.setTimeout(() => persistSchedule(mySchedule), 150);
-    return undefined;
-  }, [mySchedule, persistRef]);
+  // Load schedule from database on mount
+  useEffect(() => {
+    const loadSchedule = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
 
-  // Generate 2-week date range
+      const { data, error } = await supabase
+        .from("user_schedules")
+        .select("slot_key, slot_date, time_block, status")
+        .eq("user_id", user.id);
+
+      if (!error && data) {
+        const schedule: ScheduleData = {};
+        data.forEach((row) => {
+          const date = new Date(`${row.slot_date}T00:00:00`);
+          schedule[row.slot_key] = {
+            date,
+            block: row.time_block as TimeBlock,
+            status: row.status as SlotStatus,
+          };
+        });
+        setMySchedule(schedule);
+      }
+      setIsLoading(false);
+    };
+
+    loadSchedule();
+  }, []);
+
   const dateRange = useMemo(() => {
     const today = startOfDay(new Date());
     return Array.from({ length: 14 }, (_, i) => addDays(today, i));
   }, []);
 
-  const toggleSlot = useCallback((date: Date, block: TimeBlock) => {
+  const toggleSlot = useCallback(async (date: Date, block: TimeBlock) => {
     const key = generateSlotKey(date, block);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
     setMySchedule((prev) => {
       const currentSlot = prev[key];
+      if (currentSlot?.status === "event") return prev;
 
-      // Can't toggle event slots
-      if (currentSlot?.status === "event") {
-        return prev;
-      }
-
-      // Toggle between open and empty
       if (currentSlot?.status === "open") {
+        // Remove from DB
+        supabase.from("user_schedules").delete().eq("user_id", user.id).eq("slot_key", key).then();
         const { [key]: _, ...rest } = prev;
         return rest;
       }
 
-      return {
-        ...prev,
-        [key]: { date, block, status: "open" },
-      };
+      // Insert to DB
+      supabase.from("user_schedules").upsert({
+        user_id: user.id,
+        slot_key: key,
+        slot_date: format(date, "yyyy-MM-dd"),
+        time_block: block,
+        status: "open",
+      }).then();
+
+      return { ...prev, [key]: { date, block, status: "open" } };
     });
   }, []);
 
@@ -133,13 +123,16 @@ export const useSchedule = () => {
     [mySchedule]
   );
 
-  const copyPreviousWeek = useCallback(() => {
+  const copyPreviousWeek = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const today = startOfDay(new Date());
+    const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
+    const newSlots: Array<{ user_id: string; slot_key: string; slot_date: string; time_block: string; status: string }> = [];
+
     setMySchedule((prev) => {
       const newSchedule = { ...prev };
-      const today = startOfDay(new Date());
-      const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
-
-      // Copy from days 0-6 to days 7-13
       for (let i = 0; i < 7; i++) {
         const sourceDate = addDays(currentWeekStart, i);
         const targetDate = addDays(currentWeekStart, i + 7);
@@ -149,19 +142,24 @@ export const useSchedule = () => {
           const targetKey = generateSlotKey(targetDate, block);
           const sourceSlot = prev[sourceKey];
 
-          // Only copy open slots, not events
           if (sourceSlot?.status === "open") {
-            newSchedule[targetKey] = {
-              date: targetDate,
-              block,
+            newSchedule[targetKey] = { date: targetDate, block, status: "open" };
+            newSlots.push({
+              user_id: user.id,
+              slot_key: targetKey,
+              slot_date: format(targetDate, "yyyy-MM-dd"),
+              time_block: block,
               status: "open",
-            };
+            });
           }
         });
       }
-
       return newSchedule;
     });
+
+    if (newSlots.length > 0) {
+      supabase.from("user_schedules").upsert(newSlots).then();
+    }
   }, []);
 
   const sendProposal = useCallback(
@@ -208,14 +206,26 @@ export const useSchedule = () => {
     sendProposal,
     respondToProposal,
     getTimeBlockInfo,
+    isLoading,
+  };
+};
+    dateRange,
+    toggleSlot,
+    getSlotStatus,
+    copyPreviousWeek,
+    proposals,
+    sendProposal,
+    respondToProposal,
+    getTimeBlockInfo,
   };
 };
 
 
 // Hook for viewing mutual availability with a match
-export const useMutualAvailability = (matchId: string) => {
+export const useMutualAvailability = (_matchId: string) => {
   const { mySchedule, dateRange } = useSchedule();
-  const [matchSchedule] = useState<ScheduleData>(generateMockMatchSchedule);
+  // Empty schedule for now until we have actual match schedules from DB
+  const [matchSchedule] = useState<ScheduleData>({});
 
   const getMutualSlots = useMemo(() => {
     const slots: Array<{
@@ -226,17 +236,15 @@ export const useMutualAvailability = (matchId: string) => {
 
     dateRange.forEach(date => {
       (['morning', 'afternoon', 'evening', 'night'] as TimeBlock[]).forEach(block => {
-        const key = generateSlotKey(date, block);
+        const key = `${format(date, "yyyy-MM-dd")}_${block}`;
         const mySlot = mySchedule[key];
         const matchSlot = matchSchedule[key];
 
         // Only show slots where match is open
         if (matchSlot?.status === "open") {
           if (mySlot?.status === "open") {
-            // Golden slot - both are open
             slots.push({ date, block, type: "golden" });
           } else if (!mySlot || mySlot.status === "busy") {
-            // Available - only match is open
             slots.push({ date, block, type: "available" });
           }
         }

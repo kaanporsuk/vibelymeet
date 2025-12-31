@@ -115,6 +115,7 @@ const Matches = () => {
         vibes: m.vibes,
         isNew: true,
         hasUnread: m.unread,
+        photoVerified: m.photoVerified,
       }));
 
     const regular = matches.filter((m) => !m.isNew);
@@ -358,6 +359,7 @@ const Matches = () => {
                           >
                             <SwipeableMatchCard
                               {...match}
+                              photoVerified={match.photoVerified}
                               onClick={() => navigate(`/chat/${match.id}`)}
                               onViewProfile={() =>
                                 handleViewProfile(match.id, match.name)

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { refreshSignedUrls } from "@/services/storageService";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -196,7 +197,14 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
 
   const vibes = vibesData?.map((v: { vibe_tags: { label: string } | null }) => v.vibe_tags?.label).filter(Boolean) as string[] || [];
 
-  return dbToProfile(profile as unknown as DbProfile, vibes);
+  const profileData = dbToProfile(profile as unknown as DbProfile, vibes);
+
+  // Refresh signed URLs if needed
+  if (profileData.photos.length > 0) {
+    profileData.photos = await refreshSignedUrls(profileData.photos);
+  }
+
+  return profileData;
 };
 
 // Update current user's profile

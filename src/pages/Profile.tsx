@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
+import { BottomNav } from "@/components/BottomNav";
 import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { VibeTagSelector } from "@/components/VibeTagSelector";

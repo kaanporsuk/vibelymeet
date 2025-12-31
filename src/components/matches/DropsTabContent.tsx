@@ -1,13 +1,13 @@
-import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Droplet, Check, X, Clock, MessageCircle, Send, Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MatchCandidate } from '@/types/dailyDrop';
 import { calculateVibeScore, getVibeScoreColor } from '@/utils/vibeScoreUtils';
+import { PhotoVerifiedMark } from '@/components/PhotoVerifiedMark';
 
 export interface DropMatch {
   id: string;
-  candidate: MatchCandidate;
+  candidate: MatchCandidate & { photoVerified?: boolean };
   status: 'sent' | 'received' | 'matched' | 'passed' | 'expired';
   sentAt: string;
   matchedAt?: string;
@@ -106,6 +106,10 @@ export function DropsTabContent({ drops, onOpenChat, onViewProfile }: DropsTabCo
                 (drop.status === 'passed' || drop.status === 'expired') && "border-border grayscale"
               )}
             />
+            {/* Photo Verified badge */}
+            {drop.candidate.photoVerified && (
+              <PhotoVerifiedMark verified className="absolute -top-0.5 -right-0.5" />
+            )}
             {/* Vibe Score badge */}
             {drop.status !== 'passed' && drop.status !== 'expired' && (
               <motion.span 
@@ -123,7 +127,7 @@ export function DropsTabContent({ drops, onOpenChat, onViewProfile }: DropsTabCo
               <motion.span 
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ repeat: Infinity, duration: 1.5 }}
-                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive flex items-center justify-center"
+                className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-destructive flex items-center justify-center"
               >
                 <span className="text-[10px] text-destructive-foreground font-bold">!</span>
               </motion.span>

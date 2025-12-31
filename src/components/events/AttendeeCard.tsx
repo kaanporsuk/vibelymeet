@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 
 interface AttendeeCardProps {
   id: string;
@@ -6,10 +7,11 @@ interface AttendeeCardProps {
   avatar: string;
   vibeTag: string;
   isBlurred?: boolean;
+  photoVerified?: boolean;
   onClick?: () => void;
 }
 
-const AttendeeCard = ({ name, avatar, vibeTag, isBlurred, onClick }: AttendeeCardProps) => {
+const AttendeeCard = ({ name, avatar, vibeTag, isBlurred, photoVerified, onClick }: AttendeeCardProps) => {
   return (
     <motion.button
       onClick={onClick}
@@ -33,6 +35,9 @@ const AttendeeCard = ({ name, avatar, vibeTag, isBlurred, onClick }: AttendeeCar
             </div>
           )}
         </div>
+        {!isBlurred && photoVerified && (
+          <PhotoVerifiedMark verified className="absolute -top-0.5 -right-0.5" />
+        )}
         {!isBlurred && (
           <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-secondary rounded-full border border-border">
             <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
