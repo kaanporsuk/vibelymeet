@@ -15,9 +15,18 @@ interface VibeScheduleProps {
 }
 
 export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
-  const { mySchedule, dateRange, toggleSlot, getSlotStatus, copyPreviousWeek } = useSchedule();
+  const { mySchedule, dateRange, toggleSlot, getSlotStatus, copyPreviousWeek, isLoading } = useSchedule();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollIndex, setScrollIndex] = useState(0);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-full bg-background items-center justify-center p-8">
+        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mb-4" />
+        <p className="text-muted-foreground text-sm">Loading your schedule...</p>
+      </div>
+    );
+  }
 
   const handleScrollLeft = () => {
     if (scrollContainerRef.current) {
