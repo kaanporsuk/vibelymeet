@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Lock, Calendar, Sparkles } from "lucide-react";
+import { Lock, Calendar, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TimeBlock, SlotStatus, getTimeBlockInfo } from "@/hooks/useSchedule";
 
@@ -11,6 +11,7 @@ interface TimeBlockCellProps {
   onClick?: () => void;
   slotType?: "golden" | "available" | null;
   compact?: boolean;
+  isPending?: boolean;
 }
 
 export const TimeBlockCell = ({
@@ -21,6 +22,7 @@ export const TimeBlockCell = ({
   onClick,
   slotType,
   compact = false,
+  isPending = false,
 }: TimeBlockCellProps) => {
   const blockInfo = getTimeBlockInfo(block);
   const isEvent = status === "event";
@@ -33,6 +35,8 @@ export const TimeBlockCell = ({
     compact ? "h-12 px-2" : "h-16 p-3",
     "flex items-center justify-center gap-2",
     {
+      // Pending state
+      "opacity-70": isPending,
       // Event state (locked, purple pulse)
       "bg-primary/30 border-2 border-primary animate-glow-pulse cursor-not-allowed": isEvent,
       // Open state (glowing cyan)
@@ -48,9 +52,9 @@ export const TimeBlockCell = ({
 
   return (
     <motion.button
-      whileTap={isEvent ? {} : { scale: 0.95 }}
-      onClick={isEvent ? undefined : onClick}
-      disabled={isEvent}
+      whileTap={isEvent || isPending ? {} : { scale: 0.95 }}
+      onClick={isEvent || isPending ? undefined : onClick}
+      disabled={isEvent || isPending}
       className={cellClasses}
     >
       {/* Background glow for golden slots */}
@@ -60,7 +64,11 @@ export const TimeBlockCell = ({
 
       {/* Content */}
       <div className="relative z-10 flex items-center gap-2">
-        {isEvent && (
+        {isPending && (
+          <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+        )}
+
+        {!isPending && isEvent && (
           <>
             <Lock className="w-3.5 h-3.5 text-primary" />
             {!compact && (
@@ -73,7 +81,7 @@ export const TimeBlockCell = ({
           </>
         )}
 
-        {isGolden && (
+        {!isPending && isGolden && (
           <>
             <Sparkles className="w-4 h-4 text-amber-400" />
             {!compact && (
@@ -82,7 +90,7 @@ export const TimeBlockCell = ({
           </>
         )}
 
-        {isAvailable && !isGolden && (
+        {!isPending && isAvailable && !isGolden && (
           <>
             <Calendar className="w-4 h-4 text-primary" />
             {!compact && (
@@ -91,11 +99,11 @@ export const TimeBlockCell = ({
           </>
         )}
 
-        {isOpen && isOwner && !isEvent && (
+        {!isPending && isOpen && isOwner && !isEvent && (
           <span className="text-xs font-medium text-neon-cyan">Open</span>
         )}
 
-        {!isOpen && !isEvent && !isGolden && !isAvailable && !compact && (
+        {!isPending && !isOpen && !isEvent && !isGolden && !isAvailable && !compact && (
           <span className="text-xs text-muted-foreground">{blockInfo.label}</span>
         )}
       </div>

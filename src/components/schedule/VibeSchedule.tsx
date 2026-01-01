@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
-import { motion } from "framer-motion";
-import { format, isSameDay, isToday } from "date-fns";
-import { ChevronLeft, ChevronRight, Copy, Calendar, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { format, isToday } from "date-fns";
+import { ChevronLeft, ChevronRight, Copy, Calendar, Sparkles, Cloud, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TimeBlockCell } from "./TimeBlockCell";
 import { useSchedule, TimeBlock, getTimeBlockInfo } from "@/hooks/useSchedule";
@@ -15,9 +15,18 @@ interface VibeScheduleProps {
 }
 
 export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
-  const { mySchedule, dateRange, toggleSlot, getSlotStatus, copyPreviousWeek, isLoading } = useSchedule();
+  const { mySchedule, dateRange, toggleSlot, getSlotStatus, copyPreviousWeek, isLoading, isSyncing, isSlotPending } = useSchedule();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [scrollIndex, setScrollIndex] = useState(0);
+  const [showSaved, setShowSaved] = useState(false);
+
+  // Show "Saved" indicator when syncing completes
+  const prevSyncing = useRef(isSyncing);
+  if (prevSyncing.current && !isSyncing) {
+    setShowSaved(true);
+    setTimeout(() => setShowSaved(false), 2000);
+  }
+  prevSyncing.current = isSyncing;
 
   if (isLoading) {
     return (
@@ -53,6 +62,35 @@ export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
 
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Sync Indicator */}
+      <AnimatePresence>
+        {(isSyncing || showSaved) && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="absolute top-2 right-2 z-50"
+          >
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium",
+              isSyncing ? "bg-primary/20 text-primary" : "bg-green-500/20 text-green-500"
+            )}>
+              {isSyncing ? (
+                <>
+                  <Cloud className="w-3.5 h-3.5 animate-pulse" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Saved
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="shrink-0 p-6 border-b border-border/50">
         <div className="flex items-center justify-between mb-2">
@@ -179,6 +217,7 @@ export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
                     <div className="space-y-1">
                       {TIME_BLOCKS.map((block) => {
                         const slot = getSlotStatus(date, block);
+                        const isPending = isSlotPending(date, block);
                         return (
                           <TimeBlockCell
                             key={`${date.toISOString()}-${block}`}
@@ -187,6 +226,7 @@ export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
                             eventName={slot?.eventName}
                             isOwner={true}
                             onClick={() => handleToggle(date, block)}
+                            isPending={isPending}
                           />
                         );
                       })}

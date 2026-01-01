@@ -48,6 +48,8 @@ export const useSchedule = () => {
   const [mySchedule, setMySchedule] = useState<ScheduleData>({});
   const [proposals, setProposals] = useState<DateProposal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingSlots, setPendingSlots] = useState<Set<string>>(new Set());
 
   // Load schedule from database on mount
   useEffect(() => {
@@ -91,29 +93,62 @@ export const useSchedule = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    setMySchedule((prev) => {
-      const currentSlot = prev[key];
-      if (currentSlot?.status === "event") return prev;
+    // Get current state for potential rollback
+    const previousSchedule = { ...mySchedule };
+    const currentSlot = mySchedule[key];
+    
+    if (currentSlot?.status === "event") return;
 
-      if (currentSlot?.status === "open") {
-        // Remove from DB
-        supabase.from("user_schedules").delete().eq("user_id", user.id).eq("slot_key", key).then();
+    // Mark slot as pending
+    setPendingSlots(prev => new Set(prev).add(key));
+    setIsSyncing(true);
+
+    const isRemoving = currentSlot?.status === "open";
+
+    // Optimistic update
+    setMySchedule((prev) => {
+      if (isRemoving) {
         const { [key]: _, ...rest } = prev;
         return rest;
       }
-
-      // Insert to DB
-      supabase.from("user_schedules").upsert({
-        user_id: user.id,
-        slot_key: key,
-        slot_date: format(date, "yyyy-MM-dd"),
-        time_block: block,
-        status: "open",
-      }).then();
-
       return { ...prev, [key]: { date, block, status: "open" } };
     });
-  }, []);
+
+    try {
+      if (isRemoving) {
+        const { error } = await supabase
+          .from("user_schedules")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("slot_key", key);
+        
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("user_schedules")
+          .upsert({
+            user_id: user.id,
+            slot_key: key,
+            slot_date: format(date, "yyyy-MM-dd"),
+            time_block: block,
+            status: "open",
+          });
+        
+        if (error) throw error;
+      }
+    } catch (error) {
+      // Rollback on error
+      setMySchedule(previousSchedule);
+      console.error("Failed to sync schedule:", error);
+    } finally {
+      setPendingSlots(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      setIsSyncing(prev => pendingSlots.size > 1 ? prev : false);
+    }
+  }, [mySchedule, pendingSlots.size]);
 
   const getSlotStatus = useCallback(
     (date: Date, block: TimeBlock): TimeSlot | null => {
@@ -196,6 +231,11 @@ export const useSchedule = () => {
     );
   }, []);
 
+  const isSlotPending = useCallback((date: Date, block: TimeBlock): boolean => {
+    const key = generateSlotKey(date, block);
+    return pendingSlots.has(key);
+  }, [pendingSlots]);
+
   return {
     mySchedule,
     dateRange,
@@ -207,6 +247,8 @@ export const useSchedule = () => {
     respondToProposal,
     getTimeBlockInfo,
     isLoading,
+    isSyncing,
+    isSlotPending,
   };
 };
 
