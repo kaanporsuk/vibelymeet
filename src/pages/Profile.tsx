@@ -31,6 +31,7 @@ import { persistPhotos } from "@/services/storageService";
 import { BottomNav } from "@/components/BottomNav";
 import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { PhotoManager } from "@/components/PhotoManager";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
 import { VibeTag } from "@/components/VibeTag";
 import { ProfilePrompt, PromptSelector } from "@/components/ProfilePrompt";
@@ -805,12 +806,11 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
-            <PhotoGallery
+            <PhotoManager
               photos={editForm.photos}
               onPhotosChange={(photos) => setEditForm({ ...editForm, photos })}
               photoFiles={editPhotoFiles}
               onPhotoFilesChange={setEditPhotoFiles}
-              editable
             />
           </div>
           <DrawerFooter>
