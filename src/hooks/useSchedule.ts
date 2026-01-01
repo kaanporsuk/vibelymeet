@@ -209,16 +209,6 @@ export const useSchedule = () => {
     isLoading,
   };
 };
-    dateRange,
-    toggleSlot,
-    getSlotStatus,
-    copyPreviousWeek,
-    proposals,
-    sendProposal,
-    respondToProposal,
-    getTimeBlockInfo,
-  };
-};
 
 
 // Hook for viewing mutual availability with a match
