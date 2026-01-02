@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
-import { Plus, X, Crown, Upload, GripVertical, Image as ImageIcon } from "lucide-react";
+import { Plus, X, Crown, Upload, GripVertical, Image as ImageIcon, Expand } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 
 interface PhotoManagerProps {
   photos: string[];
@@ -22,6 +23,10 @@ export const PhotoManager = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<{ isOpen: boolean; index: number }>({
+    isOpen: false,
+    index: 0,
+  });
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -159,9 +164,22 @@ export const PhotoManager = ({
                 </div>
               )}
 
-              {/* Drag handle */}
-              <div className="absolute top-2 right-2 w-7 h-7 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <GripVertical className="w-4 h-4 text-muted-foreground" />
+              {/* Drag handle and expand button */}
+              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewPhoto({ isOpen: true, index });
+                  }}
+                >
+                  <Expand className="w-3.5 h-3.5 text-foreground" />
+                </Button>
+                <div className="w-7 h-7 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center">
+                  <GripVertical className="w-4 h-4 text-muted-foreground" />
+                </div>
               </div>
 
               {/* Actions overlay - visible on hover */}
@@ -248,7 +266,20 @@ export const PhotoManager = ({
           <Crown className="w-3 h-3 text-primary" />
           Your main photo is shown first on your profile
         </p>
+        <p className="flex items-center gap-2">
+          <Expand className="w-3 h-3" />
+          Tap expand to view full-screen
+        </p>
       </div>
+
+      {/* Photo Preview Modal */}
+      <PhotoPreviewModal
+        photos={photos}
+        initialIndex={previewPhoto.index}
+        isOpen={previewPhoto.isOpen}
+        onClose={() => setPreviewPhoto({ isOpen: false, index: 0 })}
+        showZoom={true}
+      />
     </div>
   );
 };
