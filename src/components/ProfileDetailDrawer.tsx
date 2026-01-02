@@ -12,6 +12,7 @@ import {
   Sparkles,
   X,
   Heart,
+  Expand,
 } from "lucide-react";
 import {
   Drawer,
@@ -21,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 
 // Mock video URL
 const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
@@ -84,7 +86,7 @@ export const ProfileDetailDrawer = ({
   const [open, setOpen] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
 
   // Use photos from match prop if available, otherwise fall back to mock data
   const photos = match.photos && match.photos.length > 0 
@@ -127,13 +129,23 @@ export const ProfileDetailDrawer = ({
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>{trigger}</DrawerTrigger>
-      <DrawerContent className="h-[95vh] bg-background border-t border-border/50 rounded-t-3xl overflow-hidden">
-        <div
-          ref={scrollRef}
-          className="h-full overflow-y-auto overscroll-contain pb-32"
-        >
+      <DrawerContent className="h-[95vh] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
+        {/* Fixed Close Button Header */}
+        <div className="shrink-0 absolute top-4 right-4 z-30">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setOpen(false)}
+            className="w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+          >
+            <X className="w-5 h-5" />
+          </Button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* Hero Section - Vibe Video or Photo Gallery */}
-          <div className="relative aspect-[3/4] max-h-[60vh] bg-secondary">
+          <div className="relative aspect-[3/4] max-h-[55vh] bg-secondary">
             {mockProfileData.hasVideoIntro ? (
               /* Vibe Video Hero */
               <VibePlayer
@@ -145,7 +157,7 @@ export const ProfileDetailDrawer = ({
                 className="w-full h-full"
               />
             ) : (
-              /* Photo Gallery Fallback */
+              /* Photo Gallery */
               <>
                 <AnimatePresence mode="wait">
                   <motion.img
@@ -161,7 +173,7 @@ export const ProfileDetailDrawer = ({
                 </AnimatePresence>
 
                 {/* Photo indicators */}
-                <div className="absolute top-4 left-4 right-4 flex gap-1">
+                <div className="absolute top-4 left-4 right-16 flex gap-1">
                   {photos.map((_, i) => (
                     <div
                       key={i}
@@ -175,19 +187,27 @@ export const ProfileDetailDrawer = ({
                   ))}
                 </div>
 
-                {/* Photo navigation */}
-                <div className="absolute inset-0 flex">
-                  <button
-                    onClick={prevPhoto}
-                    className="flex-1 focus:outline-none"
-                    aria-label="Previous photo"
-                  />
-                  <button
-                    onClick={nextPhoto}
-                    className="flex-1 focus:outline-none"
-                    aria-label="Next photo"
-                  />
-                </div>
+                {/* Photo navigation tap areas */}
+                <button
+                  onClick={prevPhoto}
+                  className="absolute left-0 top-16 bottom-0 w-1/3"
+                  aria-label="Previous photo"
+                />
+                <button
+                  onClick={nextPhoto}
+                  className="absolute right-0 top-16 bottom-0 w-1/3"
+                  aria-label="Next photo"
+                />
+
+                {/* Expand button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowFullscreenPhoto(true)}
+                  className="absolute bottom-4 right-4 z-10 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+                >
+                  <Expand className="w-5 h-5" />
+                </Button>
 
                 {/* Navigation arrows (desktop) */}
                 {photos.length > 1 && (
@@ -211,7 +231,7 @@ export const ProfileDetailDrawer = ({
                   </>
                 )}
 
-                {/* Play Intro Video Button */}
+                {/* Play Intro Video Button (when has video but showing photos) */}
                 {mockProfileData.hasVideoIntro && (
                   <motion.button
                     whileHover={{ scale: 1.05 }}
@@ -228,23 +248,13 @@ export const ProfileDetailDrawer = ({
               </>
             )}
 
-            {/* Close button (always visible) */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setOpen(false)}
-              className="absolute top-4 right-4 z-30 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
-            >
-              <X className="w-5 h-5" />
-            </Button>
-
             {/* Gradient overlay at bottom */}
             <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent pointer-events-none" />
           </div>
 
           {/* Profile Content */}
-          <div className="relative -mt-8 px-4 space-y-6">
-            {/* Name and basics */}
+          <div className="relative -mt-8 px-4 space-y-4 pb-32">
+            {/* Name and basics card */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -278,25 +288,25 @@ export const ProfileDetailDrawer = ({
                 </div>
 
                 {/* Compatibility badge */}
-                <div className="flex flex-col items-center">
-                  <div className="relative w-16 h-16">
+                <div className="flex flex-col items-center shrink-0">
+                  <div className="relative w-14 h-14">
                     <svg className="w-full h-full -rotate-90">
                       <circle
-                        cx="32"
-                        cy="32"
-                        r="28"
+                        cx="28"
+                        cy="28"
+                        r="24"
                         stroke="hsl(var(--muted))"
                         strokeWidth="4"
                         fill="none"
                       />
                       <circle
-                        cx="32"
-                        cy="32"
-                        r="28"
+                        cx="28"
+                        cy="28"
+                        r="24"
                         stroke="url(#gradient)"
                         strokeWidth="4"
                         fill="none"
-                        strokeDasharray={`${compatibility * 1.76} 176`}
+                        strokeDasharray={`${compatibility * 1.51} 151`}
                         strokeLinecap="round"
                       />
                       <defs>
@@ -307,7 +317,7 @@ export const ProfileDetailDrawer = ({
                       </defs>
                     </svg>
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-lg font-bold text-foreground">{compatibility}%</span>
+                      <span className="text-sm font-bold text-foreground">{compatibility}%</span>
                     </div>
                   </div>
                   <span className="text-xs text-muted-foreground mt-1">Match</span>
@@ -351,9 +361,8 @@ export const ProfileDetailDrawer = ({
               </div>
             </motion.div>
 
-            {/* Bio */}
-            {/* Photo Gallery */}
-            {photos.length > 0 && (
+            {/* Photo Gallery Thumbnails */}
+            {photos.length > 1 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -366,22 +375,25 @@ export const ProfileDetailDrawer = ({
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {photos.map((photo, index) => (
-                    <motion.div
+                    <motion.button
                       key={index}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="relative aspect-square rounded-xl overflow-hidden cursor-pointer"
-                      onClick={() => setCurrentPhotoIndex(index)}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      className={cn(
+                        "relative aspect-square rounded-xl overflow-hidden",
+                        index === currentPhotoIndex && "ring-2 ring-primary"
+                      )}
+                      onClick={() => {
+                        setCurrentPhotoIndex(index);
+                        setShowFullscreenPhoto(true);
+                      }}
                     >
                       <img
                         src={photo}
                         alt={`${match.name}'s photo ${index + 1}`}
                         className="w-full h-full object-cover"
                       />
-                      {index === currentPhotoIndex && (
-                        <div className="absolute inset-0 border-2 border-primary rounded-xl" />
-                      )}
-                    </motion.div>
+                    </motion.button>
                   ))}
                 </div>
               </motion.div>
@@ -425,18 +437,11 @@ export const ProfileDetailDrawer = ({
                 </motion.div>
               ))}
             </motion.div>
-
-            {/* Spacer for sticky actions */}
-            <div className="h-8" />
           </div>
         </div>
 
         {/* Sticky Action Bar */}
-        <motion.div
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          className="absolute bottom-0 left-0 right-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border/50"
-        >
+        <div className="shrink-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border/50 safe-area-bottom">
           <div className="flex gap-3 max-w-lg mx-auto">
             <Button
               variant="outline"
@@ -460,12 +465,9 @@ export const ProfileDetailDrawer = ({
               Message
             </Button>
           </div>
+        </div>
 
-          {/* Safe area padding */}
-          <div className="h-safe-area-inset-bottom" />
-        </motion.div>
-
-        {/* Video Intro Modal Placeholder */}
+        {/* Video Intro Modal */}
         <AnimatePresence>
           {showVideoOverlay && (
             <motion.div
@@ -495,6 +497,14 @@ export const ProfileDetailDrawer = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Fullscreen Photo Modal */}
+        <PhotoPreviewModal
+          photos={photos}
+          initialIndex={currentPhotoIndex}
+          isOpen={showFullscreenPhoto}
+          onClose={() => setShowFullscreenPhoto(false)}
+        />
       </DrawerContent>
     </Drawer>
   );
