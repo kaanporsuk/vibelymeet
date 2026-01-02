@@ -1130,6 +1130,8 @@ const Profile = () => {
             prompts: profile.prompts.map(p => ({ prompt: p.question, answer: p.answer })),
             relationshipIntent: profile.lookingFor || "",
             verified: profile.verified,
+            photoVerified: profile.photoVerified,
+            lifestyle: profile.lifestyle,
           }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>

@@ -1,18 +1,17 @@
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
   Video,
   Play,
-  ChevronLeft,
-  ChevronRight,
   MapPin,
   Briefcase,
   Ruler,
   Sparkles,
   X,
   Heart,
-  Expand,
+  Info,
+  ChevronUp,
 } from "lucide-react";
 import {
   Drawer,
@@ -23,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
+import { LifestyleDetails } from "@/components/LifestyleDetails";
 
 // Mock video URL
 const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
@@ -56,6 +56,12 @@ const mockProfileData = {
     },
   ],
   interests: ["Photography", "Hiking", "Vinyl Records", "Cooking", "Yoga"],
+  lifestyle: {
+    drinking: "sometimes",
+    smoking: "never",
+    exercise: "often",
+    diet: "omnivore",
+  },
 };
 
 interface ProfileDetailDrawerProps {
@@ -71,6 +77,7 @@ interface ProfileDetailDrawerProps {
     location?: string;
     height?: number;
     bio?: string;
+    lifestyle?: Record<string, string>;
   };
   trigger: React.ReactNode;
   onMessage: () => void;
@@ -87,6 +94,7 @@ export const ProfileDetailDrawer = ({
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
+  const [showScrollHint, setShowScrollHint] = useState(true);
 
   // Use photos from match prop if available, otherwise fall back to mock data
   const photos = match.photos && match.photos.length > 0 
@@ -98,16 +106,23 @@ export const ProfileDetailDrawer = ({
     location: match.location || mockProfileData.location,
     height: match.height || mockProfileData.height,
     bio: match.bio || mockProfileData.bio,
+    lifestyle: match.lifestyle || mockProfileData.lifestyle,
   };
   
   const compatibility = match.compatibility ?? Math.floor(Math.random() * 15) + 85;
 
-  const nextPhoto = () => {
-    setCurrentPhotoIndex((prev) => (prev + 1) % photos.length);
-  };
+  // Hide scroll hint after a few seconds
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => setShowScrollHint(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
 
-  const prevPhoto = () => {
-    setCurrentPhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
+  const goToPhoto = (index: number) => {
+    if (index >= 0 && index < photos.length) {
+      setCurrentPhotoIndex(index);
+    }
   };
 
   const vibeEmojis: Record<string, string> = {
@@ -126,17 +141,176 @@ export const ProfileDetailDrawer = ({
     Creative: "🎨",
   };
 
+  // Build content sections
+  const renderContentSections = () => {
+    const sections: JSX.Element[] = [];
+    let photoIndex = 1;
+
+    // Bio section
+    if (profileData.bio) {
+      sections.push(
+        <motion.div
+          key="bio"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="glass-card p-5 rounded-2xl"
+        >
+          <p className="text-lg leading-relaxed text-foreground">{profileData.bio}</p>
+        </motion.div>
+      );
+    }
+
+    // Photo 2
+    if (photoIndex < photos.length) {
+      sections.push(
+        <motion.div
+          key={`photo-${photoIndex}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
+        >
+          <img
+            src={photos[photoIndex]}
+            alt={`${match.name}'s photo`}
+            className="w-full h-full object-cover cursor-pointer"
+            onClick={() => {
+              setCurrentPhotoIndex(photoIndex);
+              setShowFullscreenPhoto(true);
+            }}
+          />
+        </motion.div>
+      );
+      photoIndex++;
+    }
+
+    // Vibes section
+    if (match.vibes.length > 0) {
+      sections.push(
+        <motion.div
+          key="vibes"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="glass-card p-5 rounded-2xl"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-muted-foreground">Interests</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {match.vibes.map((vibe) => (
+              <span
+                key={vibe}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 text-sm font-medium"
+              >
+                <span>{vibeEmojis[vibe] || "✨"}</span>
+                {vibe}
+              </span>
+            ))}
+          </div>
+        </motion.div>
+      );
+    }
+
+    // Prompts interspersed with remaining photos
+    mockProfileData.prompts.forEach((prompt, i) => {
+      sections.push(
+        <motion.div
+          key={`prompt-${i}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 + i * 0.05 }}
+          className="glass-card p-5 rounded-2xl"
+        >
+          <p className="text-sm font-medium text-primary mb-2">{prompt.question}</p>
+          <p className="text-lg leading-relaxed text-foreground">{prompt.answer}</p>
+        </motion.div>
+      );
+
+      // Add a photo after every other prompt
+      if (i % 2 === 0 && photoIndex < photos.length) {
+        sections.push(
+          <motion.div
+            key={`photo-${photoIndex}`}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 + i * 0.05 }}
+            className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
+          >
+            <img
+              src={photos[photoIndex]}
+              alt={`${match.name}'s photo`}
+              className="w-full h-full object-cover cursor-pointer"
+              onClick={() => {
+                setCurrentPhotoIndex(photoIndex);
+                setShowFullscreenPhoto(true);
+              }}
+            />
+          </motion.div>
+        );
+        photoIndex++;
+      }
+    });
+
+    // Lifestyle section
+    if (profileData.lifestyle && Object.keys(profileData.lifestyle).length > 0) {
+      sections.push(
+        <motion.div
+          key="lifestyle"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="glass-card p-5 rounded-2xl"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Info className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-muted-foreground">Lifestyle</span>
+          </div>
+          <LifestyleDetails values={profileData.lifestyle} editable={false} />
+        </motion.div>
+      );
+    }
+
+    // Add remaining photos
+    while (photoIndex < photos.length) {
+      sections.push(
+        <motion.div
+          key={`photo-${photoIndex}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45 }}
+          className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
+        >
+          <img
+            src={photos[photoIndex]}
+            alt={`${match.name}'s photo`}
+            className="w-full h-full object-cover cursor-pointer"
+            onClick={() => {
+              setCurrentPhotoIndex(photoIndex);
+              setShowFullscreenPhoto(true);
+            }}
+          />
+        </motion.div>
+      );
+      photoIndex++;
+    }
+
+    return sections;
+  };
+
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>{trigger}</DrawerTrigger>
       <DrawerContent className="h-[95vh] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
-        {/* Fixed Close Button Header */}
-        <div className="shrink-0 absolute top-4 right-4 z-30">
+        {/* Close Button - Floating */}
+        <div className="absolute top-4 right-4 z-30">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setOpen(false)}
-            className="w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+            className="w-10 h-10 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background"
           >
             <X className="w-5 h-5" />
           </Button>
@@ -144,20 +318,9 @@ export const ProfileDetailDrawer = ({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
-          {/* Hero Section - Vibe Video or Photo Gallery */}
-          <div className="relative aspect-[3/4] max-h-[55vh] bg-secondary">
-            {mockProfileData.hasVideoIntro ? (
-              /* Vibe Video Hero */
-              <VibePlayer
-                videoUrl={mockProfileData.vibeVideoUrl}
-                thumbnailUrl={photos[0]}
-                vibeCaption={mockProfileData.vibeCaption}
-                autoPlay={true}
-                showControls={true}
-                className="w-full h-full"
-              />
-            ) : (
-              /* Photo Gallery */
+          {/* Hero Section - Full Width Photo */}
+          <div className="relative w-full aspect-[3/4] min-h-[65vh] max-h-[80vh]">
+            {mockProfileData.hasVideoIntro && !showVideoOverlay ? (
               <>
                 <AnimatePresence mode="wait">
                   <motion.img
@@ -167,119 +330,137 @@ export const ProfileDetailDrawer = ({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
+                    transition={{ duration: 0.15 }}
                     className="w-full h-full object-cover"
+                    onClick={() => setShowFullscreenPhoto(true)}
                   />
                 </AnimatePresence>
 
                 {/* Photo indicators */}
-                <div className="absolute top-4 left-4 right-16 flex gap-1">
+                <div className="absolute top-4 left-4 right-16 flex gap-1.5">
                   {photos.map((_, i) => (
-                    <div
+                    <button
                       key={i}
+                      onClick={() => goToPhoto(i)}
                       className={cn(
-                        "flex-1 h-1 rounded-full transition-all",
+                        "h-1 rounded-full flex-1 transition-all duration-200",
                         i === currentPhotoIndex
-                          ? "bg-primary-foreground"
-                          : "bg-primary-foreground/30"
+                          ? "bg-white"
+                          : "bg-white/40"
                       )}
                     />
                   ))}
                 </div>
 
-                {/* Photo navigation tap areas */}
+                {/* Tap zones */}
                 <button
-                  onClick={prevPhoto}
-                  className="absolute left-0 top-16 bottom-0 w-1/3"
+                  onClick={() => goToPhoto(currentPhotoIndex - 1)}
+                  className="absolute left-0 top-16 bottom-32 w-1/3"
                   aria-label="Previous photo"
                 />
                 <button
-                  onClick={nextPhoto}
-                  className="absolute right-0 top-16 bottom-0 w-1/3"
+                  onClick={() => goToPhoto(currentPhotoIndex + 1)}
+                  className="absolute right-0 top-16 bottom-32 w-1/3"
                   aria-label="Next photo"
                 />
 
-                {/* Expand button */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowFullscreenPhoto(true)}
-                  className="absolute bottom-4 right-4 z-10 w-10 h-10 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+                {/* Play Intro Video Button */}
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setShowVideoOverlay(true)}
+                  className="absolute bottom-28 left-4 flex items-center gap-2 px-4 py-2.5 rounded-full bg-background/90 backdrop-blur-md border border-border/50 text-foreground font-medium shadow-lg"
                 >
-                  <Expand className="w-5 h-5" />
-                </Button>
+                  <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
+                    <Play className="w-4 h-4 text-primary-foreground fill-primary-foreground ml-0.5" />
+                  </div>
+                  <span className="text-sm">Watch Intro</span>
+                </motion.button>
+              </>
+            ) : mockProfileData.hasVideoIntro && showVideoOverlay ? (
+              <VibePlayer
+                videoUrl={mockProfileData.vibeVideoUrl}
+                thumbnailUrl={photos[0]}
+                vibeCaption={mockProfileData.vibeCaption}
+                autoPlay={true}
+                showControls={true}
+                className="w-full h-full"
+              />
+            ) : (
+              <>
+                <AnimatePresence mode="wait">
+                  <motion.img
+                    key={currentPhotoIndex}
+                    src={photos[currentPhotoIndex]}
+                    alt={`${match.name}'s photo`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="w-full h-full object-cover"
+                    onClick={() => setShowFullscreenPhoto(true)}
+                  />
+                </AnimatePresence>
 
-                {/* Navigation arrows (desktop) */}
-                {photos.length > 1 && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={prevPhoto}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
-                    >
-                      <ChevronLeft className="w-5 h-5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={nextPhoto}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-background/30 backdrop-blur-sm hover:bg-background/50 opacity-0 hover:opacity-100 transition-opacity hidden sm:flex"
-                    >
-                      <ChevronRight className="w-5 h-5" />
-                    </Button>
-                  </>
-                )}
+                <div className="absolute top-4 left-4 right-16 flex gap-1.5">
+                  {photos.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => goToPhoto(i)}
+                      className={cn(
+                        "h-1 rounded-full flex-1 transition-all duration-200",
+                        i === currentPhotoIndex
+                          ? "bg-white"
+                          : "bg-white/40"
+                      )}
+                    />
+                  ))}
+                </div>
 
-                {/* Play Intro Video Button (when has video but showing photos) */}
-                {mockProfileData.hasVideoIntro && (
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowVideoOverlay(true)}
-                    className="absolute bottom-4 left-4 flex items-center gap-2 px-4 py-2.5 rounded-full bg-background/80 backdrop-blur-md border border-border/50 text-foreground font-medium shadow-lg"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-                      <Play className="w-4 h-4 text-primary-foreground fill-primary-foreground ml-0.5" />
-                    </div>
-                    <span className="text-sm">Watch Intro</span>
-                  </motion.button>
-                )}
+                <button
+                  onClick={() => goToPhoto(currentPhotoIndex - 1)}
+                  className="absolute left-0 top-16 bottom-32 w-1/3"
+                  aria-label="Previous photo"
+                />
+                <button
+                  onClick={() => goToPhoto(currentPhotoIndex + 1)}
+                  className="absolute right-0 top-16 bottom-32 w-1/3"
+                  aria-label="Next photo"
+                />
               </>
             )}
 
-            {/* Gradient overlay at bottom */}
-            <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent pointer-events-none" />
-          </div>
+            {/* Gradient overlay */}
+            <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
 
-          {/* Profile Content */}
-          <div className="relative -mt-8 px-4 space-y-4 pb-32">
-            {/* Name and basics card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="glass-card p-5 rounded-2xl"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h2 className="text-2xl font-display font-bold text-foreground">
-                    {match.name}, {match.age}
-                  </h2>
-                  <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground">
+            {/* Profile info overlay */}
+            <div className="absolute bottom-0 left-0 right-0 p-5 pb-6">
+              <div className="flex items-end justify-between">
+                <div className="flex-1">
+                  {/* Name and Age */}
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-4xl font-display font-bold text-foreground">
+                      {match.name}
+                    </h2>
+                    <span className="text-3xl font-light text-foreground/80">{match.age}</span>
+                  </div>
+
+                  {/* Details */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-foreground/80">
                     {profileData.job && (
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1.5 text-sm">
                         <Briefcase className="w-4 h-4" />
                         {profileData.job}
                       </span>
                     )}
                     {profileData.location && (
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1.5 text-sm">
                         <MapPin className="w-4 h-4" />
                         {profileData.location}
                       </span>
                     )}
                     {profileData.height && (
-                      <span className="flex items-center gap-1">
+                      <span className="flex items-center gap-1.5 text-sm">
                         <Ruler className="w-4 h-4" />
                         {profileData.height} cm
                       </span>
@@ -303,14 +484,14 @@ export const ProfileDetailDrawer = ({
                         cx="28"
                         cy="28"
                         r="24"
-                        stroke="url(#gradient)"
+                        stroke="url(#gradient-compat)"
                         strokeWidth="4"
                         fill="none"
                         strokeDasharray={`${compatibility * 1.51} 151`}
                         strokeLinecap="round"
                       />
                       <defs>
-                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <linearGradient id="gradient-compat" x1="0%" y1="0%" x2="100%" y2="0%">
                           <stop offset="0%" stopColor="hsl(var(--neon-violet))" />
                           <stop offset="100%" stopColor="hsl(var(--neon-pink))" />
                         </linearGradient>
@@ -323,180 +504,76 @@ export const ProfileDetailDrawer = ({
                   <span className="text-xs text-muted-foreground mt-1">Match</span>
                 </div>
               </div>
-            </motion.div>
+            </div>
+          </div>
 
-            {/* Vibe Tags */}
+          {/* Content sections */}
+          <div className="px-4 space-y-4 pb-40 -mt-4">
+            {/* Scroll hint */}
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              className="glass-card p-5 rounded-2xl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: showScrollHint ? 1 : 0 }}
+              className="flex justify-center py-2"
             >
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <h3 className="font-display font-semibold text-foreground">
-                  Their Vibes
-                </h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {match.vibes.map((vibe) => (
-                  <motion.span
-                    key={vibe}
-                    whileHover={{ scale: 1.05 }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 text-sm font-medium"
-                  >
-                    <span>{vibeEmojis[vibe] || "✨"}</span>
-                    {vibe}
-                  </motion.span>
-                ))}
-                {mockProfileData.interests.slice(0, 3).map((interest) => (
-                  <motion.span
-                    key={interest}
-                    whileHover={{ scale: 1.05 }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-secondary text-foreground border border-border text-sm font-medium"
-                  >
-                    {interest}
-                  </motion.span>
-                ))}
+              <div className="flex items-center gap-1 text-muted-foreground text-xs">
+                <ChevronUp className="w-4 h-4 animate-bounce" />
+                <span>Scroll for more</span>
               </div>
             </motion.div>
 
-            {/* Photo Gallery Thumbnails */}
-            {photos.length > 1 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.15 }}
-                className="glass-card p-5 rounded-2xl"
-              >
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="text-lg">📸</span>
-                  <h3 className="font-display font-semibold text-foreground">Photos</h3>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {photos.map((photo, index) => (
-                    <motion.button
-                      key={index}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                      className={cn(
-                        "relative aspect-square rounded-xl overflow-hidden",
-                        index === currentPhotoIndex && "ring-2 ring-primary"
-                      )}
-                      onClick={() => {
-                        setCurrentPhotoIndex(index);
-                        setShowFullscreenPhoto(true);
-                      }}
-                    >
-                      <img
-                        src={photo}
-                        alt={`${match.name}'s photo ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Bio */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="glass-card p-5 rounded-2xl"
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <Heart className="w-5 h-5 text-accent" />
-                <h3 className="font-display font-semibold text-foreground">About Me</h3>
-              </div>
-              <p className="text-muted-foreground leading-relaxed">
-                {profileData.bio}
-              </p>
-            </motion.div>
-
-            {/* Prompts */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="space-y-4"
-            >
-              {mockProfileData.prompts.map((prompt, index) => (
-                <motion.div
-                  key={prompt.question}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.25 + index * 0.05 }}
-                  className="glass-card p-5 rounded-2xl"
-                >
-                  <p className="text-sm text-primary font-medium mb-2">
-                    {prompt.question}
-                  </p>
-                  <p className="text-foreground leading-relaxed">{prompt.answer}</p>
-                </motion.div>
-              ))}
-            </motion.div>
+            {renderContentSections()}
           </div>
         </div>
 
-        {/* Sticky Action Bar */}
-        <div className="shrink-0 p-4 bg-background/80 backdrop-blur-xl border-t border-border/50 safe-area-bottom">
-          <div className="flex gap-3 max-w-lg mx-auto">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setOpen(false);
-                onVideoCall();
-              }}
-              className="flex-1 h-14 rounded-2xl border-border/50 bg-secondary/50 hover:bg-secondary font-semibold text-base gap-2"
+        {/* Fixed Action Bar - Floating */}
+        <div className="shrink-0 absolute bottom-0 left-0 right-0 p-4 pb-8 pointer-events-none">
+          <div className="flex items-center justify-center gap-4 pointer-events-auto">
+            {/* Pass button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setOpen(false)}
+              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
             >
-              <Video className="w-5 h-5" />
-              Video Call
-            </Button>
-            <Button
+              <X className="w-6 h-6 text-muted-foreground" />
+            </motion.button>
+
+            {/* Like button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="w-16 h-16 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
+            >
+              <Heart className="w-7 h-7 text-primary-foreground" fill="currentColor" />
+            </motion.button>
+
+            {/* Message button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => {
                 setOpen(false);
                 onMessage();
               }}
-              className="flex-1 h-14 rounded-2xl bg-gradient-primary hover:opacity-90 font-semibold text-base gap-2 text-primary-foreground"
+              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
             >
-              <MessageCircle className="w-5 h-5" />
-              Message
-            </Button>
+              <MessageCircle className="w-6 h-6 text-primary" />
+            </motion.button>
+
+            {/* Video call button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setOpen(false);
+                onVideoCall();
+              }}
+              className="w-14 h-14 rounded-full bg-neon-cyan/20 border-2 border-neon-cyan/50 shadow-xl flex items-center justify-center"
+            >
+              <Video className="w-6 h-6 text-neon-cyan" />
+            </motion.button>
           </div>
         </div>
-
-        {/* Video Intro Modal */}
-        <AnimatePresence>
-          {showVideoOverlay && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-background/95 backdrop-blur-lg z-50 flex items-center justify-center"
-            >
-              <div className="text-center p-8">
-                <div className="w-24 h-24 rounded-full bg-gradient-primary mx-auto mb-6 flex items-center justify-center">
-                  <Play className="w-10 h-10 text-primary-foreground fill-primary-foreground ml-1" />
-                </div>
-                <h3 className="text-xl font-display font-semibold text-foreground mb-2">
-                  Video Intro
-                </h3>
-                <p className="text-muted-foreground mb-6">
-                  {match.name}'s introduction video would play here
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowVideoOverlay(false)}
-                  className="rounded-full"
-                >
-                  Close
-                </Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Fullscreen Photo Modal */}
         <PhotoPreviewModal
