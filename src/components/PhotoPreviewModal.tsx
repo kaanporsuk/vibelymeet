@@ -99,7 +99,7 @@ export const PhotoPreviewModal = ({
           </div>
 
           {/* Photo container */}
-          <div className="flex-1 flex items-center justify-center relative overflow-hidden px-4 pb-4">
+          <div className="flex-1 flex items-center justify-center relative overflow-hidden px-4 min-h-0">
             {/* Navigation arrows */}
             {photos.length > 1 && !isZoomed && (
               <>
@@ -131,18 +131,18 @@ export const PhotoPreviewModal = ({
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ duration: 0.2 }}
                 className={cn(
-                  "relative max-h-full max-w-full",
-                  isZoomed && "cursor-zoom-out",
+                  "flex items-center justify-center w-full h-full",
+                  isZoomed && "cursor-zoom-out overflow-auto",
                   !isZoomed && "cursor-zoom-in"
                 )}
                 onClick={() => showZoom && setIsZoomed(!isZoomed)}
               >
-                <motion.img
+                <img
                   src={photos[currentIndex]}
                   alt={`Photo ${currentIndex + 1}`}
                   className={cn(
-                    "max-h-[calc(100vh-8rem)] max-w-full object-contain rounded-xl transition-transform duration-300",
-                    isZoomed && "scale-150"
+                    "max-w-full max-h-full object-contain rounded-xl transition-transform duration-300",
+                    isZoomed && "scale-150 max-h-none max-w-none"
                   )}
                   draggable={false}
                 />

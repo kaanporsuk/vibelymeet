@@ -154,17 +154,29 @@ export const PhotoManager = ({
               />
 
               {/* Overlay with actions */}
-              <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-background/40 opacity-0 group-hover:opacity-100 transition-opacity" />
 
-              {/* Main badge */}
-              {index === 0 && (
-                <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-full bg-primary/90 text-primary-foreground text-xs font-medium">
-                  <Crown className="w-3 h-3" />
-                  Main
-                </div>
-              )}
+              {/* Top left: Main badge OR Make Main button */}
+              <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {index === 0 ? (
+                  <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/90 text-primary-foreground text-xs font-medium">
+                    <Crown className="w-3 h-3" />
+                    Main
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 text-xs px-2 bg-background/80 backdrop-blur-sm hover:bg-background"
+                    onClick={() => moveToMain(index)}
+                  >
+                    <Crown className="w-3 h-3 mr-1" />
+                    Make Main
+                  </Button>
+                )}
+              </div>
 
-              {/* Drag handle and expand button */}
+              {/* Top right: Expand and drag handle */}
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Button
                   size="icon"
@@ -182,23 +194,11 @@ export const PhotoManager = ({
                 </div>
               </div>
 
-              {/* Actions overlay - visible on hover */}
-              <div className="absolute bottom-0 left-0 right-0 p-2 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-                {/* Make main button (only for non-main photos) */}
-                {index !== 0 && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="h-7 text-xs px-2 bg-background/80 backdrop-blur-sm hover:bg-background"
-                    onClick={() => moveToMain(index)}
-                  >
-                    <Crown className="w-3 h-3 mr-1" />
-                    Make Main
-                  </Button>
-                )}
-                {index === 0 && <div />}
-
-                {/* Delete button */}
+              {/* Bottom right: Position number and delete */}
+              <div className="absolute bottom-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="w-6 h-6 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-xs font-bold text-foreground">
+                  {index + 1}
+                </div>
                 <Button
                   size="icon"
                   variant="destructive"
@@ -207,11 +207,6 @@ export const PhotoManager = ({
                 >
                   <X className="w-4 h-4" />
                 </Button>
-              </div>
-
-              {/* Position number */}
-              <div className="absolute bottom-2 left-2 w-6 h-6 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center text-xs font-bold text-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                {index + 1}
               </div>
             </motion.div>
           ))}
