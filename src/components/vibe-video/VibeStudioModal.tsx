@@ -1,17 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload } from "lucide-react";
 import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave?: (videoUrl: string) => void;
+  onSave?: (videoUrl: string, file?: File) => void;
   existingVideoUrl?: string;
 }
 
@@ -38,6 +39,7 @@ export const VibeStudioModal = ({
   const [isMicOn, setIsMicOn] = useState(true);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
@@ -47,6 +49,7 @@ export const VibeStudioModal = ({
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Request camera/mic permissions when modal opens
   useEffect(() => {
@@ -180,7 +183,7 @@ export const VibeStudioModal = ({
 
   const handleSave = useCallback(() => {
     const urlToSave = recordedVideoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
-    onSave?.(urlToSave);
+    onSave?.(urlToSave, uploadedFile || undefined);
     onOpenChange(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
@@ -188,7 +191,8 @@ export const VibeStudioModal = ({
       URL.revokeObjectURL(recordedVideoUrl);
     }
     setRecordedVideoUrl(null);
-  }, [onSave, onOpenChange, recordedVideoUrl]);
+    setUploadedFile(null);
+  }, [onSave, onOpenChange, recordedVideoUrl, uploadedFile]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -199,6 +203,7 @@ export const VibeStudioModal = ({
       URL.revokeObjectURL(recordedVideoUrl);
     }
     setRecordedVideoUrl(null);
+    setUploadedFile(null);
   }, [onOpenChange, recordedVideoUrl]);
 
   const toggleMic = useCallback(() => {
@@ -209,6 +214,28 @@ export const VibeStudioModal = ({
         setIsMicOn(audioTrack.enabled);
       }
     }
+  }, []);
+
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('video/')) {
+      toast.error("Please select a video file");
+      return;
+    }
+
+    // Validate file size (50MB max)
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error("Video must be under 50MB");
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    setRecordedVideoUrl(url);
+    setUploadedFile(file);
+    setStage("review");
   }, []);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
@@ -368,6 +395,15 @@ export const VibeStudioModal = ({
             >
               {stage === "idle" && (
                 <div className="flex flex-col items-center gap-4">
+                  {/* Hidden file input for upload */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+
                   {/* Mic Toggle */}
                   <Button
                     variant="ghost"
@@ -403,6 +439,15 @@ export const VibeStudioModal = ({
                   <p className="text-sm text-muted-foreground">
                     Tap to record (15 seconds)
                   </p>
+
+                  {/* Upload Button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 text-sm text-primary hover:underline"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Or upload a video
+                  </button>
                 </div>
               )}
 
