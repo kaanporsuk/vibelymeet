@@ -102,6 +102,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
       // Add a photo (every 2 content sections or if we have more photos)
       if (photoIndex < profile.photos.length && (contentIndex % 2 === 0 || contentIndex >= contentSections.length)) {
+        const currentPhotoIdx = photoIndex; // Capture for closure
         elements.push(
           <motion.div
             key={`photo-${photoIndex}`}
@@ -115,10 +116,16 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
               alt={`${profile.name}'s photo`}
               className="w-full h-full object-cover cursor-pointer"
               onClick={() => {
-                setCurrentPhotoIndex(photoIndex);
+                setCurrentPhotoIndex(currentPhotoIdx);
                 setShowFullscreenPhoto(true);
               }}
             />
+            {/* Show verification badge on first photo in interspersed section */}
+            {profile.photoVerified && currentPhotoIdx === 1 && (
+              <div className="absolute top-3 right-3">
+                <PhotoVerifiedMark verified size="md" />
+              </div>
+            )}
           </motion.div>
         );
         photoIndex++;
@@ -280,25 +287,43 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain scroll-smooth">
-          {/* Hero Photo - Full Width, Tall */}
+        {/* Hero Photo - Full Width, Tall with Swipe Gestures */}
           {hasPhotos && (
-            <div className="relative w-full aspect-[3/4] min-h-[70vh] max-h-[85vh]">
-              <AnimatePresence mode="wait">
+            <div className="relative w-full aspect-[3/4] min-h-[70vh] max-h-[85vh] overflow-hidden">
+              <AnimatePresence mode="wait" initial={false}>
                 <motion.img
                   key={currentPhotoIndex}
                   src={profile.photos[currentPhotoIndex]}
                   alt={`${profile.name}'s photo`}
-                  className="w-full h-full object-cover"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
+                  className="w-full h-full object-cover touch-pan-y"
+                  initial={{ opacity: 0, x: 100 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -100 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={0.1}
+                  onDragEnd={(_, info) => {
+                    const threshold = 50;
+                    if (info.offset.x > threshold && currentPhotoIndex > 0) {
+                      goToPhoto(currentPhotoIndex - 1);
+                    } else if (info.offset.x < -threshold && currentPhotoIndex < profile.photos.length - 1) {
+                      goToPhoto(currentPhotoIndex + 1);
+                    }
+                  }}
                   onClick={() => setShowFullscreenPhoto(true)}
                 />
               </AnimatePresence>
 
+              {/* Photo verification badge */}
+              {profile.photoVerified && currentPhotoIndex === 0 && (
+                <div className="absolute top-16 right-4 z-10">
+                  <PhotoVerifiedMark verified size="md" />
+                </div>
+              )}
+
               {/* Photo indicators at top */}
-              <div className="absolute top-14 left-4 right-4 flex gap-1.5">
+              <div className="absolute top-14 left-4 right-4 flex gap-1.5 z-10">
                 {profile.photos.map((_, index) => (
                   <button
                     key={index}
@@ -313,15 +338,15 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                 ))}
               </div>
 
-              {/* Tap zones for navigation */}
+              {/* Tap zones for navigation (fallback for non-touch) */}
               <button
                 onClick={() => goToPhoto(currentPhotoIndex - 1)}
-                className="absolute left-0 top-20 bottom-32 w-1/3"
+                className="absolute left-0 top-20 bottom-32 w-1/4 z-5"
                 aria-label="Previous photo"
               />
               <button
                 onClick={() => goToPhoto(currentPhotoIndex + 1)}
-                className="absolute right-0 top-20 bottom-32 w-1/3"
+                className="absolute right-0 top-20 bottom-32 w-1/4 z-5"
                 aria-label="Next photo"
               />
 
