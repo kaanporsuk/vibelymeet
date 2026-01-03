@@ -697,6 +697,58 @@ const Profile = () => {
           </div>
         </motion.div>
 
+        {/* Vibe Video Section */}
+        <motion.div 
+          className="glass-card p-4 space-y-3"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.42 }}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Video className="w-4 h-4 text-neon-cyan" />
+              <h3 className="font-display font-semibold text-foreground">Vibe Video</h3>
+            </div>
+            <button 
+              onClick={() => openDrawer("vibe-video")}
+              className="text-primary text-sm font-medium flex items-center gap-1"
+            >
+              {profile.videoIntroUrl ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+          {profile.videoIntroUrl ? (
+            <div className="flex items-center gap-3">
+              <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary">
+                <video
+                  src={profile.videoIntroUrl}
+                  className="w-full h-full object-cover"
+                  muted
+                />
+                <div className="absolute inset-0 bg-background/30 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center">
+                    <Video className="w-4 h-4 text-background" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm text-foreground font-medium">15s Video Intro</p>
+                <p className="text-xs text-muted-foreground">Show your personality!</p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => openDrawer("vibe-video")}
+              className="w-full py-6 border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+            >
+              <div className="w-10 h-10 rounded-full bg-neon-cyan/20 flex items-center justify-center">
+                <Video className="w-5 h-5 text-neon-cyan" />
+              </div>
+              <span className="text-sm font-medium">Record your 15s Vibe Video</span>
+              <span className="text-xs text-muted-foreground">What are you vibing on?</span>
+            </button>
+          )}
+        </motion.div>
+
         {/* Photos Gallery */}
         <motion.div 
           className="glass-card p-4 space-y-3"
@@ -1132,6 +1184,7 @@ const Profile = () => {
             verified: profile.verified,
             photoVerified: profile.photoVerified,
             lifestyle: profile.lifestyle,
+            videoIntroUrl: profile.videoIntroUrl || undefined,
           }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>

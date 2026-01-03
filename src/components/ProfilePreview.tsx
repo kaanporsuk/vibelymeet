@@ -9,7 +9,9 @@ import {
   MessageCircle,
   Sparkles,
   ChevronUp,
-  Info
+  Info,
+  Video,
+  Play
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VibeTag } from "@/components/VibeTag";
@@ -17,6 +19,7 @@ import { VerificationBadge } from "@/components/VerificationBadge";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { cn } from "@/lib/utils";
 
 interface ProfilePreviewProps {
@@ -34,6 +37,7 @@ interface ProfilePreviewProps {
     prompts: { prompt: string; answer: string }[];
     relationshipIntent: string;
     lifestyle?: Record<string, string>;
+    videoIntroUrl?: string;
   };
   onClose: () => void;
 }
@@ -50,6 +54,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
 
   const hasPhotos = profile.photos.length > 0;
 
@@ -67,6 +72,8 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
   // Create content sections interspersed with photos (Hinge-style)
   const contentSections = [
+    // Video intro first if available
+    ...(profile.videoIntroUrl ? [{ type: 'video' as const, data: profile.videoIntroUrl }] : []),
     // Photo 1 is always hero
     ...(profile.bio ? [{ type: 'bio' as const, data: profile.bio }] : []),
     // Photo 2
@@ -125,6 +132,57 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
     const delay = 0.1 * index;
 
     switch (section.type) {
+      case 'video':
+        return (
+          <motion.div
+            key="video"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay }}
+            className="glass-card p-4 rounded-2xl"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="w-4 h-4 text-neon-cyan" />
+              <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+            </div>
+            <div 
+              className="relative aspect-[9/16] max-h-[50vh] mx-auto rounded-xl overflow-hidden cursor-pointer group"
+              onClick={() => setShowVideoPlayer(!showVideoPlayer)}
+            >
+              {showVideoPlayer ? (
+                <video
+                  src={section.data as string}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  loop
+                  playsInline
+                  controls
+                />
+              ) : (
+                <>
+                  <video
+                    src={section.data as string}
+                    className="w-full h-full object-cover"
+                    muted
+                  />
+                  <div className="absolute inset-0 bg-background/30 flex items-center justify-center group-hover:bg-background/40 transition-colors">
+                    <motion.div
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-16 h-16 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
+                    >
+                      <Play className="w-7 h-7 text-background ml-1" fill="currentColor" />
+                    </motion.div>
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="text-center text-xs text-muted-foreground mt-2">
+              What I'm vibing on right now
+            </p>
+          </motion.div>
+        );
+
       case 'bio':
         return (
           <motion.div
