@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, SlidersHorizontal, MessageCircle, Droplet } from "lucide-react";
@@ -10,6 +10,7 @@ import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { MatchAvatar } from "@/components/MatchAvatar";
 import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { useMatches } from "@/hooks/useMatches";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -94,12 +95,16 @@ const MOCK_DROPS: DropMatch[] = [
 
 const Matches = () => {
   const navigate = useNavigate();
-  const { data: matches = [], isLoading } = useMatches();
+  const { data: matches = [], isLoading, refetch } = useMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [activeTab, setActiveTab] = useState("conversations");
 
-  // Count pending drops
+  // Pull to refresh handler
+  const handleRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
   const pendingDropsCount = MOCK_DROPS.filter(d => d.status === 'received' || d.status === 'sent').length;
   const matchedDropsCount = MOCK_DROPS.filter(d => d.status === 'matched').length;
 
@@ -183,7 +188,7 @@ const Matches = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-border/50">
         <div className="px-4 py-4">
@@ -430,7 +435,7 @@ const Matches = () => {
       </main>
 
       <BottomNav />
-    </div>
+    </PullToRefresh>
   );
 };
 

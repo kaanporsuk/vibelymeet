@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
 import { MessageCircle, Sparkles, Zap, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
+import { LazyImage } from "@/components/LazyImage";
 
 interface MatchSuccessModalProps {
   isOpen: boolean;
@@ -38,6 +40,12 @@ const MatchSuccessModal = ({
 }: MatchSuccessModalProps) => {
   const navigate = useNavigate();
   const [animationPhase, setAnimationPhase] = useState(0);
+  const { playFeedback, preloadAll } = useSoundEffects();
+
+  // Preload sounds on mount
+  useEffect(() => {
+    preloadAll();
+  }, [preloadAll]);
 
   useEffect(() => {
     if (isOpen) {
@@ -53,7 +61,15 @@ const MatchSuccessModal = ({
       ];
 
       timeline.forEach(({ phase, delay }) => {
-        setTimeout(() => setAnimationPhase(phase), delay);
+        setTimeout(() => {
+          setAnimationPhase(phase);
+          // Play sounds at specific phases
+          if (phase === 1) {
+            playFeedback('unlock', { volume: 0.6 });
+          } else if (phase === 3) {
+            playFeedback('match', { volume: 0.7 });
+          }
+        }, delay);
       });
 
       // Trigger confetti explosion
@@ -62,35 +78,48 @@ const MatchSuccessModal = ({
         
         // Center burst
         confetti({
-          particleCount: 100,
-          spread: 70,
+          particleCount: 150,
+          spread: 80,
           origin: { y: 0.5, x: 0.5 },
           colors,
-          startVelocity: 45,
-          gravity: 0.8,
-          ticks: 300,
+          startVelocity: 50,
+          gravity: 0.7,
+          ticks: 400,
         });
 
         // Left burst
         confetti({
-          particleCount: 50,
+          particleCount: 75,
           angle: 60,
-          spread: 55,
+          spread: 60,
           origin: { x: 0, y: 0.5 },
           colors,
+          startVelocity: 40,
         });
 
         // Right burst
         confetti({
-          particleCount: 50,
+          particleCount: 75,
           angle: 120,
-          spread: 55,
+          spread: 60,
           origin: { x: 1, y: 0.5 },
           colors,
+          startVelocity: 40,
         });
+
+        // Delayed second wave
+        setTimeout(() => {
+          confetti({
+            particleCount: 50,
+            spread: 100,
+            origin: { y: 0.4, x: 0.5 },
+            colors,
+            startVelocity: 30,
+          });
+        }, 300);
       }, 500);
     }
-  }, [isOpen]);
+  }, [isOpen, playFeedback]);
 
   const handleStartChatting = () => {
     onClose();
