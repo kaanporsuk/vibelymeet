@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Clock, ChevronRight, Sparkles, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
 import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { useNextEvent, useEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
@@ -20,9 +21,9 @@ import { differenceInSeconds } from "date-fns";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { data: nextEvent, isLoading: eventLoading } = useNextEvent();
-  const { data: events = [], isLoading: eventsLoading } = useEvents();
-  const { data: matches = [], isLoading: matchesLoading } = useDashboardMatches();
+  const { data: nextEvent, isLoading: eventLoading, refetch: refetchNextEvent } = useNextEvent();
+  const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useEvents();
+  const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
   const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
@@ -30,6 +31,15 @@ const Dashboard = () => {
   
   const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  // Pull to refresh handler
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([
+      refetchNextEvent(),
+      refetchEvents(),
+      refetchMatches(),
+    ]);
+  }, [refetchNextEvent, refetchEvents, refetchMatches]);
 
   const handleNotificationClick = () => {
     markAllAsRead();
@@ -84,7 +94,7 @@ const Dashboard = () => {
   const newMatchCount = matches.filter((m) => m.isNew).length;
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
       {/* Notification Permission Flow */}
       <NotificationPermissionFlow
         open={showNotificationFlow}
@@ -269,7 +279,7 @@ const Dashboard = () => {
       </main>
 
       <BottomNav />
-    </div>
+    </PullToRefresh>
   );
 };
 
