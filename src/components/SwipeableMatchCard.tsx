@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { MessageCircle, User, X, Sparkles } from "lucide-react";
+import { MessageCircle, User, X, Sparkles, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
+import { LazyImage } from "@/components/LazyImage";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { toast } from "sonner";
 
 interface SwipeableMatchCardProps {
@@ -38,6 +40,7 @@ export const SwipeableMatchCard = ({
   onUnmatch,
 }: SwipeableMatchCardProps) => {
   const [isRevealed, setIsRevealed] = useState(false);
+  const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
   const x = useMotionValue(0);
   const background = useTransform(
     x,
@@ -54,15 +57,22 @@ export const SwipeableMatchCard = ({
   const handleDragEnd = (_: any, info: PanInfo) => {
     const threshold = 100;
     if (info.offset.x < -threshold) {
+      playFeedback('wrong', { volume: 0.3 });
       onUnmatch();
     } else if (info.offset.x > threshold) {
+      playFeedback('click', { volume: 0.3 });
       onViewProfile();
     }
     setIsRevealed(false);
   };
 
   const handleDrag = (_: any, info: PanInfo) => {
-    setIsRevealed(Math.abs(info.offset.x) > 30);
+    const wasRevealed = isRevealed;
+    const nowRevealed = Math.abs(info.offset.x) > 30;
+    if (nowRevealed && !wasRevealed) {
+      hapticSwipe();
+    }
+    setIsRevealed(nowRevealed);
   };
 
   return (
