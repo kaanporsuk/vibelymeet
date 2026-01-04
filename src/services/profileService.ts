@@ -316,6 +316,21 @@ export const detectLocation = (): Promise<GeolocationPosition> => {
 };
 
 export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocation> => {
+  // Validate latitude and longitude are finite numbers
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('Latitude and longitude must be finite numbers.');
+  }
+
+  // Validate latitude bounds (-90 to 90)
+  if (lat < -90 || lat > 90) {
+    throw new Error(`Invalid latitude: ${lat}. Must be between -90 and 90.`);
+  }
+
+  // Validate longitude bounds (-180 to 180)
+  if (lng < -180 || lng > 180) {
+    throw new Error(`Invalid longitude: ${lng}. Must be between -180 and 180.`);
+  }
+
   try {
     // Using OpenStreetMap Nominatim API (free, no API key required)
     const response = await fetch(
@@ -328,7 +343,7 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
     );
 
     if (!response.ok) {
-      throw new Error("Geocoding failed");
+      throw new Error(`Geocoding failed with status ${response.status}`);
     }
 
     const data = await response.json();
@@ -351,7 +366,10 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
     };
   } catch (error) {
     console.error("Reverse geocoding error:", error);
-    // Return a fallback
+    // Return a fallback for network errors, but throw for validation errors
+    if (error instanceof Error && error.message.includes('Invalid')) {
+      throw error;
+    }
     return {
       lat,
       lng,
