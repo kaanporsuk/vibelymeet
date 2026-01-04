@@ -41,6 +41,7 @@
     --neon-violet: 263 70% 66%;
     --neon-pink: 330 81% 60%;
     --neon-cyan: 187 94% 43%;
+    --neon-yellow: 45 93% 58%;
     --neon-violet-glow: 263 70% 66%;
     --neon-pink-glow: 330 81% 60%;
     
@@ -120,5 +121,26 @@
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Shimmer Effect for Loading States */
+  .shimmer-effect {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.1) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 }

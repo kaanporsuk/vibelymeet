@@ -20,6 +20,9 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { LazyImage, LazyVideo } from "@/components/LazyImage";
+import { SuperLikeButton } from "@/components/SuperLikeButton";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
 
 interface ProfilePreviewProps {
@@ -55,6 +58,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
   const hasPhotos = profile.photos.length > 0;
 
@@ -67,6 +71,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const goToPhoto = (index: number) => {
     if (index >= 0 && index < profile.photos.length) {
       setCurrentPhotoIndex(index);
+      hapticSwipe();
     }
   };
 
@@ -111,18 +116,19 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
             transition={{ delay: 0.1 * elements.length }}
             className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
           >
-            <img
+            <LazyImage
               src={profile.photos[photoIndex]}
               alt={`${profile.name}'s photo`}
-              className="w-full h-full object-cover cursor-pointer"
+              className="w-full h-full cursor-pointer"
               onClick={() => {
+                hapticTap();
                 setCurrentPhotoIndex(currentPhotoIdx);
                 setShowFullscreenPhoto(true);
               }}
             />
             {/* Show verification badge on first photo in interspersed section */}
             {profile.photoVerified && currentPhotoIdx === 1 && (
-              <div className="absolute top-3 right-3">
+              <div className="absolute top-3 right-3 z-10">
                 <PhotoVerifiedMark verified size="md" />
               </div>
             )}
@@ -425,20 +431,30 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
         {/* Fixed Bottom Action Bar - Large, Floating */}
         <div className="shrink-0 absolute bottom-0 left-0 right-0 p-4 pb-8 pointer-events-none">
-          <div className="flex items-center justify-center gap-6 pointer-events-auto">
+          <div className="flex items-center justify-center gap-4 pointer-events-auto">
             {/* Pass button */}
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="w-16 h-16 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
+              onClick={() => hapticTap()}
+              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
             >
-              <X className="w-7 h-7 text-muted-foreground" />
+              <X className="w-6 h-6 text-muted-foreground" />
             </motion.button>
+
+            {/* Super Like button */}
+            <SuperLikeButton 
+              size="md"
+              onClick={() => {
+                playFeedback('superlike', { volume: 0.6 });
+              }}
+            />
 
             {/* Like button - Largest, center */}
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
+              onClick={() => playFeedback('match', { volume: 0.5 })}
               className="w-20 h-20 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
             >
               <Heart className="w-9 h-9 text-primary-foreground" fill="currentColor" />
@@ -448,9 +464,10 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="w-16 h-16 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
+              onClick={() => hapticTap()}
+              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
             >
-              <MessageCircle className="w-7 h-7 text-primary" />
+              <MessageCircle className="w-6 h-6 text-primary" />
             </motion.button>
           </div>
 

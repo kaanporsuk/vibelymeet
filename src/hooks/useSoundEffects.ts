@@ -1,6 +1,6 @@
 // Sound Effects & Haptic Feedback Hook
 
-type SoundType = 'correct' | 'wrong' | 'match' | 'success' | 'click' | 'unlock' | 'notification';
+type SoundType = 'correct' | 'wrong' | 'match' | 'success' | 'click' | 'unlock' | 'notification' | 'superlike' | 'swipe';
 
 const SOUND_URLS: Record<SoundType, string> = {
   correct: 'https://assets.mixkit.co/active_storage/sfx/2000/2000-preview.mp3',
@@ -10,10 +10,14 @@ const SOUND_URLS: Record<SoundType, string> = {
   click: 'https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3',
   unlock: 'https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3',
   notification: 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3',
+  superlike: 'https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3',
+  swipe: 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3',
 };
 
 // Audio cache for preloaded sounds
 const audioCache: Map<SoundType, HTMLAudioElement> = new Map();
+
+export type HapticPattern = 'light' | 'medium' | 'heavy' | 'success' | 'error' | 'warning' | 'selection' | 'swipe';
 
 export function useSoundEffects() {
   // Preload a sound
@@ -46,15 +50,18 @@ export function useSoundEffects() {
   };
 
   // Haptic feedback using Vibration API
-  const triggerHaptic = (pattern: 'light' | 'medium' | 'heavy' | 'success' | 'error') => {
+  const triggerHaptic = (pattern: HapticPattern) => {
     if (!('vibrate' in navigator)) return;
 
-    const patterns: Record<typeof pattern, number | number[]> = {
+    const patterns: Record<HapticPattern, number | number[]> = {
       light: 10,
       medium: 25,
       heavy: 50,
       success: [10, 30, 10, 30, 50],
       error: [50, 100, 50],
+      warning: [30, 50, 30],
+      selection: 15,
+      swipe: [5, 10, 5],
     };
 
     try {
@@ -66,31 +73,50 @@ export function useSoundEffects() {
 
   // Combined feedback
   const playFeedback = (
-    type: 'correct' | 'wrong' | 'match' | 'success' | 'click' | 'unlock' | 'notification',
-    options?: { haptic?: boolean; volume?: number }
+    type: SoundType,
+    options?: { haptic?: boolean; volume?: number; hapticPattern?: HapticPattern }
   ) => {
-    const { haptic = true, volume = 0.5 } = options || {};
+    const { haptic = true, volume = 0.5, hapticPattern } = options || {};
 
     playSound(type, volume);
 
     if (haptic) {
-      switch (type) {
-        case 'correct':
-        case 'success':
-        case 'unlock':
-          triggerHaptic('success');
-          break;
-        case 'wrong':
-          triggerHaptic('error');
-          break;
-        case 'match':
-          triggerHaptic('heavy');
-          break;
-        default:
-          triggerHaptic('light');
+      // Use provided pattern or derive from sound type
+      if (hapticPattern) {
+        triggerHaptic(hapticPattern);
+      } else {
+        switch (type) {
+          case 'correct':
+          case 'success':
+          case 'unlock':
+          case 'superlike':
+            triggerHaptic('success');
+            break;
+          case 'wrong':
+            triggerHaptic('error');
+            break;
+          case 'match':
+            triggerHaptic('heavy');
+            break;
+          case 'swipe':
+            triggerHaptic('swipe');
+            break;
+          case 'notification':
+            triggerHaptic('warning');
+            break;
+          default:
+            triggerHaptic('light');
+        }
       }
     }
   };
+
+  // Specific haptic-only triggers for UI interactions
+  const hapticTap = () => triggerHaptic('light');
+  const hapticSelection = () => triggerHaptic('selection');
+  const hapticSwipe = () => triggerHaptic('swipe');
+  const hapticSuccess = () => triggerHaptic('success');
+  const hapticError = () => triggerHaptic('error');
 
   // Preload common sounds on mount
   const preloadAll = () => {
@@ -105,5 +131,11 @@ export function useSoundEffects() {
     triggerHaptic,
     preloadSound,
     preloadAll,
+    // Quick haptic helpers
+    hapticTap,
+    hapticSelection,
+    hapticSwipe,
+    hapticSuccess,
+    hapticError,
   };
 }

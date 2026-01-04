@@ -55,6 +55,7 @@ export default {
           violet: "hsl(var(--neon-violet))",
           pink: "hsl(var(--neon-pink))",
           cyan: "hsl(var(--neon-cyan))",
+          yellow: "hsl(var(--neon-yellow))",
         },
       },
       borderRadius: {
