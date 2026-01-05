@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { UnmatchDialog } from "@/components/UnmatchDialog";
 import ReportWizard from "@/components/safety/ReportWizard";
-import { useUnmatch } from "@/hooks/useUnmatch";
+import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 
 interface ChatUser {
   id: string;
@@ -63,7 +63,7 @@ export const ChatHeader = ({
   const [showReportSheet, setShowReportSheet] = useState(false);
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
 
-  const { mutate: unmatch, isPending: isUnmatching } = useUnmatch();
+  const { initiateUnmatch } = useUndoableUnmatch();
 
   const getStatusText = () => {
     if (isTyping) return null;
@@ -86,27 +86,15 @@ export const ChatHeader = ({
   };
 
   const handleUnmatch = () => {
+    setShowUnmatchDialog(false);
+    
     if (matchId) {
-      unmatch(
-        { matchId },
-        {
-          onSuccess: () => {
-            setShowUnmatchDialog(false);
-            toast.success(`Unmatched with ${user.name}`, {
-              description: "You won't see each other anymore",
-            });
-            navigate("/matches");
-          },
-        }
-      );
-    } else {
-      // Fallback for demo mode
-      setShowUnmatchDialog(false);
-      toast.success(`Unmatched with ${user.name}`, {
-        description: "You won't see each other anymore",
-      });
-      navigate("/matches");
+      // Use undoable unmatch with 5-second delay
+      initiateUnmatch(matchId, user.name);
     }
+    
+    // Navigate back immediately - user can undo via toast
+    navigate("/matches");
   };
 
   const handleOpenReport = () => {
@@ -289,7 +277,7 @@ export const ChatHeader = ({
         onReport={handleOpenReport}
         userName={user.name}
         userAvatar={user.avatar_url}
-        isLoading={isUnmatching}
+        isLoading={false}
       />
 
       {/* Report Sheet */}
