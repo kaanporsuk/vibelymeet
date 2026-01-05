@@ -15,7 +15,7 @@ import { UnmatchDialog } from "@/components/UnmatchDialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ReportWizard from "@/components/safety/ReportWizard";
 import { useMatches, Match } from "@/hooks/useMatches";
-import { useUnmatch } from "@/hooks/useUnmatch";
+import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -107,8 +107,24 @@ const Matches = () => {
   // Unmatch state
   const [unmatchTarget, setUnmatchTarget] = useState<Match | null>(null);
   const [showReportSheet, setShowReportSheet] = useState(false);
+  const [pendingUnmatchIds, setPendingUnmatchIds] = useState<Set<string>>(new Set());
   
-  const { mutate: unmatch, isPending: isUnmatching } = useUnmatch();
+  const { initiateUnmatch } = useUndoableUnmatch({
+    onUnmatchComplete: () => {
+      // Remove from pending set after actual deletion
+      if (unmatchTarget) {
+        setPendingUnmatchIds(prev => {
+          const next = new Set(prev);
+          next.delete(unmatchTarget.matchId);
+          return next;
+        });
+      }
+    },
+    onUndo: () => {
+      // Remove from pending set on undo
+      setPendingUnmatchIds(new Set());
+    },
+  });
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
@@ -174,17 +190,12 @@ const Matches = () => {
 
   const handleConfirmUnmatch = () => {
     if (unmatchTarget) {
-      unmatch(
-        { matchId: unmatchTarget.matchId },
-        {
-          onSuccess: () => {
-            toast.success(`Unmatched with ${unmatchTarget.name}`, {
-              description: "You won't see each other anymore",
-            });
-            setUnmatchTarget(null);
-          },
-        }
-      );
+      // Add to pending set for UI feedback
+      setPendingUnmatchIds(prev => new Set(prev).add(unmatchTarget.matchId));
+      
+      // Initiate undoable unmatch with 5-second delay
+      initiateUnmatch(unmatchTarget.matchId, unmatchTarget.name);
+      setUnmatchTarget(null);
     }
   };
 
@@ -480,7 +491,7 @@ const Matches = () => {
         onReport={handleOpenReport}
         userName={unmatchTarget?.name || ""}
         userAvatar={unmatchTarget?.image}
-        isLoading={isUnmatching}
+        isLoading={false}
       />
 
       {/* Report Sheet */}
