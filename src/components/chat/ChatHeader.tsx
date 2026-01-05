@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Video, MoreVertical, BellOff, Bell } from "lucide-react";
+import {
+  ArrowLeft,
+  Video,
+  MoreVertical,
+  BellOff,
+  Bell,
+  ShieldAlert,
+  UserX,
+  Flag,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import {
@@ -12,17 +21,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Sheet,
+  SheetContent,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { UnmatchDialog } from "@/components/UnmatchDialog";
+import ReportWizard from "@/components/safety/ReportWizard";
+import { useUnmatch } from "@/hooks/useUnmatch";
 
 interface ChatUser {
   id: string;
@@ -37,6 +43,7 @@ interface ChatUser {
 interface ChatHeaderProps {
   user: ChatUser;
   isTyping: boolean;
+  matchId?: string;
   onBack: () => void;
   onVideoCall: () => void;
   onFocusInput: () => void;
@@ -45,6 +52,7 @@ interface ChatHeaderProps {
 export const ChatHeader = ({
   user,
   isTyping,
+  matchId,
   onBack,
   onVideoCall,
   onFocusInput,
@@ -52,10 +60,13 @@ export const ChatHeader = ({
   const navigate = useNavigate();
   const [isMuted, setIsMuted] = useState(false);
   const [showUnmatchDialog, setShowUnmatchDialog] = useState(false);
+  const [showReportSheet, setShowReportSheet] = useState(false);
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
 
+  const { mutate: unmatch, isPending: isUnmatching } = useUnmatch();
+
   const getStatusText = () => {
-    if (isTyping) return null; // We'll render special "Vibing..." text
+    if (isTyping) return null;
     if (user.isOnline) return "Online now";
     if (user.lastSeen) return `Last seen ${user.lastSeen}`;
     return "Offline";
@@ -67,13 +78,46 @@ export const ChatHeader = ({
 
   const handleMuteNotifications = () => {
     setIsMuted(!isMuted);
-    toast.success(isMuted ? `Notifications for ${user.name} unmuted` : `Notifications for ${user.name} muted`);
+    toast.success(
+      isMuted
+        ? `Notifications for ${user.name} unmuted`
+        : `Notifications for ${user.name} muted`
+    );
   };
 
   const handleUnmatch = () => {
+    if (matchId) {
+      unmatch(
+        { matchId },
+        {
+          onSuccess: () => {
+            setShowUnmatchDialog(false);
+            toast.success(`Unmatched with ${user.name}`, {
+              description: "You won't see each other anymore",
+            });
+            navigate("/matches");
+          },
+        }
+      );
+    } else {
+      // Fallback for demo mode
+      setShowUnmatchDialog(false);
+      toast.success(`Unmatched with ${user.name}`, {
+        description: "You won't see each other anymore",
+      });
+      navigate("/matches");
+    }
+  };
+
+  const handleOpenReport = () => {
     setShowUnmatchDialog(false);
-    toast.success(`Unmatched with ${user.name}`, {
-      description: "You won't see each other anymore"
+    setShowReportSheet(true);
+  };
+
+  const handleReportComplete = () => {
+    setShowReportSheet(false);
+    toast.success("Report submitted", {
+      description: "Our team will review it within 24 hours",
     });
     navigate("/matches");
   };
@@ -199,7 +243,7 @@ export const ChatHeader = ({
                   <MoreVertical className="w-5 h-5 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onClick={handleViewProfile}>
                   View Profile
                 </DropdownMenuItem>
@@ -217,10 +261,18 @@ export const ChatHeader = ({
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  className="text-destructive"
+                <DropdownMenuItem
+                  onClick={() => setShowReportSheet(true)}
+                  className="text-amber-500 focus:text-amber-500"
+                >
+                  <Flag className="w-4 h-4 mr-2" />
+                  Report {user.name}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
                   onClick={() => setShowUnmatchDialog(true)}
                 >
+                  <UserX className="w-4 h-4 mr-2" />
                   Unmatch
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -229,26 +281,26 @@ export const ChatHeader = ({
         </div>
       </header>
 
-      {/* Unmatch Confirmation Dialog */}
-      <AlertDialog open={showUnmatchDialog} onOpenChange={setShowUnmatchDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Unmatch with {user.name}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove your match and delete your conversation. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleUnmatch}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Unmatch
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Unmatch Dialog */}
+      <UnmatchDialog
+        isOpen={showUnmatchDialog}
+        onClose={() => setShowUnmatchDialog(false)}
+        onConfirm={handleUnmatch}
+        onReport={handleOpenReport}
+        userName={user.name}
+        userAvatar={user.avatar_url}
+        isLoading={isUnmatching}
+      />
+
+      {/* Report Sheet */}
+      <Sheet open={showReportSheet} onOpenChange={setShowReportSheet}>
+        <SheetContent side="bottom" className="h-[85vh] p-0 rounded-t-3xl">
+          <ReportWizard
+            onBack={() => setShowReportSheet(false)}
+            onComplete={handleReportComplete}
+          />
+        </SheetContent>
+      </Sheet>
     </>
   );
 };

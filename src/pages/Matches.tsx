@@ -11,7 +11,11 @@ import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { MatchAvatar } from "@/components/MatchAvatar";
 import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
 import { PullToRefresh } from "@/components/PullToRefresh";
-import { useMatches } from "@/hooks/useMatches";
+import { UnmatchDialog } from "@/components/UnmatchDialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import ReportWizard from "@/components/safety/ReportWizard";
+import { useMatches, Match } from "@/hooks/useMatches";
+import { useUnmatch } from "@/hooks/useUnmatch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -99,6 +103,12 @@ const Matches = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [activeTab, setActiveTab] = useState("conversations");
+  
+  // Unmatch state
+  const [unmatchTarget, setUnmatchTarget] = useState<Match | null>(null);
+  const [showReportSheet, setShowReportSheet] = useState(false);
+  
+  const { mutate: unmatch, isPending: isUnmatching } = useUnmatch();
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
@@ -158,9 +168,35 @@ const Matches = () => {
     return filtered;
   }, [regularMatches, searchQuery, sortBy]);
 
-  const handleUnmatch = (name: string) => {
-    toast.success(`Unmatched with ${name}`, {
-      description: "You won't see each other anymore",
+  const handleUnmatchClick = (match: Match) => {
+    setUnmatchTarget(match);
+  };
+
+  const handleConfirmUnmatch = () => {
+    if (unmatchTarget) {
+      unmatch(
+        { matchId: unmatchTarget.matchId },
+        {
+          onSuccess: () => {
+            toast.success(`Unmatched with ${unmatchTarget.name}`, {
+              description: "You won't see each other anymore",
+            });
+            setUnmatchTarget(null);
+          },
+        }
+      );
+    }
+  };
+
+  const handleOpenReport = () => {
+    setUnmatchTarget(null);
+    setShowReportSheet(true);
+  };
+
+  const handleReportComplete = () => {
+    setShowReportSheet(false);
+    toast.success("Report submitted", {
+      description: "Our team will review it within 24 hours",
     });
   };
 
@@ -369,7 +405,7 @@ const Matches = () => {
                               onViewProfile={() =>
                                 handleViewProfile(match.id, match.name)
                               }
-                              onUnmatch={() => handleUnmatch(match.name)}
+                              onUnmatch={() => handleUnmatchClick(match)}
                             />
                           </motion.div>
                         ))}
@@ -435,6 +471,27 @@ const Matches = () => {
       </main>
 
       <BottomNav />
+
+      {/* Unmatch Dialog */}
+      <UnmatchDialog
+        isOpen={!!unmatchTarget}
+        onClose={() => setUnmatchTarget(null)}
+        onConfirm={handleConfirmUnmatch}
+        onReport={handleOpenReport}
+        userName={unmatchTarget?.name || ""}
+        userAvatar={unmatchTarget?.image}
+        isLoading={isUnmatching}
+      />
+
+      {/* Report Sheet */}
+      <Sheet open={showReportSheet} onOpenChange={setShowReportSheet}>
+        <SheetContent side="bottom" className="h-[85vh] p-0 rounded-t-3xl">
+          <ReportWizard
+            onBack={() => setShowReportSheet(false)}
+            onComplete={handleReportComplete}
+          />
+        </SheetContent>
+      </Sheet>
     </PullToRefresh>
   );
 };
