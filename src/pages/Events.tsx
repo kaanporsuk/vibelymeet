@@ -7,7 +7,10 @@ import { FeaturedEventCard } from "@/components/events/FeaturedEventCard";
 import { EventsFilterBar } from "@/components/events/EventsFilterBar";
 import { EventsRail } from "@/components/events/EventsRail";
 import { EventCardPremium } from "@/components/events/EventCardPremium";
-import { Skeleton } from "@/components/ui/skeleton";
+import { 
+  FeaturedEventSkeleton, 
+  EventsRailSkeleton 
+} from "@/components/ShimmerSkeleton";
 
 // Mock data for personalization
 const userVibes = ["Music", "Tech", "Art"];
@@ -159,19 +162,12 @@ const Events = () => {
       <div className="space-y-8 pt-6">
         {isLoading ? (
           <div className="px-4 space-y-8">
-            {/* Featured Skeleton */}
-            <Skeleton className="w-full h-[420px] rounded-3xl" />
+            {/* Featured Skeleton with Shimmer */}
+            <FeaturedEventSkeleton />
             
-            {/* Rail Skeletons */}
+            {/* Rail Skeletons with Shimmer */}
             {[1, 2, 3].map((i) => (
-              <div key={i} className="space-y-4">
-                <Skeleton className="h-8 w-48 ml-4" />
-                <div className="flex gap-4 overflow-hidden px-4">
-                  {[1, 2, 3].map((j) => (
-                    <Skeleton key={j} className="w-[280px] h-[260px] rounded-2xl flex-shrink-0" />
-                  ))}
-                </div>
-              </div>
+              <EventsRailSkeleton key={i} />
             ))}
           </div>
         ) : isFiltering ? (

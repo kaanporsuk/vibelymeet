@@ -1,9 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, SlidersHorizontal, MessageCircle, Droplet } from "lucide-react";
+import { Search, SlidersHorizontal, MessageCircle, Droplet, Loader2 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
-import { Skeleton } from "@/components/Skeleton";
 import { NewVibesRail } from "@/components/NewVibesRail";
 import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
@@ -12,10 +11,21 @@ import { MatchAvatar } from "@/components/MatchAvatar";
 import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { UnmatchDialog } from "@/components/UnmatchDialog";
+import { ArchiveMatchDialog } from "@/components/ArchiveMatchDialog";
+import { BlockUserDialog } from "@/components/BlockUserDialog";
+import { MuteOptionsSheet } from "@/components/MuteOptionsSheet";
+import { ArchivedMatchesSection } from "@/components/ArchivedMatchesSection";
+import { 
+  MatchCardSkeleton, 
+  NewVibesRailSkeleton 
+} from "@/components/ShimmerSkeleton";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ReportWizard from "@/components/safety/ReportWizard";
 import { useMatches, Match } from "@/hooks/useMatches";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
+import { useArchiveMatch } from "@/hooks/useArchiveMatch";
+import { useBlockUser } from "@/hooks/useBlockUser";
+import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -106,12 +116,14 @@ const Matches = () => {
   
   // Unmatch state
   const [unmatchTarget, setUnmatchTarget] = useState<Match | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Match | null>(null);
+  const [blockTarget, setBlockTarget] = useState<Match | null>(null);
+  const [muteTarget, setMuteTarget] = useState<Match | null>(null);
   const [showReportSheet, setShowReportSheet] = useState(false);
   const [pendingUnmatchIds, setPendingUnmatchIds] = useState<Set<string>>(new Set());
   
   const { initiateUnmatch } = useUndoableUnmatch({
     onUnmatchComplete: () => {
-      // Remove from pending set after actual deletion
       if (unmatchTarget) {
         setPendingUnmatchIds(prev => {
           const next = new Set(prev);
@@ -121,10 +133,13 @@ const Matches = () => {
       }
     },
     onUndo: () => {
-      // Remove from pending set on undo
       setPendingUnmatchIds(new Set());
     },
   });
+
+  const { archiveMatch, isArchiving } = useArchiveMatch();
+  const { blockUser, isBlocking } = useBlockUser();
+  const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch();
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
@@ -134,10 +149,10 @@ const Matches = () => {
   const pendingDropsCount = MOCK_DROPS.filter(d => d.status === 'received' || d.status === 'sent').length;
   const matchedDropsCount = MOCK_DROPS.filter(d => d.status === 'matched').length;
 
-  // Separate new vibes (matches within 24h) from regular matches
-  const { newVibes, regularMatches } = useMemo(() => {
+  // Separate new vibes, regular matches, and archived matches
+  const { newVibes, regularMatches, archivedMatches } = useMemo(() => {
     const newVibes = matches
-      .filter((m) => m.isNew)
+      .filter((m) => m.isNew && !m.isArchived)
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -149,8 +164,9 @@ const Matches = () => {
         photoVerified: m.photoVerified,
       }));
 
-    const regular = matches.filter((m) => !m.isNew);
-    return { newVibes, regularMatches: regular };
+    const regular = matches.filter((m) => !m.isNew && !m.isArchived);
+    const archived = matches.filter((m) => m.isArchived);
+    return { newVibes, regularMatches: regular, archivedMatches: archived };
   }, [matches]);
 
   // Filter and sort matches
@@ -190,12 +206,30 @@ const Matches = () => {
 
   const handleConfirmUnmatch = () => {
     if (unmatchTarget) {
-      // Add to pending set for UI feedback
       setPendingUnmatchIds(prev => new Set(prev).add(unmatchTarget.matchId));
-      
-      // Initiate undoable unmatch with 5-second delay
       initiateUnmatch(unmatchTarget.matchId, unmatchTarget.name);
       setUnmatchTarget(null);
+    }
+  };
+
+  const handleConfirmArchive = () => {
+    if (archiveTarget) {
+      archiveMatch(archiveTarget.matchId, archiveTarget.name);
+      setArchiveTarget(null);
+    }
+  };
+
+  const handleConfirmBlock = (reason?: string) => {
+    if (blockTarget) {
+      blockUser(blockTarget.id, blockTarget.name, reason);
+      setBlockTarget(null);
+    }
+  };
+
+  const handleMuteDuration = (duration: MuteDuration) => {
+    if (muteTarget) {
+      muteMatch(muteTarget.matchId, muteTarget.name, duration);
+      setMuteTarget(null);
     }
   };
 
@@ -340,43 +374,13 @@ const Matches = () => {
             >
               {isLoading ? (
                 <div className="p-4 space-y-4">
-                  {/* Skeleton for New Vibes Rail */}
-                  <div className="glass-card p-4 rounded-2xl">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Skeleton className="w-8 h-8 rounded-full" />
-                      <div className="space-y-1">
-                        <Skeleton className="h-4 w-20" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      {Array(4)
-                        .fill(0)
-                        .map((_, i) => (
-                          <div key={i} className="flex flex-col items-center gap-2">
-                            <Skeleton className="w-20 h-20 rounded-full" />
-                            <Skeleton className="h-3 w-12" />
-                          </div>
-                        ))}
-                    </div>
-                  </div>
+                  {/* Shimmer Skeleton for New Vibes Rail */}
+                  <NewVibesRailSkeleton />
 
-                  {/* Skeleton for chat list */}
-                  {Array(5)
-                    .fill(0)
-                    .map((_, i) => (
-                      <div key={i} className="flex items-center gap-4 p-4">
-                        <Skeleton className="w-14 h-14 rounded-full" />
-                        <div className="flex-1 space-y-2">
-                          <Skeleton className="h-5 w-32" />
-                          <Skeleton className="h-4 w-48" />
-                          <div className="flex gap-2">
-                            <Skeleton className="h-5 w-16 rounded-full" />
-                            <Skeleton className="h-5 w-16 rounded-full" />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  {/* Shimmer Skeleton for chat list */}
+                  {Array(5).fill(0).map((_, i) => (
+                    <MatchCardSkeleton key={i} />
+                  ))}
                 </div>
               ) : matches.length > 0 ? (
                 <>
@@ -440,6 +444,9 @@ const Matches = () => {
                     ) : null}
                   </AnimatePresence>
 
+                  {/* Archived Matches Section */}
+                  <ArchivedMatchesSection archivedMatches={archivedMatches} />
+
                   {/* Tip at bottom */}
                   {regularMatches.length > 0 && (
                     <motion.div
@@ -492,6 +499,40 @@ const Matches = () => {
         userName={unmatchTarget?.name || ""}
         userAvatar={unmatchTarget?.image}
         isLoading={false}
+      />
+
+      {/* Archive Dialog */}
+      <ArchiveMatchDialog
+        isOpen={!!archiveTarget}
+        onClose={() => setArchiveTarget(null)}
+        onConfirm={handleConfirmArchive}
+        userName={archiveTarget?.name || ""}
+        userAvatar={archiveTarget?.image}
+        isLoading={isArchiving}
+      />
+
+      {/* Block User Dialog */}
+      <BlockUserDialog
+        isOpen={!!blockTarget}
+        onClose={() => setBlockTarget(null)}
+        onConfirm={handleConfirmBlock}
+        userName={blockTarget?.name || ""}
+        userAvatar={blockTarget?.image}
+        isLoading={isBlocking}
+      />
+
+      {/* Mute Options Sheet */}
+      <MuteOptionsSheet
+        isOpen={!!muteTarget}
+        onClose={() => setMuteTarget(null)}
+        onSelectDuration={handleMuteDuration}
+        userName={muteTarget?.name || ""}
+        currentlyMuted={muteTarget ? isMatchMuted(muteTarget.matchId) : false}
+        onUnmute={() => {
+          if (muteTarget) {
+            unmuteMatch(muteTarget.matchId, muteTarget.name);
+          }
+        }}
       />
 
       {/* Report Sheet */}

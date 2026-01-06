@@ -10,6 +10,8 @@ import {
   ShieldAlert,
   UserX,
   Flag,
+  Archive,
+  Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
@@ -19,6 +21,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   Sheet,
@@ -27,8 +32,13 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { UnmatchDialog } from "@/components/UnmatchDialog";
+import { ArchiveMatchDialog } from "@/components/ArchiveMatchDialog";
+import { BlockUserDialog } from "@/components/BlockUserDialog";
 import ReportWizard from "@/components/safety/ReportWizard";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
+import { useArchiveMatch } from "@/hooks/useArchiveMatch";
+import { useBlockUser } from "@/hooks/useBlockUser";
+import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
 
 interface ChatUser {
   id: string;
@@ -58,12 +68,18 @@ export const ChatHeader = ({
   onFocusInput,
 }: ChatHeaderProps) => {
   const navigate = useNavigate();
-  const [isMuted, setIsMuted] = useState(false);
   const [showUnmatchDialog, setShowUnmatchDialog] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const [showBlockDialog, setShowBlockDialog] = useState(false);
   const [showReportSheet, setShowReportSheet] = useState(false);
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
 
   const { initiateUnmatch } = useUndoableUnmatch();
+  const { archiveMatch, isArchiving } = useArchiveMatch();
+  const { blockUser, isBlocking } = useBlockUser();
+  const { muteMatch, unmuteMatch, isMatchMuted, getMuteExpiry } = useMuteMatch();
+
+  const isMuted = matchId ? isMatchMuted(matchId) : false;
 
   const getStatusText = () => {
     if (isTyping) return null;
@@ -76,13 +92,29 @@ export const ChatHeader = ({
     setShowProfileDrawer(true);
   };
 
-  const handleMuteNotifications = () => {
-    setIsMuted(!isMuted);
-    toast.success(
-      isMuted
-        ? `Notifications for ${user.name} unmuted`
-        : `Notifications for ${user.name} muted`
-    );
+  const handleMuteNotifications = (duration: MuteDuration) => {
+    if (matchId) {
+      muteMatch(matchId, user.name, duration);
+    }
+  };
+
+  const handleUnmuteNotifications = () => {
+    if (matchId) {
+      unmuteMatch(matchId, user.name);
+    }
+  };
+
+  const handleArchive = () => {
+    if (matchId) {
+      archiveMatch(matchId, user.name);
+      navigate("/matches");
+    }
+  };
+
+  const handleBlock = (reason?: string) => {
+    blockUser(user.id, user.name, reason);
+    setShowBlockDialog(false);
+    navigate("/matches");
   };
 
   const handleUnmatch = () => {
@@ -235,19 +267,52 @@ export const ChatHeader = ({
                 <DropdownMenuItem onClick={handleViewProfile}>
                   View Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleMuteNotifications}>
-                  {isMuted ? (
-                    <>
-                      <Bell className="w-4 h-4 mr-2" />
-                      Unmute Notifications
-                    </>
-                  ) : (
-                    <>
-                      <BellOff className="w-4 h-4 mr-2" />
-                      Mute Notifications
-                    </>
-                  )}
+                <DropdownMenuItem onClick={() => setShowArchiveDialog(true)}>
+                  <Archive className="w-4 h-4 mr-2" />
+                  Archive Chat
                 </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    {isMuted ? (
+                      <>
+                        <Bell className="w-4 h-4 mr-2" />
+                        Unmute Notifications
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="w-4 h-4 mr-2" />
+                        Mute Notifications
+                      </>
+                    )}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {isMuted ? (
+                      <DropdownMenuItem onClick={handleUnmuteNotifications}>
+                        <Bell className="w-4 h-4 mr-2" />
+                        Turn on notifications
+                      </DropdownMenuItem>
+                    ) : (
+                      <>
+                        <DropdownMenuItem onClick={() => handleMuteNotifications("1hour")}>
+                          <Clock className="w-4 h-4 mr-2" />
+                          1 hour
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleMuteNotifications("1day")}>
+                          <Clock className="w-4 h-4 mr-2" />
+                          1 day
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleMuteNotifications("1week")}>
+                          <Clock className="w-4 h-4 mr-2" />
+                          1 week
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleMuteNotifications("forever")}>
+                          <BellOff className="w-4 h-4 mr-2" />
+                          Until I turn it back on
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => setShowReportSheet(true)}
@@ -255,6 +320,13 @@ export const ChatHeader = ({
                 >
                   <Flag className="w-4 h-4 mr-2" />
                   Report {user.name}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setShowBlockDialog(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <ShieldAlert className="w-4 h-4 mr-2" />
+                  Block {user.name}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
@@ -280,6 +352,25 @@ export const ChatHeader = ({
         isLoading={false}
       />
 
+      {/* Archive Dialog */}
+      <ArchiveMatchDialog
+        isOpen={showArchiveDialog}
+        onClose={() => setShowArchiveDialog(false)}
+        onConfirm={handleArchive}
+        userName={user.name}
+        userAvatar={user.avatar_url}
+        isLoading={isArchiving}
+      />
+
+      {/* Block Dialog */}
+      <BlockUserDialog
+        isOpen={showBlockDialog}
+        onClose={() => setShowBlockDialog(false)}
+        onConfirm={handleBlock}
+        userName={user.name}
+        userAvatar={user.avatar_url}
+        isLoading={isBlocking}
+      />
       {/* Report Sheet */}
       <Sheet open={showReportSheet} onOpenChange={setShowReportSheet}>
         <SheetContent side="bottom" className="h-[85vh] p-0 rounded-t-3xl">
