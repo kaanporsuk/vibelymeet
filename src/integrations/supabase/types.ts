@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      blocked_users: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: []
+      }
       daily_drops: {
         Row: {
           candidate_id: string
@@ -216,8 +240,42 @@ export type Database = {
         }
         Relationships: []
       }
+      match_mutes: {
+        Row: {
+          created_at: string
+          id: string
+          match_id: string
+          muted_until: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          match_id: string
+          muted_until: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          match_id?: string
+          muted_until?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_mutes_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matches: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           event_id: string | null
           id: string
           last_message_at: string | null
@@ -226,6 +284,8 @@ export type Database = {
           profile_id_2: string
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           event_id?: string | null
           id?: string
           last_message_at?: string | null
@@ -234,6 +294,8 @@ export type Database = {
           profile_id_2: string
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           event_id?: string | null
           id?: string
           last_message_at?: string | null
