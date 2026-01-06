@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Volume2, VolumeX, Pencil } from "lucide-react";
+import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface VibePlayerProps {
@@ -27,21 +27,36 @@ export const VibePlayer = ({
   overlayClassName,
 }: VibePlayerProps) => {
   const [isMuted, setIsMuted] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  // Reset state when videoUrl changes
   useEffect(() => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.play().catch(() => {
-          // Autoplay blocked, that's fine
-        });
-      } else {
-        videoRef.current.pause();
-      }
+    setIsLoaded(false);
+    setHasError(false);
+    setIsLoading(true);
+    setIsPlaying(false);
+  }, [videoUrl]);
+
+  const attemptPlay = useCallback(() => {
+    if (videoRef.current && isLoaded && !hasError) {
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch((err) => {
+        console.log("Autoplay blocked:", err);
+        setIsPlaying(false);
+      });
     }
-  }, [isPlaying]);
+  }, [isLoaded, hasError]);
+
+  useEffect(() => {
+    if (autoPlay && isLoaded) {
+      attemptPlay();
+    }
+  }, [autoPlay, isLoaded, attemptPlay]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -49,27 +64,74 @@ export const VibePlayer = ({
     }
   }, [isMuted]);
 
-  const handleToggleMute = () => {
+  const handleToggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsMuted(!isMuted);
   };
 
   const handleVideoClick = () => {
-    if (showControls) {
-      handleToggleMute();
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch(console.error);
     }
   };
 
+  const handleLoadedData = () => {
+    setIsLoaded(true);
+    setIsLoading(false);
+  };
+
+  const handleError = () => {
+    setHasError(true);
+    setIsLoading(false);
+    console.error("Video failed to load:", videoUrl);
+  };
+
+  const handleCanPlay = () => {
+    setIsLoading(false);
+  };
+
   return (
-    <div className={cn("relative overflow-hidden", className)}>
-      {/* Thumbnail (shown until video loads) */}
+    <div className={cn("relative overflow-hidden bg-secondary", className)}>
+      {/* Loading state */}
+      {isLoading && !hasError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-secondary z-10">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Error state */}
+      {hasError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary z-10">
+          <Play className="w-8 h-8 text-muted-foreground mb-2" />
+          <p className="text-sm text-muted-foreground">Video unavailable</p>
+        </div>
+      )}
+
+      {/* Play button overlay when paused */}
       <AnimatePresence>
-        {!isLoaded && (
-          <motion.img
+        {!isPlaying && isLoaded && !hasError && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            src={thumbnailUrl}
-            alt="Video thumbnail"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
+            className="absolute inset-0 flex items-center justify-center z-10 bg-background/30"
+            onClick={handleVideoClick}
+          >
+            <motion.div
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="w-16 h-16 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center cursor-pointer"
+            >
+              <Play className="w-8 h-8 text-foreground ml-1" />
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -81,9 +143,12 @@ export const VibePlayer = ({
         loop
         muted={isMuted}
         playsInline
-        autoPlay={autoPlay}
-        onLoadedData={() => setIsLoaded(true)}
+        preload="metadata"
+        onLoadedData={handleLoadedData}
+        onCanPlay={handleCanPlay}
+        onError={handleError}
         onClick={handleVideoClick}
+        poster={thumbnailUrl}
       />
 
       {/* Vibe Caption Overlay */}
@@ -105,7 +170,7 @@ export const VibePlayer = ({
       )}
 
       {/* Mute/Unmute Control */}
-      {showControls && (
+      {showControls && isLoaded && !hasError && (
         <motion.button
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

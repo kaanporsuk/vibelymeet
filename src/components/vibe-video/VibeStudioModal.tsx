@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff, Upload } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -8,11 +8,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { uploadVideo, isVideoBlobUrl, blobUrlToFile } from "@/services/videoStorageService";
 
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave?: (videoUrl: string, file?: File) => void;
+  onSave?: (videoUrl: string) => void;
   existingVideoUrl?: string;
 }
 
@@ -39,8 +41,9 @@ export const VibeStudioModal = ({
   const [isMicOn, setIsMicOn] = useState(true);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-
+  const [isSaving, setIsSaving] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -156,6 +159,7 @@ export const VibeStudioModal = ({
     mediaRecorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "video/webm" });
       const url = URL.createObjectURL(blob);
+      setRecordedBlob(blob);
       setRecordedVideoUrl(url);
       setStage("review");
     };
@@ -177,24 +181,67 @@ export const VibeStudioModal = ({
       URL.revokeObjectURL(recordedVideoUrl);
     }
     setRecordedVideoUrl(null);
+    setRecordedBlob(null);
+    setUploadedFile(null);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
 
-  const handleSave = useCallback(() => {
-    const urlToSave = recordedVideoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
-    onSave?.(urlToSave, uploadedFile || undefined);
-    onOpenChange(false);
-    setStage("idle");
-    setCountdown(RECORDING_DURATION);
-    if (recordedVideoUrl) {
-      URL.revokeObjectURL(recordedVideoUrl);
+  const handleSave = useCallback(async () => {
+    if (!recordedVideoUrl) {
+      toast.error("No video to save");
+      return;
     }
-    setRecordedVideoUrl(null);
-    setUploadedFile(null);
-  }, [onSave, onOpenChange, recordedVideoUrl, uploadedFile]);
+
+    setIsSaving(true);
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("Please sign in to save your video");
+        return;
+      }
+
+      let storageUrl: string;
+
+      // If we have an uploaded file, use it directly
+      if (uploadedFile) {
+        const result = await uploadVideo(uploadedFile, user.id);
+        storageUrl = result.url;
+      } else if (recordedBlob) {
+        // If we have a recorded blob, upload it
+        const result = await uploadVideo(recordedBlob, user.id);
+        storageUrl = result.url;
+      } else {
+        // Fallback: convert blob URL to file and upload
+        const file = await blobUrlToFile(recordedVideoUrl, "vibe-video.webm");
+        const result = await uploadVideo(file, user.id);
+        storageUrl = result.url;
+      }
+
+      // Call the onSave callback with the storage URL
+      onSave?.(storageUrl);
+      
+      // Clean up
+      onOpenChange(false);
+      setStage("idle");
+      setCountdown(RECORDING_DURATION);
+      URL.revokeObjectURL(recordedVideoUrl);
+      setRecordedVideoUrl(null);
+      setRecordedBlob(null);
+      setUploadedFile(null);
+      
+      toast.success("Vibe video saved!");
+    } catch (error) {
+      console.error("Error saving video:", error);
+      toast.error("Failed to save video. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [onSave, onOpenChange, recordedVideoUrl, recordedBlob, uploadedFile]);
 
   const handleClose = useCallback(() => {
+    if (isSaving) return; // Don't close while saving
     onOpenChange(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
@@ -203,8 +250,9 @@ export const VibeStudioModal = ({
       URL.revokeObjectURL(recordedVideoUrl);
     }
     setRecordedVideoUrl(null);
+    setRecordedBlob(null);
     setUploadedFile(null);
-  }, [onOpenChange, recordedVideoUrl]);
+  }, [onOpenChange, recordedVideoUrl, isSaving]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -498,7 +546,8 @@ export const VibeStudioModal = ({
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={handleRetake}
-                    className="flex flex-col items-center gap-2"
+                    disabled={isSaving}
+                    className="flex flex-col items-center gap-2 disabled:opacity-50"
                   >
                     <div className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center">
                       <RefreshCw className="w-6 h-6 text-muted-foreground" />
@@ -508,13 +557,14 @@ export const VibeStudioModal = ({
 
                   {/* Save Button */}
                   <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
+                    whileHover={{ scale: isSaving ? 1 : 1.1 }}
+                    whileTap={{ scale: isSaving ? 1 : 0.9 }}
                     onClick={handleSave}
-                    className="flex flex-col items-center gap-2"
+                    disabled={isSaving}
+                    className="flex flex-col items-center gap-2 disabled:opacity-70"
                   >
                     <motion.div
-                      animate={{
+                      animate={isSaving ? {} : {
                         boxShadow: [
                           "0 0 0 0 hsl(142 76% 36% / 0.4)",
                           "0 0 0 10px hsl(142 76% 36% / 0)",
@@ -523,10 +573,14 @@ export const VibeStudioModal = ({
                       transition={{ duration: 1.5, repeat: Infinity }}
                       className="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center"
                     >
-                      <Check className="w-7 h-7 text-white" />
+                      {isSaving ? (
+                        <Loader2 className="w-7 h-7 text-white animate-spin" />
+                      ) : (
+                        <Check className="w-7 h-7 text-white" />
+                      )}
                     </motion.div>
                     <span className="text-xs text-green-400 font-medium">
-                      Post Vibe
+                      {isSaving ? "Saving..." : "Post Vibe"}
                     </span>
                   </motion.button>
                 </div>

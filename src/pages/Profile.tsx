@@ -718,11 +718,13 @@ const Profile = () => {
           </div>
           {profile.videoIntroUrl ? (
             <div className="flex items-center gap-3">
-              <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary">
+              <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary shrink-0">
                 <video
                   src={profile.videoIntroUrl}
                   className="w-full h-full object-cover"
                   muted
+                  playsInline
+                  preload="metadata"
                 />
                 <div className="absolute inset-0 bg-background/30 flex items-center justify-center">
                   <div className="w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center">
@@ -730,9 +732,9 @@ const Profile = () => {
                   </div>
                 </div>
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm text-foreground font-medium">15s Video Intro</p>
-                <p className="text-xs text-muted-foreground">Show your personality!</p>
+                <p className="text-xs text-muted-foreground truncate">Tap to view or update</p>
               </div>
             </div>
           ) : (
@@ -1286,7 +1288,6 @@ const Profile = () => {
         onSave={async (url) => {
           await updateMyProfile({ videoIntroUrl: url });
           setProfile({ ...profile, videoIntroUrl: url });
-          toast.success("Vibe video saved!");
         }}
         existingVideoUrl={profile.videoIntroUrl || undefined}
       />
