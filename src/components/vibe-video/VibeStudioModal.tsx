@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideo, isVideoBlobUrl, blobUrlToFile } from "@/services/videoStorageService";
-
+import { uploadVideo, blobUrlToFile } from "@/services/videoStorageService";
+import { generateVideoThumbnail, compressVideo, shouldCompressVideo, dataUrlToBlob } from "@/utils/videoProcessing";
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,6 +44,7 @@ export const VibeStudioModal = ({
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -202,24 +203,62 @@ export const VibeStudioModal = ({
         return;
       }
 
-      let storageUrl: string;
+      let videoToUpload: File | Blob;
 
-      // If we have an uploaded file, use it directly
+      // Determine the source video
       if (uploadedFile) {
-        const result = await uploadVideo(uploadedFile, user.id);
-        storageUrl = result.url;
+        videoToUpload = uploadedFile;
       } else if (recordedBlob) {
-        // If we have a recorded blob, upload it
-        const result = await uploadVideo(recordedBlob, user.id);
-        storageUrl = result.url;
+        videoToUpload = recordedBlob;
       } else {
-        // Fallback: convert blob URL to file and upload
-        const file = await blobUrlToFile(recordedVideoUrl, "vibe-video.webm");
-        const result = await uploadVideo(file, user.id);
-        storageUrl = result.url;
+        videoToUpload = await blobUrlToFile(recordedVideoUrl, "vibe-video.webm");
       }
 
-      // Call the onSave callback with the storage URL
+      // Compress video if needed (>10MB)
+      if (shouldCompressVideo(videoToUpload, 10)) {
+        setProcessingStatus("Compressing video...");
+        try {
+          videoToUpload = await compressVideo(videoToUpload, {
+            maxWidth: 720,
+            maxHeight: 1280,
+            videoBitrate: 1500000,
+            onProgress: (p) => setProcessingStatus(`Compressing: ${Math.round(p)}%`),
+          });
+        } catch (compressError) {
+          console.warn("Compression failed, uploading original:", compressError);
+          // Continue with original if compression fails
+        }
+      }
+
+      // Generate thumbnail
+      setProcessingStatus("Generating thumbnail...");
+      let thumbnailUrl: string | null = null;
+      try {
+        const thumbnailDataUrl = await generateVideoThumbnail(videoToUpload);
+        const thumbnailBlob = dataUrlToBlob(thumbnailDataUrl);
+        const thumbnailFile = new File([thumbnailBlob], `${user.id}_thumb.jpg`, { type: "image/jpeg" });
+        
+        // Upload thumbnail to storage
+        const thumbPath = `${user.id}/${Date.now()}_thumb.jpg`;
+        const { error: thumbError } = await supabase.storage
+          .from("vibe-videos")
+          .upload(thumbPath, thumbnailFile, { cacheControl: "3600", upsert: true });
+        
+        if (!thumbError) {
+          const { data: thumbData } = supabase.storage.from("vibe-videos").getPublicUrl(thumbPath);
+          thumbnailUrl = thumbData.publicUrl;
+        }
+      } catch (thumbError) {
+        console.warn("Thumbnail generation failed:", thumbError);
+        // Continue without thumbnail
+      }
+
+      // Upload video
+      setProcessingStatus("Uploading video...");
+      const result = await uploadVideo(videoToUpload, user.id);
+      const storageUrl = result.url;
+
+      // Call the onSave callback with the storage URL (and optionally thumbnail)
       onSave?.(storageUrl);
       
       // Clean up
@@ -230,6 +269,7 @@ export const VibeStudioModal = ({
       setRecordedVideoUrl(null);
       setRecordedBlob(null);
       setUploadedFile(null);
+      setProcessingStatus(null);
       
       toast.success("Vibe video saved!");
     } catch (error) {
@@ -237,6 +277,7 @@ export const VibeStudioModal = ({
       toast.error("Failed to save video. Please try again.");
     } finally {
       setIsSaving(false);
+      setProcessingStatus(null);
     }
   }, [onSave, onOpenChange, recordedVideoUrl, recordedBlob, uploadedFile]);
 
@@ -579,8 +620,8 @@ export const VibeStudioModal = ({
                         <Check className="w-7 h-7 text-white" />
                       )}
                     </motion.div>
-                    <span className="text-xs text-green-400 font-medium">
-                      {isSaving ? "Saving..." : "Post Vibe"}
+                    <span className="text-xs text-green-400 font-medium max-w-[80px] text-center truncate">
+                      {processingStatus || (isSaving ? "Saving..." : "Post Vibe")}
                     </span>
                   </motion.button>
                 </div>
