@@ -10,7 +10,13 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadVideo, blobUrlToFile } from "@/services/videoStorageService";
-import { generateVideoThumbnail, compressVideo, shouldCompressVideo, dataUrlToBlob } from "@/utils/videoProcessing";
+import {
+  generateVideoThumbnail,
+  compressVideo,
+  shouldCompressVideo,
+  dataUrlToBlob,
+} from "@/utils/videoProcessing";
+
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -144,31 +150,48 @@ export const VibeStudioModal = ({
   }, [stage]);
 
   const startRecording = useCallback(() => {
-    if (!streamRef.current) return;
+    if (!streamRef.current) {
+      toast.error("Camera not ready yet");
+      return;
+    }
 
     chunksRef.current = [];
-    const mediaRecorder = new MediaRecorder(streamRef.current, {
-      mimeType: "video/webm;codecs=vp9",
-    });
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunksRef.current.push(event.data);
-      }
-    };
+    const preferredTypes = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4",
+    ];
 
-    mediaRecorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: "video/webm" });
-      const url = URL.createObjectURL(blob);
-      setRecordedBlob(blob);
-      setRecordedVideoUrl(url);
-      setStage("review");
-    };
+    const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
 
-    mediaRecorderRef.current = mediaRecorder;
-    mediaRecorder.start(100);
-    setCountdown(RECORDING_DURATION);
-    setStage("recording");
+    try {
+      const mediaRecorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blobType = mimeType?.startsWith("video/") ? mimeType.split(";")[0] : "video/webm";
+        const blob = new Blob(chunksRef.current, { type: blobType });
+        const url = URL.createObjectURL(blob);
+        setRecordedBlob(blob);
+        setRecordedVideoUrl(url);
+        setStage("review");
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(250);
+      setCountdown(RECORDING_DURATION);
+      setStage("recording");
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+      toast.error("Recording not supported on this device/browser");
+    }
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -189,7 +212,7 @@ export const VibeStudioModal = ({
   }, [recordedVideoUrl]);
 
   const handleSave = useCallback(async () => {
-    if (!recordedVideoUrl) {
+    if (!uploadedFile && !recordedBlob && !recordedVideoUrl) {
       toast.error("No video to save");
       return;
     }
@@ -197,7 +220,9 @@ export const VibeStudioModal = ({
     setIsSaving(true);
     try {
       // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         toast.error("Please sign in to save your video");
         return;
@@ -211,7 +236,7 @@ export const VibeStudioModal = ({
       } else if (recordedBlob) {
         videoToUpload = recordedBlob;
       } else {
-        videoToUpload = await blobUrlToFile(recordedVideoUrl, "vibe-video.webm");
+        videoToUpload = await blobUrlToFile(recordedVideoUrl!, "vibe-video.webm");
       }
 
       // Compress video if needed (>10MB)
@@ -230,47 +255,43 @@ export const VibeStudioModal = ({
         }
       }
 
-      // Generate thumbnail
+      // Generate thumbnail (best-effort)
       setProcessingStatus("Generating thumbnail...");
-      let thumbnailUrl: string | null = null;
       try {
         const thumbnailDataUrl = await generateVideoThumbnail(videoToUpload);
         const thumbnailBlob = dataUrlToBlob(thumbnailDataUrl);
-        const thumbnailFile = new File([thumbnailBlob], `${user.id}_thumb.jpg`, { type: "image/jpeg" });
-        
-        // Upload thumbnail to storage
+        const thumbnailFile = new File([thumbnailBlob], `${user.id}_thumb.jpg`, {
+          type: "image/jpeg",
+        });
+
         const thumbPath = `${user.id}/${Date.now()}_thumb.jpg`;
         const { error: thumbError } = await supabase.storage
           .from("vibe-videos")
           .upload(thumbPath, thumbnailFile, { cacheControl: "3600", upsert: true });
-        
-        if (!thumbError) {
-          const { data: thumbData } = supabase.storage.from("vibe-videos").getPublicUrl(thumbPath);
-          thumbnailUrl = thumbData.publicUrl;
+
+        if (thumbError) {
+          console.warn("Thumbnail upload failed:", thumbError);
         }
       } catch (thumbError) {
         console.warn("Thumbnail generation failed:", thumbError);
-        // Continue without thumbnail
       }
 
-      // Upload video
+      // Upload video (store PATH in DB; bucket is private)
       setProcessingStatus("Uploading video...");
       const result = await uploadVideo(videoToUpload, user.id);
-      const storageUrl = result.url;
 
-      // Call the onSave callback with the storage URL (and optionally thumbnail)
-      onSave?.(storageUrl);
-      
+      onSave?.(result.path);
+
       // Clean up
       onOpenChange(false);
       setStage("idle");
       setCountdown(RECORDING_DURATION);
-      URL.revokeObjectURL(recordedVideoUrl);
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
       setRecordedVideoUrl(null);
       setRecordedBlob(null);
       setUploadedFile(null);
       setProcessingStatus(null);
-      
+
       toast.success("Vibe video saved!");
     } catch (error) {
       console.error("Error saving video:", error);
