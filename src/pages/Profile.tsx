@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { 
-  Settings, 
-  LogOut, 
+import {
+  Settings,
+  LogOut,
   Camera,
   Briefcase,
   Ruler,
@@ -21,7 +21,7 @@ import {
   Cake,
   Loader2,
   Mail,
-  ShieldCheck
+  ShieldCheck,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { getSignedVideoUrl } from "@/services/videoStorageService";
 import {
   Drawer,
   DrawerClose,
@@ -165,6 +166,7 @@ const Profile = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
+  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
@@ -227,6 +229,29 @@ const Profile = () => {
 
     loadProfile();
   }, []);
+
+  // Resolve a playable (signed) URL for the vibe video (bucket is private)
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolve = async () => {
+      if (!profile.videoIntroUrl) {
+        setVibeVideoPlaybackUrl(null);
+        return;
+      }
+
+      const signed = await getSignedVideoUrl(profile.videoIntroUrl);
+      if (cancelled) return;
+
+      setVibeVideoPlaybackUrl(signed);
+    };
+
+    resolve();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.videoIntroUrl]);
 
   const vibeScore = calculateVibeScore(profile);
 
@@ -720,7 +745,7 @@ const Profile = () => {
             <div className="flex items-center gap-3">
               <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary shrink-0">
                 <video
-                  src={profile.videoIntroUrl}
+                  src={vibeVideoPlaybackUrl || undefined}
                   className="w-full h-full object-cover"
                   muted
                   playsInline
@@ -1214,16 +1239,22 @@ const Profile = () => {
             {profile.videoIntroUrl ? (
               <div className="space-y-4">
                 <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
-                  <VibePlayer
-                    videoUrl={profile.videoIntroUrl}
-                    vibeCaption={profile.vibeCaption}
-                    isOwner
-                    onUpdateClick={() => {
-                      setActiveDrawer(null);
-                      setShowVibeStudio(true);
-                    }}
-                    className="w-full h-full"
-                  />
+                  {vibeVideoPlaybackUrl ? (
+                    <VibePlayer
+                      videoUrl={vibeVideoPlaybackUrl}
+                      vibeCaption={profile.vibeCaption}
+                      isOwner
+                      onUpdateClick={() => {
+                        setActiveDrawer(null);
+                        setShowVibeStudio(true);
+                      }}
+                      className="w-full h-full"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-secondary flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -1232,6 +1263,7 @@ const Profile = () => {
                     onClick={async () => {
                       await updateMyProfile({ videoIntroUrl: null });
                       setProfile({ ...profile, videoIntroUrl: null });
+                      setVibeVideoPlaybackUrl(null);
                       setActiveDrawer(null);
                       toast.success("Video deleted");
                     }}
@@ -1285,9 +1317,9 @@ const Profile = () => {
       <VibeStudioModal
         open={showVibeStudio}
         onOpenChange={setShowVibeStudio}
-        onSave={async (url) => {
-          await updateMyProfile({ videoIntroUrl: url });
-          setProfile({ ...profile, videoIntroUrl: url });
+        onSave={async (pathOrUrl) => {
+          await updateMyProfile({ videoIntroUrl: pathOrUrl });
+          setProfile({ ...profile, videoIntroUrl: pathOrUrl });
         }}
         existingVideoUrl={profile.videoIntroUrl || undefined}
       />
