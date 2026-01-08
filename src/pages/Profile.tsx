@@ -32,6 +32,7 @@ import { persistPhotos } from "@/services/storageService";
 import { BottomNav } from "@/components/BottomNav";
 import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { PhotoManager } from "@/components/PhotoManager";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
 import { VibeTag } from "@/components/VibeTag";
@@ -169,6 +170,7 @@ const Profile = () => {
   const [showVibeStudio, setShowVibeStudio] = useState(false);
   const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
@@ -805,7 +807,7 @@ const Profile = () => {
             onPhotosChange={() => {}} 
             onPhotoClick={(index) => {
               setSelectedPhotoIndex(index);
-              openDrawer("photos");
+              setShowPhotoViewer(true);
             }}
           />
         </motion.div>
@@ -897,31 +899,76 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto space-y-4">
-            {/* Show selected photo preview */}
+            {/* Show selected photo preview with swipe */}
             {editForm.photos.length > 0 && (
-              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-secondary">
-                <img 
-                  src={editForm.photos[selectedPhotoIndex] || editForm.photos[0]} 
-                  alt="Selected photo"
-                  className="w-full h-full object-cover"
-                />
+              <motion.div 
+                className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-secondary touch-pan-y"
+                drag={editForm.photos.length > 1 ? "x" : false}
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.2}
+                onDragEnd={(_, info) => {
+                  const swipeThreshold = 50;
+                  if (info.offset.x < -swipeThreshold && selectedPhotoIndex < editForm.photos.length - 1) {
+                    setSelectedPhotoIndex(prev => prev + 1);
+                  } else if (info.offset.x > swipeThreshold && selectedPhotoIndex > 0) {
+                    setSelectedPhotoIndex(prev => prev - 1);
+                  }
+                }}
+              >
+                <AnimatePresence mode="wait">
+                  <motion.img 
+                    key={selectedPhotoIndex}
+                    src={editForm.photos[selectedPhotoIndex] || editForm.photos[0]} 
+                    alt="Selected photo"
+                    className="w-full h-full object-cover select-none"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    transition={{ duration: 0.2 }}
+                    draggable={false}
+                  />
+                </AnimatePresence>
                 {editForm.photos.length > 1 && (
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
-                    {editForm.photos.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedPhotoIndex(idx)}
+                  <>
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                      {editForm.photos.map((_, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => setSelectedPhotoIndex(idx)}
+                          className={cn(
+                            "w-2 h-2 rounded-full transition-all",
+                            idx === selectedPhotoIndex 
+                              ? "bg-primary w-4" 
+                              : "bg-background/60"
+                          )}
+                        />
+                      ))}
+                    </div>
+                    <div className="absolute top-1/2 -translate-y-1/2 left-2 right-2 flex justify-between pointer-events-none">
+                      <button 
+                        onClick={() => selectedPhotoIndex > 0 && setSelectedPhotoIndex(prev => prev - 1)}
                         className={cn(
-                          "w-2 h-2 rounded-full transition-all",
-                          idx === selectedPhotoIndex 
-                            ? "bg-primary w-4" 
-                            : "bg-background/60"
+                          "w-8 h-8 rounded-full bg-background/50 backdrop-blur-sm flex items-center justify-center pointer-events-auto",
+                          selectedPhotoIndex === 0 && "opacity-30"
                         )}
-                      />
-                    ))}
-                  </div>
+                        disabled={selectedPhotoIndex === 0}
+                      >
+                        <ChevronRight className="w-4 h-4 rotate-180" />
+                      </button>
+                      <button 
+                        onClick={() => selectedPhotoIndex < editForm.photos.length - 1 && setSelectedPhotoIndex(prev => prev + 1)}
+                        className={cn(
+                          "w-8 h-8 rounded-full bg-background/50 backdrop-blur-sm flex items-center justify-center pointer-events-auto",
+                          selectedPhotoIndex === editForm.photos.length - 1 && "opacity-30"
+                        )}
+                        disabled={selectedPhotoIndex === editForm.photos.length - 1}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
                 )}
-              </div>
+              </motion.div>
             )}
             <PhotoManager
               photos={editForm.photos}
@@ -1385,6 +1432,14 @@ const Profile = () => {
             setShowPhotoVerification(false);
           }
         }}
+      />
+
+      {/* Fullscreen Photo Viewer */}
+      <PhotoPreviewModal
+        photos={profile.photos}
+        initialIndex={selectedPhotoIndex}
+        isOpen={showPhotoViewer}
+        onClose={() => setShowPhotoViewer(false)}
       />
 
       <BottomNav />

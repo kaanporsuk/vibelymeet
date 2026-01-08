@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { motion, AnimatePresence, PanInfo } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,25 +21,52 @@ export const PhotoPreviewModal = ({
 }: PhotoPreviewModalProps) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [dragDirection, setDragDirection] = useState<"left" | "right" | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isOpen) {
       setCurrentIndex(initialIndex);
       setIsZoomed(false);
+      setDragDirection(null);
     }
   }, [isOpen, initialIndex]);
 
   const handleNext = useCallback(() => {
-    if (!isZoomed) {
-      setCurrentIndex((prev) => (prev + 1) % photos.length);
+    if (!isZoomed && currentIndex < photos.length - 1) {
+      setDragDirection("left");
+      setCurrentIndex((prev) => prev + 1);
     }
-  }, [photos.length, isZoomed]);
+  }, [photos.length, isZoomed, currentIndex]);
 
   const handlePrev = useCallback(() => {
-    if (!isZoomed) {
-      setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
+    if (!isZoomed && currentIndex > 0) {
+      setDragDirection("right");
+      setCurrentIndex((prev) => prev - 1);
     }
-  }, [photos.length, isZoomed]);
+  }, [isZoomed, currentIndex]);
+
+  const handleDragEnd = (
+    _: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo
+  ) => {
+    if (isZoomed) return;
+
+    const swipeThreshold = 50;
+    const velocityThreshold = 500;
+
+    if (
+      info.offset.x < -swipeThreshold ||
+      info.velocity.x < -velocityThreshold
+    ) {
+      handleNext();
+    } else if (
+      info.offset.x > swipeThreshold ||
+      info.velocity.x > velocityThreshold
+    ) {
+      handlePrev();
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -53,7 +80,34 @@ export const PhotoPreviewModal = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose, handleNext, handlePrev]);
 
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
   if (!isOpen || photos.length === 0) return null;
+
+  const slideVariants = {
+    enter: (direction: "left" | "right" | null) => ({
+      x: direction === "left" ? 300 : direction === "right" ? -300 : 0,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+    },
+    exit: (direction: "left" | "right" | null) => ({
+      x: direction === "left" ? -300 : direction === "right" ? 300 : 0,
+      opacity: 0,
+    }),
+  };
 
   return (
     <AnimatePresence>
@@ -99,7 +153,10 @@ export const PhotoPreviewModal = ({
           </div>
 
           {/* Photo container */}
-          <div className="flex-1 flex items-center justify-center relative overflow-hidden px-4 min-h-0">
+          <div
+            ref={containerRef}
+            className="flex-1 flex items-center justify-center relative overflow-hidden px-4 min-h-0"
+          >
             {/* Navigation arrows */}
             {photos.length > 1 && !isZoomed && (
               <>
@@ -107,7 +164,8 @@ export const PhotoPreviewModal = ({
                   variant="ghost"
                   size="icon"
                   onClick={handlePrev}
-                  className="absolute left-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+                  disabled={currentIndex === 0}
+                  className="absolute left-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70 disabled:opacity-30"
                 >
                   <ChevronLeft className="w-6 h-6" />
                 </Button>
@@ -115,39 +173,58 @@ export const PhotoPreviewModal = ({
                   variant="ghost"
                   size="icon"
                   onClick={handleNext}
-                  className="absolute right-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+                  disabled={currentIndex === photos.length - 1}
+                  className="absolute right-4 z-10 w-12 h-12 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70 disabled:opacity-30"
                 >
                   <ChevronRight className="w-6 h-6" />
                 </Button>
               </>
             )}
 
-            {/* Photo with animation */}
-            <AnimatePresence mode="wait">
+            {/* Photo with swipe animation */}
+            <AnimatePresence mode="wait" custom={dragDirection}>
               <motion.div
                 key={currentIndex}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
+                custom={dragDirection}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                drag={!isZoomed && photos.length > 1 ? "x" : false}
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.2}
+                onDragEnd={handleDragEnd}
                 className={cn(
-                  "flex items-center justify-center w-full h-full",
+                  "flex items-center justify-center w-full h-full touch-pan-y",
                   isZoomed && "cursor-zoom-out overflow-auto",
-                  !isZoomed && "cursor-zoom-in"
+                  !isZoomed && photos.length > 1 && "cursor-grab active:cursor-grabbing",
+                  !isZoomed && photos.length === 1 && showZoom && "cursor-zoom-in"
                 )}
-                onClick={() => showZoom && setIsZoomed(!isZoomed)}
+                onClick={() => {
+                  if (showZoom && photos.length === 1) {
+                    setIsZoomed(!isZoomed);
+                  }
+                }}
               >
                 <img
                   src={photos[currentIndex]}
                   alt={`Photo ${currentIndex + 1}`}
                   className={cn(
-                    "max-w-full max-h-full object-contain rounded-xl transition-transform duration-300",
+                    "max-w-full max-h-full object-contain rounded-xl transition-transform duration-300 select-none",
                     isZoomed && "scale-150 max-h-none max-w-none"
                   )}
                   draggable={false}
                 />
               </motion.div>
             </AnimatePresence>
+
+            {/* Swipe hint for mobile */}
+            {photos.length > 1 && !isZoomed && (
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-muted-foreground/60 md:hidden">
+                Swipe to navigate
+              </div>
+            )}
           </div>
 
           {/* Thumbnail strip */}
@@ -159,7 +236,10 @@ export const PhotoPreviewModal = ({
                     key={index}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setCurrentIndex(index)}
+                    onClick={() => {
+                      setDragDirection(index > currentIndex ? "left" : "right");
+                      setCurrentIndex(index);
+                    }}
                     className={cn(
                       "shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all",
                       index === currentIndex
