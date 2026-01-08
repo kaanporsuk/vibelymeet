@@ -386,8 +386,8 @@ export const VibeStudioModal = ({
                   src={recordedVideoUrl}
                   className="w-full h-full object-cover"
                   autoPlay
-                  muted
                   playsInline
+                  controls={false}
                 />
               ) : (
                 <video

@@ -9,6 +9,7 @@ interface PhotoGalleryProps {
   photoFiles?: (File | null)[];
   onPhotoFilesChange?: (files: (File | null)[]) => void;
   editable?: boolean;
+  onPhotoClick?: (index: number) => void;
 }
 
 export const PhotoGallery = ({
@@ -17,6 +18,7 @@ export const PhotoGallery = ({
   photoFiles,
   onPhotoFilesChange,
   editable = false,
+  onPhotoClick,
 }: PhotoGalleryProps) => {
   const [items, setItems] = useState(photos);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -88,8 +90,12 @@ export const PhotoGallery = ({
             transition={{ delay: index * 0.1 }}
             className={cn(
               "relative overflow-hidden rounded-2xl",
-              index === 0 ? "col-span-2 row-span-2 aspect-[4/5]" : "aspect-square"
+              index === 0 ? "col-span-2 row-span-2 aspect-[4/5]" : "aspect-square",
+              onPhotoClick && "cursor-pointer"
             )}
+            onClick={() => onPhotoClick?.(index)}
+            whileHover={onPhotoClick ? { scale: 1.02 } : undefined}
+            whileTap={onPhotoClick ? { scale: 0.98 } : undefined}
           >
             <img
               src={photo}

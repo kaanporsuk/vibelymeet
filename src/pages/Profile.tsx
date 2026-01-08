@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import {
   Settings,
   LogOut,
@@ -167,6 +168,7 @@ const Profile = () => {
   const [showWizard, setShowWizard] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
   const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
@@ -798,7 +800,14 @@ const Profile = () => {
               Manage <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          <PhotoGallery photos={profile.photos} onPhotosChange={() => {}} />
+          <PhotoGallery 
+            photos={profile.photos} 
+            onPhotosChange={() => {}} 
+            onPhotoClick={(index) => {
+              setSelectedPhotoIndex(index);
+              openDrawer("photos");
+            }}
+          />
         </motion.div>
 
         {/* Basics Section */}
@@ -887,7 +896,33 @@ const Profile = () => {
               First impressions matter. Make them count.
             </DrawerDescription>
           </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto">
+          <div className="px-4 pb-4 overflow-y-auto space-y-4">
+            {/* Show selected photo preview */}
+            {editForm.photos.length > 0 && (
+              <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-secondary">
+                <img 
+                  src={editForm.photos[selectedPhotoIndex] || editForm.photos[0]} 
+                  alt="Selected photo"
+                  className="w-full h-full object-cover"
+                />
+                {editForm.photos.length > 1 && (
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                    {editForm.photos.map((_, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedPhotoIndex(idx)}
+                        className={cn(
+                          "w-2 h-2 rounded-full transition-all",
+                          idx === selectedPhotoIndex 
+                            ? "bg-primary w-4" 
+                            : "bg-background/60"
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <PhotoManager
               photos={editForm.photos}
               onPhotosChange={(photos) => setEditForm({ ...editForm, photos })}
