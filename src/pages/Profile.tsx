@@ -742,7 +742,10 @@ const Profile = () => {
             </button>
           </div>
           {profile.videoIntroUrl ? (
-            <div className="flex items-center gap-3">
+            <button
+              onClick={() => openDrawer("vibe-video")}
+              className="w-full flex items-center gap-3 text-left hover:bg-secondary/30 rounded-xl p-2 -m-2 transition-colors"
+            >
               <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary shrink-0">
                 <video
                   src={vibeVideoPlaybackUrl || undefined}
@@ -761,7 +764,7 @@ const Profile = () => {
                 <p className="text-sm text-foreground font-medium">15s Video Intro</p>
                 <p className="text-xs text-muted-foreground truncate">Tap to view or update</p>
               </div>
-            </div>
+            </button>
           ) : (
             <button
               onClick={() => openDrawer("vibe-video")}
