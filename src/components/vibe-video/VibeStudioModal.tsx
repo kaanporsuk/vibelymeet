@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2 } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -386,7 +386,6 @@ export const VibeStudioModal = ({
                   src={recordedVideoUrl}
                   className="w-full h-full object-cover"
                   autoPlay
-                  loop
                   muted
                   playsInline
                 />
@@ -602,7 +601,7 @@ export const VibeStudioModal = ({
               )}
 
               {stage === "review" && (
-                <div className="flex items-center justify-center gap-8">
+                <div className="flex items-center justify-center gap-6">
                   {/* Retake Button */}
                   <motion.button
                     whileHover={{ scale: 1.1 }}
@@ -615,6 +614,25 @@ export const VibeStudioModal = ({
                       <RefreshCw className="w-6 h-6 text-muted-foreground" />
                     </div>
                     <span className="text-xs text-muted-foreground">Retake</span>
+                  </motion.button>
+
+                  {/* Replay Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => {
+                      if (reviewVideoRef.current) {
+                        reviewVideoRef.current.currentTime = 0;
+                        reviewVideoRef.current.play();
+                      }
+                    }}
+                    disabled={isSaving}
+                    className="flex flex-col items-center gap-2 disabled:opacity-50"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-neon-cyan/20 border border-neon-cyan/50 flex items-center justify-center">
+                      <RotateCcw className="w-6 h-6 text-neon-cyan" />
+                    </div>
+                    <span className="text-xs text-neon-cyan">Replay</span>
                   </motion.button>
 
                   {/* Save Button */}
