@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { motion, AnimatePresence, PanInfo } from "framer-motion";
+import { motion, AnimatePresence, PanInfo, useAnimation } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,16 +21,90 @@ export const PhotoPreviewModal = ({
 }: PhotoPreviewModalProps) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
   const [dragDirection, setDragDirection] = useState<"left" | "right" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const lastTapRef = useRef<number>(0);
+  const initialPinchDistanceRef = useRef<number | null>(null);
+  const initialScaleRef = useRef<number>(1);
+  const controls = useAnimation();
 
   useEffect(() => {
     if (isOpen) {
       setCurrentIndex(initialIndex);
       setIsZoomed(false);
+      setZoomScale(1);
       setDragDirection(null);
     }
   }, [isOpen, initialIndex]);
+
+  // Handle double-tap to zoom
+  const handleDoubleTap = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const now = Date.now();
+    const timeSinceLastTap = now - lastTapRef.current;
+    
+    if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+      // Double tap detected
+      if (isZoomed) {
+        setZoomScale(1);
+        setIsZoomed(false);
+        controls.start({ scale: 1, x: 0, y: 0 });
+      } else {
+        setZoomScale(2.5);
+        setIsZoomed(true);
+        controls.start({ scale: 2.5 });
+      }
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+    }
+  }, [isZoomed, controls]);
+
+  // Pinch to zoom handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      initialPinchDistanceRef.current = distance;
+      initialScaleRef.current = zoomScale;
+    }
+  }, [zoomScale]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && initialPinchDistanceRef.current !== null) {
+      e.preventDefault();
+      const touch1 = e.touches[0];
+      const touch2 = e.touches[1];
+      const distance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      
+      const scale = (distance / initialPinchDistanceRef.current) * initialScaleRef.current;
+      const clampedScale = Math.min(Math.max(scale, 1), 4);
+      
+      setZoomScale(clampedScale);
+      setIsZoomed(clampedScale > 1);
+      controls.start({ scale: clampedScale });
+    }
+  }, [controls]);
+
+  const handleTouchEnd = useCallback(() => {
+    initialPinchDistanceRef.current = null;
+    
+    // Snap back to 1 if scale is close to 1
+    if (zoomScale < 1.1) {
+      setZoomScale(1);
+      setIsZoomed(false);
+      controls.start({ scale: 1, x: 0, y: 0 });
+    }
+  }, [zoomScale, controls]);
 
   const handleNext = useCallback(() => {
     if (!isZoomed && currentIndex < photos.length - 1) {
@@ -131,7 +205,17 @@ export const PhotoPreviewModal = ({
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => setIsZoomed(!isZoomed)}
+                  onClick={() => {
+                    if (isZoomed) {
+                      setZoomScale(1);
+                      setIsZoomed(false);
+                      controls.start({ scale: 1, x: 0, y: 0 });
+                    } else {
+                      setZoomScale(2.5);
+                      setIsZoomed(true);
+                      controls.start({ scale: 2.5 });
+                    }
+                  }}
                   className="w-10 h-10 rounded-full"
                 >
                   {isZoomed ? (
@@ -191,38 +275,37 @@ export const PhotoPreviewModal = ({
                 animate="center"
                 exit="exit"
                 transition={{ duration: 0.25, ease: "easeOut" }}
-                drag={!isZoomed && photos.length > 1 ? "x" : false}
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={0.2}
+                drag={!isZoomed && photos.length > 1 ? "x" : isZoomed ? true : false}
+                dragConstraints={isZoomed ? { left: -200, right: 200, top: -200, bottom: 200 } : { left: 0, right: 0 }}
+                dragElastic={isZoomed ? 0.1 : 0.2}
                 onDragEnd={handleDragEnd}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onClick={handleDoubleTap}
                 className={cn(
-                  "flex items-center justify-center w-full h-full touch-pan-y",
-                  isZoomed && "cursor-zoom-out overflow-auto",
-                  !isZoomed && photos.length > 1 && "cursor-grab active:cursor-grabbing",
+                  "flex items-center justify-center w-full h-full",
+                  isZoomed && "cursor-grab active:cursor-grabbing",
+                  !isZoomed && photos.length > 1 && "cursor-grab active:cursor-grabbing touch-pan-y",
                   !isZoomed && photos.length === 1 && showZoom && "cursor-zoom-in"
                 )}
-                onClick={() => {
-                  if (showZoom && photos.length === 1) {
-                    setIsZoomed(!isZoomed);
-                  }
-                }}
               >
-                <img
+                <motion.img
+                  ref={imageRef}
                   src={photos[currentIndex]}
                   alt={`Photo ${currentIndex + 1}`}
-                  className={cn(
-                    "max-w-full max-h-full object-contain rounded-xl transition-transform duration-300 select-none",
-                    isZoomed && "scale-150 max-h-none max-w-none"
-                  )}
+                  animate={controls}
+                  className="max-w-full max-h-full object-contain rounded-xl select-none"
                   draggable={false}
+                  style={{ touchAction: isZoomed ? "none" : "pan-y" }}
                 />
               </motion.div>
             </AnimatePresence>
 
             {/* Swipe hint for mobile */}
-            {photos.length > 1 && !isZoomed && (
+            {!isZoomed && (
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-muted-foreground/60 md:hidden">
-                Swipe to navigate
+                {photos.length > 1 ? "Swipe to navigate • Double-tap to zoom" : "Double-tap to zoom"}
               </div>
             )}
           </div>
