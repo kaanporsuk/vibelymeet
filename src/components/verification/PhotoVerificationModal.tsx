@@ -7,8 +7,12 @@ import {
   Loader2, 
   AlertTriangle,
   RefreshCw,
-  ShieldCheck
+  ShieldCheck,
+  Sparkles,
+  ChevronRight,
+  X,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -18,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useFaceVerification, VerificationStatus } from "@/hooks/useFaceVerification";
+import { useFaceVerification, VerificationStatus, PoseChallenge } from "@/hooks/useFaceVerification";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -29,6 +33,176 @@ interface PhotoVerificationModalProps {
   userId: string;
   onVerificationComplete: (success: boolean) => void;
 }
+
+// Animated face guide overlay component
+const FaceGuide = ({ 
+  faceDetected, 
+  faceBox,
+  isPoseCorrect 
+}: { 
+  faceDetected: boolean; 
+  faceBox: { x: number; y: number; width: number; height: number } | null;
+  isPoseCorrect: boolean;
+}) => {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Oval guide */}
+      <motion.div 
+        className={cn(
+          "w-48 h-64 rounded-[50%] border-4 transition-all duration-300",
+          faceDetected 
+            ? isPoseCorrect
+              ? "border-neon-cyan shadow-[0_0_30px_rgba(6,182,212,0.6)]" 
+              : "border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.4)]"
+            : "border-white/40"
+        )}
+        animate={{
+          scale: faceDetected ? [1, 1.02, 1] : 1,
+        }}
+        transition={{
+          duration: 1.5,
+          repeat: faceDetected ? Infinity : 0,
+          ease: "easeInOut",
+        }}
+      />
+      
+      {/* Corner brackets for premium feel */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="relative w-52 h-68">
+          {/* Top-left */}
+          <div className={cn(
+            "absolute top-0 left-0 w-8 h-8 border-l-2 border-t-2 rounded-tl-lg transition-colors",
+            faceDetected ? "border-neon-cyan" : "border-white/30"
+          )} />
+          {/* Top-right */}
+          <div className={cn(
+            "absolute top-0 right-0 w-8 h-8 border-r-2 border-t-2 rounded-tr-lg transition-colors",
+            faceDetected ? "border-neon-cyan" : "border-white/30"
+          )} />
+          {/* Bottom-left */}
+          <div className={cn(
+            "absolute bottom-0 left-0 w-8 h-8 border-l-2 border-b-2 rounded-bl-lg transition-colors",
+            faceDetected ? "border-neon-cyan" : "border-white/30"
+          )} />
+          {/* Bottom-right */}
+          <div className={cn(
+            "absolute bottom-0 right-0 w-8 h-8 border-r-2 border-b-2 rounded-br-lg transition-colors",
+            faceDetected ? "border-neon-cyan" : "border-white/30"
+          )} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Pose challenge indicator pill
+const PoseChallengeIndicator = ({ 
+  challenge, 
+  progress, 
+  isActive 
+}: { 
+  challenge: PoseChallenge; 
+  progress: number;
+  isActive: boolean;
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all",
+        isActive 
+          ? "bg-gradient-to-r from-primary/20 to-accent/20 border border-primary/30" 
+          : challenge.completed
+            ? "bg-neon-cyan/10 border border-neon-cyan/30"
+            : "bg-secondary/50"
+      )}
+    >
+      <span className="text-2xl">{challenge.icon}</span>
+      <div className="flex-1">
+        <p className="text-sm font-medium text-foreground">{challenge.label}</p>
+        {isActive && (
+          <p className="text-xs text-muted-foreground">{challenge.instruction}</p>
+        )}
+      </div>
+      {challenge.completed ? (
+        <CheckCircle2 className="w-5 h-5 text-neon-cyan" />
+      ) : isActive ? (
+        <div className="relative w-10 h-10">
+          <svg className="w-full h-full -rotate-90">
+            <circle
+              cx="20"
+              cy="20"
+              r="16"
+              strokeWidth="4"
+              stroke="hsl(var(--secondary))"
+              fill="none"
+            />
+            <circle
+              cx="20"
+              cy="20"
+              r="16"
+              strokeWidth="4"
+              stroke="hsl(var(--primary))"
+              fill="none"
+              strokeDasharray={100}
+              strokeDashoffset={100 - progress}
+              strokeLinecap="round"
+              className="transition-all duration-150"
+            />
+          </svg>
+          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-primary">
+            {Math.round(progress)}
+          </span>
+        </div>
+      ) : (
+        <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />
+      )}
+    </motion.div>
+  );
+};
+
+// Challenge steps progress bar
+const ChallengeProgress = ({ 
+  challenges, 
+  currentIndex 
+}: { 
+  challenges: PoseChallenge[]; 
+  currentIndex: number;
+}) => {
+  return (
+    <div className="flex items-center gap-2">
+      {challenges.map((challenge, index) => (
+        <div key={challenge.id} className="flex items-center">
+          <motion.div
+            className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all",
+              challenge.completed 
+                ? "bg-neon-cyan text-background" 
+                : index === currentIndex
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground"
+            )}
+            animate={index === currentIndex ? { scale: [1, 1.1, 1] } : {}}
+            transition={{ duration: 0.5, repeat: index === currentIndex ? Infinity : 0 }}
+          >
+            {challenge.completed ? (
+              <CheckCircle2 className="w-4 h-4" />
+            ) : (
+              index + 1
+            )}
+          </motion.div>
+          {index < challenges.length - 1 && (
+            <div className={cn(
+              "w-8 h-0.5 mx-1 transition-colors",
+              challenge.completed ? "bg-neon-cyan" : "bg-secondary"
+            )} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export const PhotoVerificationModal = ({
   open,
@@ -45,20 +219,31 @@ export const PhotoVerificationModal = ({
     progress,
     errorMessage,
     faceDetected,
+    faceAnalysis,
+    challenges,
+    currentChallengeIndex,
+    currentChallenge,
+    challengeProgress,
+    livenessScore,
+    allChallengesCompleted,
     loadModels,
     startCamera,
     stopCamera,
     detectFaceInVideo,
+    startPoseChallenge,
+    processPoseChallenge,
     verifyAgainstProfilePhoto,
     reset,
   } = useFaceVerification();
 
   const [isUploading, setIsUploading] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
+  const [isPoseCorrect, setIsPoseCorrect] = useState(false);
 
   // Initialize when modal opens
   useEffect(() => {
     if (open) {
-      initializeVerification();
+      setShowIntro(true);
     } else {
       cleanup();
     }
@@ -66,12 +251,17 @@ export const PhotoVerificationModal = ({
     return () => cleanup();
   }, [open]);
 
-  // Face detection loop when capturing
+  // Face detection and pose challenge loop
   useEffect(() => {
     if (status === "capturing" && videoRef.current) {
       faceCheckInterval.current = setInterval(() => {
         detectFaceInVideo();
-      }, 500);
+      }, 300);
+    } else if (status === "pose-challenge" && videoRef.current) {
+      faceCheckInterval.current = setInterval(async () => {
+        const correct = await processPoseChallenge();
+        setIsPoseCorrect(correct);
+      }, 100);
     } else {
       if (faceCheckInterval.current) {
         clearInterval(faceCheckInterval.current);
@@ -84,9 +274,20 @@ export const PhotoVerificationModal = ({
         clearInterval(faceCheckInterval.current);
       }
     };
-  }, [status, detectFaceInVideo]);
+  }, [status, detectFaceInVideo, processPoseChallenge]);
+
+  // Auto-verify when all challenges completed
+  useEffect(() => {
+    if (allChallengesCompleted && status === "pose-challenge") {
+      // Small delay for UX
+      setTimeout(() => {
+        handleVerify();
+      }, 500);
+    }
+  }, [allChallengesCompleted, status]);
 
   const initializeVerification = async () => {
+    setShowIntro(false);
     const modelsReady = await loadModels();
     if (modelsReady && videoRef.current) {
       await startCamera(videoRef.current);
@@ -99,6 +300,12 @@ export const PhotoVerificationModal = ({
     }
     stopCamera();
     reset();
+    setShowIntro(true);
+    setIsPoseCorrect(false);
+  };
+
+  const handleStartPoseChallenge = () => {
+    startPoseChallenge();
   };
 
   const handleVerify = async () => {
@@ -155,18 +362,112 @@ export const PhotoVerificationModal = ({
 
   const handleRetry = () => {
     reset();
-    initializeVerification();
+    setShowIntro(true);
   };
 
+  // Intro screen content
+  const renderIntro = () => (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="space-y-6 py-4"
+    >
+      {/* Hero illustration */}
+      <div className="relative mx-auto w-32 h-32">
+        <motion.div
+          className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/30 to-accent/30"
+          animate={{ scale: [1, 1.1, 1] }}
+          transition={{ duration: 2, repeat: Infinity }}
+        />
+        <div className="absolute inset-2 rounded-full bg-card flex items-center justify-center">
+          <ShieldCheck className="w-12 h-12 text-neon-cyan" />
+        </div>
+        <motion.div
+          className="absolute -top-1 -right-1 w-8 h-8 rounded-full bg-neon-cyan flex items-center justify-center"
+          animate={{ rotate: [0, 10, -10, 0] }}
+          transition={{ duration: 2, repeat: Infinity }}
+        >
+          <Sparkles className="w-4 h-4 text-background" />
+        </motion.div>
+      </div>
+
+      {/* Title */}
+      <div className="text-center space-y-2">
+        <h3 className="text-xl font-display font-bold text-foreground">
+          Verify Your Photos
+        </h3>
+        <p className="text-sm text-muted-foreground max-w-xs mx-auto">
+          Complete a quick selfie verification to prove you're really you. Verified profiles get 3x more matches!
+        </p>
+      </div>
+
+      {/* Steps preview */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50">
+          <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+            <Camera className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Quick selfie check</p>
+            <p className="text-xs text-muted-foreground">Takes just 30 seconds</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50">
+          <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center">
+            <span className="text-lg">🎭</span>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">3 fun pose challenges</p>
+            <p className="text-xs text-muted-foreground">Smile, turn left, turn right</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50">
+          <div className="w-10 h-10 rounded-xl bg-neon-cyan/20 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5 text-neon-cyan" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Get verified badge</p>
+            <p className="text-xs text-muted-foreground">Stand out from the crowd</p>
+          </div>
+        </div>
+      </div>
+
+      <Button
+        variant="gradient"
+        size="lg"
+        onClick={initializeVerification}
+        className="w-full"
+      >
+        Start Verification
+        <ChevronRight className="w-5 h-5 ml-1" />
+      </Button>
+    </motion.div>
+  );
+
   const getStatusContent = () => {
+    if (showIntro) {
+      return renderIntro();
+    }
+
     switch (status) {
       case "loading-models":
         return (
-          <div className="text-center space-y-4">
-            <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin" />
+          <div className="text-center space-y-4 py-8">
+            <motion.div
+              className="relative mx-auto w-20 h-20"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            >
+              <div className="absolute inset-0 rounded-full border-4 border-secondary" />
+              <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent" />
+            </motion.div>
             <div className="space-y-2">
-              <p className="font-medium text-foreground">Loading face detection...</p>
+              <p className="font-medium text-foreground">Preparing verification...</p>
               <Progress value={progress} className="w-48 mx-auto" />
+              <p className="text-xs text-muted-foreground">Loading face detection models</p>
             </div>
           </div>
         );
@@ -175,7 +476,7 @@ export const PhotoVerificationModal = ({
       case "capturing":
         return (
           <div className="space-y-4">
-            {/* Camera preview with oval overlay */}
+            {/* Camera preview */}
             <div className="relative aspect-[3/4] max-h-80 mx-auto rounded-2xl overflow-hidden bg-secondary">
               <video
                 ref={videoRef}
@@ -185,28 +486,28 @@ export const PhotoVerificationModal = ({
                 className="w-full h-full object-cover scale-x-[-1]"
               />
               
-              {/* Oval face guide */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div 
-                  className={`w-48 h-64 rounded-[50%] border-4 transition-colors duration-300 ${
-                    faceDetected 
-                      ? "border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.5)]" 
-                      : "border-white/60"
-                  }`}
-                />
-              </div>
+              <FaceGuide 
+                faceDetected={faceDetected} 
+                faceBox={faceAnalysis?.faceBox || null}
+                isPoseCorrect={false}
+              />
               
               {/* Face detection indicator */}
               <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
-                <div className={`px-3 py-1.5 rounded-full text-sm font-medium flex items-center gap-2 ${
-                  faceDetected 
-                    ? "bg-green-500/90 text-white" 
-                    : "bg-black/60 text-white/80"
-                }`}>
+                <motion.div 
+                  className={cn(
+                    "px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2",
+                    faceDetected 
+                      ? "bg-green-500/90 text-white" 
+                      : "bg-black/60 text-white/80"
+                  )}
+                  animate={faceDetected ? { scale: [1, 1.05, 1] } : {}}
+                  transition={{ duration: 0.5 }}
+                >
                   {faceDetected ? (
                     <>
                       <CheckCircle2 className="w-4 h-4" />
-                      Face detected
+                      Face detected - Ready!
                     </>
                   ) : (
                     <>
@@ -214,27 +515,146 @@ export const PhotoVerificationModal = ({
                       Position your face in the oval
                     </>
                   )}
-                </div>
+                </motion.div>
               </div>
             </div>
             
             <Button
               variant="gradient"
               size="lg"
-              onClick={handleVerify}
+              onClick={handleStartPoseChallenge}
               disabled={!faceDetected}
               className="w-full"
             >
-              <ShieldCheck className="w-5 h-5 mr-2" />
-              Verify My Identity
+              <Sparkles className="w-5 h-5 mr-2" />
+              Start Pose Challenges
             </Button>
+          </div>
+        );
+
+      case "pose-challenge":
+        return (
+          <div className="space-y-4">
+            {/* Progress indicator */}
+            <div className="flex justify-center">
+              <ChallengeProgress challenges={challenges} currentIndex={currentChallengeIndex} />
+            </div>
+
+            {/* Camera preview */}
+            <div className="relative aspect-[3/4] max-h-72 mx-auto rounded-2xl overflow-hidden bg-secondary">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover scale-x-[-1]"
+              />
+              
+              <FaceGuide 
+                faceDetected={faceDetected} 
+                faceBox={faceAnalysis?.faceBox || null}
+                isPoseCorrect={isPoseCorrect}
+              />
+
+              {/* Current pose indicator overlay */}
+              {currentChallenge && (
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute top-4 left-1/2 -translate-x-1/2"
+                >
+                  <div className={cn(
+                    "px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 backdrop-blur-sm",
+                    isPoseCorrect 
+                      ? "bg-neon-cyan/90 text-background" 
+                      : "bg-black/70 text-white"
+                  )}>
+                    <span className="text-lg">{currentChallenge.icon}</span>
+                    {currentChallenge.instruction}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Challenge progress ring */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+                <div className="relative w-16 h-16">
+                  <svg className="w-full h-full -rotate-90">
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      strokeWidth="6"
+                      stroke="rgba(255,255,255,0.2)"
+                      fill="none"
+                    />
+                    <motion.circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      strokeWidth="6"
+                      stroke={isPoseCorrect ? "hsl(var(--neon-cyan))" : "hsl(var(--primary))"}
+                      fill="none"
+                      strokeDasharray={176}
+                      strokeDashoffset={176 - (challengeProgress / 100) * 176}
+                      strokeLinecap="round"
+                      className="transition-all duration-100"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {challengeProgress >= 100 ? (
+                      <CheckCircle2 className="w-6 h-6 text-neon-cyan" />
+                    ) : (
+                      <span className="text-lg font-bold text-white">{Math.round(challengeProgress)}%</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Challenge list */}
+            <div className="space-y-2">
+              {challenges.map((challenge, index) => (
+                <PoseChallengeIndicator
+                  key={challenge.id}
+                  challenge={challenge}
+                  progress={index === currentChallengeIndex ? challengeProgress : 0}
+                  isActive={index === currentChallengeIndex}
+                />
+              ))}
+            </div>
+
+            {/* Liveness score */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Liveness Score</span>
+              <div className="flex items-center gap-2">
+                <div className="w-24 h-1.5 bg-secondary rounded-full overflow-hidden">
+                  <motion.div 
+                    className="h-full bg-gradient-to-r from-primary to-neon-cyan"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${livenessScore}%` }}
+                  />
+                </div>
+                <span className="font-medium text-foreground">{livenessScore}%</span>
+              </div>
+            </div>
           </div>
         );
       
       case "processing":
         return (
           <div className="text-center space-y-4 py-8">
-            <Loader2 className="w-16 h-16 mx-auto text-primary animate-spin" />
+            <motion.div
+              className="relative mx-auto w-24 h-24"
+            >
+              <motion.div
+                className="absolute inset-0 rounded-full bg-gradient-to-r from-primary to-accent opacity-30"
+                animate={{ scale: [1, 1.3, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+              <div className="absolute inset-2 rounded-full bg-card flex items-center justify-center">
+                <Loader2 className="w-10 h-10 text-primary animate-spin" />
+              </div>
+            </motion.div>
             <div className="space-y-1">
               <p className="font-medium text-foreground">Analyzing your face...</p>
               <p className="text-sm text-muted-foreground">Comparing with your profile photo</p>
@@ -247,17 +667,43 @@ export const PhotoVerificationModal = ({
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="text-center space-y-4 py-8"
+            className="text-center space-y-6 py-8"
           >
-            <div className="w-20 h-20 mx-auto rounded-full bg-green-500/20 flex items-center justify-center">
-              <CheckCircle2 className="w-12 h-12 text-green-500" />
+            {/* Success animation */}
+            <div className="relative mx-auto w-28 h-28">
+              <motion.div
+                className="absolute inset-0 rounded-full bg-neon-cyan/20"
+                animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+              <motion.div
+                className="absolute inset-0 rounded-full bg-neon-cyan/10"
+                animate={{ scale: [1, 1.5, 1], opacity: [0.3, 0, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+              />
+              <div className="absolute inset-2 rounded-full bg-gradient-to-br from-neon-cyan to-green-500 flex items-center justify-center">
+                <CheckCircle2 className="w-12 h-12 text-background" />
+              </div>
             </div>
-            <div className="space-y-1">
-              <p className="text-xl font-display font-bold text-foreground">Verified!</p>
+            
+            <div className="space-y-2">
+              <h3 className="text-2xl font-display font-bold text-foreground">You're Verified!</h3>
               <p className="text-sm text-muted-foreground">
-                {isUploading ? "Saving verification..." : "Your identity has been confirmed"}
+                {isUploading ? "Saving your verification..." : "Your identity has been confirmed"}
               </p>
             </div>
+
+            {/* Badge preview */}
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-neon-cyan/20 border border-neon-cyan/30"
+            >
+              <ShieldCheck className="w-5 h-5 text-neon-cyan" />
+              <span className="text-sm font-medium text-neon-cyan">Verified Badge Earned</span>
+            </motion.div>
+
             {isUploading && (
               <Loader2 className="w-6 h-6 mx-auto text-primary animate-spin" />
             )}
@@ -271,8 +717,15 @@ export const PhotoVerificationModal = ({
             animate={{ scale: 1, opacity: 1 }}
             className="text-center space-y-4 py-6"
           >
-            <div className="w-20 h-20 mx-auto rounded-full bg-destructive/20 flex items-center justify-center">
-              <XCircle className="w-12 h-12 text-destructive" />
+            <div className="relative mx-auto w-24 h-24">
+              <motion.div
+                className="absolute inset-0 rounded-full bg-destructive/20"
+                animate={{ scale: [1, 1.2, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+              <div className="absolute inset-2 rounded-full bg-destructive/10 flex items-center justify-center">
+                <XCircle className="w-12 h-12 text-destructive" />
+              </div>
             </div>
             <div className="space-y-1">
               <p className="text-xl font-display font-bold text-foreground">Verification Failed</p>
@@ -280,7 +733,15 @@ export const PhotoVerificationModal = ({
                 Face doesn't match your profile photo
               </p>
             </div>
-            <div className="flex gap-3 justify-center pt-2">
+            <div className="space-y-2 pt-2">
+              <p className="text-xs text-muted-foreground">Tips for success:</p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>• Make sure you're in good lighting</li>
+                <li>• Remove glasses or hats</li>
+                <li>• Use the same expression as your profile photo</li>
+              </ul>
+            </div>
+            <div className="flex gap-3 justify-center pt-4">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
@@ -327,20 +788,22 @@ export const PhotoVerificationModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-display flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-primary" />
+            <ShieldCheck className="w-5 h-5 text-neon-cyan" />
             Photo Verification
           </DialogTitle>
-          <DialogDescription>
-            Take a quick selfie to verify you match your profile photos
-          </DialogDescription>
+          {!showIntro && (
+            <DialogDescription>
+              Complete the pose challenges to verify your identity
+            </DialogDescription>
+          )}
         </DialogHeader>
         
         <AnimatePresence mode="wait">
           <motion.div
-            key={status}
+            key={showIntro ? "intro" : status}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
