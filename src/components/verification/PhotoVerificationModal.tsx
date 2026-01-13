@@ -11,6 +11,7 @@ import {
   Sparkles,
   ChevronRight,
   X,
+  Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ import {
 import { useFaceVerification, VerificationStatus, PoseChallenge } from "@/hooks/useFaceVerification";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { PoseTutorialAnimation } from "./PoseTutorialAnimation";
 
 interface PhotoVerificationModalProps {
   open: boolean;
@@ -238,6 +240,7 @@ export const PhotoVerificationModal = ({
 
   const [isUploading, setIsUploading] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(false);
   const [isPoseCorrect, setIsPoseCorrect] = useState(false);
 
   // Initialize when modal opens
@@ -286,8 +289,13 @@ export const PhotoVerificationModal = ({
     }
   }, [allChallengesCompleted, status]);
 
-  const initializeVerification = async () => {
+  const handleShowTutorial = () => {
     setShowIntro(false);
+    setShowTutorial(true);
+  };
+
+  const initializeVerification = async () => {
+    setShowTutorial(false);
     const modelsReady = await loadModels();
     if (modelsReady && videoRef.current) {
       await startCamera(videoRef.current);
@@ -301,6 +309,7 @@ export const PhotoVerificationModal = ({
     stopCamera();
     reset();
     setShowIntro(true);
+    setShowTutorial(false);
     setIsPoseCorrect(false);
   };
 
@@ -438,18 +447,68 @@ export const PhotoVerificationModal = ({
       <Button
         variant="gradient"
         size="lg"
-        onClick={initializeVerification}
+        onClick={handleShowTutorial}
         className="w-full"
       >
-        Start Verification
-        <ChevronRight className="w-5 h-5 ml-1" />
+        See How It Works
+        <Play className="w-5 h-5 ml-1" />
       </Button>
+    </motion.div>
+  );
+
+  // Tutorial screen content
+  const renderTutorial = () => (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="space-y-6 py-4"
+    >
+      {/* Header */}
+      <div className="text-center space-y-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/20 border border-primary/30 text-xs font-medium text-primary">
+          <Play className="w-3 h-3" />
+          Tutorial
+        </div>
+        <h3 className="text-lg font-display font-bold text-foreground">
+          Follow These Poses
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          We'll ask you to complete 3 quick poses
+        </p>
+      </div>
+
+      {/* Animated tutorial */}
+      <PoseTutorialAnimation autoPlay={true} />
+
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        <Button
+          variant="outline"
+          onClick={() => setShowIntro(true)}
+          className="flex-1"
+        >
+          Back
+        </Button>
+        <Button
+          variant="gradient"
+          onClick={initializeVerification}
+          className="flex-1"
+        >
+          I'm Ready
+          <ChevronRight className="w-5 h-5 ml-1" />
+        </Button>
+      </div>
     </motion.div>
   );
 
   const getStatusContent = () => {
     if (showIntro) {
       return renderIntro();
+    }
+    
+    if (showTutorial) {
+      return renderTutorial();
     }
 
     switch (status) {

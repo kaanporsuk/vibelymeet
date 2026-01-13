@@ -10,6 +10,7 @@ interface Attendee {
   bio: string;
   vibeTag: string;
   photos: string[];
+  photoVerified?: boolean;
 }
 
 interface WhosGoingSectionProps {
@@ -53,6 +54,7 @@ const WhosGoingSection = ({ attendees, totalCount, onAttendeeClick }: WhosGoingS
                 name={attendee.name}
                 avatar={attendee.avatar}
                 vibeTag={attendee.vibeTag}
+                photoVerified={attendee.photoVerified}
                 onClick={() => onAttendeeClick(attendee)}
               />
             </motion.div>
