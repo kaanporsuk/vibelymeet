@@ -39,6 +39,7 @@ import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { useBlockUser } from "@/hooks/useBlockUser";
 import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 
 interface ChatUser {
   id: string;
@@ -48,6 +49,7 @@ interface ChatUser {
   vibes: string[];
   isOnline: boolean;
   lastSeen?: string;
+  photoVerified?: boolean;
 }
 
 interface ChatHeaderProps {
@@ -173,14 +175,21 @@ export const ChatHeader = ({
                     alt={user.name}
                     className="w-10 h-10 rounded-full object-cover ring-2 ring-primary/30"
                   />
-                  {/* Online indicator with glow */}
+                  {/* Verified badge */}
+                  {user.photoVerified && (
+                    <PhotoVerifiedMark verified className="absolute -bottom-0.5 -right-0.5" />
+                  )}
+                  {/* Online indicator with glow - show in different position if verified */}
                   <AnimatePresence>
                     {user.isOnline && (
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
                         exit={{ scale: 0 }}
-                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-background"
+                        className={cn(
+                          "absolute w-3 h-3 rounded-full border-2 border-background",
+                          user.photoVerified ? "-top-0.5 -right-0.5" : "bottom-0 right-0"
+                        )}
                       >
                         <div className="w-full h-full rounded-full bg-green-500 animate-pulse" />
                         <div className="absolute inset-0 rounded-full bg-green-500/50 animate-ping" />
@@ -189,9 +198,16 @@ export const ChatHeader = ({
                   </AnimatePresence>
                 </div>
                 <div className="min-w-0">
-                  <h2 className="font-semibold text-foreground truncate">
-                    {user.name}, {user.age}
-                  </h2>
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="font-semibold text-foreground truncate">
+                      {user.name}, {user.age}
+                    </h2>
+                    {user.photoVerified && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-neon-cyan/20 text-neon-cyan font-medium">
+                        Verified
+                      </span>
+                    )}
+                  </div>
                   <div className="h-4 overflow-hidden">
                     <AnimatePresence mode="wait">
                       {isTyping ? (

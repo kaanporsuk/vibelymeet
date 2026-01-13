@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Users, Sparkles, Crown, Ticket } from "lucide-react";
 import { VibeVideoThumbnail } from "@/components/vibe-video/VibeVideoThumbnail";
+import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 
 // Mock video URL for demo
 const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
@@ -16,6 +17,7 @@ interface Attendee {
   photos: string[];
   hasVibeVideo?: boolean;
   vibeVideoUrl?: string;
+  photoVerified?: boolean;
 }
 
 interface GuestListRosterProps {
@@ -105,7 +107,11 @@ const GuestListRoster = ({
                       hasVibeVideo={hasVibeVideo}
                       size="md"
                     />
-                    {attendee.matchPercent >= 90 && (
+                    {/* Photo Verified Badge */}
+                    {attendee.photoVerified && (
+                      <PhotoVerifiedMark verified className="absolute -top-1 -right-1 z-10" size="md" />
+                    )}
+                    {attendee.matchPercent >= 90 && !attendee.photoVerified && (
                       <motion.div
                         animate={{ rotate: [0, 10, -10, 0] }}
                         transition={{ duration: 2, repeat: Infinity }}
