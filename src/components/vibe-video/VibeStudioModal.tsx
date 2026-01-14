@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2, RotateCcw } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2, Play, Pause } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideo, blobUrlToFile } from "@/services/videoStorageService";
+import { uploadVideo, blobUrlToFile, getSignedVideoUrl } from "@/services/videoStorageService";
 import {
   generateVideoThumbnail,
   compressVideo,
@@ -40,7 +40,8 @@ export const VibeStudioModal = ({
   onSave,
   existingVideoUrl,
 }: VibeStudioModalProps) => {
-  const [stage, setStage] = useState<"idle" | "recording" | "review">("idle");
+  // Stages: idle → recording → preview (local) → uploading → posted (final review)
+  const [stage, setStage] = useState<"idle" | "recording" | "preview" | "uploading" | "posted">("idle");
   const [countdown, setCountdown] = useState(RECORDING_DURATION);
   const [tipIndex, setTipIndex] = useState(0);
   const [audioLevels, setAudioLevels] = useState<number[]>(Array(12).fill(0.2));
@@ -51,8 +52,12 @@ export const VibeStudioModal = ({
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
+  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
+  const finalVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -181,7 +186,7 @@ export const VibeStudioModal = ({
         const url = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
-        setStage("review");
+        setStage("preview"); // Go to local preview first
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -207,17 +212,21 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
+    setFinalVideoUrl(null);
+    setUploadedPath(null);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
 
-  const handleSave = useCallback(async () => {
+  // Upload video and move to "posted" stage for final review
+  const handleUpload = useCallback(async () => {
     if (!uploadedFile && !recordedBlob && !recordedVideoUrl) {
-      toast.error("No video to save");
+      toast.error("No video to upload");
       return;
     }
 
     setIsSaving(true);
+    setStage("uploading");
     try {
       // Get current user
       const {
@@ -225,6 +234,7 @@ export const VibeStudioModal = ({
       } = await supabase.auth.getUser();
       if (!user) {
         toast.error("Please sign in to save your video");
+        setStage("preview");
         return;
       }
 
@@ -251,7 +261,6 @@ export const VibeStudioModal = ({
           });
         } catch (compressError) {
           console.warn("Compression failed, uploading original:", compressError);
-          // Continue with original if compression fails
         }
       }
 
@@ -279,28 +288,52 @@ export const VibeStudioModal = ({
       // Upload video (store PATH in DB; bucket is private)
       setProcessingStatus("Uploading video...");
       const result = await uploadVideo(videoToUpload, user.id);
+      setUploadedPath(result.path);
 
-      onSave?.(result.path);
+      // Get signed URL for playback
+      setProcessingStatus("Preparing preview...");
+      const signedUrl = await getSignedVideoUrl(result.path);
+      if (signedUrl) {
+        setFinalVideoUrl(signedUrl);
+        setStage("posted"); // Move to final review stage
+        setIsVideoPlaying(true);
+      } else {
+        throw new Error("Failed to get video preview URL");
+      }
 
-      // Clean up
-      onOpenChange(false);
-      setStage("idle");
-      setCountdown(RECORDING_DURATION);
-      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
-      setRecordedVideoUrl(null);
-      setRecordedBlob(null);
-      setUploadedFile(null);
-      setProcessingStatus(null);
-
-      toast.success("Vibe video saved!");
     } catch (error) {
-      console.error("Error saving video:", error);
-      toast.error("Failed to save video. Please try again.");
+      console.error("Error uploading video:", error);
+      toast.error("Failed to upload video. Please try again.");
+      setStage("preview"); // Go back to preview on error
     } finally {
       setIsSaving(false);
       setProcessingStatus(null);
     }
-  }, [onSave, onOpenChange, recordedVideoUrl, recordedBlob, uploadedFile]);
+  }, [recordedVideoUrl, recordedBlob, uploadedFile]);
+
+  // Confirm and save to profile
+  const handleConfirmPost = useCallback(() => {
+    if (!uploadedPath) {
+      toast.error("No video to save");
+      return;
+    }
+
+    onSave?.(uploadedPath);
+
+    // Clean up
+    onOpenChange(false);
+    setStage("idle");
+    setCountdown(RECORDING_DURATION);
+    if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
+    setRecordedVideoUrl(null);
+    setRecordedBlob(null);
+    setUploadedFile(null);
+    setFinalVideoUrl(null);
+    setUploadedPath(null);
+    setProcessingStatus(null);
+
+    toast.success("Vibe video posted to your profile!");
+  }, [onSave, onOpenChange, recordedVideoUrl, uploadedPath]);
 
   const handleClose = useCallback(() => {
     if (isSaving) return; // Don't close while saving
@@ -314,6 +347,8 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
+    setFinalVideoUrl(null);
+    setUploadedPath(null);
   }, [onOpenChange, recordedVideoUrl, isSaving]);
 
   const toggleMic = useCallback(() => {
@@ -345,8 +380,21 @@ export const VibeStudioModal = ({
     const url = URL.createObjectURL(file);
     setRecordedVideoUrl(url);
     setUploadedFile(file);
-    setStage("review");
+    setStage("preview"); // Go to local preview first
   }, []);
+
+  const toggleVideoPlayback = useCallback(() => {
+    const videoEl = stage === "posted" ? finalVideoRef.current : reviewVideoRef.current;
+    if (videoEl) {
+      if (videoEl.paused) {
+        videoEl.play();
+        setIsVideoPlaying(true);
+      } else {
+        videoEl.pause();
+        setIsVideoPlaying(false);
+      }
+    }
+  }, [stage]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
@@ -380,13 +428,36 @@ export const VibeStudioModal = ({
           {/* Camera Preview (9:16 aspect ratio simulation) */}
           {hasPermission !== false && (
             <div className="relative flex-1 bg-secondary overflow-hidden">
-              {stage === "review" && recordedVideoUrl ? (
+              {/* Final uploaded video review */}
+              {stage === "posted" && finalVideoUrl ? (
+                <video
+                  ref={finalVideoRef}
+                  src={finalVideoUrl}
+                  className="w-full h-full object-cover"
+                  autoPlay
+                  loop
+                  playsInline
+                  onClick={toggleVideoPlayback}
+                />
+              ) : /* Local preview before upload */
+              stage === "preview" && recordedVideoUrl ? (
                 <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
                   className="w-full h-full object-cover"
                   autoPlay
                   loop
+                  playsInline
+                  onClick={toggleVideoPlayback}
+                />
+              ) : /* Uploading state - show the local video */
+              stage === "uploading" && recordedVideoUrl ? (
+                <video
+                  src={recordedVideoUrl}
+                  className="w-full h-full object-cover opacity-50"
+                  autoPlay
+                  loop
+                  muted
                   playsInline
                 />
               ) : (
@@ -399,9 +470,19 @@ export const VibeStudioModal = ({
                 />
               )}
 
-              {/* Dark overlay for non-review states */}
-              {stage !== "review" && (
+              {/* Dark overlay for non-preview states */}
+              {stage !== "preview" && stage !== "posted" && (
                 <div className="absolute inset-0 bg-background/20" />
+              )}
+
+              {/* Uploading overlay */}
+              {stage === "uploading" && (
+                <div className="absolute inset-0 bg-background/60 flex flex-col items-center justify-center gap-4 z-10">
+                  <Loader2 className="w-12 h-12 text-primary animate-spin" />
+                  <p className="text-sm text-foreground font-medium">
+                    {processingStatus || "Processing..."}
+                  </p>
+                </div>
               )}
 
               {/* Top HUD - The Question */}
@@ -478,8 +559,8 @@ export const VibeStudioModal = ({
                 </motion.div>
               )}
 
-              {/* Review State - Note */}
-              {stage === "review" && (
+              {/* Preview State - Note */}
+              {stage === "preview" && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -487,7 +568,22 @@ export const VibeStudioModal = ({
                 >
                   <div className="glass-card p-3 rounded-xl text-center">
                     <p className="text-xs text-muted-foreground">
-                      ✨ You can update this anytime from your profile
+                      📹 Review your video before uploading
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Posted State - Note */}
+              {stage === "posted" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute bottom-44 left-4 right-4 z-20"
+                >
+                  <div className="glass-card p-3 rounded-xl text-center">
+                    <p className="text-xs text-muted-foreground">
+                      ✨ This is how others will see your Vibe
                     </p>
                   </div>
                 </motion.div>
@@ -600,15 +696,15 @@ export const VibeStudioModal = ({
                 </div>
               )}
 
-              {stage === "review" && (
+              {/* Preview stage - local review before upload */}
+              {stage === "preview" && (
                 <div className="flex items-center justify-center gap-6">
                   {/* Retake Button */}
                   <motion.button
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={handleRetake}
-                    disabled={isSaving}
-                    className="flex flex-col items-center gap-2 disabled:opacity-50"
+                    className="flex flex-col items-center gap-2"
                   >
                     <div className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center">
                       <RefreshCw className="w-6 h-6 text-muted-foreground" />
@@ -616,35 +712,89 @@ export const VibeStudioModal = ({
                     <span className="text-xs text-muted-foreground">Retake</span>
                   </motion.button>
 
-                  {/* Replay Button */}
+                  {/* Play/Pause Button */}
                   <motion.button
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => {
-                      if (reviewVideoRef.current) {
-                        reviewVideoRef.current.currentTime = 0;
-                        reviewVideoRef.current.play();
-                      }
-                    }}
-                    disabled={isSaving}
-                    className="flex flex-col items-center gap-2 disabled:opacity-50"
+                    onClick={toggleVideoPlayback}
+                    className="flex flex-col items-center gap-2"
                   >
                     <div className="w-14 h-14 rounded-full bg-neon-cyan/20 border border-neon-cyan/50 flex items-center justify-center">
-                      <RotateCcw className="w-6 h-6 text-neon-cyan" />
+                      {isVideoPlaying ? (
+                        <Pause className="w-6 h-6 text-neon-cyan" />
+                      ) : (
+                        <Play className="w-6 h-6 text-neon-cyan ml-1" />
+                      )}
                     </div>
-                    <span className="text-xs text-neon-cyan">Replay</span>
+                    <span className="text-xs text-neon-cyan">{isVideoPlaying ? "Pause" : "Play"}</span>
                   </motion.button>
 
-                  {/* Save Button */}
+                  {/* Upload Button */}
                   <motion.button
-                    whileHover={{ scale: isSaving ? 1 : 1.1 }}
-                    whileTap={{ scale: isSaving ? 1 : 0.9 }}
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="flex flex-col items-center gap-2 disabled:opacity-70"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={handleUpload}
+                    className="flex flex-col items-center gap-2"
                   >
                     <motion.div
-                      animate={isSaving ? {} : {
+                      animate={{
+                        boxShadow: [
+                          "0 0 0 0 hsl(var(--primary) / 0.4)",
+                          "0 0 0 10px hsl(var(--primary) / 0)",
+                        ],
+                      }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                      className="w-14 h-14 rounded-full bg-primary flex items-center justify-center"
+                    >
+                      <Upload className="w-7 h-7 text-white" />
+                    </motion.div>
+                    <span className="text-xs text-primary font-medium">Upload</span>
+                  </motion.button>
+                </div>
+              )}
+
+              {/* Posted stage - final review after upload */}
+              {stage === "posted" && (
+                <div className="flex items-center justify-center gap-6">
+                  {/* Discard Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={handleRetake}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center">
+                      <X className="w-6 h-6 text-muted-foreground" />
+                    </div>
+                    <span className="text-xs text-muted-foreground">Discard</span>
+                  </motion.button>
+
+                  {/* Play/Pause Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={toggleVideoPlayback}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <div className="w-14 h-14 rounded-full bg-neon-cyan/20 border border-neon-cyan/50 flex items-center justify-center">
+                      {isVideoPlaying ? (
+                        <Pause className="w-6 h-6 text-neon-cyan" />
+                      ) : (
+                        <Play className="w-6 h-6 text-neon-cyan ml-1" />
+                      )}
+                    </div>
+                    <span className="text-xs text-neon-cyan">{isVideoPlaying ? "Pause" : "Play"}</span>
+                  </motion.button>
+
+                  {/* Confirm Post Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={handleConfirmPost}
+                    className="flex flex-col items-center gap-2"
+                  >
+                    <motion.div
+                      animate={{
                         boxShadow: [
                           "0 0 0 0 hsl(142 76% 36% / 0.4)",
                           "0 0 0 10px hsl(142 76% 36% / 0)",
@@ -653,15 +803,9 @@ export const VibeStudioModal = ({
                       transition={{ duration: 1.5, repeat: Infinity }}
                       className="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center"
                     >
-                      {isSaving ? (
-                        <Loader2 className="w-7 h-7 text-white animate-spin" />
-                      ) : (
-                        <Check className="w-7 h-7 text-white" />
-                      )}
+                      <Check className="w-7 h-7 text-white" />
                     </motion.div>
-                    <span className="text-xs text-green-400 font-medium max-w-[80px] text-center truncate">
-                      {processingStatus || (isSaving ? "Saving..." : "Post Vibe")}
-                    </span>
+                    <span className="text-xs text-green-400 font-medium">Post Vibe</span>
                   </motion.button>
                 </div>
               )}
