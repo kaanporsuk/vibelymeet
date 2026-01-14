@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  X, 
-  MapPin, 
-  Briefcase, 
+import {
+  X,
+  MapPin,
+  Briefcase,
   Ruler,
   Heart,
   MessageCircle,
@@ -11,7 +11,8 @@ import {
   ChevronUp,
   Info,
   Video,
-  Play
+  Play,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VibeTag } from "@/components/VibeTag";
@@ -20,10 +21,11 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
-import { LazyImage, LazyVideo } from "@/components/LazyImage";
+import { LazyImage } from "@/components/LazyImage";
 import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
+import { getSignedVideoUrl } from "@/services/videoStorageService";
 
 interface ProfilePreviewProps {
   profile: {
@@ -58,9 +60,36 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
+  const [isResolvingVibeVideo, setIsResolvingVibeVideo] = useState(false);
   const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
   const hasPhotos = profile.photos.length > 0;
+
+  // Resolve a playable URL for vibe videos (bucket is private, so we need a signed URL)
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolve = async () => {
+      if (!profile.videoIntroUrl) {
+        setVibeVideoPlaybackUrl(null);
+        return;
+      }
+
+      setIsResolvingVibeVideo(true);
+      const signed = await getSignedVideoUrl(profile.videoIntroUrl);
+      if (cancelled) return;
+
+      setVibeVideoPlaybackUrl(signed);
+      setIsResolvingVibeVideo(false);
+    };
+
+    resolve();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.videoIntroUrl]);
 
   // Hide action hint after a few seconds
   useEffect(() => {
@@ -158,38 +187,53 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
               <Video className="w-4 h-4 text-neon-cyan" />
               <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
             </div>
-            <div 
-              className="relative aspect-[9/16] max-h-[50vh] mx-auto rounded-xl overflow-hidden cursor-pointer group"
-              onClick={() => setShowVideoPlayer(!showVideoPlayer)}
+
+            <div
+              className="relative aspect-[9/16] max-h-[50vh] mx-auto rounded-xl overflow-hidden"
+              onClick={() => {
+                if (!vibeVideoPlaybackUrl) return;
+                setShowVideoPlayer((v) => !v);
+              }}
+              role={vibeVideoPlaybackUrl ? "button" : undefined}
+              aria-label={vibeVideoPlaybackUrl ? "Play vibe video" : "Vibe video loading"}
             >
-              {showVideoPlayer ? (
-                <video
-                  src={section.data as string}
-                  className="w-full h-full object-cover"
-                  autoPlay
-                  loop
-                  playsInline
-                  controls
-                />
-              ) : (
-                <>
-                  <video
-                    src={section.data as string}
-                    className="w-full h-full object-cover"
-                    muted
+              {isResolvingVibeVideo && (
+                <div className="absolute inset-0 flex items-center justify-center bg-secondary">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                </div>
+              )}
+
+              {!isResolvingVibeVideo && !vibeVideoPlaybackUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary">
+                  <Play className="w-8 h-8 text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Video unavailable</p>
+                </div>
+              )}
+
+              {vibeVideoPlaybackUrl && (
+                <div className="w-full h-full">
+                  <VibePlayer
+                    videoUrl={vibeVideoPlaybackUrl}
+                    autoPlay={showVideoPlayer}
+                    showControls
+                    className="w-full h-full"
                   />
-                  <div className="absolute inset-0 bg-background/30 flex items-center justify-center group-hover:bg-background/40 transition-colors">
-                    <motion.div
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.95 }}
-                      className="w-16 h-16 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
-                    >
-                      <Play className="w-7 h-7 text-background ml-1" fill="currentColor" />
-                    </motion.div>
-                  </div>
-                </>
+
+                  {!showVideoPlayer && (
+                    <div className="absolute inset-0 bg-background/30 flex items-center justify-center transition-colors">
+                      <motion.div
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="w-16 h-16 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
+                      >
+                        <Play className="w-7 h-7 text-background ml-1" fill="currentColor" />
+                      </motion.div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+
             <p className="text-center text-xs text-muted-foreground mt-2">
               What I'm vibing on right now
             </p>
