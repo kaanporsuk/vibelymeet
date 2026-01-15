@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Loader2, Play, Pause } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Play, Pause, Scissors, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +16,8 @@ import {
   shouldCompressVideo,
   dataUrlToBlob,
 } from "@/utils/videoProcessing";
+import { VideoTrimmer } from "./VideoTrimmer";
+import { UploadProgressBar } from "./UploadProgressBar";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -33,6 +35,7 @@ const COACH_TIPS = [
 ];
 
 const RECORDING_DURATION = 15;
+const MAX_CLIP_DURATION = 15;
 
 export const VibeStudioModal = ({
   open,
@@ -40,8 +43,8 @@ export const VibeStudioModal = ({
   onSave,
   existingVideoUrl,
 }: VibeStudioModalProps) => {
-  // Stages: idle → recording → preview (local) → uploading → posted (final review)
-  const [stage, setStage] = useState<"idle" | "recording" | "preview" | "uploading" | "posted">("idle");
+  // Stages: idle → recording → preview (local) → trimming → uploading → posted (final review)
+  const [stage, setStage] = useState<"idle" | "recording" | "preview" | "trimming" | "uploading" | "posted">("idle");
   const [countdown, setCountdown] = useState(RECORDING_DURATION);
   const [tipIndex, setTipIndex] = useState(0);
   const [audioLevels, setAudioLevels] = useState<number[]>(Array(12).fill(0.2));
@@ -52,9 +55,12 @@ export const VibeStudioModal = ({
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
+  const [needsTrimming, setNeedsTrimming] = useState(false);
+  const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const finalVideoRef = useRef<HTMLVideoElement>(null);
@@ -214,6 +220,9 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setFinalVideoUrl(null);
     setUploadedPath(null);
+    setNeedsTrimming(false);
+    setOriginalVideoDuration(null);
+    setUploadProgress(0);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
@@ -227,6 +236,8 @@ export const VibeStudioModal = ({
 
     setIsSaving(true);
     setStage("uploading");
+    setUploadProgress(0);
+    
     try {
       // Get current user
       const {
@@ -252,12 +263,16 @@ export const VibeStudioModal = ({
       // Compress video if needed (>10MB)
       if (shouldCompressVideo(videoToUpload, 10)) {
         setProcessingStatus("Compressing video...");
+        setUploadProgress(0);
         try {
           videoToUpload = await compressVideo(videoToUpload, {
             maxWidth: 720,
             maxHeight: 1280,
             videoBitrate: 1500000,
-            onProgress: (p) => setProcessingStatus(`Compressing: ${Math.round(p)}%`),
+            onProgress: (p) => {
+              setProcessingStatus("Compressing video...");
+              setUploadProgress(p * 0.3); // Compression is 0-30%
+            },
           });
         } catch (compressError) {
           console.warn("Compression failed, uploading original:", compressError);
@@ -266,6 +281,7 @@ export const VibeStudioModal = ({
 
       // Generate thumbnail (best-effort)
       setProcessingStatus("Generating thumbnail...");
+      setUploadProgress(35);
       try {
         const thumbnailDataUrl = await generateVideoThumbnail(videoToUpload);
         const thumbnailBlob = dataUrlToBlob(thumbnailDataUrl);
@@ -285,15 +301,22 @@ export const VibeStudioModal = ({
         console.warn("Thumbnail generation failed:", thumbError);
       }
 
-      // Upload video (store PATH in DB; bucket is private)
+      // Upload video with progress tracking
       setProcessingStatus("Uploading video...");
-      const result = await uploadVideo(videoToUpload, user.id);
+      const result = await uploadVideo(videoToUpload, user.id, (progress, status) => {
+        // Map upload progress to 40-95%
+        const mappedProgress = 40 + (progress * 0.55);
+        setUploadProgress(mappedProgress);
+        setProcessingStatus(status);
+      });
       setUploadedPath(result.path);
 
       // Get signed URL for playback
       setProcessingStatus("Preparing preview...");
+      setUploadProgress(98);
       const signedUrl = await getSignedVideoUrl(result.path);
       if (signedUrl) {
+        setUploadProgress(100);
         setFinalVideoUrl(signedUrl);
         setStage("posted"); // Move to final review stage
         setIsVideoPlaying(true);
@@ -378,10 +401,53 @@ export const VibeStudioModal = ({
     }
 
     const url = URL.createObjectURL(file);
-    setRecordedVideoUrl(url);
-    setUploadedFile(file);
-    setStage("preview"); // Go to local preview first
+    
+    // Check video duration to determine if trimming is needed
+    const tempVideo = document.createElement("video");
+    tempVideo.src = url;
+    tempVideo.onloadedmetadata = () => {
+      const duration = tempVideo.duration;
+      setOriginalVideoDuration(duration);
+      setRecordedVideoUrl(url);
+      setUploadedFile(file);
+      
+      if (duration > MAX_CLIP_DURATION) {
+        // Video is longer than 15s, needs trimming
+        setNeedsTrimming(true);
+        setStage("trimming");
+      } else {
+        // Video is already 15s or less, go to preview
+        setNeedsTrimming(false);
+        setStage("preview");
+      }
+    };
+    tempVideo.onerror = () => {
+      // If we can't read duration, assume it needs preview
+      setRecordedVideoUrl(url);
+      setUploadedFile(file);
+      setStage("preview");
+    };
   }, []);
+
+  const handleTrimComplete = useCallback((trimmedBlob: Blob, startTime: number, endTime: number) => {
+    // Revoke old URL
+    if (recordedVideoUrl) {
+      URL.revokeObjectURL(recordedVideoUrl);
+    }
+    
+    // Create new blob URL for trimmed video
+    const url = URL.createObjectURL(trimmedBlob);
+    setRecordedVideoUrl(url);
+    setRecordedBlob(trimmedBlob);
+    setUploadedFile(null); // Clear the original file, use the trimmed blob
+    setNeedsTrimming(false);
+    setStage("preview");
+    toast.success(`Trimmed to ${Math.round(endTime - startTime)}s clip`);
+  }, [recordedVideoUrl]);
+
+  const handleTrimCancel = useCallback(() => {
+    handleRetake();
+  }, [handleRetake]);
 
   const toggleVideoPlayback = useCallback(() => {
     const videoEl = stage === "posted" ? finalVideoRef.current : reviewVideoRef.current;
@@ -425,8 +491,18 @@ export const VibeStudioModal = ({
             </div>
           )}
 
+          {/* Trimming Stage - Full screen trimmer */}
+          {stage === "trimming" && recordedVideoUrl && (
+            <VideoTrimmer
+              videoUrl={recordedVideoUrl}
+              maxDuration={MAX_CLIP_DURATION}
+              onTrimComplete={handleTrimComplete}
+              onCancel={handleTrimCancel}
+            />
+          )}
+
           {/* Camera Preview (9:16 aspect ratio simulation) */}
-          {hasPermission !== false && (
+          {hasPermission !== false && stage !== "trimming" && (
             <div className="relative flex-1 bg-secondary overflow-hidden">
               {/* Final uploaded video review */}
               {stage === "posted" && finalVideoUrl ? (
@@ -475,13 +551,14 @@ export const VibeStudioModal = ({
                 <div className="absolute inset-0 bg-background/20" />
               )}
 
-              {/* Uploading overlay */}
+              {/* Uploading overlay with progress bar */}
               {stage === "uploading" && (
-                <div className="absolute inset-0 bg-background/60 flex flex-col items-center justify-center gap-4 z-10">
-                  <Loader2 className="w-12 h-12 text-primary animate-spin" />
-                  <p className="text-sm text-foreground font-medium">
-                    {processingStatus || "Processing..."}
-                  </p>
+                <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
+                  <UploadProgressBar
+                    progress={uploadProgress}
+                    status={processingStatus || "Processing..."}
+                    isComplete={uploadProgress >= 100}
+                  />
                 </div>
               )}
 
