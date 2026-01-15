@@ -193,6 +193,30 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log(`Verifying OTP for user ${user.id}, email: ${email}`);
 
+      // Check failed attempt count (max 7 per hour)
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { count: attemptCount, error: countError } = await supabaseAdmin
+        .from("verification_attempts")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("attempt_at", oneHourAgo);
+
+      if (countError) {
+        console.error("Failed attempt count error:", countError);
+      }
+
+      const MAX_ATTEMPTS = 7;
+      if ((attemptCount ?? 0) >= MAX_ATTEMPTS) {
+        console.log(`User ${user.id} exceeded max verification attempts (${attemptCount})`);
+        return new Response(
+          JSON.stringify({ 
+            error: "Too many failed attempts. Please try again later.",
+            retryAfter: 3600 
+          }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       // Find the verification record (without matching code - we'll verify the hash)
       const { data: verification, error: findError } = await supabaseAdmin
         .from("email_verifications")
@@ -222,12 +246,28 @@ const handler = async (req: Request): Promise<Response> => {
       const isValidCode = await verifyOtpHash(code, verification.code);
       
       if (!isValidCode) {
-        console.log(`Invalid OTP attempt for user ${user.id}`);
+        // Record failed attempt
+        await supabaseAdmin
+          .from("verification_attempts")
+          .insert({ user_id: user.id });
+        
+        const remainingAttempts = MAX_ATTEMPTS - ((attemptCount ?? 0) + 1);
+        console.log(`Invalid OTP attempt for user ${user.id}. Remaining attempts: ${remainingAttempts}`);
+        
         return new Response(
-          JSON.stringify({ error: "Invalid or expired verification code" }),
+          JSON.stringify({ 
+            error: "Invalid or expired verification code",
+            remainingAttempts: Math.max(0, remainingAttempts)
+          }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      // Success - clear failed attempts for this user
+      await supabaseAdmin
+        .from("verification_attempts")
+        .delete()
+        .eq("user_id", user.id);
 
       // Mark as verified and delete the verification record for security
       await supabaseAdmin
