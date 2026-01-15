@@ -55,12 +55,20 @@ export const getSignedVideoUrl = async (pathOrStoredValue: string): Promise<stri
   return data.signedUrl;
 };
 
+export interface UploadProgressCallback {
+  (progress: number, status: string): void;
+}
+
 /**
- * Upload a video to Supabase storage
+ * Upload a video to Supabase storage with progress tracking
  * NOTE: We intentionally return the *path* (not a public URL) because this bucket
  * is private in this project. Playback should use signed URLs.
  */
-export const uploadVideo = async (file: File | Blob, userId: string): Promise<VideoUploadResult> => {
+export const uploadVideo = async (
+  file: File | Blob,
+  userId: string,
+  onProgress?: UploadProgressCallback
+): Promise<VideoUploadResult> => {
   // Determine file extension
   let fileExt = "webm";
   if (file instanceof File) {
@@ -71,7 +79,82 @@ export const uploadVideo = async (file: File | Blob, userId: string): Promise<Vi
   }
 
   const fileName = `${userId}/${Date.now()}_vibe.${fileExt}`;
+  const fileSize = file.size;
 
+  // Report initial progress
+  onProgress?.(0, "Starting upload...");
+
+  // Use XMLHttpRequest for progress tracking
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    
+    // Get the upload URL and headers
+    const uploadUrl = `${supabase.storage.from(BUCKET_NAME).upload.toString().includes('supabase') ? '' : ''}`;
+    
+    // We need to use the Supabase client's internal URL
+    const projectUrl = (supabase as any).supabaseUrl || '';
+    const anonKey = (supabase as any).supabaseKey || '';
+    
+    // Construct the storage upload URL
+    const storageUrl = `${projectUrl}/storage/v1/object/${BUCKET_NAME}/${fileName}`;
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = (event.loaded / event.total) * 100;
+        onProgress?.(percentComplete, "Uploading video...");
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100, "Upload complete!");
+        resolve({ path: fileName });
+      } else {
+        // Fallback to standard upload if XHR fails
+        fallbackUpload(file, fileName, onProgress)
+          .then(resolve)
+          .catch(reject);
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      // Fallback to standard upload
+      fallbackUpload(file, fileName, onProgress)
+        .then(resolve)
+        .catch(reject);
+    });
+
+    // Get auth token
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const authToken = session?.access_token || anonKey;
+      
+      xhr.open("POST", storageUrl, true);
+      xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
+      xhr.setRequestHeader("apikey", anonKey);
+      xhr.setRequestHeader("Content-Type", file.type || "video/webm");
+      xhr.setRequestHeader("x-upsert", "true");
+      xhr.setRequestHeader("Cache-Control", "3600");
+      
+      xhr.send(file);
+    }).catch(() => {
+      // Fallback if session fetch fails
+      fallbackUpload(file, fileName, onProgress)
+        .then(resolve)
+        .catch(reject);
+    });
+  });
+};
+
+/**
+ * Fallback upload using standard Supabase client (no progress)
+ */
+const fallbackUpload = async (
+  file: File | Blob,
+  fileName: string,
+  onProgress?: UploadProgressCallback
+): Promise<VideoUploadResult> => {
+  onProgress?.(50, "Uploading video...");
+  
   const { data, error } = await supabase.storage.from(BUCKET_NAME).upload(fileName, file, {
     cacheControl: "3600",
     upsert: true,
@@ -83,6 +166,7 @@ export const uploadVideo = async (file: File | Blob, userId: string): Promise<Vi
     throw new Error(`Failed to upload video: ${error.message}`);
   }
 
+  onProgress?.(100, "Upload complete!");
   return { path: data.path };
 };
 
