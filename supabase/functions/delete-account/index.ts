@@ -54,7 +54,95 @@ serve(async (req) => {
     });
 
     // Delete user data in order (child tables first)
-    // 1. Delete messages where user is sender (matches will cascade the rest)
+    
+    // 1a. Delete blocked_users (both directions - user blocked others or was blocked)
+    const { error: blockedError1 } = await supabaseAdmin
+      .from("blocked_users")
+      .delete()
+      .eq("blocker_id", userId);
+    
+    const { error: blockedError2 } = await supabaseAdmin
+      .from("blocked_users")
+      .delete()
+      .eq("blocked_id", userId);
+
+    if (blockedError1 || blockedError2) {
+      console.error("Error deleting blocked_users:", blockedError1?.message || blockedError2?.message);
+    } else {
+      console.log("Deleted blocked_users records");
+    }
+
+    // 1b. Delete match_mutes
+    const { error: mutesError } = await supabaseAdmin
+      .from("match_mutes")
+      .delete()
+      .eq("user_id", userId);
+
+    if (mutesError) {
+      console.error("Error deleting match_mutes:", mutesError.message);
+    } else {
+      console.log("Deleted match_mutes records");
+    }
+
+    // 1c. Delete daily_drops (both directions)
+    const { error: dropsError1 } = await supabaseAdmin
+      .from("daily_drops")
+      .delete()
+      .eq("user_id", userId);
+    
+    const { error: dropsError2 } = await supabaseAdmin
+      .from("daily_drops")
+      .delete()
+      .eq("candidate_id", userId);
+
+    if (dropsError1 || dropsError2) {
+      console.error("Error deleting daily_drops:", dropsError1?.message || dropsError2?.message);
+    } else {
+      console.log("Deleted daily_drops records");
+    }
+
+    // 1d. Delete date_proposals (both directions)
+    const { error: proposalsError1 } = await supabaseAdmin
+      .from("date_proposals")
+      .delete()
+      .eq("proposer_id", userId);
+    
+    const { error: proposalsError2 } = await supabaseAdmin
+      .from("date_proposals")
+      .delete()
+      .eq("recipient_id", userId);
+
+    if (proposalsError1 || proposalsError2) {
+      console.error("Error deleting date_proposals:", proposalsError1?.message || proposalsError2?.message);
+    } else {
+      console.log("Deleted date_proposals records");
+    }
+
+    // 1e. Delete user_schedules
+    const { error: schedulesError } = await supabaseAdmin
+      .from("user_schedules")
+      .delete()
+      .eq("user_id", userId);
+
+    if (schedulesError) {
+      console.error("Error deleting user_schedules:", schedulesError.message);
+    } else {
+      console.log("Deleted user_schedules records");
+    }
+
+    // 1f. Delete email_verifications
+    const { error: verificationsError } = await supabaseAdmin
+      .from("email_verifications")
+      .delete()
+      .eq("user_id", userId);
+
+    if (verificationsError) {
+      console.error("Error deleting email_verifications:", verificationsError.message);
+    } else {
+      console.log("Deleted email_verifications records");
+    }
+
+    // 2. Delete messages where user is sender (matches will cascade the rest)
     const { error: messagesError } = await supabaseAdmin
       .from("messages")
       .delete()
