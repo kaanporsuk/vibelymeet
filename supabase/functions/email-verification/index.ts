@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
@@ -21,6 +22,16 @@ interface VerifyOtpRequest {
 // Generate a 6-digit OTP
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// Hash OTP code using bcrypt
+async function hashOtp(otp: string): Promise<string> {
+  return await bcrypt.hash(otp);
+}
+
+// Verify OTP code against hash
+async function verifyOtpHash(otp: string, hash: string): Promise<boolean> {
+  return await bcrypt.compare(otp, hash);
 }
 
 // Send email via Resend API
@@ -137,13 +148,16 @@ const handler = async (req: Request): Promise<Response> => {
         .delete()
         .eq("user_id", user.id);
 
-      // Insert new verification code
+      // Hash the OTP before storing
+      const hashedOtp = await hashOtp(otp);
+
+      // Insert new verification code (hashed)
       const { error: insertError } = await supabaseAdmin
         .from("email_verifications")
         .insert({
           user_id: user.id,
           email,
-          code: otp,
+          code: hashedOtp,
           expires_at: expiresAt.toISOString(),
         });
 
@@ -179,13 +193,12 @@ const handler = async (req: Request): Promise<Response> => {
 
       console.log(`Verifying OTP for user ${user.id}, email: ${email}`);
 
-      // Find the verification record
+      // Find the verification record (without matching code - we'll verify the hash)
       const { data: verification, error: findError } = await supabaseAdmin
         .from("email_verifications")
         .select("*")
         .eq("user_id", user.id)
         .eq("email", email)
-        .eq("code", code)
         .is("verified_at", null)
         .gt("expires_at", new Date().toISOString())
         .maybeSingle();
@@ -205,10 +218,21 @@ const handler = async (req: Request): Promise<Response> => {
         );
       }
 
-      // Mark as verified
+      // Verify the OTP against the stored hash
+      const isValidCode = await verifyOtpHash(code, verification.code);
+      
+      if (!isValidCode) {
+        console.log(`Invalid OTP attempt for user ${user.id}`);
+        return new Response(
+          JSON.stringify({ error: "Invalid or expired verification code" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Mark as verified and delete the verification record for security
       await supabaseAdmin
         .from("email_verifications")
-        .update({ verified_at: new Date().toISOString() })
+        .delete()
         .eq("id", verification.id);
 
       // Update profile
