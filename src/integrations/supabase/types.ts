@@ -698,6 +698,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_blocked: {
+        Args: { user1_id: string; user2_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
