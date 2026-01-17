@@ -19,9 +19,13 @@ interface VerifyOtpRequest {
   code: string;
 }
 
-// Generate a 6-digit OTP
+// Generate a 6-digit OTP using cryptographically secure random
 function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  // Generate 6-digit number from cryptographically secure random
+  const otp = (array[0] % 900000) + 100000;
+  return otp.toString();
 }
 
 // Hash OTP code using bcrypt
