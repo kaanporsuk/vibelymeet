@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   Users,
@@ -12,20 +12,39 @@ import {
   LogOut,
   ChevronRight,
   Sparkles,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
 import AdminEventsPanel from "@/components/admin/AdminEventsPanel";
 import AdminStatsCards from "@/components/admin/AdminStatsCards";
+import AdminAnalyticsCharts from "@/components/admin/AdminAnalyticsCharts";
+import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel";
 
 type ActivePanel = 'overview' | 'users' | 'events';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [activePanel, setActivePanel] = useState<ActivePanel>('overview');
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Fetch unread notifications count
+  const { data: unreadCount } = useQuery({
+    queryKey: ['admin-unread-notifications'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('admin_notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('read', false);
+      return count || 0;
+    },
+    refetchInterval: 30000,
+  });
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -59,15 +78,30 @@ const AdminDashboard = () => {
                 {activePanel === 'events' && 'Create and manage events'}
               </p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLogout}
-              className="gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Logout
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setShowNotifications(true)}
+                className="relative"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <Badge className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center bg-primary text-primary-foreground text-xs">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Badge>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+                className="gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                Logout
+              </Button>
+            </div>
           </div>
         </header>
 
@@ -80,6 +114,7 @@ const AdminDashboard = () => {
               className="space-y-6"
             >
               <AdminStatsCards />
+              <AdminAnalyticsCharts />
               
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -111,7 +146,7 @@ const AdminDashboard = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent to-neon-cyan flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent to-cyan-400 flex items-center justify-center">
                         <Calendar className="w-6 h-6 text-white" />
                       </div>
                       <div>
@@ -130,6 +165,16 @@ const AdminDashboard = () => {
           {activePanel === 'events' && <AdminEventsPanel />}
         </main>
       </div>
+
+      {/* Notifications Panel */}
+      <AnimatePresence>
+        {showNotifications && (
+          <AdminNotificationsPanel
+            isOpen={showNotifications}
+            onClose={() => setShowNotifications(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

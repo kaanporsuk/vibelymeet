@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_notifications: {
+        Row: {
+          created_at: string | null
+          data: Json | null
+          id: string
+          message: string
+          read: boolean | null
+          title: string
+          type: string
+        }
+        Insert: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          message: string
+          read?: boolean | null
+          title: string
+          type: string
+        }
+        Update: {
+          created_at?: string | null
+          data?: Json | null
+          id?: string
+          message?: string
+          read?: boolean | null
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       blocked_users: {
         Row: {
           blocked_id: string
@@ -420,6 +450,7 @@ export type Database = {
           height_cm: number | null
           id: string
           interested_in: string[] | null
+          is_suspended: boolean | null
           job: string | null
           lifestyle: Json | null
           location: string | null
@@ -431,6 +462,7 @@ export type Database = {
           photos: string[] | null
           prompts: Json | null
           proof_selfie_url: string | null
+          suspension_reason: string | null
           tagline: string | null
           total_conversations: number | null
           total_matches: number | null
@@ -452,6 +484,7 @@ export type Database = {
           height_cm?: number | null
           id: string
           interested_in?: string[] | null
+          is_suspended?: boolean | null
           job?: string | null
           lifestyle?: Json | null
           location?: string | null
@@ -463,6 +496,7 @@ export type Database = {
           photos?: string[] | null
           prompts?: Json | null
           proof_selfie_url?: string | null
+          suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
@@ -484,6 +518,7 @@ export type Database = {
           height_cm?: number | null
           id?: string
           interested_in?: string[] | null
+          is_suspended?: boolean | null
           job?: string | null
           lifestyle?: Json | null
           location?: string | null
@@ -495,6 +530,7 @@ export type Database = {
           photos?: string[] | null
           prompts?: Json | null
           proof_selfie_url?: string | null
+          suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
           total_matches?: number | null
@@ -575,6 +611,72 @@ export type Database = {
           slot_key?: string
           status?: string
           time_block?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_suspensions: {
+        Row: {
+          expires_at: string | null
+          id: string
+          lifted_at: string | null
+          lifted_by: string | null
+          reason: string
+          status: string | null
+          suspended_at: string | null
+          suspended_by: string
+          user_id: string
+        }
+        Insert: {
+          expires_at?: string | null
+          id?: string
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason: string
+          status?: string | null
+          suspended_at?: string | null
+          suspended_by: string
+          user_id: string
+        }
+        Update: {
+          expires_at?: string | null
+          id?: string
+          lifted_at?: string | null
+          lifted_by?: string | null
+          reason?: string
+          status?: string | null
+          suspended_at?: string | null
+          suspended_by?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_warnings: {
+        Row: {
+          acknowledged_at: string | null
+          created_at: string | null
+          id: string
+          issued_by: string
+          message: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          acknowledged_at?: string | null
+          created_at?: string | null
+          id?: string
+          issued_by: string
+          message: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          acknowledged_at?: string | null
+          created_at?: string | null
+          id?: string
+          issued_by?: string
+          message?: string
+          reason?: string
           user_id?: string
         }
         Relationships: []
