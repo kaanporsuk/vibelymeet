@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -17,6 +18,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Sparkles,
+  Shield,
+  Ban,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
+import UserModerationActions from "./UserModerationActions";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -32,6 +36,8 @@ interface AdminUserDetailDrawerProps {
 }
 
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
+  const [showModeration, setShowModeration] = useState(false);
+
   // Fetch user profile
   const { data: profile, isLoading } = useQuery({
     queryKey: ['admin-user-detail', userId],
@@ -181,9 +187,20 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         {/* Header */}
         <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="text-xl font-bold font-display text-foreground">User Profile</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="w-5 h-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowModeration(true)}
+              className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10"
+            >
+              <Shield className="w-4 h-4" />
+              Moderate
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </Button>
+          </div>
         </div>
 
         <ScrollArea className="flex-1">
@@ -211,6 +228,12 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                         <Check className="w-3 h-3 mr-1" />
                         Verified
+                      </Badge>
+                    )}
+                    {profile.is_suspended && (
+                      <Badge className="bg-destructive/20 text-destructive border-destructive/30">
+                        <Ban className="w-3 h-3 mr-1" />
+                        Suspended
                       </Badge>
                     )}
                   </div>
@@ -461,6 +484,16 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           )}
         </ScrollArea>
       </motion.div>
+
+      {/* Moderation Modal */}
+      {profile && (
+        <UserModerationActions
+          userId={userId}
+          userName={profile.name || 'User'}
+          isOpen={showModeration}
+          onClose={() => setShowModeration(false)}
+        />
+      )}
     </>
   );
 };
