@@ -20,6 +20,8 @@ import {
   Sparkles,
   Shield,
   Ban,
+  Eye,
+  MessagesSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import UserModerationActions from "./UserModerationActions";
+import AdminProfilePreview from "./AdminProfilePreview";
+import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
+import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -37,6 +42,9 @@ interface AdminUserDetailDrawerProps {
 
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
   const [showModeration, setShowModeration] = useState(false);
+  const [showProfilePreview, setShowProfilePreview] = useState(false);
+  const [showMatchMessages, setShowMatchMessages] = useState(false);
+  const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
 
   // Fetch user profile
   const { data: profile, isLoading } = useQuery({
@@ -184,10 +192,27 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className="fixed right-0 top-0 h-full w-full max-w-2xl bg-background border-l border-border z-50 overflow-hidden flex flex-col"
       >
-        {/* Header */}
         <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="text-xl font-bold font-display text-foreground">User Profile</h2>
           <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowProfilePreview(true)}
+              className="gap-2"
+            >
+              <Eye className="w-4 h-4" />
+              Preview
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowMatchMessages(true)}
+              className="gap-2"
+            >
+              <MessagesSquare className="w-4 h-4" />
+              Messages
+            </Button>
             <Button 
               variant="outline" 
               size="sm"
@@ -492,6 +517,23 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userName={profile.name || 'User'}
           isOpen={showModeration}
           onClose={() => setShowModeration(false)}
+        />
+      )}
+
+      {/* Profile Preview Modal */}
+      <AdminProfilePreview
+        userId={userId}
+        isOpen={showProfilePreview}
+        onClose={() => setShowProfilePreview(false)}
+      />
+
+      {/* Match Messages Drawer */}
+      {profile && (
+        <AdminMatchMessagesDrawer
+          userId={userId}
+          userName={profile.name || 'User'}
+          isOpen={showMatchMessages}
+          onClose={() => setShowMatchMessages(false)}
         />
       )}
     </>

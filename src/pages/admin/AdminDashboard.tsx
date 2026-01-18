@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Sparkles,
   Bell,
+  AlertTriangle,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,14 +27,19 @@ import AdminEventsPanel from "@/components/admin/AdminEventsPanel";
 import AdminStatsCards from "@/components/admin/AdminStatsCards";
 import AdminAnalyticsCharts from "@/components/admin/AdminAnalyticsCharts";
 import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel";
+import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
+import AdminExportPanel from "@/components/admin/AdminExportPanel";
+import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const [activePanel, setActivePanel] = useState<ActivePanel>('overview');
   const [showNotifications, setShowNotifications] = useState(false);
 
+  // Enable real-time updates
+  useAdminRealtime({ enabled: true });
   // Fetch unread notifications count
   const { data: unreadCount } = useQuery({
     queryKey: ['admin-unread-notifications'],
@@ -71,11 +78,15 @@ const AdminDashboard = () => {
                 {activePanel === 'overview' && 'Dashboard Overview'}
                 {activePanel === 'users' && 'User Management'}
                 {activePanel === 'events' && 'Event Management'}
+                {activePanel === 'reports' && 'User Reports'}
+                {activePanel === 'export' && 'Data Export'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
                 {activePanel === 'users' && 'Manage all user profiles and activity'}
                 {activePanel === 'events' && 'Create and manage events'}
+                {activePanel === 'reports' && 'Review and act on user reports'}
+                {activePanel === 'export' && 'Download platform data as CSV'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -163,6 +174,8 @@ const AdminDashboard = () => {
 
           {activePanel === 'users' && <AdminUsersPanel />}
           {activePanel === 'events' && <AdminEventsPanel />}
+          {activePanel === 'reports' && <AdminReportsPanel />}
+          {activePanel === 'export' && <AdminExportPanel />}
         </main>
       </div>
 

@@ -6,10 +6,12 @@ import {
   LogOut,
   Shield,
   Sparkles,
+  AlertTriangle,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -22,6 +24,8 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout }: AdminSidebarPro
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'users' as const, label: 'Users', icon: Users },
     { id: 'events' as const, label: 'Events', icon: Calendar },
+    { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
+    { id: 'export' as const, label: 'Export', icon: Download },
   ];
 
   return (
