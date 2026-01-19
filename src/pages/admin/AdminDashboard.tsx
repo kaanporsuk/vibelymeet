@@ -29,6 +29,7 @@ import AdminAnalyticsCharts from "@/components/admin/AdminAnalyticsCharts";
 import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel";
 import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
 import AdminExportPanel from "@/components/admin/AdminExportPanel";
+import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
 type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export';
@@ -124,51 +125,15 @@ const AdminDashboard = () => {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
+              {/* Quick Actions Widgets */}
+              <AdminQuickActionsCards
+                onNavigateToReports={() => setActivePanel('reports')}
+                onNavigateToUsers={() => setActivePanel('users')}
+                onNavigateToEvents={() => setActivePanel('events')}
+              />
+              
               <AdminStatsCards />
               <AdminAnalyticsCharts />
-              
-              {/* Quick Actions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setActivePanel('users')}
-                  className="glass-card p-6 rounded-2xl text-left group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                        <Users className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-foreground">Manage Users</h3>
-                        <p className="text-sm text-muted-foreground">View, filter, and manage all users</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                  </div>
-                </motion.button>
-
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setActivePanel('events')}
-                  className="glass-card p-6 rounded-2xl text-left group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-accent to-cyan-400 flex items-center justify-center">
-                        <Calendar className="w-6 h-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-foreground">Manage Events</h3>
-                        <p className="text-sm text-muted-foreground">Create, edit, and monitor events</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                  </div>
-                </motion.button>
-              </div>
             </motion.div>
           )}
 

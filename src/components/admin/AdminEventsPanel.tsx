@@ -12,6 +12,7 @@ import {
   Eye,
   MoreHorizontal,
   X,
+  UserCheck,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -34,13 +35,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
+import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<any>(null);
-
+  const [viewingAttendeesEvent, setViewingAttendeesEvent] = useState<any>(null);
   // Fetch all events
   const { data: events, isLoading } = useQuery({
     queryKey: ['admin-events', searchQuery],
@@ -231,6 +233,13 @@ const AdminEventsPanel = () => {
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={() => setViewingAttendeesEvent(event)}
+                            className="gap-2"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                            Attendees
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => window.open(`/events/${event.id}`, '_blank')}
                             className="gap-2"
                           >
@@ -268,6 +277,16 @@ const AdminEventsPanel = () => {
               setShowCreateModal(false);
               setEditingEvent(null);
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Attendees Modal */}
+      <AnimatePresence>
+        {viewingAttendeesEvent && (
+          <AdminEventAttendeesModal
+            event={viewingAttendeesEvent}
+            onClose={() => setViewingAttendeesEvent(null)}
           />
         )}
       </AnimatePresence>
