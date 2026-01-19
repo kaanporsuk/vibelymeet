@@ -188,6 +188,9 @@ export type Database = {
       }
       event_registrations: {
         Row: {
+          attendance_marked: boolean | null
+          attendance_marked_at: string | null
+          attendance_marked_by: string | null
           attended: boolean | null
           event_id: string
           id: string
@@ -195,6 +198,9 @@ export type Database = {
           registered_at: string
         }
         Insert: {
+          attendance_marked?: boolean | null
+          attendance_marked_at?: string | null
+          attendance_marked_by?: string | null
           attended?: boolean | null
           event_id: string
           id?: string
@@ -202,6 +208,9 @@ export type Database = {
           registered_at?: string
         }
         Update: {
+          attendance_marked?: boolean | null
+          attendance_marked_at?: string | null
+          attendance_marked_by?: string | null
           attended?: boolean | null
           event_id?: string
           id?: string
@@ -234,11 +243,22 @@ export type Database = {
           duration_minutes: number | null
           event_date: string
           id: string
+          is_free: boolean | null
+          is_location_specific: boolean | null
+          location_address: string | null
+          location_name: string | null
           max_attendees: number | null
+          max_female_attendees: number | null
+          max_male_attendees: number | null
+          max_nonbinary_attendees: number | null
+          price_amount: number | null
+          price_currency: string | null
           status: string | null
           tags: string[] | null
           title: string
           updated_at: string
+          vibes: string[] | null
+          visibility: string | null
         }
         Insert: {
           cover_image: string
@@ -248,11 +268,22 @@ export type Database = {
           duration_minutes?: number | null
           event_date: string
           id?: string
+          is_free?: boolean | null
+          is_location_specific?: boolean | null
+          location_address?: string | null
+          location_name?: string | null
           max_attendees?: number | null
+          max_female_attendees?: number | null
+          max_male_attendees?: number | null
+          max_nonbinary_attendees?: number | null
+          price_amount?: number | null
+          price_currency?: string | null
           status?: string | null
           tags?: string[] | null
           title: string
           updated_at?: string
+          vibes?: string[] | null
+          visibility?: string | null
         }
         Update: {
           cover_image?: string
@@ -262,11 +293,22 @@ export type Database = {
           duration_minutes?: number | null
           event_date?: string
           id?: string
+          is_free?: boolean | null
+          is_location_specific?: boolean | null
+          location_address?: string | null
+          location_name?: string | null
           max_attendees?: number | null
+          max_female_attendees?: number | null
+          max_male_attendees?: number | null
+          max_nonbinary_attendees?: number | null
+          price_amount?: number | null
+          price_currency?: string | null
           status?: string | null
           tags?: string[] | null
           title?: string
           updated_at?: string
+          vibes?: string[] | null
+          visibility?: string | null
         }
         Relationships: []
       }
