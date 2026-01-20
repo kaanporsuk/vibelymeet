@@ -15,6 +15,8 @@ import {
   Bell,
   AlertTriangle,
   Download,
+  BarChart3,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,9 +32,11 @@ import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel"
 import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
 import AdminExportPanel from "@/components/admin/AdminExportPanel";
 import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
+import AdminEventAnalytics from "@/components/admin/AdminEventAnalytics";
+import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -81,6 +85,8 @@ const AdminDashboard = () => {
                 {activePanel === 'events' && 'Event Management'}
                 {activePanel === 'reports' && 'User Reports'}
                 {activePanel === 'export' && 'Data Export'}
+                {activePanel === 'event-analytics' && 'Event Analytics'}
+                {activePanel === 'activity-log' && 'Activity Log'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -88,6 +94,8 @@ const AdminDashboard = () => {
                 {activePanel === 'events' && 'Create and manage events'}
                 {activePanel === 'reports' && 'Review and act on user reports'}
                 {activePanel === 'export' && 'Download platform data as CSV'}
+                {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
+                {activePanel === 'activity-log' && 'Track all admin moderation actions'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -141,6 +149,8 @@ const AdminDashboard = () => {
           {activePanel === 'events' && <AdminEventsPanel />}
           {activePanel === 'reports' && <AdminReportsPanel />}
           {activePanel === 'export' && <AdminExportPanel />}
+          {activePanel === 'event-analytics' && <AdminEventAnalytics />}
+          {activePanel === 'activity-log' && <AdminActivityLog />}
         </main>
       </div>
 

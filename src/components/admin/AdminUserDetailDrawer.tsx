@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -22,6 +22,8 @@ import {
   Ban,
   Eye,
   MessagesSquare,
+  Loader2,
+  ZoomIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +35,9 @@ import { format } from "date-fns";
 import UserModerationActions from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
+import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { getSignedVideoUrl } from "@/services/videoStorageService";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -45,6 +49,11 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [showProfilePreview, setShowProfilePreview] = useState(false);
   const [showMatchMessages, setShowMatchMessages] = useState(false);
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
+  const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isLoadingVideo, setIsLoadingVideo] = useState(false);
 
   // Fetch user profile
   const { data: profile, isLoading } = useQuery({
@@ -172,6 +181,62 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     },
     enabled: !!profile,
   });
+
+  // Refresh signed URLs for photos
+  useEffect(() => {
+    if (!profile?.photos?.length) {
+      setRefreshedPhotos([]);
+      return;
+    }
+
+    const refreshPhotos = async () => {
+      setIsRefreshingPhotos(true);
+      const refreshed: string[] = [];
+      for (const url of profile.photos) {
+        if (url) {
+          if (isSignedUrlExpiring(url)) {
+            const path = extractPathFromSignedUrl(url);
+            if (path) {
+              const newUrl = await getSignedPhotoUrl(path);
+              refreshed.push(newUrl || url);
+            } else {
+              refreshed.push(url);
+            }
+          } else {
+            refreshed.push(url);
+          }
+        }
+      }
+      setRefreshedPhotos(refreshed);
+      setIsRefreshingPhotos(false);
+    };
+
+    refreshPhotos();
+  }, [profile?.photos]);
+
+  // Resolve video URL
+  useEffect(() => {
+    if (!profile?.video_intro_url) {
+      setVideoUrl(null);
+      return;
+    }
+
+    const resolveVideo = async () => {
+      setIsLoadingVideo(true);
+      const signed = await getSignedVideoUrl(profile.video_intro_url);
+      setVideoUrl(signed);
+      setIsLoadingVideo(false);
+    };
+
+    resolveVideo();
+  }, [profile?.video_intro_url]);
+
+  const displayPhotos = refreshedPhotos.length > 0 ? refreshedPhotos : profile?.photos || [];
+
+  const openLightbox = (index: number) => {
+    setLightboxIndex(index);
+    setLightboxOpen(true);
+  };
 
   return (
     <>
@@ -397,33 +462,64 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 </TabsContent>
 
                 <TabsContent value="photos" className="mt-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    {profile.photos?.map((photo: string, i: number) => (
-                      <div key={i} className="aspect-square rounded-xl overflow-hidden bg-secondary/50">
-                        <img
-                          src={photo}
-                          alt={`Photo ${i + 1}`}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                    ))}
-                    {(!profile.photos || profile.photos.length === 0) && (
-                      <div className="col-span-3 text-center py-8 text-muted-foreground">
-                        No photos uploaded
-                      </div>
-                    )}
-                  </div>
+                  {isRefreshingPhotos ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      <span className="ml-2 text-muted-foreground">Loading photos...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {displayPhotos.map((photo: string, i: number) => (
+                        <motion.div 
+                          key={i} 
+                          className="aspect-square rounded-xl overflow-hidden bg-secondary/50 cursor-pointer relative group"
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => openLightbox(i)}
+                        >
+                          <img
+                            src={photo}
+                            alt={`Photo ${i + 1}`}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // If image fails to load, try refreshing the URL
+                              const target = e.target as HTMLImageElement;
+                              target.src = '/placeholder.svg';
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                            <ZoomIn className="w-6 h-6 text-white" />
+                          </div>
+                        </motion.div>
+                      ))}
+                      {displayPhotos.length === 0 && (
+                        <div className="col-span-3 text-center py-8 text-muted-foreground">
+                          No photos uploaded
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {profile.video_intro_url && (
                     <div className="mt-4">
                       <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                         <Video className="w-4 h-4" />
                         Video Intro
                       </h4>
-                      <video
-                        src={profile.video_intro_url}
-                        controls
-                        className="w-full rounded-xl"
-                      />
+                      {isLoadingVideo ? (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center">
+                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : videoUrl ? (
+                        <video
+                          src={videoUrl}
+                          controls
+                          className="w-full rounded-xl"
+                        />
+                      ) : (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center text-muted-foreground">
+                          Video not available
+                        </div>
+                      )}
                     </div>
                   )}
                 </TabsContent>
@@ -536,6 +632,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           onClose={() => setShowMatchMessages(false)}
         />
       )}
+
+      {/* Photo Lightbox */}
+      <AdminPhotoLightbox
+        photos={displayPhotos}
+        initialIndex={lightboxIndex}
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+      />
     </>
   );
 };

@@ -8,10 +8,12 @@ import {
   Sparkles,
   AlertTriangle,
   Download,
+  BarChart3,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -24,7 +26,9 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout }: AdminSidebarPro
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'users' as const, label: 'Users', icon: Users },
     { id: 'events' as const, label: 'Events', icon: Calendar },
+    { id: 'event-analytics' as const, label: 'Event Analytics', icon: BarChart3 },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
+    { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },
     { id: 'export' as const, label: 'Export', icon: Download },
   ];
 
