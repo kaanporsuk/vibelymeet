@@ -22,6 +22,7 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ReportWizard from "@/components/safety/ReportWizard";
 import { useMatches, Match } from "@/hooks/useMatches";
+import { useDropMatches } from "@/hooks/useDropMatches";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { useBlockUser } from "@/hooks/useBlockUser";
@@ -41,75 +42,10 @@ import { toast } from "sonner";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
-// Mock drops data
-const MOCK_DROPS: DropMatch[] = [
-  {
-    id: 'drop-match-1',
-    candidate: {
-      id: 'maya',
-      name: 'Maya',
-      age: 26,
-      lastActiveAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
-      vibeTags: ['Creative Soul', 'Night Owl', 'Foodie'],
-      bio: 'Artist by day, stargazer by night.',
-      location: 'Brooklyn, NY'
-    },
-    status: 'matched',
-    sentAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    matchedAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    hasUnreadMessage: true,
-  },
-  {
-    id: 'drop-match-2',
-    candidate: {
-      id: 'jordan',
-      name: 'Jordan',
-      age: 28,
-      lastActiveAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-      avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-      vibeTags: ['Adventure Seeker', 'Dog Parent'],
-      bio: 'Weekend hiker, weekday coder.',
-      location: 'Austin, TX'
-    },
-    status: 'sent',
-    sentAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'drop-match-3',
-    candidate: {
-      id: 'aria',
-      name: 'Aria',
-      age: 25,
-      lastActiveAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-      avatarUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
-      vibeTags: ['Bookworm', 'Wine Lover'],
-      bio: 'Currently reading: too many books.',
-      location: 'Seattle, WA'
-    },
-    status: 'received',
-    sentAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'drop-match-4',
-    candidate: {
-      id: 'marcus',
-      name: 'Marcus',
-      age: 30,
-      lastActiveAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-      avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-      vibeTags: ['Musician', 'Vinyl Collector'],
-      bio: 'Jazz enthusiast.',
-      location: 'Chicago, IL'
-    },
-    status: 'passed',
-    sentAt: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
-  },
-];
-
 const Matches = () => {
   const navigate = useNavigate();
   const { data: matches = [], isLoading, refetch } = useMatches();
+  const { data: drops = [], isLoading: isLoadingDrops, refetch: refetchDrops } = useDropMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [activeTab, setActiveTab] = useState("conversations");
@@ -143,11 +79,11 @@ const Matches = () => {
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
+    await Promise.all([refetch(), refetchDrops()]);
+  }, [refetch, refetchDrops]);
 
-  const pendingDropsCount = MOCK_DROPS.filter(d => d.status === 'received' || d.status === 'sent').length;
-  const matchedDropsCount = MOCK_DROPS.filter(d => d.status === 'matched').length;
+  const pendingDropsCount = drops.filter(d => d.status === 'received' || d.status === 'sent').length;
+  const matchedDropsCount = drops.filter(d => d.status === 'matched').length;
 
   // Separate new vibes, regular matches, and archived matches
   const { newVibes, regularMatches, archivedMatches } = useMemo(() => {
@@ -252,7 +188,7 @@ const Matches = () => {
   };
 
   const handleOpenDropChat = (dropId: string) => {
-    const drop = MOCK_DROPS.find(d => d.id === dropId);
+    const drop = drops.find(d => d.id === dropId);
     if (drop) {
       navigate(`/chat/${drop.candidate.id}`);
     }
@@ -479,7 +415,7 @@ const Matches = () => {
             className="p-4"
           >
             <DropsTabContent
-              drops={MOCK_DROPS}
+              drops={drops}
               onOpenChat={handleOpenDropChat}
               onViewProfile={handleViewDropProfile}
             />

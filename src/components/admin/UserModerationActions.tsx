@@ -37,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -55,6 +56,7 @@ const UserModerationActions = ({
 }: UserModerationActionsProps) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { logActivity } = useAdminActivityLog();
   const [activeTab, setActiveTab] = useState("actions");
   
   // Suspend form state
@@ -142,7 +144,15 @@ const UserModerationActions = ({
         data: { user_id: userId, reason: suspendReason },
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Log activity
+      await logActivity({
+        actionType: 'suspend_user',
+        targetType: 'user',
+        targetId: userId,
+        details: { userName, reason: suspendReason, duration: suspendDuration }
+      });
+      
       queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
       queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
@@ -180,7 +190,15 @@ const UserModerationActions = ({
         .eq('id', userId);
       if (profileError) throw profileError;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Log activity
+      await logActivity({
+        actionType: 'lift_suspension',
+        targetType: 'user',
+        targetId: userId,
+        details: { userName }
+      });
+      
       queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
       queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
@@ -204,7 +222,15 @@ const UserModerationActions = ({
         });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Log activity
+      await logActivity({
+        actionType: 'warn_user',
+        targetType: 'user',
+        targetId: userId,
+        details: { userName, reason: warningReason }
+      });
+      
       queryClient.invalidateQueries({ queryKey: ['user-warning-history', userId] });
       toast.success(`Warning sent to ${userName}`);
       setWarningReason("");
