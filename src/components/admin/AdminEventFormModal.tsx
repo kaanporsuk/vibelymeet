@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -14,6 +14,8 @@ import {
   Eye,
   Crown,
   UserCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -29,9 +30,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 
 interface AdminEventFormModalProps {
   event?: any;
@@ -56,7 +63,24 @@ const currencies = [
 
 const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const queryClient = useQueryClient();
+  const { logActivity } = useAdminActivityLog();
   const isEditing = !!event;
+
+  // Collapsible section states
+  const [openSections, setOpenSections] = useState({
+    basic: true,
+    dateTime: true,
+    capacity: false,
+    location: false,
+    visibility: false,
+    pricing: false,
+    vibes: false,
+    themes: false,
+  });
+
+  const toggleSection = (section: keyof typeof openSections) => {
+    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   // Fetch vibe tags from database
   const { data: vibeTags = [] } = useQuery({
@@ -144,14 +168,26 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           .update(eventData)
           .eq('id', event.id);
         if (error) throw error;
+        return { id: event.id, action: 'edit_event' };
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('events')
-          .insert(eventData);
+          .insert(eventData)
+          .select()
+          .single();
         if (error) throw error;
+        return { id: data.id, action: 'create_event' };
       }
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
+      // Log activity
+      await logActivity({
+        actionType: result.action as 'create_event' | 'edit_event',
+        targetType: 'event',
+        targetId: result.id,
+        details: { title }
+      });
+      
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success(isEditing ? 'Event updated successfully' : 'Event created successfully');
       onClose();
@@ -188,397 +224,499 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     saveEvent.mutate();
   };
 
+  // Section Header Component
+  const SectionHeader = ({ 
+    title, 
+    icon: Icon, 
+    isOpen, 
+    onToggle,
+    badge 
+  }: { 
+    title: string; 
+    icon: any; 
+    isOpen: boolean; 
+    onToggle: () => void;
+    badge?: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center justify-between p-3 rounded-xl bg-secondary/30 hover:bg-secondary/50 transition-colors"
+    >
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold text-foreground uppercase tracking-wider">{title}</span>
+        {badge && (
+          <Badge variant="secondary" className="text-xs">{badge}</Badge>
+        )}
+      </div>
+      {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+    </button>
+  );
+
   return (
     <>
-      {/* Backdrop */}
+      {/* Full screen overlay */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-      />
-
-      {/* Modal - Fixed positioning and full screen on mobile */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-2xl md:max-h-[90vh] bg-card border border-border rounded-3xl z-50 overflow-hidden flex flex-col"
+        className="fixed inset-0 bg-background z-50 flex flex-col"
       >
-        {/* Header */}
-        <div className="p-6 border-b border-border flex items-center justify-between shrink-0">
-          <div>
-            <h2 className="text-xl font-bold font-display text-foreground">
-              {isEditing ? 'Edit Event' : 'Create New Event'}
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {isEditing ? 'Update event details' : 'Fill in the event details below'}
-            </p>
+        {/* Header - Fixed */}
+        <div className="shrink-0 border-b border-border bg-card">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold font-display text-foreground">
+                {isEditing ? 'Edit Event' : 'Create New Event'}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {isEditing ? 'Update event details' : 'Fill in the event details below'}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="w-5 h-5" />
-          </Button>
         </div>
 
         {/* Form - Scrollable */}
-        <ScrollArea className="flex-1">
-          <form onSubmit={handleSubmit} className="p-6 space-y-6">
-            {/* Basic Info */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Basic Info</h3>
-              <div className="space-y-2">
-                <Label htmlFor="title">Event Title *</Label>
-                <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g., Tech Founders Speed Dating"
-                  className="bg-secondary/50"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Tell guests what to expect..."
-                  className="bg-secondary/50 min-h-[80px]"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="coverImage">Cover Image URL *</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="coverImage"
-                    value={coverImage}
-                    onChange={(e) => setCoverImage(e.target.value)}
-                    placeholder="https://..."
-                    className="bg-secondary/50"
+        <div className="flex-1 overflow-auto">
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto p-4 space-y-3 pb-32">
+            
+            {/* Basic Info - Always expanded first */}
+            <Collapsible open={openSections.basic} onOpenChange={() => toggleSection('basic')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Basic Info" 
+                    icon={Sparkles} 
+                    isOpen={openSections.basic} 
+                    onToggle={() => toggleSection('basic')} 
                   />
-                  <Button type="button" variant="outline" size="icon">
-                    <Image className="w-4 h-4" />
-                  </Button>
                 </div>
-                {coverImage && (
-                  <div className="w-32 h-20 rounded-lg overflow-hidden bg-secondary/50">
-                    <img src={coverImage} alt="Preview" className="w-full h-full object-cover" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="title">Event Title *</Label>
+                    <Input
+                      id="title"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="e.g., Tech Founders Speed Dating"
+                      className="bg-secondary/50"
+                    />
                   </div>
-                )}
-              </div>
-            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="status">Status</Label>
+                    <Select value={status} onValueChange={setStatus}>
+                      <SelectTrigger className="bg-secondary/50">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="upcoming">Upcoming</SelectItem>
+                        <SelectItem value="live">Live</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Tell guests what to expect..."
+                    className="bg-secondary/50 min-h-[80px]"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="coverImage">Cover Image URL *</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="coverImage"
+                      value={coverImage}
+                      onChange={(e) => setCoverImage(e.target.value)}
+                      placeholder="https://..."
+                      className="bg-secondary/50"
+                    />
+                    <Button type="button" variant="outline" size="icon">
+                      <Image className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {coverImage && (
+                    <div className="w-full h-32 rounded-lg overflow-hidden bg-secondary/50">
+                      <img src={coverImage} alt="Preview" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Date & Time */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Date & Time</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="date">Date *</Label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Collapsible open={openSections.dateTime} onOpenChange={() => toggleSection('dateTime')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Date & Time" 
+                    icon={Calendar} 
+                    isOpen={openSections.dateTime} 
+                    onToggle={() => toggleSection('dateTime')}
+                    badge={eventDate && eventTime ? `${eventDate} ${eventTime}` : undefined}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="date">Date *</Label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="date"
+                        type="date"
+                        value={eventDate}
+                        onChange={(e) => setEventDate(e.target.value)}
+                        className="pl-10 bg-secondary/50"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="time">Time *</Label>
+                    <div className="relative">
+                      <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="time"
+                        type="time"
+                        value={eventTime}
+                        onChange={(e) => setEventTime(e.target.value)}
+                        className="pl-10 bg-secondary/50"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="duration">Duration (min)</Label>
                     <Input
-                      id="date"
-                      type="date"
-                      value={eventDate}
-                      onChange={(e) => setEventDate(e.target.value)}
-                      className="pl-10 bg-secondary/50"
+                      id="duration"
+                      type="number"
+                      value={duration}
+                      onChange={(e) => setDuration(e.target.value)}
+                      className="bg-secondary/50"
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="time">Time *</Label>
-                  <div className="relative">
-                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      id="time"
-                      type="time"
-                      value={eventTime}
-                      onChange={(e) => setEventTime(e.target.value)}
-                      className="pl-10 bg-secondary/50"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="duration">Duration (minutes)</Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  className="bg-secondary/50"
-                />
-              </div>
-            </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Gender-Specific Capacity */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
-                <UserCircle className="w-4 h-4" />
-                Gender Capacity
-              </h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="maxMale">Male Spots</Label>
-                  <Input
-                    id="maxMale"
-                    type="number"
-                    value={maxMaleAttendees}
-                    onChange={(e) => setMaxMaleAttendees(e.target.value)}
-                    placeholder="25"
-                    className="bg-secondary/50"
+            <Collapsible open={openSections.capacity} onOpenChange={() => toggleSection('capacity')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Capacity" 
+                    icon={UserCircle} 
+                    isOpen={openSections.capacity} 
+                    onToggle={() => toggleSection('capacity')}
+                    badge={totalCapacity > 0 ? `${totalCapacity} spots` : undefined}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="maxFemale">Female Spots</Label>
-                  <Input
-                    id="maxFemale"
-                    type="number"
-                    value={maxFemaleAttendees}
-                    onChange={(e) => setMaxFemaleAttendees(e.target.value)}
-                    placeholder="25"
-                    className="bg-secondary/50"
-                  />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="maxMale">Male Spots</Label>
+                    <Input
+                      id="maxMale"
+                      type="number"
+                      value={maxMaleAttendees}
+                      onChange={(e) => setMaxMaleAttendees(e.target.value)}
+                      placeholder="25"
+                      className="bg-secondary/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxFemale">Female Spots</Label>
+                    <Input
+                      id="maxFemale"
+                      type="number"
+                      value={maxFemaleAttendees}
+                      onChange={(e) => setMaxFemaleAttendees(e.target.value)}
+                      placeholder="25"
+                      className="bg-secondary/50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="maxNonbinary">Non-Binary</Label>
+                    <Input
+                      id="maxNonbinary"
+                      type="number"
+                      value={maxNonbinaryAttendees}
+                      onChange={(e) => setMaxNonbinaryAttendees(e.target.value)}
+                      placeholder="10"
+                      className="bg-secondary/50"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="maxNonbinary">Non-Binary Spots</Label>
-                  <Input
-                    id="maxNonbinary"
-                    type="number"
-                    value={maxNonbinaryAttendees}
-                    onChange={(e) => setMaxNonbinaryAttendees(e.target.value)}
-                    placeholder="10"
-                    className="bg-secondary/50"
-                  />
-                </div>
-              </div>
-              {totalCapacity > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Total Capacity: <span className="text-foreground font-medium">{totalCapacity}</span>
-                </p>
-              )}
-            </div>
+                {totalCapacity > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Total Capacity: <span className="text-foreground font-medium">{totalCapacity}</span>
+                  </p>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Location */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  Location
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="locationToggle" className="text-sm text-muted-foreground">Physical Location</Label>
+            <Collapsible open={openSections.location} onOpenChange={() => toggleSection('location')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Location" 
+                    icon={MapPin} 
+                    isOpen={openSections.location} 
+                    onToggle={() => toggleSection('location')}
+                    badge={isLocationSpecific ? 'Physical' : 'Virtual'}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-4">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
                   <Switch
                     id="locationToggle"
                     checked={isLocationSpecific}
                     onCheckedChange={setIsLocationSpecific}
                   />
+                  <Label htmlFor="locationToggle" className="text-sm">Physical Location</Label>
                 </div>
-              </div>
-              {isLocationSpecific && (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="locationName">Venue Name</Label>
-                    <Input
-                      id="locationName"
-                      value={locationName}
-                      onChange={(e) => setLocationName(e.target.value)}
-                      placeholder="e.g., The Rooftop Bar"
-                      className="bg-secondary/50"
-                    />
+                {isLocationSpecific && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="locationName">Venue Name</Label>
+                      <Input
+                        id="locationName"
+                        value={locationName}
+                        onChange={(e) => setLocationName(e.target.value)}
+                        placeholder="e.g., The Rooftop Bar"
+                        className="bg-secondary/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="locationAddress">Address</Label>
+                      <Input
+                        id="locationAddress"
+                        value={locationAddress}
+                        onChange={(e) => setLocationAddress(e.target.value)}
+                        placeholder="e.g., 123 Main St, NYC"
+                        className="bg-secondary/50"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="locationAddress">Address</Label>
-                    <Input
-                      id="locationAddress"
-                      value={locationAddress}
-                      onChange={(e) => setLocationAddress(e.target.value)}
-                      placeholder="e.g., 123 Main St, New York, NY"
-                      className="bg-secondary/50"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Visibility */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                Visibility
-              </h3>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { value: 'all', label: 'All Users', icon: Users },
-                  { value: 'premium', label: 'Premium Only', icon: Crown },
-                  { value: 'vip', label: 'VIP Only', icon: Sparkles },
-                ].map((option) => {
-                  const Icon = option.icon;
-                  return (
-                    <motion.button
-                      key={option.value}
-                      type="button"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setVisibility(option.value)}
-                      className={`p-3 rounded-xl border transition-all flex flex-col items-center gap-2 ${
-                        visibility === option.value
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
-                      }`}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span className="text-xs font-medium">{option.label}</span>
-                    </motion.button>
-                  );
-                })}
-              </div>
-            </div>
+            <Collapsible open={openSections.visibility} onOpenChange={() => toggleSection('visibility')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Visibility" 
+                    icon={Eye} 
+                    isOpen={openSections.visibility} 
+                    onToggle={() => toggleSection('visibility')}
+                    badge={visibility === 'all' ? 'All Users' : visibility === 'premium' ? 'Premium' : 'VIP'}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'all', label: 'All Users', icon: Users },
+                    { value: 'premium', label: 'Premium', icon: Crown },
+                    { value: 'vip', label: 'VIP Only', icon: Sparkles },
+                  ].map((option) => {
+                    const Icon = option.icon;
+                    return (
+                      <motion.button
+                        key={option.value}
+                        type="button"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => setVisibility(option.value)}
+                        className={`p-3 rounded-xl border transition-all flex flex-col items-center gap-2 ${
+                          visibility === option.value
+                            ? 'border-primary bg-primary/10 text-foreground'
+                            : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                        <span className="text-xs font-medium">{option.label}</span>
+                      </motion.button>
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Pricing */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" />
-                  Pricing
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="freeToggle" className="text-sm text-muted-foreground">Free Event</Label>
+            <Collapsible open={openSections.pricing} onOpenChange={() => toggleSection('pricing')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Pricing" 
+                    icon={DollarSign} 
+                    isOpen={openSections.pricing} 
+                    onToggle={() => toggleSection('pricing')}
+                    badge={isFree ? 'Free' : `${priceAmount} ${priceCurrency}`}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3 space-y-4">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
                   <Switch
                     id="freeToggle"
                     checked={isFree}
                     onCheckedChange={setIsFree}
                   />
+                  <Label htmlFor="freeToggle" className="text-sm">Free Event</Label>
                 </div>
-              </div>
-              {!isFree && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="priceAmount">Price</Label>
-                    <Input
-                      id="priceAmount"
-                      type="number"
-                      step="0.01"
-                      value={priceAmount}
-                      onChange={(e) => setPriceAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="bg-secondary/50"
-                    />
+                {!isFree && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="priceAmount">Price</Label>
+                      <Input
+                        id="priceAmount"
+                        type="number"
+                        step="0.01"
+                        value={priceAmount}
+                        onChange={(e) => setPriceAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="bg-secondary/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="priceCurrency">Currency</Label>
+                      <Select value={priceCurrency} onValueChange={setPriceCurrency}>
+                        <SelectTrigger className="bg-secondary/50">
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {currencies.map((curr) => (
+                            <SelectItem key={curr.id} value={curr.id}>
+                              {curr.symbol} {curr.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="priceCurrency">Currency</Label>
-                    <Select value={priceCurrency} onValueChange={setPriceCurrency}>
-                      <SelectTrigger className="bg-secondary/50">
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {currencies.map((curr) => (
-                          <SelectItem key={curr.id} value={curr.id}>
-                            {curr.symbol} {curr.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Vibes Selection */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
-                <Sparkles className="w-4 h-4" />
-                Target Vibes
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {vibeTags.map((vibe) => (
-                  <motion.button
-                    key={vibe.id}
-                    type="button"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => toggleVibe(vibe.label)}
-                    className={`px-3 py-2 rounded-full border transition-all ${
-                      selectedVibes.includes(vibe.label)
-                        ? 'border-primary bg-primary/20 text-foreground'
-                        : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
-                    }`}
-                  >
-                    <span className="mr-1">{vibe.emoji}</span>
-                    {vibe.label}
-                  </motion.button>
-                ))}
-              </div>
-            </div>
+            <Collapsible open={openSections.vibes} onOpenChange={() => toggleSection('vibes')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Target Vibes" 
+                    icon={Sparkles} 
+                    isOpen={openSections.vibes} 
+                    onToggle={() => toggleSection('vibes')}
+                    badge={selectedVibes.length > 0 ? `${selectedVibes.length} selected` : undefined}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <div className="flex flex-wrap gap-2">
+                  {vibeTags.map((vibe) => (
+                    <motion.button
+                      key={vibe.id}
+                      type="button"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => toggleVibe(vibe.label)}
+                      className={`px-3 py-2 rounded-full border transition-all text-sm ${
+                        selectedVibes.includes(vibe.label)
+                          ? 'border-primary bg-primary/20 text-foreground'
+                          : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
+                      }`}
+                    >
+                      <span className="mr-1">{vibe.emoji}</span>
+                      {vibe.label}
+                    </motion.button>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* Event Theme Tags */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Event Themes</h3>
-              <div className="flex flex-wrap gap-2">
-                {eventThemes.map((theme) => (
-                  <motion.button
-                    key={theme.id}
-                    type="button"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => toggleTag(theme.id)}
-                    className={`px-3 py-2 rounded-full border transition-all ${
-                      selectedTags.includes(theme.id)
-                        ? 'border-primary bg-primary/20 text-foreground'
-                        : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
-                    }`}
-                  >
-                    <span className="mr-1">{theme.emoji}</span>
-                    {theme.label}
-                  </motion.button>
-                ))}
-              </div>
-            </div>
-
-            {/* Status */}
-            <div className="space-y-2">
-              <Label htmlFor="status">Status</Label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-secondary/50">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="upcoming">Upcoming</SelectItem>
-                  <SelectItem value="live">Live</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <Collapsible open={openSections.themes} onOpenChange={() => toggleSection('themes')}>
+              <CollapsibleTrigger asChild>
+                <div>
+                  <SectionHeader 
+                    title="Event Themes" 
+                    icon={Sparkles} 
+                    isOpen={openSections.themes} 
+                    onToggle={() => toggleSection('themes')}
+                    badge={selectedTags.length > 0 ? `${selectedTags.length} selected` : undefined}
+                  />
+                </div>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-3">
+                <div className="flex flex-wrap gap-2">
+                  {eventThemes.map((theme) => (
+                    <motion.button
+                      key={theme.id}
+                      type="button"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => toggleTag(theme.id)}
+                      className={`px-3 py-2 rounded-full border transition-all text-sm ${
+                        selectedTags.includes(theme.id)
+                          ? 'border-primary bg-primary/20 text-foreground'
+                          : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'
+                      }`}
+                    >
+                      <span className="mr-1">{theme.emoji}</span>
+                      {theme.label}
+                    </motion.button>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </form>
-        </ScrollArea>
+        </div>
 
-        {/* Footer */}
-        <div className="p-6 border-t border-border flex justify-end gap-3 shrink-0">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => saveEvent.mutate()}
-            disabled={saveEvent.isPending}
-            className="bg-gradient-to-r from-primary to-accent gap-2"
-          >
-            {saveEvent.isPending ? (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
-              />
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                {isEditing ? 'Update Event' : 'Create Event'}
-              </>
-            )}
-          </Button>
+        {/* Footer - Fixed */}
+        <div className="shrink-0 border-t border-border bg-card">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex justify-end gap-3">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => saveEvent.mutate()}
+              disabled={saveEvent.isPending}
+              className="bg-gradient-to-r from-primary to-accent gap-2"
+            >
+              {saveEvent.isPending ? (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                />
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  {isEditing ? 'Update Event' : 'Create Event'}
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </motion.div>
     </>
