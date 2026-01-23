@@ -154,11 +154,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
     try {
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `event-covers/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-      // Upload to profile-photos bucket (reusing existing bucket)
+      // Upload to event-covers bucket (admin only)
       const { data, error } = await supabase.storage
-        .from('profile-photos')
+        .from('event-covers')
         .upload(fileName, file, {
           cacheControl: '3600',
           upsert: true,
@@ -168,7 +168,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
       // Get public URL
       const { data: urlData } = supabase.storage
-        .from('profile-photos')
+        .from('event-covers')
         .getPublicUrl(data.path);
 
       setCoverImage(urlData.publicUrl);
@@ -214,7 +214,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           .update(eventData)
           .eq('id', event.id);
         if (error) throw error;
-        return { id: event.id, action: 'edit_event' };
+        return { id: event.id, action: 'edit_event', eventData };
       } else {
         const { data, error } = await supabase
           .from('events')
@@ -222,7 +222,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           .select()
           .single();
         if (error) throw error;
-        return { id: data.id, action: 'create_event' };
+        return { id: data.id, action: 'create_event', eventData: data };
       }
     },
     onSuccess: async (result) => {
@@ -233,6 +233,24 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         targetId: result.id,
         details: { title }
       });
+      
+      // Trigger email notifications for new events
+      if (result.action === 'create_event') {
+        try {
+          await supabase.functions.invoke('event-notifications', {
+            body: {
+              type: 'new_event',
+              eventId: result.id,
+              eventTitle: title,
+              eventDate: result.eventData.event_date,
+              eventDescription: description,
+            }
+          });
+          console.log('Event notification emails triggered');
+        } catch (e) {
+          console.error('Failed to send event notifications:', e);
+        }
+      }
       
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success(isEditing ? 'Event updated successfully' : 'Event created successfully');

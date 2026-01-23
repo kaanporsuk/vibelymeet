@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useServiceWorker } from './useServiceWorker';
 
 const NOTIFICATION_PERMISSION_KEY = 'vibely_notification_permission';
 const SCHEDULED_NOTIFICATIONS_KEY = 'vibely_scheduled_notifications';
@@ -15,6 +16,12 @@ interface ScheduledNotification {
 export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(false);
+  const { 
+    isReady: swReady, 
+    scheduleDailyDropNotification: swScheduleDailyDrop,
+    scheduleDateReminder: swScheduleDateReminder,
+    showNotification: swShowNotification,
+  } = useServiceWorker();
 
   // Check support and permission on mount
   useEffect(() => {
@@ -46,10 +53,17 @@ export function usePushNotifications() {
     }
   }, [isSupported]);
 
-  // Send immediate notification
+  // Send immediate notification (uses service worker if available)
   const sendNotification = useCallback((title: string, options?: NotificationOptions): Notification | null => {
     if (!isSupported || permission !== 'granted') return null;
 
+    // Use service worker for background support
+    if (swReady) {
+      swShowNotification(title, options?.body || '', options?.tag, '/');
+      return null;
+    }
+
+    // Fallback to direct notification
     try {
       const notification = new Notification(title, {
         icon: '/favicon.ico',
@@ -62,9 +76,9 @@ export function usePushNotifications() {
       console.error('Failed to send notification:', error);
       return null;
     }
-  }, [isSupported, permission]);
+  }, [isSupported, permission, swReady, swShowNotification]);
 
-  // Schedule a notification (stores in localStorage, checked by service worker or timer)
+  // Schedule a notification (uses service worker or localStorage fallback)
   const scheduleNotification = useCallback((notification: Omit<ScheduledNotification, 'id'>): string => {
     const id = `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
@@ -123,8 +137,15 @@ export function usePushNotifications() {
     }
   }, [permission, sendNotification]);
 
-  // Schedule daily drop notification for 6 PM
+  // Schedule daily drop notification for 6 PM (uses service worker if ready)
   const scheduleDailyDropNotification = useCallback(() => {
+    // Prefer service worker for background support
+    if (swReady) {
+      swScheduleDailyDrop();
+      return 'sw-daily-drop';
+    }
+
+    // Fallback to localStorage-based scheduling
     const now = new Date();
     const dropTime = new Date(now);
     dropTime.setHours(18, 0, 0, 0);
@@ -140,9 +161,9 @@ export function usePushNotifications() {
       scheduledAt: dropTime.toISOString(),
       type: 'daily_drop',
     });
-  }, [scheduleNotification]);
+  }, [scheduleNotification, swReady, swScheduleDailyDrop]);
 
-  // Schedule date reminder notification
+  // Schedule date reminder notification (uses service worker if ready)
   const scheduleDateReminder = useCallback((
     matchName: string,
     dateTime: Date,
@@ -153,6 +174,12 @@ export function usePushNotifications() {
     // Don't schedule if the reminder time has already passed
     if (reminderTime <= new Date()) return null;
 
+    // Prefer service worker for background support
+    if (swReady) {
+      swScheduleDateReminder(matchName, dateTime, minutesBefore);
+      return 'sw-date-reminder';
+    }
+
     return scheduleNotification({
       title: `📅 Date with ${matchName} starting soon!`,
       body: `Your video date starts in ${minutesBefore} minutes. Get ready!`,
@@ -160,7 +187,7 @@ export function usePushNotifications() {
       type: 'date_reminder',
       data: { matchName, dateTime: dateTime.toISOString() },
     });
-  }, [scheduleNotification]);
+  }, [scheduleNotification, swReady, swScheduleDateReminder]);
 
   // Check scheduled notifications periodically
   useEffect(() => {
@@ -177,6 +204,7 @@ export function usePushNotifications() {
     permission,
     isGranted: permission === 'granted',
     isDenied: permission === 'denied',
+    hasServiceWorker: swReady,
     requestPermission,
     sendNotification,
     scheduleNotification,
