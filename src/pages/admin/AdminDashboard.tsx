@@ -34,9 +34,10 @@ import AdminExportPanel from "@/components/admin/AdminExportPanel";
 import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
 import AdminEventAnalytics from "@/components/admin/AdminEventAnalytics";
 import AdminActivityLog from "@/components/admin/AdminActivityLog";
+import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -87,15 +88,17 @@ const AdminDashboard = () => {
                 {activePanel === 'export' && 'Data Export'}
                 {activePanel === 'event-analytics' && 'Event Analytics'}
                 {activePanel === 'activity-log' && 'Activity Log'}
+                {activePanel === 'engagement' && 'Engagement Analytics'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
                 {activePanel === 'users' && 'Manage all user profiles and activity'}
                 {activePanel === 'events' && 'Create and manage events'}
                 {activePanel === 'reports' && 'Review and act on user reports'}
-                {activePanel === 'export' && 'Download platform data as CSV'}
+                {activePanel === 'export' && 'Download platform data as CSV/PDF'}
                 {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
                 {activePanel === 'activity-log' && 'Track all admin moderation actions'}
+                {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -151,6 +154,7 @@ const AdminDashboard = () => {
           {activePanel === 'export' && <AdminExportPanel />}
           {activePanel === 'event-analytics' && <AdminEventAnalytics />}
           {activePanel === 'activity-log' && <AdminActivityLog />}
+          {activePanel === 'engagement' && <AdminEngagementAnalytics />}
         </main>
       </div>
 

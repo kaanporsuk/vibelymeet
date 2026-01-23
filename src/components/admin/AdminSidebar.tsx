@@ -10,10 +10,11 @@ import {
   Download,
   BarChart3,
   Activity,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -27,6 +28,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout }: AdminSidebarPro
     { id: 'users' as const, label: 'Users', icon: Users },
     { id: 'events' as const, label: 'Events', icon: Calendar },
     { id: 'event-analytics' as const, label: 'Event Analytics', icon: BarChart3 },
+    { id: 'engagement' as const, label: 'Engagement', icon: TrendingUp },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
     { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },
     { id: 'export' as const, label: 'Export', icon: Download },
