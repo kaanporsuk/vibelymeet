@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VibeTag } from "@/components/VibeTag";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
@@ -131,43 +130,36 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
   const prompts = profile?.prompts as Array<{ prompt: string; answer: string }> | null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
-      />
-
-      {/* Modal */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md max-h-[90vh] bg-background border border-border rounded-3xl z-[60] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-background z-[60] flex flex-col"
+    >
+      {/* Header - Fixed */}
+      <div className="shrink-0 border-b border-border bg-card">
+        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold font-display text-foreground">Profile Preview</h2>
-            <p className="text-xs text-muted-foreground">How {profile?.name || "User"} sees their profile</p>
+            <h2 className="text-xl font-bold font-display text-foreground">Profile Preview</h2>
+            <p className="text-sm text-muted-foreground">How {profile?.name || "User"} sees their profile</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="w-5 h-5" />
           </Button>
         </div>
+      </div>
 
-        <ScrollArea className="flex-1">
+      {/* Content - Scrollable */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-2xl mx-auto p-4 pb-24">
           {isLoading ? (
-            <div className="p-6 space-y-4">
+            <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-40 bg-secondary/50 rounded-xl animate-pulse" />
               ))}
             </div>
           ) : profile ? (
-            <div className="p-4 space-y-4">
+            <div className="space-y-4">
               {/* Hero Photo */}
               {photos[0] && (
                 <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl">
@@ -324,11 +316,20 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               </div>
             </div>
           ) : (
-            <div className="p-6 text-center text-muted-foreground">Profile not found</div>
+            <div className="text-center text-muted-foreground py-12">Profile not found</div>
           )}
-        </ScrollArea>
-      </motion.div>
-    </>
+        </div>
+      </div>
+
+      {/* Footer - Fixed */}
+      <div className="shrink-0 border-t border-border bg-card">
+        <div className="max-w-2xl mx-auto px-4 py-4 flex justify-end">
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </motion.div>
   );
 };
 
