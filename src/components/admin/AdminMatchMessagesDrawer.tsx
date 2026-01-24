@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
@@ -145,26 +144,15 @@ const AdminMatchMessagesDrawer = ({
   if (!isOpen) return null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
-      />
-
-      {/* Drawer */}
-      <motion.div
-        initial={{ x: "100%" }}
-        animate={{ x: 0 }}
-        exit={{ x: "100%" }}
-        transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-full max-w-2xl bg-background border-l border-border z-[60] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="p-6 border-b border-border flex items-center justify-between">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-background z-[60] flex flex-col"
+    >
+      {/* Header - Fixed */}
+      <div className="shrink-0 border-b border-border bg-card">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {selectedMatchId && (
               <Button
@@ -193,22 +181,26 @@ const AdminMatchMessagesDrawer = ({
             <X className="w-5 h-5" />
           </Button>
         </div>
+      </div>
 
-        <ScrollArea className="flex-1">
+      {/* Content - Scrollable */}
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-4xl mx-auto p-4 pb-24">
           {!selectedMatchId ? (
             // Match list view
-            <div className="p-6 space-y-3">
+            <div className="space-y-3">
               {matchesLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="h-20 bg-secondary/50 rounded-xl animate-pulse" />
                 ))
               ) : matches?.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No matches found</p>
+                <div className="text-center py-16">
+                  <MessageSquare className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-lg font-medium text-foreground mb-2">No matches found</p>
+                  <p className="text-sm text-muted-foreground">This user doesn't have any matches yet.</p>
                 </div>
               ) : (
-                matches?.map((match) => {
+                matches?.map((match, index) => {
                   const otherId =
                     match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
                   const otherUser = matchProfiles?.[otherId];
@@ -217,6 +209,9 @@ const AdminMatchMessagesDrawer = ({
                   return (
                     <motion.button
                       key={match.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.03 }}
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
                       onClick={() => {
@@ -264,22 +259,26 @@ const AdminMatchMessagesDrawer = ({
             </div>
           ) : (
             // Messages view
-            <div className="p-6 space-y-4">
+            <div className="space-y-4">
               {messagesLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : messages?.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>No messages in this conversation</p>
+                <div className="text-center py-16">
+                  <MessageSquare className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-lg font-medium text-foreground mb-2">No messages yet</p>
+                  <p className="text-sm text-muted-foreground">This conversation is empty.</p>
                 </div>
               ) : (
-                messages?.map((msg) => {
+                messages?.map((msg, index) => {
                   const isFromUser = msg.sender_id === userId;
                   return (
-                    <div
+                    <motion.div
                       key={msg.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.02 }}
                       className={`flex ${isFromUser ? "justify-end" : "justify-start"}`}
                     >
                       <div
@@ -299,15 +298,35 @@ const AdminMatchMessagesDrawer = ({
                           )}
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })
               )}
             </div>
           )}
-        </ScrollArea>
-      </motion.div>
-    </>
+        </div>
+      </div>
+
+      {/* Footer - Fixed */}
+      <div className="shrink-0 border-t border-border bg-card">
+        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="text-sm text-muted-foreground">
+            {selectedMatchId ? (
+              <>
+                <span className="text-foreground font-medium">{messages?.length || 0}</span> messages in this conversation
+              </>
+            ) : (
+              <>
+                <span className="text-foreground font-medium">{matches?.length || 0}</span> total matches
+              </>
+            )}
+          </div>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </motion.div>
   );
 };
 

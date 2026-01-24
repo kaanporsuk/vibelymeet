@@ -35,9 +35,10 @@ import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
 import AdminEventAnalytics from "@/components/admin/AdminEventAnalytics";
 import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
+import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -89,6 +90,7 @@ const AdminDashboard = () => {
                 {activePanel === 'event-analytics' && 'Event Analytics'}
                 {activePanel === 'activity-log' && 'Activity Log'}
                 {activePanel === 'engagement' && 'Engagement Analytics'}
+                {activePanel === 'campaigns' && 'Push Campaigns'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -99,6 +101,7 @@ const AdminDashboard = () => {
                 {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
                 {activePanel === 'activity-log' && 'Track all admin moderation actions'}
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
+                {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -155,6 +158,7 @@ const AdminDashboard = () => {
           {activePanel === 'event-analytics' && <AdminEventAnalytics />}
           {activePanel === 'activity-log' && <AdminActivityLog />}
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
+          {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
         </main>
       </div>
 
