@@ -22,6 +22,8 @@ import {
   TrendingUp,
   ChevronDown,
   ChevronUp,
+  BarChart3,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,9 +47,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
+import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 
 interface Campaign {
   id: string;
@@ -251,6 +256,17 @@ const AdminPushCampaignsPanel = () => {
     );
   };
 
+  const handleSelectTemplate = (template: CampaignTemplate) => {
+    setFormData({
+      name: template.name,
+      title: template.title,
+      body: template.body,
+      scheduleType: 'now',
+      scheduledAt: '',
+    });
+    setShowCreateForm(true);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -274,147 +290,175 @@ const AdminPushCampaignsPanel = () => {
         </Button>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Send className="w-4 h-4" />
-              <span className="text-xs">Total Sent</span>
-            </div>
-            <p className="text-2xl font-bold text-foreground">
-              {campaigns.reduce((sum, c) => sum + (c.stats?.sent || 0), 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <CheckCircle className="w-4 h-4" />
-              <span className="text-xs">Delivered</span>
-            </div>
-            <p className="text-2xl font-bold text-green-400">
-              {campaigns.reduce((sum, c) => sum + (c.stats?.delivered || 0), 0).toLocaleString()}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs">Avg Open Rate</span>
-            </div>
-            <p className="text-2xl font-bold text-cyan-400">35.8%</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-card border-border">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Scheduled</span>
-            </div>
-            <p className="text-2xl font-bold text-yellow-400">
-              {campaigns.filter(c => c.status === 'scheduled').length}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Tabs for different views */}
+      <Tabs defaultValue="campaigns" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="campaigns" className="gap-2">
+            <Send className="w-4 h-4" />
+            Campaigns
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="gap-2">
+            <BarChart3 className="w-4 h-4" />
+            Analytics
+          </TabsTrigger>
+          <TabsTrigger value="templates" className="gap-2">
+            <FileText className="w-4 h-4" />
+            Templates
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Campaign List */}
-      <div className="space-y-4">
-        {campaigns.map((campaign) => (
-          <motion.div
-            key={campaign.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="glass-card rounded-2xl p-4 space-y-3"
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-foreground">{campaign.name}</h3>
-                  <Badge
-                    className={
-                      campaign.status === 'sent'
-                        ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                        : campaign.status === 'scheduled'
-                        ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
-                        : campaign.status === 'paused'
-                        ? 'bg-orange-500/10 text-orange-400 border-orange-500/30'
-                        : 'bg-gray-500/10 text-gray-400 border-gray-500/30'
-                    }
-                  >
-                    {campaign.status}
-                  </Badge>
+        <TabsContent value="campaigns" className="space-y-6">
+          {/* Stats Overview */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Send className="w-4 h-4" />
+                  <span className="text-xs">Total Sent</span>
                 </div>
-                <p className="text-sm font-medium text-foreground">{campaign.title}</p>
-                <p className="text-xs text-muted-foreground line-clamp-2">{campaign.body}</p>
-              </div>
-              <div className="flex items-center gap-1">
-                {campaign.status === 'scheduled' && (
-                  <Button variant="ghost" size="icon" onClick={() => toast.success('Campaign paused')}>
-                    <Pause className="w-4 h-4" />
-                  </Button>
+                <p className="text-2xl font-bold text-foreground">
+                  {campaigns.reduce((sum, c) => sum + (c.stats?.sent || 0), 0).toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="text-xs">Delivered</span>
+                </div>
+                <p className="text-2xl font-bold text-accent">
+                  {campaigns.reduce((sum, c) => sum + (c.stats?.delivered || 0), 0).toLocaleString()}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <TrendingUp className="w-4 h-4" />
+                  <span className="text-xs">Avg Open Rate</span>
+                </div>
+                <p className="text-2xl font-bold text-primary">35.8%</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Clock className="w-4 h-4" />
+                  <span className="text-xs">Scheduled</span>
+                </div>
+                <p className="text-2xl font-bold text-muted-foreground">
+                  {campaigns.filter(c => c.status === 'scheduled').length}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Campaign List */}
+          <div className="space-y-4">
+            {campaigns.map((campaign) => (
+              <motion.div
+                key={campaign.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-card rounded-2xl p-4 space-y-3"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-foreground">{campaign.name}</h3>
+                      <Badge
+                        className={
+                          campaign.status === 'sent'
+                            ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                            : campaign.status === 'scheduled'
+                            ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+                            : campaign.status === 'paused'
+                            ? 'bg-orange-500/10 text-orange-400 border-orange-500/30'
+                            : 'bg-gray-500/10 text-gray-400 border-gray-500/30'
+                        }
+                      >
+                        {campaign.status}
+                      </Badge>
+                    </div>
+                    <p className="text-sm font-medium text-foreground">{campaign.title}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{campaign.body}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {campaign.status === 'scheduled' && (
+                      <Button variant="ghost" size="icon" onClick={() => toast.success('Campaign paused')}>
+                        <Pause className="w-4 h-4" />
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="icon" onClick={() => setEditingCampaign(campaign)}>
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDeleteCampaign(campaign.id)}>
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {campaign.targetSegment.activityLevel && campaign.targetSegment.activityLevel !== 'all' && (
+                    <Badge variant="outline" className="gap-1">
+                      <Activity className="w-3 h-3" />
+                      {campaign.targetSegment.activityLevel}
+                      {campaign.targetSegment.inactiveDays && ` (${campaign.targetSegment.inactiveDays}+ days)`}
+                    </Badge>
+                  )}
+                  {campaign.targetSegment.isVerified && (
+                    <Badge variant="outline" className="gap-1">
+                      <CheckCircle className="w-3 h-3" />
+                      Verified only
+                    </Badge>
+                  )}
+                  {campaign.targetSegment.vibes?.length ? (
+                    <Badge variant="outline" className="gap-1">
+                      <Sparkles className="w-3 h-3" />
+                      {campaign.targetSegment.vibes.join(', ')}
+                    </Badge>
+                  ) : null}
+                </div>
+
+                {campaign.stats && (
+                  <div className="flex gap-4 pt-2 border-t border-border/50 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Sent:</span>{' '}
+                      <span className="font-medium text-foreground">{campaign.stats.sent.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Delivered:</span>{' '}
+                      <span className="font-medium text-accent">{campaign.stats.delivered.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Opened:</span>{' '}
+                      <span className="font-medium text-primary">
+                        {campaign.stats.opened.toLocaleString()} ({Math.round((campaign.stats.opened / campaign.stats.delivered) * 100)}%)
+                      </span>
+                    </div>
+                  </div>
                 )}
-                <Button variant="ghost" size="icon" onClick={() => setEditingCampaign(campaign)}>
-                  <Edit className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => handleDeleteCampaign(campaign.id)}>
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                </Button>
-              </div>
-            </div>
 
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              {campaign.targetSegment.activityLevel && campaign.targetSegment.activityLevel !== 'all' && (
-                <Badge variant="outline" className="gap-1">
-                  <Activity className="w-3 h-3" />
-                  {campaign.targetSegment.activityLevel}
-                  {campaign.targetSegment.inactiveDays && ` (${campaign.targetSegment.inactiveDays}+ days)`}
-                </Badge>
-              )}
-              {campaign.targetSegment.isVerified && (
-                <Badge variant="outline" className="gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  Verified only
-                </Badge>
-              )}
-              {campaign.targetSegment.vibes?.length ? (
-                <Badge variant="outline" className="gap-1">
-                  <Sparkles className="w-3 h-3" />
-                  {campaign.targetSegment.vibes.join(', ')}
-                </Badge>
-              ) : null}
-            </div>
+                {campaign.scheduledAt && (
+                  <div className="text-xs text-muted-foreground">
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    Scheduled for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}
+                  </div>
+                )}
+              </motion.div>
+            ))}
+          </div>
+        </TabsContent>
 
-            {campaign.stats && (
-              <div className="flex gap-4 pt-2 border-t border-border/50 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Sent:</span>{' '}
-                  <span className="font-medium text-foreground">{campaign.stats.sent.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Delivered:</span>{' '}
-                  <span className="font-medium text-green-400">{campaign.stats.delivered.toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Opened:</span>{' '}
-                  <span className="font-medium text-cyan-400">
-                    {campaign.stats.opened.toLocaleString()} ({Math.round((campaign.stats.opened / campaign.stats.delivered) * 100)}%)
-                  </span>
-                </div>
-              </div>
-            )}
+        <TabsContent value="analytics">
+          <PushAnalyticsDashboard />
+        </TabsContent>
 
-            {campaign.scheduledAt && (
-              <div className="text-xs text-muted-foreground">
-                <Clock className="w-3 h-3 inline mr-1" />
-                Scheduled for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}
-              </div>
-            )}
-          </motion.div>
-        ))}
-      </div>
+        <TabsContent value="templates">
+          <CampaignTemplatesLibrary onSelectTemplate={handleSelectTemplate} />
+        </TabsContent>
+      </Tabs>
 
       {/* Create Campaign Modal */}
       <AnimatePresence>
