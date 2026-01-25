@@ -53,6 +53,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
+import NotificationDeliveryMonitor from "./NotificationDeliveryMonitor";
 
 interface Campaign {
   id: string;
@@ -297,6 +298,10 @@ const AdminPushCampaignsPanel = () => {
             <Send className="w-4 h-4" />
             Campaigns
           </TabsTrigger>
+          <TabsTrigger value="monitor" className="gap-2">
+            <Activity className="w-4 h-4" />
+            Live Monitor
+          </TabsTrigger>
           <TabsTrigger value="analytics" className="gap-2">
             <BarChart3 className="w-4 h-4" />
             Analytics
@@ -449,6 +454,10 @@ const AdminPushCampaignsPanel = () => {
               </motion.div>
             ))}
           </div>
+        </TabsContent>
+
+        <TabsContent value="monitor">
+          <NotificationDeliveryMonitor />
         </TabsContent>
 
         <TabsContent value="analytics">
