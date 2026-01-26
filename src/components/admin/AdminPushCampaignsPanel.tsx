@@ -53,7 +53,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
-import NotificationDeliveryMonitor from "./NotificationDeliveryMonitor";
+import LiveNotificationMonitor from "./LiveNotificationMonitor";
 
 interface Campaign {
   id: string;
@@ -457,7 +457,7 @@ const AdminPushCampaignsPanel = () => {
         </TabsContent>
 
         <TabsContent value="monitor">
-          <NotificationDeliveryMonitor />
+          <LiveNotificationMonitor />
         </TabsContent>
 
         <TabsContent value="analytics">

@@ -612,6 +612,107 @@ export type Database = {
         }
         Relationships: []
       }
+      push_campaigns: {
+        Row: {
+          body: string
+          created_at: string
+          created_by: string
+          id: string
+          scheduled_at: string | null
+          sent_at: string | null
+          status: string | null
+          target_segment: string | null
+          title: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          created_by: string
+          id?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string | null
+          target_segment?: string | null
+          title: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string | null
+          target_segment?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
+      push_notification_events: {
+        Row: {
+          apns_message_id: string | null
+          campaign_id: string | null
+          clicked_at: string | null
+          created_at: string
+          delivered_at: string | null
+          device_token: string | null
+          error_code: string | null
+          error_message: string | null
+          fcm_message_id: string | null
+          id: string
+          opened_at: string | null
+          platform: Database["public"]["Enums"]["notification_platform"]
+          queued_at: string
+          sent_at: string | null
+          status: Database["public"]["Enums"]["notification_status"]
+          user_id: string
+        }
+        Insert: {
+          apns_message_id?: string | null
+          campaign_id?: string | null
+          clicked_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          device_token?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          fcm_message_id?: string | null
+          id?: string
+          opened_at?: string | null
+          platform: Database["public"]["Enums"]["notification_platform"]
+          queued_at?: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["notification_status"]
+          user_id: string
+        }
+        Update: {
+          apns_message_id?: string | null
+          campaign_id?: string | null
+          clicked_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          device_token?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          fcm_message_id?: string | null
+          id?: string
+          opened_at?: string | null
+          platform?: Database["public"]["Enums"]["notification_platform"]
+          queued_at?: string
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["notification_status"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_notification_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "push_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limits: {
         Row: {
           messages_count: number | null
@@ -921,6 +1022,16 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      notification_platform: "web" | "ios" | "android" | "pwa"
+      notification_status:
+        | "queued"
+        | "sending"
+        | "sent"
+        | "delivered"
+        | "opened"
+        | "clicked"
+        | "failed"
+        | "bounced"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1049,6 +1160,17 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      notification_platform: ["web", "ios", "android", "pwa"],
+      notification_status: [
+        "queued",
+        "sending",
+        "sent",
+        "delivered",
+        "opened",
+        "clicked",
+        "failed",
+        "bounced",
+      ],
     },
   },
 } as const
