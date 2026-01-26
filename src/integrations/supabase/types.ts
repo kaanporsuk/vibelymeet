@@ -1019,6 +1019,10 @@ export type Database = {
         Args: { user1_id: string; user2_id: string }
         Returns: boolean
       }
+      is_registered_for_event: {
+        Args: { _event_id: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
