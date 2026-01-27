@@ -332,44 +332,34 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
   }
 
   try {
-    // Using OpenStreetMap Nominatim API (free, no API key required)
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`,
-      {
-        headers: {
-          "User-Agent": "Vibely Dating App",
-        },
-      }
-    );
+    // Use our edge function to proxy the geocoding request (avoids CORS)
+    const { data, error } = await supabase.functions.invoke('geocode', {
+      body: { lat, lng },
+    });
 
-    if (!response.ok) {
-      throw new Error(`Geocoding failed with status ${response.status}`);
+    if (error) {
+      console.error("Geocode edge function error:", error);
+      throw error;
     }
 
-    const data = await response.json();
-    
-    const city = data.address?.city || 
-                 data.address?.town || 
-                 data.address?.municipality || 
-                 data.address?.village ||
-                 data.address?.county ||
-                 "Unknown";
-    
-    const country = data.address?.country || "Unknown";
+    if (data.error) {
+      console.warn("Geocoding service issue:", data.error);
+      // Use fallback if provided
+      if (data.fallback) {
+        return data.fallback;
+      }
+    }
     
     return {
-      lat,
-      lng,
-      city,
-      country,
-      formatted: `${city}, ${country}`,
+      lat: data.lat,
+      lng: data.lng,
+      city: data.city || "Unknown",
+      country: data.country || "Unknown",
+      formatted: data.formatted || `${data.city}, ${data.country}`,
     };
   } catch (error) {
     console.error("Reverse geocoding error:", error);
-    // Return a fallback for network errors, but throw for validation errors
-    if (error instanceof Error && error.message.includes('Invalid')) {
-      throw error;
-    }
+    // Return a fallback for network errors
     return {
       lat,
       lng,
