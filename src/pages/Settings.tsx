@@ -6,17 +6,15 @@ import {
   Bell,
   Shield,
   User,
-  Lock,
-  Eye,
-  EyeOff,
   LogOut,
-  Trash2,
   Volume2,
   ChevronRight,
   MessageSquare,
   Heart,
   Calendar,
   Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -41,6 +39,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
+import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
@@ -331,58 +330,15 @@ const Settings = () => {
         </DrawerContent>
       </Drawer>
 
-      {/* Account Drawer */}
-      <Drawer open={activeDrawer === "account"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle className="font-display flex items-center gap-2">
-              <User className="w-5 h-5 text-accent" />
-              Account Settings
-            </DrawerTitle>
-            <DrawerDescription>
-              Manage your account and data
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 space-y-3 overflow-y-auto">
-            <button
-              onClick={() => navigate("/profile")}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <User className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Edit Profile</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-muted-foreground" />
-            </button>
-
-            <button
-              onClick={() => toast.info("Password change email sent")}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Lock className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Change Password</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-muted-foreground" />
-            </button>
-
-            <div className="pt-4 border-t border-border/50">
-              <button
-                onClick={() => setShowDeleteDialog(true)}
-                className="w-full flex items-center gap-3 p-3 rounded-xl bg-destructive/10 hover:bg-destructive/20 transition-colors text-destructive"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="text-sm font-medium">Delete Account</span>
-              </button>
-            </div>
-          </div>
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="ghost">Close</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      {/* Account Drawer - Using new component */}
+      <AccountSettingsDrawer
+        open={activeDrawer === "account"}
+        onOpenChange={(open) => !open && setActiveDrawer(null)}
+        onDeleteAccount={() => {
+          setActiveDrawer(null);
+          setShowDeleteDialog(true);
+        }}
+      />
 
       {/* Logout Confirmation */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
