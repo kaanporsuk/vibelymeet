@@ -1008,6 +1008,14 @@ export type Database = {
         Args: { photo_owner_id: string }
         Returns: boolean
       }
+      check_gender_compatibility: {
+        Args: {
+          _target_gender: string
+          _target_interested_in: string[]
+          _viewer_id: string
+        }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
