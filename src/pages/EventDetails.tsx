@@ -6,7 +6,8 @@ import {
   Calendar, 
   Clock, 
   Sparkles, 
-  Share2
+  Share2,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -20,65 +21,43 @@ import PricingBar from "@/components/events/PricingBar";
 import PaymentModal from "@/components/events/PaymentModal";
 import ManageBookingModal from "@/components/events/ManageBookingModal";
 import CancelBookingModal from "@/components/events/CancelBookingModal";
-
-// Mock user data
-const mockUser = {
-  id: "current-user",
-  gender: "Male" as const,
-};
-
-// Mock event data with pricing
-const mockEvent = {
-  id: "1",
-  title: "Techno & Tech: Developer Speed Dating",
-  description: "Join fellow developers and tech enthusiasts for an electrifying evening of speed dating! Whether you code by day and dance by night, or you're just looking to meet someone who gets your Stack Overflow references, this is your event. Each round lasts 5 minutes with curated ice-breakers designed for techies. Dress code: Smart casual (band tees allowed). Expect: Great vibes, craft cocktails, and maybe your next commit partner.",
-  coverImage: "https://images.unsplash.com/photo-1574391884720-bbc3740c59d1?w=800&q=80",
-  category: "🕹️ Tech & Gaming",
-  vibeMatch: 92,
-  eventDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-  time: "7:00 PM - 10:00 PM",
-  isVirtual: true,
-  venue: "The Digital Lounge",
-  address: "123 Innovation St, Tech City",
-  priceMale: 25.00,
-  priceFemale: 10.00,
-  maxMen: 12,
-  maxWomen: 12,
-  currentMen: 8,
-  currentWomen: 10,
-  tags: ["🎧 Electronic", "💻 Tech", "⚡ Speed Date"],
-};
-
-// Mock attendees for teaser (before purchase)
-const mockTeaserAttendees = [
-  { id: "1", name: "???", avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80", vibeTags: ["🎵 Techno Lover", "☕ Coffee Snob"] },
-  { id: "2", name: "???", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80", vibeTags: ["🎨 Creative", "📚 Bookworm"] },
-  { id: "3", name: "???", avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80", vibeTags: ["🍳 Foodie", "✈️ Traveler"] },
-  { id: "4", name: "???", avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80", vibeTags: ["🧘 Wellness", "🎬 Film Buff"] },
-  { id: "5", name: "???", avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80", vibeTags: ["🎮 Gamer", "💻 Tech"] },
-  { id: "6", name: "???", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80", vibeTags: ["📸 Photography", "🌿 Nature"] },
-];
-
-// Mock attendees for roster (after purchase)
-const mockRosterAttendees = [
-  { id: "1", name: "Alex Chen", age: 28, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&q=80", vibeTag: "Night Owl", matchPercent: 92, bio: "Senior dev by day, DJ by night", photos: [] },
-  { id: "2", name: "Sarah Kim", age: 26, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80", vibeTag: "Creative Soul", matchPercent: 88, bio: "UX designer who loves hiking", photos: [] },
-  { id: "3", name: "Marcus Johnson", age: 31, avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80", vibeTag: "Foodie", matchPercent: 75, bio: "Startup founder, amateur chef", photos: [] },
-  { id: "4", name: "Emma Watson", age: 27, avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&q=80", vibeTag: "Intellectual", matchPercent: 95, bio: "Data scientist who loves board games", photos: [] },
-  { id: "5", name: "James Liu", age: 29, avatar: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&q=80", vibeTag: "Gamer", matchPercent: 82, bio: "Frontend wizard, anime enthusiast", photos: [] },
-  { id: "6", name: "Olivia Brown", age: 25, avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&q=80", vibeTag: "Wanderer", matchPercent: 79, bio: "Product manager with a passion for travel", photos: [] },
-];
+import { useAuth } from "@/contexts/AuthContext";
+import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
+import { useRegisterForEvent } from "@/hooks/useRegistrations";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 const EventDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
   
-  // Registration state
-  const [isRegistered, setIsRegistered] = useState(false);
+  // Fetch real event data
+  const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
+  const { data: attendees = [] } = useEventAttendees(id);
+  const { data: isRegistered = false, refetch: refetchRegistration } = useIsRegisteredForEvent(id, user?.id);
+  
+  // Fetch current user's profile for gender-based pricing
+  const [userProfile, setUserProfile] = useState<{ gender: string } | null>(null);
+  
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("gender")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data) setUserProfile(data);
+    };
+    fetchProfile();
+  }, [user?.id]);
+  
+  // UI state
   const [scrollY, setScrollY] = useState(0);
-  
-  // Modal states
-  const [selectedProfile, setSelectedProfile] = useState<typeof mockRosterAttendees[0] | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<EventAttendee | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -98,11 +77,32 @@ const EventDetails = () => {
     });
   };
 
+  // Loading state
+  if (eventLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Error state
+  if (eventError || !event) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+        <h1 className="text-xl font-bold text-foreground mb-2">Event not found</h1>
+        <p className="text-muted-foreground mb-4">This event may have been removed or doesn't exist.</p>
+        <Button onClick={() => navigate("/events")}>Back to Events</Button>
+      </div>
+    );
+  }
+
   // Calculate capacity status
   const getCapacityStatus = () => {
-    const spotsLeft = mockUser.gender === "Male" 
-      ? mockEvent.maxMen - mockEvent.currentMen 
-      : mockEvent.maxWomen - mockEvent.currentWomen;
+    const userGender = userProfile?.gender?.toLowerCase() || "male";
+    const spotsLeft = userGender === "female" || userGender === "woman"
+      ? event.maxWomen - event.currentWomen 
+      : event.maxMen - event.currentMen;
     
     if (spotsLeft <= 2) return { status: "almostFull" as const, spotsLeft };
     if (spotsLeft <= 5) return { status: "filling" as const, spotsLeft };
@@ -110,47 +110,90 @@ const EventDetails = () => {
   };
 
   const capacityInfo = getCapacityStatus();
-  const userPrice = mockUser.gender === "Male" ? mockEvent.priceMale : mockEvent.priceFemale;
+  const userGender = userProfile?.gender?.toLowerCase() || "male";
+  const isFemale = userGender === "female" || userGender === "woman";
+  const userPrice = event.isFree ? 0 : (isFemale ? event.priceFemale : event.priceMale);
+  const genderLabel = isFemale ? "Female" : "Male";
 
-  const handlePaymentSuccess = () => {
+  const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    setIsRegistered(true);
     
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ["#a855f7", "#ec4899", "#06b6d4"],
-    });
+    // Actually register for the event
+    const success = await registerForEvent(event.id);
+    
+    if (success) {
+      await refetchRegistration();
+      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
+      
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ["#a855f7", "#ec4899", "#06b6d4"],
+      });
 
-    toast.success("You're on the list! 🎉", {
-      description: "Check your email for confirmation",
-    });
+      toast.success("You're on the list! 🎉", {
+        description: "Check your email for confirmation",
+      });
 
-    setTimeout(() => setShowTicket(true), 800);
+      setTimeout(() => setShowTicket(true), 800);
+    } else {
+      toast.error("Failed to register. Please try again.");
+    }
   };
 
-  const handleCancelConfirm = () => {
-    setShowCancelModal(false);
-    setShowManageBooking(false);
-    setIsRegistered(false);
+  const handleCancelConfirm = async () => {
+    const success = await unregisterFromEvent(event.id);
     
-    toast.success("Spot cancelled", {
-      description: "Your spot has been released to the waitlist",
-    });
+    if (success) {
+      await refetchRegistration();
+      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
+      
+      setShowCancelModal(false);
+      setShowManageBooking(false);
+      
+      toast.success("Spot cancelled", {
+        description: "Your spot has been released to the waitlist",
+      });
+    } else {
+      toast.error("Failed to cancel. Please try again.");
+    }
   };
 
   const handleShare = async () => {
     try {
       await navigator.share({
-        title: mockEvent.title,
-        text: `Join me at ${mockEvent.title} on Vibely!`,
+        title: event.title,
+        text: `Join me at ${event.title} on Vibely!`,
         url: window.location.href,
       });
     } catch {
+      navigator.clipboard.writeText(window.location.href);
       toast.success("Link copied to clipboard!");
     }
   };
+
+  // Transform attendees for teaser view (before registration)
+  const teaserAttendees = attendees.slice(0, 6).map(a => ({
+    id: a.id,
+    name: "???",
+    avatar: a.avatar,
+    vibeTags: a.vibeTags || [a.vibeTag],
+  }));
+
+  // Transform attendees for roster view (after registration)
+  const rosterAttendees = attendees.map(a => ({
+    id: a.id,
+    name: a.name,
+    age: a.age,
+    avatar: a.avatar,
+    vibeTag: a.vibeTag,
+    matchPercent: a.matchPercent,
+    bio: a.bio,
+    photos: a.photos,
+  }));
 
   return (
     <div className="min-h-screen bg-background pb-28">
@@ -161,8 +204,8 @@ const EventDetails = () => {
           className="absolute inset-0"
         >
           <img
-            src={mockEvent.coverImage}
-            alt={mockEvent.title}
+            src={event.coverImage}
+            alt={event.title}
             className="w-full h-full object-cover scale-110"
           />
         </motion.div>
@@ -189,7 +232,7 @@ const EventDetails = () => {
           {/* Category & Match */}
           <div className="flex items-center gap-3">
             <span className="px-3 py-1 rounded-full bg-secondary text-sm font-medium text-foreground">
-              {mockEvent.category}
+              {event.category}
             </span>
             <motion.div
               initial={{ scale: 0 }}
@@ -198,23 +241,23 @@ const EventDetails = () => {
             >
               <Sparkles className="w-3 h-3 text-primary-foreground" />
               <span className="text-xs font-bold text-primary-foreground">
-                {mockEvent.vibeMatch}% Match
+                {event.vibeMatch}% Match
               </span>
             </motion.div>
           </div>
 
           <h1 className="text-2xl font-bold text-foreground leading-tight">
-            {mockEvent.title}
+            {event.title}
           </h1>
 
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-1">
               <Calendar className="w-4 h-4" />
-              <span>{formatDate(mockEvent.eventDate)}</span>
+              <span>{formatDate(event.eventDate)}</span>
             </div>
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
-              <span>{mockEvent.time}</span>
+              <span>{event.time}</span>
             </div>
           </div>
         </div>
@@ -224,7 +267,7 @@ const EventDetails = () => {
       <div className="px-4 py-6 space-y-6">
         {/* Tags */}
         <div className="flex gap-2 flex-wrap">
-          {mockEvent.tags.map((tag) => (
+          {event.tags.map((tag) => (
             <span
               key={tag}
               className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-sm font-medium text-primary"
@@ -238,7 +281,7 @@ const EventDetails = () => {
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-foreground">About This Event</h2>
           <p className="text-muted-foreground leading-relaxed">
-            {mockEvent.description}
+            {event.description || "Join us for an exciting video speed dating event! Meet new people in a fun, safe environment."}
           </p>
         </div>
 
@@ -252,8 +295,8 @@ const EventDetails = () => {
               exit={{ opacity: 0, y: -20 }}
             >
               <GuestListRoster
-                attendees={mockRosterAttendees}
-                totalCount={mockEvent.currentMen + mockEvent.currentWomen}
+                attendees={rosterAttendees}
+                totalCount={attendees.length}
                 onAttendeeClick={setSelectedProfile}
                 onTicketClick={() => setShowManageBooking(true)}
               />
@@ -266,8 +309,8 @@ const EventDetails = () => {
               exit={{ opacity: 0, y: -20 }}
             >
               <GuestListTeaser
-                attendees={mockTeaserAttendees}
-                totalCount={mockEvent.currentMen + mockEvent.currentWomen}
+                attendees={teaserAttendees}
+                totalCount={attendees.length}
               />
             </motion.div>
           )}
@@ -277,10 +320,10 @@ const EventDetails = () => {
         <div className="space-y-2">
           <h2 className="text-lg font-semibold text-foreground">The Venue</h2>
           <VenueCard
-            isVirtual={mockEvent.isVirtual}
-            venueName={mockEvent.venue}
-            address={mockEvent.address}
-            eventDate={mockEvent.eventDate}
+            isVirtual={event.isVirtual}
+            venueName={event.venue}
+            address={event.address}
+            eventDate={event.eventDate}
           />
         </div>
       </div>
@@ -291,7 +334,7 @@ const EventDetails = () => {
           price={userPrice}
           capacityStatus={capacityInfo.status}
           spotsLeft={capacityInfo.spotsLeft}
-          genderLabel={mockUser.gender}
+          genderLabel={genderLabel}
           onPurchase={() => setShowPaymentModal(true)}
         />
       )}
@@ -325,11 +368,11 @@ const EventDetails = () => {
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onSuccess={handlePaymentSuccess}
-        eventTitle={mockEvent.title}
-        eventDate={formatDate(mockEvent.eventDate)}
-        userGender={mockUser.gender}
-        priceMale={mockEvent.priceMale}
-        priceFemale={mockEvent.priceFemale}
+        eventTitle={event.title}
+        eventDate={formatDate(event.eventDate)}
+        userGender={genderLabel}
+        priceMale={event.priceMale}
+        priceFemale={event.priceFemale}
       />
 
       <ManageBookingModal
@@ -339,11 +382,11 @@ const EventDetails = () => {
           setShowManageBooking(false);
           setShowCancelModal(true);
         }}
-        eventTitle={mockEvent.title}
-        eventDate={formatDate(mockEvent.eventDate)}
-        eventTime={mockEvent.time}
-        venue={mockEvent.venue}
-        ticketNumber="VBL-2024-001"
+        eventTitle={event.title}
+        eventDate={formatDate(event.eventDate)}
+        eventTime={event.time}
+        venue={event.venue}
+        ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
         price={userPrice}
       />
 
@@ -351,7 +394,7 @@ const EventDetails = () => {
         isOpen={showCancelModal}
         onClose={() => setShowCancelModal(false)}
         onConfirm={handleCancelConfirm}
-        eventTitle={mockEvent.title}
+        eventTitle={event.title}
       />
 
       {/* Mini Profile Modal */}
@@ -365,12 +408,12 @@ const EventDetails = () => {
       <AnimatePresence>
         {showTicket && (
           <TicketStub
-            eventTitle={mockEvent.title}
-            eventDate={formatDate(mockEvent.eventDate)}
-            eventTime={mockEvent.time}
-            isVirtual={mockEvent.isVirtual}
-            venue={mockEvent.venue}
-            ticketNumber="VBL-2024-001"
+            eventTitle={event.title}
+            eventDate={formatDate(event.eventDate)}
+            eventTime={event.time}
+            isVirtual={event.isVirtual}
+            venue={event.venue}
+            ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
             onClose={() => setShowTicket(false)}
           />
         )}

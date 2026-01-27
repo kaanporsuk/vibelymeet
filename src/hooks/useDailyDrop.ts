@@ -251,21 +251,50 @@ export function useDailyDrop() {
         return;
       }
       
-      // Generate a new drop - find a candidate not seen before
-      const { data: profiles } = await supabase
+      // Fetch current user's profile to get their interested_in preferences
+      const { data: currentUserProfile } = await supabase
         .from("profiles")
-        .select("id, name, age, job, location, bio, avatar_url, photos")
+        .select("interested_in, gender")
+        .eq("id", user.id)
+        .maybeSingle();
+      
+      const interestedIn = currentUserProfile?.interested_in || [];
+      
+      // Generate a new drop - find candidates matching gender preferences
+      let query = supabase
+        .from("profiles")
+        .select("id, name, age, job, location, bio, avatar_url, photos, gender, interested_in")
         .neq("id", user.id)
         .order("updated_at", { ascending: false })
-        .limit(20);
+        .limit(50);
+      
+      // Filter by user's interested_in preferences if set
+      if (interestedIn.length > 0) {
+        query = query.in("gender", interestedIn);
+      }
+      
+      const { data: profiles } = await query;
       
       if (!profiles?.length) {
         setState('empty');
         return;
       }
       
-      // Filter out seen users
-      const freshCandidates = profiles.filter(p => !history.seenUserIds.includes(p.id));
+      // Filter out seen users and ensure bidirectional interest match
+      const currentUserGender = currentUserProfile?.gender;
+      const freshCandidates = profiles.filter(p => {
+        // Must not be seen before
+        if (history.seenUserIds.includes(p.id)) return false;
+        
+        // Bidirectional match: candidate should be interested in current user's gender
+        const candidateInterestedIn = (p.interested_in as string[]) || [];
+        if (candidateInterestedIn.length > 0 && currentUserGender) {
+          if (!candidateInterestedIn.includes(currentUserGender)) return false;
+        }
+        
+        return true;
+      });
+      
       if (freshCandidates.length === 0) {
         setState('empty');
         return;

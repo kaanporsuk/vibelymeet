@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, Sparkles, Users, Ticket, Check } from "lucide-react";
+import { Clock, Sparkles, Users, Ticket, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 interface FeaturedEventCardProps {
@@ -27,8 +26,6 @@ export const FeaturedEventCard = ({
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [isRegistered, setIsRegistered] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -51,14 +48,10 @@ export const FeaturedEventCard = ({
     return () => clearInterval(timer);
   }, [eventDate]);
 
-  const handleRegister = async () => {
-    setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setIsRegistered(true);
-    setIsLoading(false);
-    toast.success("You're on the list! 🎉", {
-      description: "Check your tickets in your profile",
-    });
+  // Fast Track navigates directly to event details for quick access
+  const handleFastTrack = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate(`/events/${id}`);
   };
 
   return (
@@ -170,48 +163,23 @@ export const FeaturedEventCard = ({
             </div>
           </div>
 
-          {/* Register Button */}
-          <AnimatePresence mode="wait">
-            {isRegistered ? (
-              <motion.div
-                key="registered"
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="flex items-center gap-2 px-6 py-3 rounded-full bg-neon-cyan/20 border border-neon-cyan/40"
-              >
-                <Ticket className="w-5 h-5 text-neon-cyan" />
-                <span className="font-semibold text-neon-cyan">View Ticket</span>
-              </motion.div>
-            ) : (
-              <motion.div key="register" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  onClick={handleRegister}
-                  disabled={isLoading}
-                  className={cn(
-                    "relative px-8 py-6 text-lg font-semibold rounded-full",
-                    "bg-gradient-to-r from-neon-pink to-neon-violet",
-                    "shadow-[0_0_30px_rgba(236,72,153,0.4)]",
-                    "hover:shadow-[0_0_40px_rgba(236,72,153,0.6)]",
-                    "transition-shadow duration-300"
-                  )}
-                >
-                  {isLoading ? (
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                    >
-                      <Sparkles className="w-5 h-5" />
-                    </motion.div>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5 mr-2" />
-                      Fast Track
-                    </>
-                  )}
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* Fast Track Button - Quick access to event details */}
+          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <Button
+              onClick={handleFastTrack}
+              className={cn(
+                "relative px-8 py-6 text-lg font-semibold rounded-full",
+                "bg-gradient-to-r from-neon-pink to-neon-violet",
+                "shadow-[0_0_30px_rgba(236,72,153,0.4)]",
+                "hover:shadow-[0_0_40px_rgba(236,72,153,0.6)]",
+                "transition-shadow duration-300"
+              )}
+            >
+              <Sparkles className="w-5 h-5 mr-2" />
+              Fast Track
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </motion.div>
         </motion.div>
       </div>
     </motion.div>
