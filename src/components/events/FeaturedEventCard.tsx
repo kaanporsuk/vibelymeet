@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { Clock, Sparkles, Users, Ticket, ArrowRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { Clock, Sparkles, Users, ArrowRight, CalendarCheck, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useUserRegistrations } from "@/hooks/useRegistrations";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -25,7 +26,10 @@ export const FeaturedEventCard = ({
   tags,
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
+  const { data: userRegistrations = [] } = useUserRegistrations();
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
+
+  const isRegistered = userRegistrations.includes(id);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -48,8 +52,8 @@ export const FeaturedEventCard = ({
     return () => clearInterval(timer);
   }, [eventDate]);
 
-  // Fast Track navigates directly to event details for quick access
-  const handleFastTrack = (e: React.MouseEvent) => {
+  // Primary action button handler
+  const handlePrimaryAction = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigate(`/events/${id}`);
   };
@@ -163,22 +167,39 @@ export const FeaturedEventCard = ({
             </div>
           </div>
 
-          {/* Fast Track Button - Quick access to event details */}
+          {/* Primary Action Button - Context-aware */}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button
-              onClick={handleFastTrack}
-              className={cn(
-                "relative px-8 py-6 text-lg font-semibold rounded-full",
-                "bg-gradient-to-r from-neon-pink to-neon-violet",
-                "shadow-[0_0_30px_rgba(236,72,153,0.4)]",
-                "hover:shadow-[0_0_40px_rgba(236,72,153,0.6)]",
-                "transition-shadow duration-300"
-              )}
-            >
-              <Sparkles className="w-5 h-5 mr-2" />
-              Fast Track
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
+            {isRegistered ? (
+              <Button
+                onClick={handlePrimaryAction}
+                className={cn(
+                  "relative px-6 py-6 text-lg font-semibold rounded-full",
+                  "bg-gradient-to-r from-neon-cyan to-primary",
+                  "shadow-[0_0_30px_rgba(6,182,212,0.4)]",
+                  "hover:shadow-[0_0_40px_rgba(6,182,212,0.6)]",
+                  "transition-shadow duration-300"
+                )}
+              >
+                <Ticket className="w-5 h-5 mr-2" />
+                View Ticket
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handlePrimaryAction}
+                className={cn(
+                  "relative px-8 py-6 text-lg font-semibold rounded-full",
+                  "bg-gradient-to-r from-neon-pink to-neon-violet",
+                  "shadow-[0_0_30px_rgba(236,72,153,0.4)]",
+                  "hover:shadow-[0_0_40px_rgba(236,72,153,0.6)]",
+                  "transition-shadow duration-300"
+                )}
+              >
+                <CalendarCheck className="w-5 h-5 mr-2" />
+                Get Tickets
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            )}
           </motion.div>
         </motion.div>
       </div>
