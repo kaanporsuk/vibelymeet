@@ -24,6 +24,7 @@ import CancelBookingModal from "@/components/events/CancelBookingModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
+import { useRealtimeEvents } from "@/hooks/useEvents";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -33,6 +34,9 @@ const EventDetails = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
+  
+  // Enable realtime updates
+  useRealtimeEvents();
   
   // Fetch real event data
   const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
@@ -324,6 +328,7 @@ const EventDetails = () => {
             venueName={event.venue}
             address={event.address}
             eventDate={event.eventDate}
+            isRegistered={isRegistered}
           />
         </div>
       </div>

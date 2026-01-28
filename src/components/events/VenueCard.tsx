@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi } from "lucide-react";
+import { MapPin, Video, ExternalLink, Clock, Wifi, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 
@@ -8,9 +8,10 @@ interface VenueCardProps {
   venueName?: string;
   address?: string;
   eventDate: Date;
+  isRegistered?: boolean;
 }
 
-const VenueCard = ({ isVirtual, venueName, address, eventDate }: VenueCardProps) => {
+const VenueCard = ({ isVirtual, venueName, address, eventDate, isRegistered = false }: VenueCardProps) => {
   const [timeUntil, setTimeUntil] = useState("");
 
   useEffect(() => {
@@ -84,28 +85,44 @@ const VenueCard = ({ isVirtual, venueName, address, eventDate }: VenueCardProps)
 
           {/* Center Content */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <motion.div
-              animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="flex items-center gap-2"
-            >
-              <Wifi className="w-5 h-5 text-primary" />
-              <span className="text-sm font-medium text-primary">Ready to connect</span>
-            </motion.div>
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Clock className="w-3 h-3" />
-              <span className="text-xs">Link unlocks in: {timeUntil}</span>
-            </div>
+            {isRegistered ? (
+              <>
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="flex items-center gap-2"
+                >
+                  <Wifi className="w-5 h-5 text-primary" />
+                  <span className="text-sm font-medium text-primary">Ready to connect</span>
+                </motion.div>
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <Clock className="w-3 h-3" />
+                  <span className="text-xs">Link unlocks in: {timeUntil}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <Lock className="w-6 h-6 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">Register to unlock access</span>
+              </>
+            )}
           </div>
 
           {/* Glow Effect */}
           <div className="absolute inset-0 bg-gradient-radial from-primary/10 via-transparent to-transparent" />
         </div>
 
-        <Button variant="outline" className="w-full" disabled>
-          <Video className="w-4 h-4 mr-2" />
-          Join Link Available Soon
-        </Button>
+        {isRegistered ? (
+          <Button variant="outline" className="w-full" disabled>
+            <Video className="w-4 h-4 mr-2" />
+            Join Link Available Soon
+          </Button>
+        ) : (
+          <Button variant="ghost" className="w-full text-muted-foreground" disabled>
+            <Lock className="w-4 h-4 mr-2" />
+            Register to Access
+          </Button>
+        )}
       </motion.div>
     );
   }

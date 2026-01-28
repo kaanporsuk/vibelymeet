@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, ChevronRight, Sparkles, Video } from "lucide-react";
+import { Clock, ChevronRight, Sparkles, Video, CalendarCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 import { EventCard } from "@/components/EventCard";
@@ -11,7 +11,7 @@ import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateR
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { PullToRefresh } from "@/components/PullToRefresh";
-import { useNextEvent, useEvents } from "@/hooks/useEvents";
+import { useNextRegisteredEvent, useEvents, useRealtimeEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
@@ -21,7 +21,11 @@ import { differenceInSeconds } from "date-fns";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { data: nextEvent, isLoading: eventLoading, refetch: refetchNextEvent } = useNextEvent();
+  
+  // Enable realtime updates for events
+  useRealtimeEvents();
+  
+  const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useEvents();
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
@@ -31,6 +35,9 @@ const Dashboard = () => {
   
   const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  const nextEvent = nextEventData?.event;
+  const isRegisteredForNextEvent = nextEventData?.isRegistered || false;
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
@@ -159,17 +166,25 @@ const Dashboard = () => {
           {loading ? (
             <EventCardSkeleton />
           ) : nextEvent ? (
-            <div className="glass-card p-6 space-y-4 neon-glow-violet">
+            <div 
+              className="glass-card p-6 space-y-4 neon-glow-violet cursor-pointer"
+              onClick={() => navigate(`/events/${nextEvent.id}`)}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
                   <span className="text-2xl">{nextEvent.emoji}</span>
                 </div>
-                <div>
+                <div className="flex-1">
                   <h3 className="font-display font-semibold text-foreground">
                     {nextEvent.title}
                   </h3>
                   <p className="text-sm text-muted-foreground">{nextEvent.date}</p>
                 </div>
+                {isRegisteredForNextEvent && (
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30">
+                    ✓ Registered
+                  </span>
+                )}
               </div>
 
               <div className="flex justify-center gap-4">
@@ -189,9 +204,22 @@ const Dashboard = () => {
                 ))}
               </div>
 
-              <Button variant="gradient" className="w-full" onClick={() => navigate(`/date/${nextEvent.id}`)}>
-                Join Waiting Room
-              </Button>
+              {isRegisteredForNextEvent ? (
+                <Button variant="gradient" className="w-full" onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/date/${nextEvent.id}`);
+                }}>
+                  Join Waiting Room
+                </Button>
+              ) : (
+                <Button variant="outline" className="w-full" onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/events/${nextEvent.id}`);
+                }}>
+                  <CalendarCheck className="w-4 h-4 mr-2" />
+                  View Event & Register
+                </Button>
+              )}
             </div>
           ) : (
             <div className="glass-card p-6 text-center">

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Calendar, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,7 @@ export const EventCard = ({
   tags,
   isRegistered: initialRegistered = false,
 }: EventCardProps) => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
   const { registerForEvent } = useRegisterForEvent();
@@ -39,7 +41,12 @@ export const EventCard = ({
     setIsRegistered(userRegistrations.includes(id));
   }, [userRegistrations, id]);
 
-  const handleRegister = async () => {
+  const handleCardClick = () => {
+    navigate(`/events/${id}`);
+  };
+
+  const handleRegister = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card navigation
     setIsLoading(true);
     
     const success = await registerForEvent(id);
@@ -57,7 +64,10 @@ export const EventCard = ({
   };
 
   return (
-    <div className="glass-card overflow-hidden group">
+    <div 
+      className="glass-card overflow-hidden group cursor-pointer"
+      onClick={handleCardClick}
+    >
       <div className="relative h-40 overflow-hidden">
         <img
           src={image}
