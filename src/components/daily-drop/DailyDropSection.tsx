@@ -15,6 +15,7 @@ export function DailyDropSection() {
     currentDrop,
     countdown,
     isLoading,
+    hasEligibleCandidates,
     unlockDrop,
     sendVibeReply,
     passDrop
@@ -53,6 +54,12 @@ export function DailyDropSection() {
         </div>
       </section>
     );
+  }
+  
+  // Don't show anything if no eligible candidates AND no current drop
+  // This prevents showing the section when there's nobody to match with
+  if (hasEligibleCandidates === false && !currentDrop && state !== 'pending') {
+    return null;
   }
 
   // Show success screen

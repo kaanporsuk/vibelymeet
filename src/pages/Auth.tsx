@@ -46,9 +46,22 @@ const Auth = () => {
         const photosCount = (profile?.photos as string[] | null)?.length ?? 0;
         const needsOnboarding = !profile || profile.gender === "prefer_not_to_say" || photosCount < 2;
 
-        navigate(needsOnboarding ? "/onboarding" : "/dashboard");
+        // Clear any stale onboarding data from different users
+        const savedOnboarding = localStorage.getItem("vibely_onboarding_progress");
+        if (savedOnboarding) {
+          try {
+            const parsed = JSON.parse(savedOnboarding);
+            if (parsed.userId && parsed.userId !== user.id) {
+              localStorage.removeItem("vibely_onboarding_progress");
+            }
+          } catch {
+            localStorage.removeItem("vibely_onboarding_progress");
+          }
+        }
+
+        navigate(needsOnboarding ? "/onboarding" : "/dashboard", { replace: true });
       } catch {
-        navigate("/dashboard");
+        navigate("/dashboard", { replace: true });
       }
     };
 
