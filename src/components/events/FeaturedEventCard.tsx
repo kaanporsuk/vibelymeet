@@ -5,6 +5,7 @@ import { Clock, Sparkles, Users, ArrowRight, CalendarCheck, Ticket } from "lucid
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
+import { useEventAttendees } from "@/hooks/useEventAttendees";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -27,6 +28,7 @@ export const FeaturedEventCard = ({
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
   const { data: userRegistrations = [] } = useUserRegistrations();
+  const { data: eventAttendees = [] } = useEventAttendees(id, 5);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
 
   const isRegistered = userRegistrations.includes(id);
@@ -151,15 +153,40 @@ export const FeaturedEventCard = ({
           transition={{ delay: 0.7 }}
           className="flex items-center justify-between"
         >
-          {/* Attendees */}
+          {/* Attendees - Real avatars */}
           <div className="flex items-center gap-3">
             <div className="flex -space-x-2">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-pink to-neon-violet border-2 border-background"
-                />
-              ))}
+              {eventAttendees.length > 0 ? (
+                eventAttendees.slice(0, 3).map((attendee) => {
+                  const avatarUrl = attendee.avatar_url || attendee.photos?.[0];
+                  return (
+                    <div
+                      key={attendee.id}
+                      className="w-8 h-8 rounded-full border-2 border-background overflow-hidden bg-gradient-to-br from-neon-pink to-neon-violet"
+                    >
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={attendee.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-white">
+                          {attendee.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                // Fallback placeholder circles when no attendees yet
+                [1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-pink to-neon-violet border-2 border-background"
+                  />
+                ))
+              )}
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Users className="w-4 h-4" />
