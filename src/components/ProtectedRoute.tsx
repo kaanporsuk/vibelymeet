@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -15,9 +16,36 @@ export function ProtectedRoute({
   requireAdmin = false,
   requireOnboarding = true 
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, isAdmin, session } = useAuth();
+  const { isAuthenticated, isLoading, session } = useAuth();
   const location = useLocation();
   const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete'>('loading');
+
+  // Server-side admin role verification - queries database directly via RLS
+  const { data: isServerVerifiedAdmin, isLoading: isAdminCheckLoading } = useQuery({
+    queryKey: ['verify-admin-role', session?.user?.id],
+    queryFn: async () => {
+      if (!session?.user?.id) return false;
+      
+      // This query will only succeed if the user has the admin role
+      // RLS policy on user_roles ensures users can only see their own roles
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', session.user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Admin verification error:', error);
+        return false;
+      }
+      
+      return !!data;
+    },
+    enabled: !!session?.user?.id && requireAdmin,
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    retry: false,
+  });
 
   useEffect(() => {
     const checkProfile = async () => {
@@ -58,7 +86,9 @@ export function ProtectedRoute({
     }
   }, [session?.user, isAuthenticated, requireOnboarding, location.pathname]);
 
-  if (isLoading || (requireOnboarding && profileStatus === 'loading' && isAuthenticated)) {
+  // Show loading state while checking auth, profile, or admin status
+  const isCheckingAdmin = requireAdmin && isAdminCheckLoading;
+  if (isLoading || (requireOnboarding && profileStatus === 'loading' && isAuthenticated) || isCheckingAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -70,7 +100,8 @@ export function ProtectedRoute({
     return <Navigate to="/auth" replace />;
   }
 
-  if (requireAdmin && !isAdmin) {
+  // Server-side verified admin check - cannot be bypassed via client-side manipulation
+  if (requireAdmin && !isServerVerifiedAdmin) {
     return <Navigate to="/dashboard" replace />;
   }
 
