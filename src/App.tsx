@@ -28,6 +28,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
+import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
@@ -41,6 +42,7 @@ const App = () => (
           <Sonner position="top-center" theme="dark" />
           <BrowserRouter>
             <NotificationContainer />
+            <NotificationManager />
             <Routes>
               <Route path="/" element={<Index />} />
               <Route path="/auth" element={<Auth />} />

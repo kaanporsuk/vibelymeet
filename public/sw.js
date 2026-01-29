@@ -119,16 +119,24 @@ self.addEventListener('message', (event) => {
     const delay = new Date(scheduledAt).getTime() - Date.now();
     
     if (delay > 0) {
+      console.log(`[SW] Scheduling notification "${id}" in ${Math.round(delay / 1000 / 60)} minutes`);
       setTimeout(() => {
         self.registration.showNotification(title, {
           body,
           icon: '/favicon.ico',
           badge: '/favicon.ico',
           tag: id,
-          vibrate: [200, 100, 200],
+          vibrate: [200, 100, 200, 100, 200],
           data: { url: url || '/' },
+          requireInteraction: true, // Keep notification visible until user interacts
+          actions: [
+            { action: 'open', title: 'Open' },
+            { action: 'dismiss', title: 'Dismiss' }
+          ]
         });
       }, delay);
+    } else {
+      console.log(`[SW] Notification "${id}" time has passed, skipping`);
     }
   }
   
@@ -141,6 +149,11 @@ self.addEventListener('message', (event) => {
       tag: tag || 'vibely-notification',
       vibrate: [200, 100, 200],
       data: { url: url || '/' },
+      requireInteraction: true,
+      actions: [
+        { action: 'open', title: 'Open' },
+        { action: 'dismiss', title: 'Dismiss' }
+      ]
     });
   }
 });
