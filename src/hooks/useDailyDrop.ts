@@ -58,6 +58,7 @@ export function useDailyDrop() {
   const [countdown, setCountdown] = useState(getTimeUntilNextDrop());
   const [history, setHistory] = useState<DropHistory>({ seenUserIds: [], lastDropDate: '' });
   const [isLoading, setIsLoading] = useState(true);
+  const [hasEligibleCandidates, setHasEligibleCandidates] = useState<boolean | null>(null);
 
   // Fetch candidate profile with vibes
   const fetchCandidateWithVibes = useCallback(async (candidateId: string): Promise<MatchCandidate | null> => {
@@ -95,17 +96,82 @@ export function useDailyDrop() {
     };
   }, [fetchCandidateWithVibes]);
 
+  // Check if eligible candidates exist
+  const checkEligibleCandidates = useCallback(async (seenIds: string[]): Promise<boolean> => {
+    if (!user) return false;
+    
+    try {
+      // Fetch current user's profile to get their interested_in preferences
+      const { data: currentUserProfile } = await supabase
+        .from("profiles")
+        .select("interested_in, gender")
+        .eq("id", user.id)
+        .maybeSingle();
+      
+      const interestedIn = currentUserProfile?.interested_in || [];
+      const currentUserGender = currentUserProfile?.gender;
+      
+      // Build query to find potential candidates
+      let query = supabase
+        .from("profiles")
+        .select("id, gender, interested_in")
+        .neq("id", user.id)
+        .limit(50);
+      
+      // Filter by user's interested_in preferences if set
+      if (interestedIn.length > 0) {
+        query = query.in("gender", interestedIn);
+      }
+      
+      const { data: profiles } = await query;
+      
+      if (!profiles?.length) return false;
+      
+      // Filter out seen users and ensure bidirectional interest match
+      const freshCandidates = profiles.filter(p => {
+        if (seenIds.includes(p.id)) return false;
+        
+        const candidateInterestedIn = (p.interested_in as string[]) || [];
+        if (candidateInterestedIn.length > 0 && currentUserGender) {
+          if (!candidateInterestedIn.includes(currentUserGender)) return false;
+        }
+        
+        return true;
+      });
+      
+      return freshCandidates.length > 0;
+    } catch (error) {
+      console.error('Error checking eligible candidates:', error);
+      return false;
+    }
+  }, [user]);
+
   // Initialize drop state from database
   useEffect(() => {
     const initializeDrop = async () => {
       if (!user) {
         setState('locked');
         setIsLoading(false);
+        setHasEligibleCandidates(false);
         return;
       }
 
       try {
         const today = new Date().toISOString().split('T')[0];
+        
+        // Load seen user history from all previous drops first
+        const { data: allDrops } = await supabase
+          .from("daily_drops")
+          .select("candidate_id, drop_date")
+          .eq("user_id", user.id);
+        
+        let seenUserIds: string[] = [];
+        if (allDrops && allDrops.length > 0) {
+          seenUserIds = allDrops.map(d => d.candidate_id);
+          const lastDropDate = allDrops.reduce((latest, d) => 
+            d.drop_date > latest ? d.drop_date : latest, allDrops[0].drop_date);
+          setHistory({ seenUserIds, lastDropDate });
+        }
         
         // Check for existing drop today from database
         const { data: existingDrop, error } = await supabase
@@ -123,6 +189,7 @@ export function useDailyDrop() {
           const drop = await transformDrop(existingDrop);
           if (drop) {
             setCurrentDrop(drop);
+            setHasEligibleCandidates(true);
             
             if (existingDrop.status === 'replied') {
               setState('pending');
@@ -134,34 +201,30 @@ export function useDailyDrop() {
               setState('ready');
             }
           }
-        } else if (isDropTimeReached()) {
-          setState('ready');
         } else {
-          setState('locked');
-        }
-
-        // Load seen user history from all previous drops
-        const { data: allDrops } = await supabase
-          .from("daily_drops")
-          .select("candidate_id, drop_date")
-          .eq("user_id", user.id);
-        
-        if (allDrops && allDrops.length > 0) {
-          const seenUserIds = allDrops.map(d => d.candidate_id);
-          const lastDropDate = allDrops.reduce((latest, d) => 
-            d.drop_date > latest ? d.drop_date : latest, allDrops[0].drop_date);
-          setHistory({ seenUserIds, lastDropDate });
+          // Check if there are eligible candidates before showing ready state
+          const hasEligible = await checkEligibleCandidates(seenUserIds);
+          setHasEligibleCandidates(hasEligible);
+          
+          if (isDropTimeReached() && hasEligible) {
+            setState('ready');
+          } else if (!hasEligible) {
+            setState('empty');
+          } else {
+            setState('locked');
+          }
         }
       } catch (error) {
         console.error('Failed to initialize daily drop:', error);
         setState('locked');
+        setHasEligibleCandidates(false);
       } finally {
         setIsLoading(false);
       }
     };
 
     initializeDrop();
-  }, [user, transformDrop]);
+  }, [user, transformDrop, checkEligibleCandidates]);
 
   // Realtime subscription for daily_drops updates
   useEffect(() => {
@@ -405,6 +468,7 @@ export function useDailyDrop() {
     currentDrop,
     countdown,
     isLoading,
+    hasEligibleCandidates,
     unlockDrop,
     sendVibeReply,
     passDrop,

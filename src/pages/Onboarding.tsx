@@ -69,20 +69,33 @@ const Onboarding = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   
-  const [formData, setFormData] = useState<OnboardingFormData>(() => {
-    // Restore from localStorage if available
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return {
-          ...parsed,
-          photoFiles: [], // Files can't be serialized
-        };
-      } catch {
-        // Invalid saved data
+  // Clear any stored onboarding data for new users
+  useEffect(() => {
+    const clearDataForNewUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      // Check if this user has stored data from a different user ID
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          // If there's a stored userId and it doesn't match current user, clear it
+          if (parsed.userId && parsed.userId !== user.id) {
+            localStorage.removeItem(STORAGE_KEY);
+            console.log('[Onboarding] Cleared stale data from different user');
+          }
+        } catch {
+          // Invalid saved data, clear it
+          localStorage.removeItem(STORAGE_KEY);
+        }
       }
-    }
+    };
+    
+    clearDataForNewUser();
+  }, []);
+  
+  const [formData, setFormData] = useState<OnboardingFormData>(() => {
     return {
       name: "",
       birthDate: "",
@@ -104,11 +117,19 @@ const Onboarding = () => {
 
   const totalSteps = 8;
 
-  // Save progress to localStorage
+  // Save progress to localStorage with user ID
   useEffect(() => {
-    const dataToSave = { ...formData, photoFiles: [] };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    const saveWithUserId = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const dataToSave = { ...formData, photoFiles: [], userId: user.id };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    };
+    
+    saveWithUserId();
   }, [formData]);
+
 
   // Calculate age from birth date
   const calculateAge = (birthDateStr: string): number => {

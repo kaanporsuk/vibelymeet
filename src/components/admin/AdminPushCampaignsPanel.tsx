@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -84,35 +84,37 @@ interface TargetSegment {
   dropResponseStatus?: 'all' | 'responded' | 'unresponded';
 }
 
-// Mock campaigns data
-const mockCampaigns: Campaign[] = [
-  {
-    id: '1',
-    name: 'Re-engagement - 3 Day Inactive',
-    title: 'Your daily vibe is waiting! 💫',
-    body: "You haven't checked your daily drop in a while. Someone special might be waiting!",
-    status: 'sent',
-    targetSegment: { activityLevel: 'inactive', inactiveDays: 3 },
-    sentAt: new Date(Date.now() - 86400000).toISOString(),
-    createdAt: new Date(Date.now() - 172800000).toISOString(),
-    stats: { sent: 1250, delivered: 1180, opened: 423 },
-  },
-  {
-    id: '2',
-    name: 'New Event Announcement',
-    title: 'Exclusive Speed Dating Event 🎉',
-    body: 'Join our Tech Founders mixer this weekend. Limited spots available!',
-    status: 'scheduled',
-    targetSegment: { vibes: ['Tech', 'Founders'], isVerified: true },
-    scheduledAt: new Date(Date.now() + 86400000).toISOString(),
-    createdAt: new Date().toISOString(),
-  },
-];
-
 const AdminPushCampaignsPanel = () => {
+  const queryClient = useQueryClient();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
-  const [campaigns, setCampaigns] = useState<Campaign[]>(mockCampaigns);
+  
+  // Fetch campaigns from database
+  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
+    queryKey: ['push-campaigns'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('push_campaigns')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      // Transform to our Campaign interface
+      return (data || []).map(c => ({
+        id: c.id,
+        name: c.title,
+        title: c.title,
+        body: c.body,
+        status: c.status as Campaign['status'],
+        targetSegment: (c.target_segment ? JSON.parse(c.target_segment as string) : {}) as TargetSegment,
+        scheduledAt: c.scheduled_at || undefined,
+        sentAt: c.sent_at || undefined,
+        createdAt: c.created_at,
+        stats: c.sent_at ? { sent: 0, delivered: 0, opened: 0 } : undefined,
+      }));
+    },
+  });
   
   // Create form state
   const [formData, setFormData] = useState({
@@ -134,6 +136,31 @@ const AdminPushCampaignsPanel = () => {
     vibes: [],
     dropResponseStatus: 'all',
   });
+
+  // Load editing campaign data into form
+  useEffect(() => {
+    if (editingCampaign) {
+      setFormData({
+        name: editingCampaign.name,
+        title: editingCampaign.title,
+        body: editingCampaign.body,
+        scheduleType: editingCampaign.scheduledAt ? 'scheduled' : 'now',
+        scheduledAt: editingCampaign.scheduledAt || '',
+      });
+      setSegment(editingCampaign.targetSegment || {
+        activityLevel: 'all',
+        inactiveDays: 3,
+        gender: [],
+        ageRange: [18, 50],
+        hasMatches: undefined,
+        isVerified: undefined,
+        locations: [],
+        vibes: [],
+        dropResponseStatus: 'all',
+      });
+      setShowCreateForm(true);
+    }
+  }, [editingCampaign]);
 
   const [expandedSections, setExpandedSections] = useState({
     activity: true,
@@ -177,36 +204,129 @@ const AdminPushCampaignsPanel = () => {
     enabled: showCreateForm || !!editingCampaign,
   });
 
-  const handleCreateCampaign = () => {
+  const handleCreateCampaign = async () => {
     if (!formData.name || !formData.title || !formData.body) {
       toast.error('Please fill in all required fields');
       return;
     }
 
-    const newCampaign: Campaign = {
-      id: Date.now().toString(),
-      name: formData.name,
-      title: formData.title,
-      body: formData.body,
-      status: formData.scheduleType === 'now' ? 'sent' : 'scheduled',
-      targetSegment: segment,
-      createdAt: new Date().toISOString(),
-      scheduledAt: formData.scheduleType === 'scheduled' ? formData.scheduledAt : undefined,
-      sentAt: formData.scheduleType === 'now' ? new Date().toISOString() : undefined,
-      stats: formData.scheduleType === 'now' ? { sent: estimatedReach, delivered: Math.floor(estimatedReach * 0.95), opened: 0 } : undefined,
-    };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-    setCampaigns(prev => [newCampaign, ...prev]);
-    setShowCreateForm(false);
-    setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
-    setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
-    
-    toast.success(formData.scheduleType === 'now' ? 'Campaign sent successfully!' : 'Campaign scheduled successfully!');
+      const isEditing = !!editingCampaign;
+      
+      const campaignData = {
+        title: formData.title,
+        body: formData.body,
+        target_segment: JSON.stringify(segment),
+        status: formData.scheduleType === 'now' ? 'sent' : 'scheduled',
+        scheduled_at: formData.scheduleType === 'scheduled' ? formData.scheduledAt : null,
+        sent_at: formData.scheduleType === 'now' ? new Date().toISOString() : null,
+        created_by: user.id,
+      };
+
+      if (isEditing) {
+        // Update existing campaign
+        const { error } = await supabase
+          .from('push_campaigns')
+          .update(campaignData)
+          .eq('id', editingCampaign.id);
+        
+        if (error) throw error;
+        toast.success('Campaign updated successfully!');
+      } else {
+        // Create new campaign
+        const { data: newCampaign, error } = await supabase
+          .from('push_campaigns')
+          .insert(campaignData)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        // If sending now, also send the notifications to users
+        if (formData.scheduleType === 'now' && newCampaign) {
+          await sendNotificationsToUsers(newCampaign.id, formData.title, formData.body, segment);
+        }
+        
+        toast.success(formData.scheduleType === 'now' ? 'Campaign sent successfully!' : 'Campaign scheduled successfully!');
+      }
+
+      // Refresh campaigns list
+      queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
+      
+      setShowCreateForm(false);
+      setEditingCampaign(null);
+      setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
+      setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
+    } catch (error) {
+      console.error('Campaign error:', error);
+      toast.error('Failed to save campaign');
+    }
   };
 
-  const handleDeleteCampaign = (id: string) => {
-    setCampaigns(prev => prev.filter(c => c.id !== id));
-    toast.success('Campaign deleted');
+  // Send notifications to matching users
+  const sendNotificationsToUsers = async (
+    campaignId: string,
+    title: string,
+    body: string,
+    segment: TargetSegment
+  ) => {
+    try {
+      // Build query based on segment
+      let query = supabase.from('profiles').select('id');
+      
+      if (segment.gender?.length) {
+        query = query.in('gender', segment.gender);
+      }
+      if (segment.isVerified !== undefined) {
+        query = query.eq('photo_verified', segment.isVerified);
+      }
+      if (segment.ageRange) {
+        query = query.gte('age', segment.ageRange[0]).lte('age', segment.ageRange[1]);
+      }
+      
+      const { data: users } = await query;
+      
+      if (!users?.length) return;
+      
+      // Create notification events for tracking
+      const events = users.map(u => ({
+        campaign_id: campaignId,
+        user_id: u.id,
+        platform: 'web' as const,
+        status: 'queued' as const,
+      }));
+      
+      // Insert events in batches
+      const batchSize = 100;
+      for (let i = 0; i < events.length; i += batchSize) {
+        const batch = events.slice(i, i + batchSize);
+        await supabase.from('push_notification_events').insert(batch);
+      }
+      
+      console.log(`Queued ${users.length} notification events for campaign ${campaignId}`);
+    } catch (error) {
+      console.error('Error sending notifications:', error);
+    }
+  };
+
+  const handleDeleteCampaign = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('push_campaigns')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
+      toast.success('Campaign deleted');
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Failed to delete campaign');
+    }
   };
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -483,13 +603,18 @@ const AdminPushCampaignsPanel = () => {
               <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold font-display text-foreground">
-                    Create Push Campaign
+                    {editingCampaign ? 'Edit Push Campaign' : 'Create Push Campaign'}
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     Target specific user segments with personalized notifications
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowCreateForm(false)}>
+                <Button variant="ghost" size="icon" onClick={() => {
+                  setShowCreateForm(false);
+                  setEditingCampaign(null);
+                  setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
+                  setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
+                }}>
                   <XCircle className="w-5 h-5" />
                 </Button>
               </div>
@@ -724,12 +849,17 @@ const AdminPushCampaignsPanel = () => {
                   Targeting <span className="text-foreground font-medium">{estimatedReach.toLocaleString()}</span> users
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setShowCreateForm(false)}>
+                  <Button variant="outline" onClick={() => {
+                    setShowCreateForm(false);
+                    setEditingCampaign(null);
+                    setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
+                    setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
+                  }}>
                     Cancel
                   </Button>
                   <Button onClick={handleCreateCampaign} className="gap-2">
                     <Send className="w-4 h-4" />
-                    {formData.scheduleType === 'now' ? 'Send Now' : 'Schedule'}
+                    {editingCampaign ? 'Update Campaign' : (formData.scheduleType === 'now' ? 'Send Now' : 'Schedule')}
                   </Button>
                 </div>
               </div>
