@@ -3,9 +3,6 @@ import { Users, Sparkles, Crown, Ticket } from "lucide-react";
 import { VibeVideoThumbnail } from "@/components/vibe-video/VibeVideoThumbnail";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 
-// Mock video URL for demo
-const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
-
 interface Attendee {
   id: string;
   name: string;
@@ -69,8 +66,8 @@ const GuestListRoster = ({
       <div className="overflow-x-auto -mx-4 px-4">
         <div className="flex gap-4 pb-2">
           {attendees.map((attendee, index) => {
-            // Randomly assign some attendees with vibe videos for demo
-            const hasVibeVideo = attendee.hasVibeVideo ?? index % 3 !== 2;
+            // Use actual hasVibeVideo from profile
+            const hasVibeVideo = attendee.hasVibeVideo ?? false;
             
             return (
               <motion.button
@@ -99,14 +96,36 @@ const GuestListRoster = ({
                     </motion.div>
                   )}
 
-                  {/* Avatar with Vibe Video Thumbnail */}
+                  {/* Avatar with Vibe Video Thumbnail or Regular Image */}
                   <div className="relative mx-auto mb-2">
-                    <VibeVideoThumbnail
-                      thumbnailUrl={attendee.avatar}
-                      videoUrl={attendee.vibeVideoUrl || MOCK_VIBE_VIDEO}
-                      hasVibeVideo={hasVibeVideo}
-                      size="md"
-                    />
+                    {hasVibeVideo && attendee.vibeVideoUrl ? (
+                      <VibeVideoThumbnail
+                        thumbnailUrl={attendee.avatar}
+                        videoUrl={attendee.vibeVideoUrl}
+                        hasVibeVideo={true}
+                        size="md"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full overflow-hidden">
+                        {attendee.avatar ? (
+                          <img
+                            src={attendee.avatar}
+                            alt={attendee.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              // Show fallback on error
+                              (e.target as HTMLImageElement).style.display = "none";
+                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
+                            }}
+                          />
+                        ) : null}
+                        <div className={`${attendee.avatar ? "hidden" : ""} w-full h-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center`}>
+                          <span className="text-xl font-bold text-foreground/50">
+                            {attendee.name.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {/* Photo Verified Badge */}
                     {attendee.photoVerified && (
                       <PhotoVerifiedMark verified className="absolute -top-1 -right-1 z-10" size="md" />

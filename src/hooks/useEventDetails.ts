@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
+import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface EventDetails {
   id: string;
@@ -22,6 +24,7 @@ export interface EventDetails {
   currentWomen: number;
   tags: string[];
   isFree: boolean;
+  eventVibes: string[]; // The event's vibe tags
 }
 
 export interface EventAttendee {
@@ -34,9 +37,34 @@ export interface EventAttendee {
   bio: string;
   photos: string[];
   vibeTags?: string[];
+  photoVerified?: boolean;
+  hasVibeVideo?: boolean;
+  vibeVideoUrl?: string;
+}
+
+// Helper to get signed URL for a photo
+async function getSignedPhotoUrl(path: string): Promise<string> {
+  if (!path) return "";
+  
+  // If it's already a full URL, return it
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+
+  try {
+    const { data } = await supabase.storage
+      .from("profile-photos")
+      .createSignedUrl(path, 3600); // 1 hour expiry
+    
+    return data?.signedUrl || path;
+  } catch {
+    return path;
+  }
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
+  const { user } = useAuth();
+
   return useQuery({
     queryKey: ["event-details", eventId],
     enabled: !!eventId,
@@ -58,7 +86,7 @@ export const useEventDetails = (eventId: string | undefined) => {
 
       const eventDate = new Date(data.event_date);
       const endTime = addMinutes(eventDate, data.duration_minutes || 60);
-      
+
       // Format time range
       const startTimeStr = format(eventDate, "h:mm a");
       const endTimeStr = format(endTime, "h:mm a");
@@ -66,11 +94,33 @@ export const useEventDetails = (eventId: string | undefined) => {
       // Determine category from vibes/tags
       const vibes = data.vibes || [];
       const tags = data.tags || [];
-      const category = vibes.length > 0 
-        ? `🎯 ${vibes[0]}` 
-        : tags.length > 0 
-          ? tags[0] 
-          : "🎉 Social";
+      const category =
+        vibes.length > 0
+          ? `🎯 ${vibes[0]}`
+          : tags.length > 0
+            ? tags[0]
+            : "🎉 Social";
+
+      // Get user's vibe tags for match calculation
+      let userVibes: string[] = [];
+      if (user?.id) {
+        const { data: userVibesData } = await supabase
+          .from("profile_vibes")
+          .select("vibe_tags(label)")
+          .eq("profile_id", user.id);
+        
+        if (userVibesData) {
+          userVibes = userVibesData
+            .map((v) => (v.vibe_tags as { label: string } | null)?.label)
+            .filter(Boolean) as string[];
+        }
+      }
+
+      // Calculate stable match percentage for this event
+      const eventVibeLabels = [...vibes, ...tags];
+      const vibeMatch = user?.id
+        ? calculateVibeScoreStable(user.id, eventId, userVibes, eventVibeLabels, eventId)
+        : 75; // Default for non-logged-in users
 
       return {
         id: data.id,
@@ -78,7 +128,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         description: data.description,
         coverImage: data.cover_image,
         category,
-        vibeMatch: Math.floor(Math.random() * 20) + 80, // TODO: Calculate real match
+        vibeMatch,
         eventDate,
         time: `${startTimeStr} - ${endTimeStr}`,
         isVirtual: !data.is_location_specific,
@@ -98,12 +148,15 @@ export const useEventDetails = (eventId: string | undefined) => {
           return t;
         }),
         isFree: data.is_free || false,
+        eventVibes: eventVibeLabels,
       };
     },
   });
 };
 
 export const useEventAttendees = (eventId: string | undefined) => {
+  const { user } = useAuth();
+
   return useQuery({
     queryKey: ["event-attendees", eventId],
     enabled: !!eventId,
@@ -113,7 +166,8 @@ export const useEventAttendees = (eventId: string | undefined) => {
       // Fetch registrations with profile data
       const { data: registrations, error } = await supabase
         .from("event_registrations")
-        .select(`
+        .select(
+          `
           profile_id,
           profiles:profile_id (
             id,
@@ -121,9 +175,12 @@ export const useEventAttendees = (eventId: string | undefined) => {
             age,
             avatar_url,
             bio,
-            photos
+            photos,
+            photo_verified,
+            video_intro_url
           )
-        `)
+        `
+        )
         .eq("event_id", eventId);
 
       if (error) {
@@ -134,7 +191,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
       if (!registrations?.length) return [];
 
       // Fetch vibes for all attendees
-      const profileIds = registrations.map(r => r.profile_id);
+      const profileIds = registrations.map((r) => r.profile_id);
       const { data: vibesData } = await supabase
         .from("profile_vibes")
         .select("profile_id, vibe_tags(label)")
@@ -154,36 +211,78 @@ export const useEventAttendees = (eventId: string | undefined) => {
         }
       }
 
-      return registrations
-        .filter(r => r.profiles)
-        .map(r => {
-          const profile = r.profiles as {
-            id: string;
-            name: string;
-            age: number;
-            avatar_url: string | null;
-            bio: string | null;
-            photos: string[] | null;
-          };
-          const profileVibes = vibesByProfile[profile.id] || [];
-          
-          return {
-            id: profile.id,
-            name: profile.name,
-            age: profile.age,
-            avatar: profile.avatar_url || profile.photos?.[0] || "",
-            vibeTag: profileVibes[0] || "New Vibe",
-            matchPercent: Math.floor(Math.random() * 20) + 75,
-            bio: profile.bio || "",
-            photos: profile.photos || [],
-            vibeTags: profileVibes.slice(0, 2),
-          };
-        });
+      // Get current user's vibes for match calculation
+      let userVibes: string[] = [];
+      if (user?.id) {
+        const { data: userVibesData } = await supabase
+          .from("profile_vibes")
+          .select("vibe_tags(label)")
+          .eq("profile_id", user.id);
+
+        if (userVibesData) {
+          userVibes = userVibesData
+            .map((v) => (v.vibe_tags as { label: string } | null)?.label)
+            .filter(Boolean) as string[];
+        }
+      }
+
+      // Process each attendee with signed URLs
+      const attendees = await Promise.all(
+        registrations
+          .filter((r) => r.profiles)
+          .map(async (r) => {
+            const profile = r.profiles as {
+              id: string;
+              name: string;
+              age: number;
+              avatar_url: string | null;
+              bio: string | null;
+              photos: string[] | null;
+              photo_verified: boolean | null;
+              video_intro_url: string | null;
+            };
+            const profileVibes = vibesByProfile[profile.id] || [];
+
+            // Get signed URL for avatar
+            const avatarPath = profile.avatar_url || profile.photos?.[0] || "";
+            const signedAvatar = await getSignedPhotoUrl(avatarPath);
+
+            // Get signed URLs for all photos
+            const signedPhotos = await Promise.all(
+              (profile.photos || []).map((p) => getSignedPhotoUrl(p))
+            );
+
+            // Calculate STABLE match percentage
+            const matchPercent = user?.id
+              ? calculateVibeScoreStable(user.id, profile.id, userVibes, profileVibes, eventId)
+              : 75;
+
+            return {
+              id: profile.id,
+              name: profile.name,
+              age: profile.age,
+              avatar: signedAvatar,
+              vibeTag: profileVibes[0] || "New Vibe",
+              matchPercent,
+              bio: profile.bio || "",
+              photos: signedPhotos,
+              vibeTags: profileVibes.slice(0, 2),
+              photoVerified: profile.photo_verified || false,
+              hasVibeVideo: !!profile.video_intro_url,
+              vibeVideoUrl: profile.video_intro_url || undefined,
+            };
+          })
+      );
+
+      return attendees;
     },
   });
 };
 
-export const useIsRegisteredForEvent = (eventId: string | undefined, userId: string | undefined) => {
+export const useIsRegisteredForEvent = (
+  eventId: string | undefined,
+  userId: string | undefined
+) => {
   return useQuery({
     queryKey: ["event-registration-check", eventId, userId],
     enabled: !!eventId && !!userId,

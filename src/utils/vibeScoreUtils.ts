@@ -65,6 +65,55 @@ export function calculateVibeScore(input: VibeScoreInput): number {
 }
 
 /**
+ * Calculate a STABLE vibe score that doesn't change across page reloads.
+ * Uses deterministic hashing based on user IDs to create consistent results.
+ * 
+ * @param userId - Current user's ID
+ * @param candidateId - Candidate's ID  
+ * @param userTags - Current user's vibe tags
+ * @param candidateTags - Candidate's vibe tags
+ * @param eventId - Optional event ID for event-specific consistency
+ */
+export function calculateVibeScoreStable(
+  userId: string,
+  candidateId: string,
+  userTags: string[],
+  candidateTags: string[],
+  eventId?: string
+): number {
+  // Calculate base score from shared tags (max 70 points)
+  const normalizedUserTags = userTags.map(t => t.toLowerCase().trim());
+  const normalizedCandidateTags = candidateTags.map(t => t.toLowerCase().trim());
+  
+  const sharedTags = normalizedUserTags.filter(tag => 
+    normalizedCandidateTags.includes(tag)
+  );
+  
+  const maxTags = Math.max(normalizedUserTags.length, normalizedCandidateTags.length, 1);
+  const tagOverlapRatio = sharedTags.length / maxTags;
+  const tagScore = Math.round(tagOverlapRatio * 70);
+
+  // Generate a deterministic "pseudo-random" bonus based on user pair
+  // This creates consistent scores for the same pair of users
+  const hashInput = [userId, candidateId, eventId || ""].sort().join("-");
+  let hash = 0;
+  for (let i = 0; i < hashInput.length; i++) {
+    const char = hashInput.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  
+  // Use hash to generate a stable variance between 0-30
+  const stableVariance = Math.abs(hash % 31);
+  
+  // Final score: tag-based (0-70) + stable variance (0-30)
+  // Minimum score is 50 to avoid showing very low matches
+  const finalScore = Math.max(50, Math.min(100, tagScore + stableVariance));
+  
+  return finalScore;
+}
+
+/**
  * Get the shared tags between two users
  */
 export function getSharedTags(userTags: string[], candidateTags: string[]): string[] {

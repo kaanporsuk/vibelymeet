@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -71,6 +71,11 @@ const EventDetails = () => {
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  // Handler for Register to Match from mini profile modal - MUST be before early returns
+  const handleRegisterFromProfile = useCallback(() => {
+    setShowPaymentModal(true);
   }, []);
 
   const formatDate = (date: Date) => {
@@ -197,6 +202,9 @@ const EventDetails = () => {
     matchPercent: a.matchPercent,
     bio: a.bio,
     photos: a.photos,
+    photoVerified: a.photoVerified,
+    hasVibeVideo: a.hasVibeVideo,
+    vibeVideoUrl: a.vibeVideoUrl,
   }));
 
   return (
@@ -407,6 +415,8 @@ const EventDetails = () => {
         profile={selectedProfile}
         isOpen={!!selectedProfile}
         onClose={() => setSelectedProfile(null)}
+        onRegister={handleRegisterFromProfile}
+        isRegistered={isRegistered}
       />
 
       {/* Ticket Stub */}
