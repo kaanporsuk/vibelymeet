@@ -13,6 +13,7 @@ export interface EventDetails {
   vibeMatch: number;
   eventDate: Date;
   time: string;
+  durationMinutes: number;
   isVirtual: boolean;
   venue: string;
   address: string;
@@ -131,6 +132,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         vibeMatch,
         eventDate,
         time: `${startTimeStr} - ${endTimeStr}`,
+        durationMinutes: data.duration_minutes || 60,
         isVirtual: !data.is_location_specific,
         venue: data.location_name || (data.is_location_specific ? "TBA" : "Digital Lobby"),
         address: data.location_address || (data.is_location_specific ? "" : "Video Speed Dating"),

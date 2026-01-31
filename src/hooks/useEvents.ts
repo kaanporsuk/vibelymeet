@@ -58,55 +58,79 @@ export const useEvents = () => {
   return useQuery({
     queryKey: ["events"],
     queryFn: async (): Promise<Event[]> => {
-      const now = new Date().toISOString();
+      const now = new Date();
       
       const { data, error } = await supabase
         .from("events")
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
-        .gte("event_date", now) // Only fetch future events
         .order("event_date", { ascending: true });
 
       if (error) throw error;
 
-      return (data || []).map((event) => {
-        const eventDate = new Date(event.event_date);
-        return {
-          id: event.id,
-          title: event.title,
-          description: event.description,
-          image: event.cover_image,
-          date: format(eventDate, "MMM d"),
-          time: format(eventDate, "h a"),
-          attendees: event.current_attendees || 0,
-          tags: event.tags || [],
-          status: event.status || "upcoming",
-          eventDate,
-        };
-      });
+      // Filter to include upcoming events AND currently live events (within duration)
+      return (data || [])
+        .filter((event) => {
+          const eventStart = new Date(event.event_date);
+          const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+          const eventEnd = new Date(eventStart.getTime() + durationMs);
+          
+          // Include if event hasn't ended yet (either upcoming or currently live)
+          return now < eventEnd;
+        })
+        .map((event) => {
+          const eventDate = new Date(event.event_date);
+          const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+          const eventEnd = new Date(eventDate.getTime() + durationMs);
+          const isLive = now >= eventDate && now < eventEnd;
+          
+          return {
+            id: event.id,
+            title: event.title,
+            description: event.description,
+            image: event.cover_image,
+            date: format(eventDate, "MMM d"),
+            time: format(eventDate, "h a"),
+            attendees: event.current_attendees || 0,
+            tags: event.tags || [],
+            status: isLive ? "live" : (event.status || "upcoming"),
+            eventDate,
+          };
+        });
     },
   });
 };
 
-// Infinite scroll version
+// Infinite scroll version - includes live events
 export const useInfiniteEvents = () => {
   return useInfiniteQuery({
     queryKey: ["infinite-events"],
     queryFn: async ({ pageParam = 0 }): Promise<{ events: Event[]; nextCursor: number | null }> => {
-      const now = new Date().toISOString();
+      const now = new Date();
       const from = pageParam * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
       const { data, error } = await supabase
         .from("events")
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
-        .gte("event_date", now)
         .order("event_date", { ascending: true })
         .range(from, to);
 
       if (error) throw error;
 
-      const events = (data || []).map((event) => {
+      // Filter to include upcoming AND live events
+      const filteredData = (data || []).filter((event) => {
+        const eventStart = new Date(event.event_date);
+        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+        const eventEnd = new Date(eventStart.getTime() + durationMs);
+        return now < eventEnd;
+      });
+
+      const events = filteredData.map((event) => {
         const eventDate = new Date(event.event_date);
+        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+        const eventEnd = new Date(eventDate.getTime() + durationMs);
+        const isLive = now >= eventDate && now < eventEnd;
+        
         return {
           id: event.id,
           title: event.title,
@@ -116,7 +140,7 @@ export const useInfiniteEvents = () => {
           time: format(eventDate, "h a"),
           attendees: event.current_attendees || 0,
           tags: event.tags || [],
-          status: event.status || "upcoming",
+          status: isLive ? "live" : (event.status || "upcoming"),
           eventDate,
         };
       });
@@ -161,6 +185,7 @@ export const useNextEvent = () => {
 };
 
 // New hook - gets user's next REGISTERED event (or recommended if none)
+// Includes LIVE events (not just future ones)
 export const useNextRegisteredEvent = () => {
   const { user } = useAuth();
 
@@ -170,63 +195,87 @@ export const useNextRegisteredEvent = () => {
     queryFn: async () => {
       if (!user?.id) return { event: null, isRegistered: false };
 
-      const now = new Date().toISOString();
+      const now = new Date();
 
-      // First, try to find user's next registered event
+      // First, try to find user's next registered event (including live ones)
       const { data: registeredEvents, error: regError } = await supabase
         .from("event_registrations")
         .select(`
           event_id,
           events:event_id (
-            id, title, cover_image, event_date, current_attendees
+            id, title, cover_image, event_date, current_attendees, duration_minutes
           )
         `)
         .eq("profile_id", user.id);
 
       if (regError) throw regError;
 
-      // Filter to future events and sort by date
-      const futureRegistered = (registeredEvents || [])
-        .filter(r => r.events && new Date(r.events.event_date) > new Date())
+      // Filter to include upcoming AND live events (not ended)
+      const activeRegistered = (registeredEvents || [])
+        .filter(r => {
+          if (!r.events) return false;
+          const eventStart = new Date(r.events.event_date);
+          const durationMs = ((r.events as { duration_minutes?: number }).duration_minutes || 60) * 60 * 1000;
+          const eventEnd = new Date(eventStart.getTime() + durationMs);
+          return now < eventEnd; // Event hasn't ended yet
+        })
         .sort((a, b) => new Date(a.events!.event_date).getTime() - new Date(b.events!.event_date).getTime());
 
-      if (futureRegistered.length > 0) {
-        const event = futureRegistered[0].events!;
+      if (activeRegistered.length > 0) {
+        const event = activeRegistered[0].events!;
         const eventDate = new Date(event.event_date);
+        const durationMs = ((event as { duration_minutes?: number }).duration_minutes || 60) * 60 * 1000;
+        const eventEnd = new Date(eventDate.getTime() + durationMs);
+        const isLive = now >= eventDate && now < eventEnd;
+        
         return {
           event: {
             id: event.id,
             title: event.title,
-            emoji: "🎵",
-            date: format(eventDate, "EEEE 'at' h a"),
+            emoji: isLive ? "🔴" : "🎵",
+            date: isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
             eventDate,
             image: event.cover_image,
+            isLive,
           },
           isRegistered: true,
         };
       }
 
-      // No registered events - fetch a recommended event
+      // No registered events - fetch a recommended event (upcoming only)
       const { data: recommendedEvent, error: recError } = await supabase
         .from("events")
-        .select("id, title, cover_image, event_date, current_attendees")
-        .gte("event_date", now)
+        .select("id, title, cover_image, event_date, current_attendees, duration_minutes")
         .order("event_date", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+        .limit(20); // Fetch more to filter
 
       if (recError) throw recError;
-      if (!recommendedEvent) return { event: null, isRegistered: false };
+      
+      // Filter to events that haven't ended
+      const activeEvents = (recommendedEvent || []).filter(event => {
+        const eventStart = new Date(event.event_date);
+        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+        const eventEnd = new Date(eventStart.getTime() + durationMs);
+        return now < eventEnd;
+      });
 
-      const eventDate = new Date(recommendedEvent.event_date);
+      if (!activeEvents.length) return { event: null, isRegistered: false };
+
+      const event = activeEvents[0];
+      const eventDate = new Date(event.event_date);
+      const durationMs = (event.duration_minutes || 60) * 60 * 1000;
+      const eventEnd = new Date(eventDate.getTime() + durationMs);
+      const isLive = now >= eventDate && now < eventEnd;
+
       return {
         event: {
-          id: recommendedEvent.id,
-          title: recommendedEvent.title,
-          emoji: "🎵",
-          date: format(eventDate, "EEEE 'at' h a"),
+          id: event.id,
+          title: event.title,
+          emoji: isLive ? "🔴" : "🎵",
+          date: isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
           eventDate,
-          image: recommendedEvent.cover_image,
+          image: event.cover_image,
+          isLive,
         },
         isRegistered: false,
       };

@@ -1,24 +1,58 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi, Lock } from "lucide-react";
+import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface VenueCardProps {
   isVirtual: boolean;
   venueName?: string;
   address?: string;
   eventDate: Date;
+  eventDurationMinutes?: number;
+  eventId?: string;
   isRegistered?: boolean;
 }
 
-const VenueCard = ({ isVirtual, venueName, address, eventDate, isRegistered = false }: VenueCardProps) => {
+const VenueCard = ({ 
+  isVirtual, 
+  venueName, 
+  address, 
+  eventDate, 
+  eventDurationMinutes = 60,
+  eventId,
+  isRegistered = false 
+}: VenueCardProps) => {
+  const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
+  const [eventStatus, setEventStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
 
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
-      const diff = eventDate.getTime() - now.getTime();
+      const startTime = eventDate.getTime();
+      const endTime = startTime + eventDurationMinutes * 60 * 1000;
+      const diff = startTime - now.getTime();
 
+      // Check if event has ended
+      if (now.getTime() >= endTime) {
+        setEventStatus("ended");
+        setTimeUntil("Event ended");
+        return;
+      }
+
+      // Check if event is live (between start and end)
+      if (now.getTime() >= startTime && now.getTime() < endTime) {
+        setEventStatus("live");
+        const remainingMs = endTime - now.getTime();
+        const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
+        setTimeUntil(`${remainingMinutes}m remaining`);
+        return;
+      }
+
+      // Event is upcoming
+      setEventStatus("upcoming");
+      
       if (diff <= 0) {
         setTimeUntil("Starting now!");
         return;
@@ -38,9 +72,17 @@ const VenueCard = ({ isVirtual, venueName, address, eventDate, isRegistered = fa
     };
 
     updateCountdown();
-    const interval = setInterval(updateCountdown, 60000);
+    const interval = setInterval(updateCountdown, 10000); // Update every 10 seconds for accuracy
     return () => clearInterval(interval);
-  }, [eventDate]);
+  }, [eventDate, eventDurationMinutes]);
+
+  const handleJoinEvent = () => {
+    if (eventId) {
+      navigate(`/video-lobby?eventId=${eventId}`);
+    } else {
+      navigate("/video-lobby");
+    }
+  };
 
   if (isVirtual) {
     return (
@@ -85,7 +127,24 @@ const VenueCard = ({ isVirtual, venueName, address, eventDate, isRegistered = fa
 
           {/* Center Content */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            {isRegistered ? (
+            {eventStatus === "live" && isRegistered ? (
+              <>
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  className="flex items-center gap-2"
+                >
+                  <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-sm font-bold text-green-500">LIVE NOW</span>
+                </motion.div>
+                <span className="text-xs text-muted-foreground">{timeUntil}</span>
+              </>
+            ) : eventStatus === "ended" ? (
+              <>
+                <Lock className="w-6 h-6 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">Event has ended</span>
+              </>
+            ) : isRegistered ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
@@ -112,7 +171,21 @@ const VenueCard = ({ isVirtual, venueName, address, eventDate, isRegistered = fa
           <div className="absolute inset-0 bg-gradient-radial from-primary/10 via-transparent to-transparent" />
         </div>
 
-        {isRegistered ? (
+        {/* Action Button - changes based on event status */}
+        {eventStatus === "live" && isRegistered ? (
+          <Button 
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
+            onClick={handleJoinEvent}
+          >
+            <Play className="w-4 h-4 mr-2" />
+            Join Event Now
+          </Button>
+        ) : eventStatus === "ended" ? (
+          <Button variant="outline" className="w-full" disabled>
+            <Video className="w-4 h-4 mr-2" />
+            Event Ended
+          </Button>
+        ) : isRegistered ? (
           <Button variant="outline" className="w-full" disabled>
             <Video className="w-4 h-4 mr-2" />
             Join Link Available Soon

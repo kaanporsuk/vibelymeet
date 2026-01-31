@@ -336,6 +336,8 @@ const EventDetails = () => {
             venueName={event.venue}
             address={event.address}
             eventDate={event.eventDate}
+            eventDurationMinutes={event.durationMinutes}
+            eventId={event.id}
             isRegistered={isRegistered}
           />
         </div>
