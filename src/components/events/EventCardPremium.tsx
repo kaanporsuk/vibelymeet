@@ -17,6 +17,7 @@ interface EventCardPremiumProps {
   attendees: number;
   tags: string[];
   vibeMatch?: number;
+  status?: string;
 }
 
 const tagEmojis: Record<string, string> = {
@@ -42,7 +43,9 @@ export const EventCardPremium = ({
   attendees,
   tags,
   vibeMatch = Math.floor(Math.random() * 20) + 80,
+  status,
 }: EventCardPremiumProps) => {
+  const isLive = status === "live";
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
@@ -133,6 +136,22 @@ export const EventCardPremium = ({
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+        
+        {/* LIVE Badge - shown when event is active */}
+        {isLive && (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/90 backdrop-blur-sm"
+          >
+            <motion.div
+              animate={{ scale: [1, 1.3, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}
+              className="w-2 h-2 rounded-full bg-white"
+            />
+            <span className="text-xs font-bold text-white uppercase tracking-wider">Live</span>
+          </motion.div>
+        )}
         
         {/* Vibe Match Badge */}
         <motion.div
