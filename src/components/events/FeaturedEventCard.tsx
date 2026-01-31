@@ -15,6 +15,8 @@ interface FeaturedEventCardProps {
   eventDate: Date;
   attendees: number;
   tags: string[];
+  status?: string;
+  durationMinutes?: number;
 }
 
 export const FeaturedEventCard = ({
@@ -25,18 +27,37 @@ export const FeaturedEventCard = ({
   eventDate,
   attendees,
   tags,
+  status,
+  durationMinutes = 60,
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
   const { data: userRegistrations = [] } = useUserRegistrations();
   const { data: eventAttendees = [] } = useEventAttendees(id, 5);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [isLive, setIsLive] = useState(status === "live");
 
   const isRegistered = userRegistrations.includes(id);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
       const now = new Date();
-      const diff = eventDate.getTime() - now.getTime();
+      const startTime = eventDate.getTime();
+      const endTime = startTime + durationMinutes * 60 * 1000;
+      const diff = startTime - now.getTime();
+      
+      // Check if event is live
+      if (now.getTime() >= startTime && now.getTime() < endTime) {
+        setIsLive(true);
+        return { hours: 0, minutes: 0, seconds: 0 };
+      }
+      
+      // Check if event ended
+      if (now.getTime() >= endTime) {
+        setIsLive(false);
+        return { hours: 0, minutes: 0, seconds: 0 };
+      }
+      
+      setIsLive(false);
       
       if (diff <= 0) {
         return { hours: 0, minutes: 0, seconds: 0 };
@@ -52,7 +73,7 @@ export const FeaturedEventCard = ({
     setTimeLeft(calculateTimeLeft());
     const timer = setInterval(() => setTimeLeft(calculateTimeLeft()), 1000);
     return () => clearInterval(timer);
-  }, [eventDate]);
+  }, [eventDate, durationMinutes]);
 
   // Primary action button handler
   const handlePrimaryAction = (e: React.MouseEvent) => {
@@ -80,35 +101,53 @@ export const FeaturedEventCard = ({
 
       {/* Content */}
       <div className="relative h-full flex flex-col justify-end p-6 md:p-8">
-        {/* Featured Badge */}
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.2, type: "spring" }}
-          className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 backdrop-blur-md border border-primary/30"
-        >
-          <Sparkles className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold text-primary">Featured Event</span>
-        </motion.div>
+        {/* Featured Badge or LIVE Badge */}
+        {isLive ? (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: "spring" }}
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/90 backdrop-blur-md"
+          >
+            <motion.div
+              animate={{ scale: [1, 1.3, 1] }}
+              transition={{ duration: 1, repeat: Infinity }}
+              className="w-2.5 h-2.5 rounded-full bg-white"
+            />
+            <span className="text-sm font-bold text-white uppercase tracking-wider">Live Now</span>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: "spring" }}
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 backdrop-blur-md border border-primary/30"
+          >
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold text-primary">Featured Event</span>
+          </motion.div>
+        )}
 
-        {/* Countdown Timer */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.3 }}
-          className="absolute top-6 right-6"
-        >
-          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background/40 backdrop-blur-md border border-white/10">
-            <Clock className="w-4 h-4 text-neon-cyan" />
-            <div className="flex items-center gap-1 font-mono text-lg font-bold">
-              <span className="text-foreground">{String(timeLeft.hours).padStart(2, '0')}</span>
-              <span className="text-neon-cyan animate-pulse">:</span>
-              <span className="text-foreground">{String(timeLeft.minutes).padStart(2, '0')}</span>
-              <span className="text-neon-cyan animate-pulse">:</span>
-              <span className="text-foreground">{String(timeLeft.seconds).padStart(2, '0')}</span>
+        {/* Countdown Timer - Only show if not live */}
+        {!isLive && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3 }}
+            className="absolute top-6 right-6"
+          >
+            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background/40 backdrop-blur-md border border-white/10">
+              <Clock className="w-4 h-4 text-neon-cyan" />
+              <div className="flex items-center gap-1 font-mono text-lg font-bold">
+                <span className="text-foreground">{String(timeLeft.hours).padStart(2, '0')}</span>
+                <span className="text-neon-cyan animate-pulse">:</span>
+                <span className="text-foreground">{String(timeLeft.minutes).padStart(2, '0')}</span>
+                <span className="text-neon-cyan animate-pulse">:</span>
+                <span className="text-foreground">{String(timeLeft.seconds).padStart(2, '0')}</span>
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
         {/* Tags */}
         <div className="flex flex-wrap gap-2 mb-4">

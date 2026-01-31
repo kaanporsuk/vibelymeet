@@ -222,9 +222,15 @@ export type Database = {
           attendance_marked_at: string | null
           attendance_marked_by: string | null
           attended: boolean | null
+          current_partner_id: string | null
+          current_room_id: string | null
+          dates_completed: number | null
           event_id: string
           id: string
+          joined_queue_at: string | null
+          last_matched_at: string | null
           profile_id: string
+          queue_status: string | null
           registered_at: string
         }
         Insert: {
@@ -232,9 +238,15 @@ export type Database = {
           attendance_marked_at?: string | null
           attendance_marked_by?: string | null
           attended?: boolean | null
+          current_partner_id?: string | null
+          current_room_id?: string | null
+          dates_completed?: number | null
           event_id: string
           id?: string
+          joined_queue_at?: string | null
+          last_matched_at?: string | null
           profile_id: string
+          queue_status?: string | null
           registered_at?: string
         }
         Update: {
@@ -242,9 +254,15 @@ export type Database = {
           attendance_marked_at?: string | null
           attendance_marked_by?: string | null
           attended?: boolean | null
+          current_partner_id?: string | null
+          current_room_id?: string | null
+          dates_completed?: number | null
           event_id?: string
           id?: string
+          joined_queue_at?: string | null
+          last_matched_at?: string | null
           profile_id?: string
+          queue_status?: string | null
           registered_at?: string
         }
         Relationships: [
@@ -1016,6 +1034,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      find_video_date_match: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1030,6 +1052,14 @@ export type Database = {
       is_registered_for_event: {
         Args: { _event_id: string; _user_id: string }
         Returns: boolean
+      }
+      join_matching_queue: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
+      leave_matching_queue: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
       }
     }
     Enums: {

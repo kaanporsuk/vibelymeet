@@ -1,8 +1,8 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play } from "lucide-react";
+import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play, Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useVideoMatching } from "@/hooks/useVideoMatching";
 
 interface VenueCardProps {
   isVirtual: boolean;
@@ -23,9 +23,14 @@ const VenueCard = ({
   eventId,
   isRegistered = false 
 }: VenueCardProps) => {
-  const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
   const [eventStatus, setEventStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
+  
+  // Video matching hook - only active during live events for registered users
+  const matching = useVideoMatching({ 
+    eventId: eventId || "", 
+    autoNavigate: true 
+  });
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -77,12 +82,14 @@ const VenueCard = ({
   }, [eventDate, eventDurationMinutes]);
 
   const handleJoinEvent = () => {
-    if (eventId) {
-      navigate(`/video-lobby?eventId=${eventId}`);
-    } else {
-      navigate("/video-lobby");
+    if (eventId && eventStatus === "live") {
+      // Use the matching system to find a partner
+      matching.joinQueue();
     }
   };
+
+  const isSearching = matching.status === "searching";
+  const isMatched = matching.status === "matched";
 
   if (isVirtual) {
     return (
@@ -127,7 +134,33 @@ const VenueCard = ({
 
           {/* Center Content */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            {eventStatus === "live" && isRegistered ? (
+            {isSearching && isRegistered ? (
+              <>
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="flex items-center gap-2"
+                >
+                  <Users className="w-6 h-6 text-primary" />
+                </motion.div>
+                <span className="text-sm font-bold text-primary">Finding your match...</span>
+                <Button variant="ghost" size="sm" onClick={() => matching.leaveQueue()}>
+                  Cancel
+                </Button>
+              </>
+            ) : isMatched && isRegistered ? (
+              <>
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 0.5, repeat: 3 }}
+                  className="flex items-center gap-2"
+                >
+                  <div className="w-4 h-4 rounded-full bg-green-500" />
+                  <span className="text-sm font-bold text-green-500">Match Found!</span>
+                </motion.div>
+                <span className="text-xs text-muted-foreground">Connecting...</span>
+              </>
+            ) : eventStatus === "live" && isRegistered ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.2, 1] }}
@@ -171,13 +204,28 @@ const VenueCard = ({
           <div className="absolute inset-0 bg-gradient-radial from-primary/10 via-transparent to-transparent" />
         </div>
 
-        {/* Action Button - changes based on event status */}
-        {eventStatus === "live" && isRegistered ? (
+        {/* Action Button - changes based on event and matching status */}
+        {isSearching && isRegistered ? (
+          <Button variant="outline" className="w-full" disabled>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            Finding Match...
+          </Button>
+        ) : isMatched && isRegistered ? (
+          <Button className="w-full bg-green-500 hover:bg-green-600 text-white" disabled>
+            <Video className="w-4 h-4 mr-2" />
+            Connecting to Date...
+          </Button>
+        ) : eventStatus === "live" && isRegistered ? (
           <Button 
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
             onClick={handleJoinEvent}
+            disabled={matching.isLoading}
           >
-            <Play className="w-4 h-4 mr-2" />
+            {matching.isLoading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4 mr-2" />
+            )}
             Join Event Now
           </Button>
         ) : eventStatus === "ended" ? (

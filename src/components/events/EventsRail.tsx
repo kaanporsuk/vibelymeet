@@ -91,6 +91,7 @@ export const EventsRail = ({
               time={event.time}
               attendees={event.attendees}
               tags={event.tags}
+              status={event.status}
             />
           </motion.div>
         ))}
