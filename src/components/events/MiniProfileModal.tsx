@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Loader2 } from "lucide-react";
+import { X, Sparkles, Loader2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,7 +20,9 @@ interface MiniProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   onRegister?: () => void;
+  onViewFullProfile?: (profileId: string) => void;
   isRegistered?: boolean;
+  isViewerRegistered?: boolean; // Whether the current viewer is registered for the event
 }
 
 const MiniProfileModal = ({ 
@@ -28,7 +30,9 @@ const MiniProfileModal = ({
   isOpen, 
   onClose, 
   onRegister,
-  isRegistered = false 
+  onViewFullProfile,
+  isRegistered = false,
+  isViewerRegistered = false 
 }: MiniProfileModalProps) => {
   const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
   const [loadingPhoto, setLoadingPhoto] = useState(false);
@@ -177,17 +181,29 @@ const MiniProfileModal = ({
                   {profile.bio || "Ready to meet new people!"}
                 </p>
 
-                {/* CTA */}
+                {/* CTA - Different based on context */}
                 <div className="flex items-center gap-3">
                   <Button variant="outline" className="flex-1" onClick={onClose}>
-                    Maybe Later
+                    Close
                   </Button>
-                  {isRegistered ? (
-                    <Button variant="gradient" className="flex-1 gap-2" disabled>
-                      <Sparkles className="w-4 h-4" />
-                      Already Registered
+                  
+                  {/* If viewer is registered, show View Profile for other attendees */}
+                  {isViewerRegistered ? (
+                    <Button 
+                      variant="gradient" 
+                      className="flex-1 gap-2"
+                      onClick={() => {
+                        if (onViewFullProfile && profile) {
+                          onViewFullProfile(profile.id);
+                        }
+                        onClose();
+                      }}
+                    >
+                      <User className="w-4 h-4" />
+                      View Full Profile
                     </Button>
                   ) : (
+                    /* If viewer is NOT registered, show Register to Match */
                     <Button 
                       variant="gradient" 
                       className="flex-1 gap-2"
@@ -199,7 +215,7 @@ const MiniProfileModal = ({
                   )}
                 </div>
 
-                {!isRegistered && (
+                {!isViewerRegistered && (
                   <p className="text-center text-xs text-muted-foreground">
                     Register for this event to unlock matching
                   </p>

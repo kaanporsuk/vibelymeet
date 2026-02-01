@@ -79,9 +79,12 @@ interface ProfileDetailDrawerProps {
     bio?: string;
     lifestyle?: Record<string, string>;
   };
-  trigger: React.ReactNode;
-  onMessage: () => void;
-  onVideoCall: () => void;
+  trigger?: React.ReactNode;
+  onMessage?: () => void;
+  onVideoCall?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showActions?: boolean; // Whether to show message/video call buttons
 }
 
 export const ProfileDetailDrawer = ({
@@ -89,8 +92,22 @@ export const ProfileDetailDrawer = ({
   trigger,
   onMessage,
   onVideoCall,
+  open: controlledOpen,
+  onOpenChange,
+  showActions = true,
 }: ProfileDetailDrawerProps) => {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  
+  // Use controlled or uncontrolled mode
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
+  const setOpen = (value: boolean) => {
+    if (isControlled && onOpenChange) {
+      onOpenChange(value);
+    } else {
+      setInternalOpen(value);
+    }
+  };
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
@@ -302,7 +319,7 @@ export const ProfileDetailDrawer = ({
 
   return (
     <Drawer open={open} onOpenChange={setOpen}>
-      <DrawerTrigger asChild>{trigger}</DrawerTrigger>
+      {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
       <DrawerContent className="h-[95vh] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
         {/* Close Button - Floating */}
         <div className="absolute top-4 right-4 z-30">
@@ -525,55 +542,61 @@ export const ProfileDetailDrawer = ({
           </div>
         </div>
 
-        {/* Fixed Action Bar - Floating */}
-        <div className="shrink-0 absolute bottom-0 left-0 right-0 p-4 pb-8 pointer-events-none">
-          <div className="flex items-center justify-center gap-4 pointer-events-auto">
-            {/* Pass button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setOpen(false)}
-              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
-            >
-              <X className="w-6 h-6 text-muted-foreground" />
-            </motion.button>
+        {/* Fixed Action Bar - Floating (only shown when showActions is true) */}
+        {showActions && (
+          <div className="shrink-0 absolute bottom-0 left-0 right-0 p-4 pb-8 pointer-events-none">
+            <div className="flex items-center justify-center gap-4 pointer-events-auto">
+              {/* Pass button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setOpen(false)}
+                className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
+              >
+                <X className="w-6 h-6 text-muted-foreground" />
+              </motion.button>
 
-            {/* Like button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="w-16 h-16 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
-            >
-              <Heart className="w-7 h-7 text-primary-foreground" fill="currentColor" />
-            </motion.button>
+              {/* Like button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="w-16 h-16 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
+              >
+                <Heart className="w-7 h-7 text-primary-foreground" fill="currentColor" />
+              </motion.button>
 
-            {/* Message button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setOpen(false);
-                onMessage();
-              }}
-              className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
-            >
-              <MessageCircle className="w-6 h-6 text-primary" />
-            </motion.button>
+              {/* Message button */}
+              {onMessage && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setOpen(false);
+                    onMessage();
+                  }}
+                  className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
+                >
+                  <MessageCircle className="w-6 h-6 text-primary" />
+                </motion.button>
+              )}
 
-            {/* Video call button */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => {
-                setOpen(false);
-                onVideoCall();
-              }}
-              className="w-14 h-14 rounded-full bg-neon-cyan/20 border-2 border-neon-cyan/50 shadow-xl flex items-center justify-center"
-            >
-              <Video className="w-6 h-6 text-neon-cyan" />
-            </motion.button>
+              {/* Video call button */}
+              {onVideoCall && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setOpen(false);
+                    onVideoCall();
+                  }}
+                  className="w-14 h-14 rounded-full bg-neon-cyan/20 border-2 border-neon-cyan/50 shadow-xl flex items-center justify-center"
+                >
+                  <Video className="w-6 h-6 text-neon-cyan" />
+                </motion.button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Fullscreen Photo Modal */}
         <PhotoPreviewModal
