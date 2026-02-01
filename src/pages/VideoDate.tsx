@@ -10,7 +10,8 @@ import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, VideoOff, User } from "lucide-react";
+import { Loader2, VideoOff, User, ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 // Mock partner data (in production, fetch from match data)
 const PARTNER = {
@@ -143,12 +144,20 @@ const VideoDate = () => {
 
         {/* Loading/Connecting State */}
         {(isConnecting || !isConnected) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
             <div className="text-center space-y-4">
               <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
               <p className="text-muted-foreground">
                 {isConnecting ? "Connecting to your date..." : "Waiting for partner..."}
               </p>
+              <Button 
+                variant="outline" 
+                onClick={handleLeave}
+                className="mt-4"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Leave
+              </Button>
             </div>
           </div>
         )}

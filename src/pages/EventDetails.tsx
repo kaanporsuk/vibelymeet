@@ -21,6 +21,7 @@ import PricingBar from "@/components/events/PricingBar";
 import PaymentModal from "@/components/events/PaymentModal";
 import ManageBookingModal from "@/components/events/ManageBookingModal";
 import CancelBookingModal from "@/components/events/CancelBookingModal";
+import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
@@ -62,6 +63,7 @@ const EventDetails = () => {
   // UI state
   const [scrollY, setScrollY] = useState(0);
   const [selectedProfile, setSelectedProfile] = useState<EventAttendee | null>(null);
+  const [fullProfileAttendee, setFullProfileAttendee] = useState<EventAttendee | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -418,7 +420,33 @@ const EventDetails = () => {
         isOpen={!!selectedProfile}
         onClose={() => setSelectedProfile(null)}
         onRegister={handleRegisterFromProfile}
-        isRegistered={isRegistered}
+        onViewFullProfile={(profileId) => {
+          // Find the attendee and open full profile drawer
+          const attendee = attendees.find(a => a.id === profileId);
+          if (attendee) {
+            setFullProfileAttendee(attendee);
+          }
+        }}
+        isViewerRegistered={isRegistered}
+      />
+
+      {/* Full Profile Drawer */}
+      <ProfileDetailDrawer
+        match={{
+          id: fullProfileAttendee?.id || "",
+          name: fullProfileAttendee?.name || "",
+          age: fullProfileAttendee?.age || 0,
+          image: fullProfileAttendee?.avatar || "",
+          vibes: fullProfileAttendee?.vibeTags || [fullProfileAttendee?.vibeTag || ""],
+          compatibility: fullProfileAttendee?.matchPercent,
+          photos: fullProfileAttendee?.photos,
+          bio: fullProfileAttendee?.bio,
+        }}
+        open={!!fullProfileAttendee}
+        onOpenChange={(open) => {
+          if (!open) setFullProfileAttendee(null);
+        }}
+        showActions={false} // Don't show message/video buttons for event attendees
       />
 
       {/* Ticket Stub */}
