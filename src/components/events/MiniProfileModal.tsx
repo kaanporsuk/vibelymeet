@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Sparkles, Loader2, User } from "lucide-react";
+import { X, Sparkles, Loader2, User, Heart, HeartOff, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Profile {
   id: string;
@@ -21,8 +22,14 @@ interface MiniProfileModalProps {
   onClose: () => void;
   onRegister?: () => void;
   onViewFullProfile?: (profileId: string) => void;
+  onSendVibe?: (profileId: string) => void;
+  onRemoveVibe?: (profileId: string) => void;
   isRegistered?: boolean;
-  isViewerRegistered?: boolean; // Whether the current viewer is registered for the event
+  isViewerRegistered?: boolean;
+  hasSentVibe?: boolean;
+  hasReceivedVibe?: boolean;
+  isSendingVibe?: boolean;
+  eventStatus?: "upcoming" | "live" | "ended";
 }
 
 const MiniProfileModal = ({ 
@@ -31,9 +38,16 @@ const MiniProfileModal = ({
   onClose, 
   onRegister,
   onViewFullProfile,
+  onSendVibe,
+  onRemoveVibe,
   isRegistered = false,
-  isViewerRegistered = false 
+  isViewerRegistered = false,
+  hasSentVibe = false,
+  hasReceivedVibe = false,
+  isSendingVibe = false,
+  eventStatus = "upcoming",
 }: MiniProfileModalProps) => {
+  const { user } = useAuth();
   const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
   const [loadingPhoto, setLoadingPhoto] = useState(false);
 
@@ -176,6 +190,30 @@ const MiniProfileModal = ({
 
               {/* Bio */}
               <div className="p-4 space-y-4">
+                {/* Mutual Vibe Badge */}
+                {hasSentVibe && hasReceivedVibe && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center justify-center gap-2 p-2 rounded-lg bg-gradient-to-r from-primary/20 to-accent/20 border border-primary/30"
+                  >
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium gradient-text">Mutual Vibe!</span>
+                  </motion.div>
+                )}
+
+                {/* Received Vibe Badge */}
+                {hasReceivedVibe && !hasSentVibe && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="flex items-center justify-center gap-2 p-2 rounded-lg bg-accent/10 border border-accent/30"
+                  >
+                    <Heart className="w-4 h-4 text-accent fill-accent" />
+                    <span className="text-sm font-medium text-accent">They vibed you!</span>
+                  </motion.div>
+                )}
+
                 <p className="text-sm text-muted-foreground line-clamp-3">
                   {profile.bio || "Ready to meet new people!"}
                 </p>
@@ -186,22 +224,52 @@ const MiniProfileModal = ({
                     Close
                   </Button>
                   
-                  {/* If viewer is registered, show View Profile for other attendees */}
-                  {isViewerRegistered ? (
-                    <Button 
-                      variant="gradient" 
-                      className="flex-1 gap-2"
-                      onClick={() => {
-                        if (onViewFullProfile && profile) {
-                          onViewFullProfile(profile.id);
-                        }
-                        onClose();
-                      }}
-                    >
-                      <User className="w-4 h-4" />
-                      View Full Profile
-                    </Button>
-                  ) : (
+                  {/* If viewer is registered, show actions based on event status */}
+                  {isViewerRegistered && profile.id !== user?.id ? (
+                    eventStatus === "upcoming" ? (
+                      // Before event: Send a Vibe
+                      hasSentVibe ? (
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 gap-2 border-primary/50 text-primary"
+                          onClick={() => onRemoveVibe?.(profile.id)}
+                          disabled={isSendingVibe}
+                        >
+                          <Check className="w-4 h-4" />
+                          Vibed!
+                        </Button>
+                      ) : (
+                        <Button 
+                          variant="gradient" 
+                          className="flex-1 gap-2"
+                          onClick={() => onSendVibe?.(profile.id)}
+                          disabled={isSendingVibe}
+                        >
+                          {isSendingVibe ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Heart className="w-4 h-4" />
+                          )}
+                          Send a Vibe
+                        </Button>
+                      )
+                    ) : (
+                      // During/after event: View Full Profile
+                      <Button 
+                        variant="gradient" 
+                        className="flex-1 gap-2"
+                        onClick={() => {
+                          if (onViewFullProfile && profile) {
+                            onViewFullProfile(profile.id);
+                          }
+                          onClose();
+                        }}
+                      >
+                        <User className="w-4 h-4" />
+                        View Full Profile
+                      </Button>
+                    )
+                  ) : !isViewerRegistered ? (
                     /* If viewer is NOT registered, show Register to Match */
                     <Button 
                       variant="gradient" 
@@ -211,12 +279,18 @@ const MiniProfileModal = ({
                       <Sparkles className="w-4 h-4" />
                       Register to Match
                     </Button>
-                  )}
+                  ) : null}
                 </div>
 
                 {!isViewerRegistered && (
                   <p className="text-center text-xs text-muted-foreground">
                     Register for this event to unlock matching
+                  </p>
+                )}
+
+                {isViewerRegistered && eventStatus === "upcoming" && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    Send a vibe to express interest before the event!
                   </p>
                 )}
               </div>

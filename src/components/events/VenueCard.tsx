@@ -2,7 +2,9 @@ import { motion } from "framer-motion";
 import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play, Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useVideoMatching } from "@/hooks/useVideoMatching";
+import MatchFoundModal from "./MatchFoundModal";
 
 interface VenueCardProps {
   isVirtual: boolean;
@@ -23,14 +25,23 @@ const VenueCard = ({
   eventId,
   isRegistered = false 
 }: VenueCardProps) => {
+  const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
   const [eventStatus, setEventStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
+  const [showMatchModal, setShowMatchModal] = useState(false);
   
-  // Video matching hook - only active during live events for registered users
+  // Video matching hook - disable autoNavigate so we can show the modal first
   const matching = useVideoMatching({ 
     eventId: eventId || "", 
-    autoNavigate: true 
+    autoNavigate: false 
   });
+
+  // Show match modal when matched
+  useEffect(() => {
+    if (matching.status === "matched" && matching.roomId && matching.partnerId) {
+      setShowMatchModal(true);
+    }
+  }, [matching.status, matching.roomId, matching.partnerId]);
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -244,6 +255,23 @@ const VenueCard = ({
             Register to Access
           </Button>
         )}
+
+        {/* Match Found Modal */}
+        <MatchFoundModal
+          isOpen={showMatchModal}
+          partnerId={matching.partnerId}
+          roomId={matching.roomId}
+          onJoinDate={() => {
+            setShowMatchModal(false);
+            if (matching.roomId) {
+              navigate(`/date/${matching.roomId}`);
+            }
+          }}
+          onCancel={() => {
+            setShowMatchModal(false);
+            matching.leaveQueue();
+          }}
+        />
       </motion.div>
     );
   }
