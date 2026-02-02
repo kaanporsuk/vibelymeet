@@ -63,7 +63,7 @@ const VideoLobby = () => {
     fetchPartner();
   }, [partnerId]);
 
-  // Countdown timer
+  // Countdown timer - navigate to date when ready
   useEffect(() => {
     if (countdown <= 0 || !isReady) return;
 
@@ -71,7 +71,13 @@ const VideoLobby = () => {
       setCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          navigate("/video-date");
+          // Navigate to the video date page with partner info
+          const roomId = searchParams.get("roomId");
+          if (roomId) {
+            navigate(`/date/${roomId}`);
+          } else {
+            navigate("/dashboard");
+          }
           return 0;
         }
         return prev - 1;
@@ -79,7 +85,7 @@ const VideoLobby = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [countdown, isReady, navigate]);
+  }, [countdown, isReady, navigate, searchParams]);
 
   const handleJoinRoom = () => {
     setIsConnecting(true);

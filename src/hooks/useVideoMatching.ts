@@ -66,10 +66,10 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
             datesCompleted: newData.dates_completed,
           }));
 
-          // Auto-navigate when matched
+          // Auto-navigate when matched - use /date/:id route format
           if (newData.queue_status === "matched" && newData.current_room_id && autoNavigate) {
             toast.success("Match found! Starting video date...");
-            navigate(`/video-date?roomId=${newData.current_room_id}&partnerId=${newData.current_partner_id}&eventId=${eventId}`);
+            navigate(`/date/${newData.current_room_id}`);
           }
         }
       )
@@ -115,9 +115,9 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
           error: null,
         }));
 
-        // If already matched, auto-navigate
+        // If already matched, auto-navigate - use /date/:id route format
         if (data.queue_status === "matched" && data.room_id && autoNavigate) {
-          navigate(`/video-date?roomId=${data.room_id}&partnerId=${data.partner_id}&eventId=${eventId}`);
+          navigate(`/date/${data.room_id}`);
         }
       } else {
         setState((prev) => ({ ...prev, isLoading: false, error: data.error }));
@@ -164,7 +164,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
         }));
 
         if (autoNavigate) {
-          navigate(`/video-date?roomId=${data.room_id}&partnerId=${data.partner_id}&eventId=${eventId}`);
+          navigate(`/date/${data.room_id}`);
         }
       } else if (data.waiting) {
         // In queue, waiting for match
@@ -260,7 +260,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
           }));
 
           if (autoNavigate) {
-            navigate(`/video-date?roomId=${data.room_id}&partnerId=${data.partner_id}&eventId=${eventId}`);
+            navigate(`/date/${data.room_id}`);
           }
         }
       } catch (error) {
