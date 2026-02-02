@@ -114,28 +114,27 @@ const MiniProfileModal = ({
           >
             <div className="glass-card overflow-hidden">
               {/* Photo */}
-              <div className="relative aspect-[4/5] overflow-hidden bg-secondary">
+              <div className="relative aspect-[4/5] overflow-hidden bg-gradient-to-br from-secondary via-muted to-secondary">
+                {/* Fallback gradient background always visible */}
+                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/30 via-accent/20 to-primary/30">
+                  <User className="w-16 h-16 text-muted-foreground/50" />
+                </div>
+                
                 {loadingPhoto ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center justify-center bg-secondary/80">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
                   </div>
                 ) : signedPhotoUrl ? (
                   <img
                     src={signedPhotoUrl}
                     alt={profile.name}
-                    className="w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover z-10"
                     onError={(e) => {
-                      // If image fails to load, hide it
-                      (e.target as HTMLImageElement).style.display = "none";
+                      // If image fails to load, hide it - fallback shows through
+                      (e.target as HTMLImageElement).style.opacity = "0";
                     }}
                   />
-                ) : (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/20 to-accent/20">
-                    <span className="text-4xl font-bold text-foreground/50">
-                      {profile.name.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
+                ) : null}
                 
                 <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
 
