@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -26,6 +26,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useRealtimeEvents } from "@/hooks/useEvents";
+import { useEventVibes } from "@/hooks/useEventVibes";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -43,6 +44,9 @@ const EventDetails = () => {
   const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
   const { data: attendees = [] } = useEventAttendees(id);
   const { data: isRegistered = false, refetch: refetchRegistration } = useIsRegisteredForEvent(id, user?.id);
+  
+  // Event vibes hook for pre-event interest expressions
+  const eventVibes = useEventVibes(id || "");
   
   // Fetch current user's profile for gender-based pricing
   const [userProfile, setUserProfile] = useState<{ gender: string } | null>(null);
@@ -421,13 +425,24 @@ const EventDetails = () => {
         onClose={() => setSelectedProfile(null)}
         onRegister={handleRegisterFromProfile}
         onViewFullProfile={(profileId) => {
-          // Find the attendee and open full profile drawer
           const attendee = attendees.find(a => a.id === profileId);
           if (attendee) {
             setFullProfileAttendee(attendee);
           }
         }}
+        onSendVibe={(profileId) => eventVibes.sendVibe(profileId)}
+        onRemoveVibe={(profileId) => eventVibes.removeVibe(profileId)}
         isViewerRegistered={isRegistered}
+        hasSentVibe={selectedProfile ? eventVibes.hasSentVibe(selectedProfile.id) : false}
+        hasReceivedVibe={selectedProfile ? eventVibes.hasReceivedVibe(selectedProfile.id) : false}
+        isSendingVibe={eventVibes.isSendingVibe}
+        eventStatus={
+          new Date() >= event.eventDate
+            ? new Date() < new Date(event.eventDate.getTime() + event.durationMinutes * 60000)
+              ? "live"
+              : "ended"
+            : "upcoming"
+        }
       />
 
       {/* Full Profile Drawer */}
