@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { toast } from "sonner";
 
 interface EventVibe {
@@ -26,9 +27,17 @@ interface VibeWithProfile extends EventVibe {
   };
 }
 
+interface MutualVibe {
+  id: string;
+  name: string;
+  avatar: string | null;
+  age: number;
+}
+
 export function useEventVibes(eventId: string) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { sendNotification, isGranted } = usePushNotifications();
 
   // Get vibes sent by the current user for this event
   const { data: sentVibes = [], isLoading: loadingSent } = useQuery({
@@ -99,6 +108,16 @@ export function useEventVibes(eventId: string) {
     return userSentVibe && userReceivedVibe;
   };
 
+  // Get all mutual vibes with profile data
+  const mutualVibes: MutualVibe[] = receivedVibes
+    .filter((v) => sentVibes.includes(v.sender_id))
+    .map((v) => ({
+      id: v.sender_id,
+      name: v.sender?.name || "Unknown",
+      avatar: v.sender?.avatar_url || null,
+      age: v.sender?.age || 0,
+    }));
+
   // Send a vibe to another attendee
   const sendVibeMutation = useMutation({
     mutationFn: async (receiverId: string) => {
@@ -121,9 +140,9 @@ export function useEventVibes(eventId: string) {
         throw error;
       }
 
-      return data;
+      return { vibeData: data, receiverId };
     },
-    onSuccess: (_, receiverId) => {
+    onSuccess: async ({ receiverId }) => {
       queryClient.invalidateQueries({ queryKey: ["event-vibes-sent", eventId] });
       
       // Check if this creates a mutual vibe
@@ -136,6 +155,15 @@ export function useEventVibes(eventId: string) {
         toast.success("Vibe sent! 💫", {
           description: "They'll see your interest before the event.",
         });
+      }
+
+      // Send push notification to the receiver (in-app notification)
+      // The receiver will get notified via their own query refresh
+      // For a full push notification, we'd need to call an edge function
+      try {
+        await notifyVibeReceiver(receiverId, eventId, isMutual);
+      } catch (err) {
+        console.error("Failed to send vibe notification:", err);
       }
     },
     onError: (error: Error) => {
@@ -169,6 +197,7 @@ export function useEventVibes(eventId: string) {
   return {
     sentVibes,
     receivedVibes,
+    mutualVibes,
     isLoading: loadingSent || loadingReceived,
     hasSentVibe: (receiverId: string) => sentVibes.includes(receiverId),
     hasReceivedVibe: (senderId: string) =>
@@ -177,8 +206,26 @@ export function useEventVibes(eventId: string) {
     sendVibe: sendVibeMutation.mutate,
     removeVibe: removeVibeMutation.mutate,
     isSendingVibe: sendVibeMutation.isPending,
-    mutualVibeCount: receivedVibes.filter((v) =>
-      sentVibes.includes(v.sender_id)
-    ).length,
+    mutualVibeCount: mutualVibes.length,
   };
+}
+
+// Helper function to notify the vibe receiver via edge function
+async function notifyVibeReceiver(receiverId: string, eventId: string, isMutual: boolean) {
+  try {
+    // Call the vibe-notification edge function
+    const response = await supabase.functions.invoke("vibe-notification", {
+      body: {
+        receiver_id: receiverId,
+        event_id: eventId,
+        is_mutual: isMutual,
+      },
+    });
+
+    if (response.error) {
+      console.error("Vibe notification error:", response.error);
+    }
+  } catch (error) {
+    console.error("Failed to call vibe notification function:", error);
+  }
 }

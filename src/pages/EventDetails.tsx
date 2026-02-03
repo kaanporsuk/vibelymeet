@@ -27,6 +27,7 @@ import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAtten
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useRealtimeEvents } from "@/hooks/useEvents";
 import { useEventVibes } from "@/hooks/useEventVibes";
+import { MutualVibesSection } from "@/components/events/MutualVibesSection";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -330,9 +331,22 @@ const EventDetails = () => {
                 attendees={teaserAttendees}
                 totalCount={attendees.length}
               />
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+        {/* Mutual Vibes Section - Only show for registered users with mutual vibes */}
+        {isRegistered && eventVibes.mutualVibes.length > 0 && (
+          <MutualVibesSection
+            mutualVibes={eventVibes.mutualVibes}
+            onProfileClick={(profileId) => {
+              const attendee = attendees.find(a => a.id === profileId);
+              if (attendee) {
+                setSelectedProfile(attendee);
+              }
+            }}
+          />
+        )}
 
         {/* Venue */}
         <div className="space-y-2">
