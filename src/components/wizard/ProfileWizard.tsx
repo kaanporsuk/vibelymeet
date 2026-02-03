@@ -65,6 +65,90 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
   const [isComplete, setIsComplete] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load existing profile data when wizard opens
+  useEffect(() => {
+    if (!isOpen || !user) {
+      setIsLoading(false);
+      return;
+    }
+
+    const loadExistingProfile = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch profile data
+        const profile = await profileService.getCurrentProfile();
+        if (profile) {
+          // Load photos - pad to 6 slots
+          const existingPhotos = profile.photos || [];
+          const paddedPhotos = [...existingPhotos, ...Array(6 - existingPhotos.length).fill("")].slice(0, 6);
+          setPhotos(paddedPhotos);
+          // Mark existing photos as URLs (no file objects)
+          setPhotoFiles(Array(6).fill(null));
+
+          // Parse prompts from bio if available
+          if (profile.bio) {
+            const parsedPrompts = parsePromptsFromBio(profile.bio);
+            if (parsedPrompts.length > 0) {
+              setPrompts(parsedPrompts);
+            }
+          }
+        }
+
+        // Fetch vibes
+        const existingVibes = await profileService.getProfileVibes(user.id);
+        if (existingVibes.length > 0) {
+          setVibes(existingVibes);
+        }
+      } catch (error) {
+        console.error('Failed to load existing profile:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadExistingProfile();
+  }, [isOpen, user]);
+
+  // Helper to parse prompts from bio text
+  const parsePromptsFromBio = (bio: string): Prompt[] => {
+    const promptPatterns = [
+      { emoji: "💬", question: "A perfect first date looks like..." },
+      { emoji: "🎵", question: "My go-to karaoke song is..." },
+      { emoji: "✈️", question: "My dream travel destination is..." },
+      { emoji: "🍳", question: "My signature dish is..." },
+      { emoji: "📚", question: "I'm currently reading..." },
+      { emoji: "🎬", question: "A movie I can watch forever..." },
+    ];
+
+    const parsedPrompts: Prompt[] = [];
+    
+    promptPatterns.forEach(pattern => {
+      const searchText = `${pattern.emoji} ${pattern.question}`;
+      const idx = bio.indexOf(searchText);
+      if (idx !== -1) {
+        // Extract answer between this question and next emoji or end of text
+        const afterQuestion = bio.slice(idx + searchText.length);
+        const nextEmojiMatch = afterQuestion.match(/\n\n[💬🎵✈️🍳📚🎬]/);
+        const answer = nextEmojiMatch 
+          ? afterQuestion.slice(0, nextEmojiMatch.index).trim()
+          : afterQuestion.trim();
+        
+        if (answer) {
+          parsedPrompts.push({
+            id: `prompt-${parsedPrompts.length}`,
+            question: pattern.question,
+            emoji: pattern.emoji,
+            placeholder: "",
+            answer: answer.replace(/^\n+/, '') // Remove leading newlines
+          });
+        }
+      }
+    });
+
+    return parsedPrompts;
+  };
 
   // Calculate progress
   const calculateProgress = () => {
@@ -353,47 +437,54 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
 
           {/* Content */}
           <div className="p-6 overflow-y-auto max-h-[50vh]">
-            <AnimatePresence mode="wait">
-              {currentStep === 0 && (
-                <motion.div
-                  key="photos"
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ type: "spring", damping: 25 }}
-                >
-                  <PhotoUploadGrid 
-                    photos={photos} 
-                    onPhotosChange={(newPhotos) => handlePhotosChange(newPhotos, photoFiles)} 
-                    onFilesChange={setPhotoFiles}
-                  />
-                </motion.div>
-              )}
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+                <p className="text-muted-foreground text-sm">Loading your profile...</p>
+              </div>
+            ) : (
+              <AnimatePresence mode="wait">
+                {currentStep === 0 && (
+                  <motion.div
+                    key="photos"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    transition={{ type: "spring", damping: 25 }}
+                  >
+                    <PhotoUploadGrid 
+                      photos={photos} 
+                      onPhotosChange={(newPhotos) => handlePhotosChange(newPhotos, photoFiles)} 
+                      onFilesChange={setPhotoFiles}
+                    />
+                  </motion.div>
+                )}
 
-              {currentStep === 1 && (
-                <motion.div
-                  key="prompts"
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ type: "spring", damping: 25 }}
-                >
-                  <PromptCards prompts={prompts} onPromptsChange={setPrompts} />
-                </motion.div>
-              )}
+                {currentStep === 1 && (
+                  <motion.div
+                    key="prompts"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    transition={{ type: "spring", damping: 25 }}
+                  >
+                    <PromptCards prompts={prompts} onPromptsChange={setPrompts} />
+                  </motion.div>
+                )}
 
-              {currentStep === 2 && (
-                <motion.div
-                  key="vibes"
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
-                  transition={{ type: "spring", damping: 25 }}
-                >
-                  <VibeTagCloud selectedTags={vibes} onTagsChange={setVibes} />
-                </motion.div>
-              )}
-            </AnimatePresence>
+                {currentStep === 2 && (
+                  <motion.div
+                    key="vibes"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    transition={{ type: "spring", damping: 25 }}
+                  >
+                    <VibeTagCloud selectedTags={vibes} onTagsChange={setVibes} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
           </div>
 
           {/* Footer */}
