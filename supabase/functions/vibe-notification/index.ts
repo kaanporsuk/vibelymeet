@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,16 @@ Deno.serve(async (req) => {
 
     const senderId = user.id;
 
+    // Rate limiting: 20 vibe notifications per hour per user
+    const rateLimitResult = await checkRateLimit(senderId, {
+      functionName: "vibe-notification",
+      maxRequests: 20,
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
     // Parse request body
     const body: VibeNotificationRequest = await req.json();
     const { receiver_id, event_id, is_mutual } = body;
@@ -136,10 +147,9 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error("Vibe notification error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Vibe notification error"); // Sanitized - no detailed error message
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: "An error occurred. Please try again." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

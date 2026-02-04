@@ -23,7 +23,7 @@ interface RTCIceCandidate {
   sdpMLineIndex?: number;
 }
 
-// In-memory store for signaling
+// In-memory store for signaling with timestamps for cleanup
 const rooms = new Map<string, {
   participants: Map<string, { 
     socket: WebSocket;
@@ -32,7 +32,77 @@ const rooms = new Map<string, {
   offers: Map<string, RTCSessionDescription>;
   answers: Map<string, RTCSessionDescription>;
   iceCandidates: Map<string, RTCIceCandidate[]>;
+  createdAt: number; // Timestamp for TTL cleanup
+  lastActivity: number; // Last activity timestamp
 }>();
+
+// Room configuration
+const ROOM_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours max room lifetime
+const ROOM_IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout
+const MAX_ROOMS = 500; // Maximum concurrent rooms
+const MAX_CANDIDATES_PER_USER = 50; // Limit ICE candidates per user
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Run cleanup every 5 minutes
+
+// Periodic cleanup of stale rooms
+setInterval(() => {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  for (const [roomId, room] of rooms.entries()) {
+    const isExpired = now - room.createdAt > ROOM_TIMEOUT_MS;
+    const isIdle = now - room.lastActivity > ROOM_IDLE_TIMEOUT_MS;
+    const isEmpty = room.participants.size === 0;
+    
+    if (isExpired || isIdle || isEmpty) {
+      // Close all participant sockets gracefully
+      for (const [, participant] of room.participants) {
+        try {
+          if (participant.socket.readyState === WebSocket.OPEN) {
+            participant.socket.close(1000, isExpired ? 'Room expired' : 'Room idle timeout');
+          }
+        } catch (e) {
+          // Ignore close errors
+        }
+      }
+      rooms.delete(roomId);
+      cleanedCount++;
+      console.log(`Cleaned up room ${roomId} (${isExpired ? 'expired' : isIdle ? 'idle' : 'empty'})`);
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`Cleaned up ${cleanedCount} stale rooms. Active rooms: ${rooms.size}`);
+  }
+}, CLEANUP_INTERVAL_MS);
+
+// Helper to update room activity timestamp
+function updateRoomActivity(roomId: string) {
+  const room = rooms.get(roomId);
+  if (room) {
+    room.lastActivity = Date.now();
+  }
+}
+
+// Helper to enforce room limits
+function enforceRoomLimits() {
+  if (rooms.size >= MAX_ROOMS) {
+    // Find and remove the oldest inactive room
+    let oldestRoomId: string | null = null;
+    let oldestActivity = Infinity;
+    
+    for (const [roomId, room] of rooms.entries()) {
+      if (room.participants.size === 0 && room.lastActivity < oldestActivity) {
+        oldestActivity = room.lastActivity;
+        oldestRoomId = roomId;
+      }
+    }
+    
+    if (oldestRoomId) {
+      rooms.delete(oldestRoomId);
+      console.log(`Evicted oldest empty room ${oldestRoomId} due to room limit`);
+    }
+  }
+}
 
 interface SignalingMessage {
   type: 'join' | 'offer' | 'answer' | 'ice-candidate' | 'leave';
@@ -267,13 +337,19 @@ serve(async (req) => {
       }
 
       if (!rooms.has(roomId)) {
+        enforceRoomLimits();
+        const now = Date.now();
         rooms.set(roomId, {
           participants: new Map(),
           offers: new Map(),
           answers: new Map(),
           iceCandidates: new Map(),
+          createdAt: now,
+          lastActivity: now,
         });
       }
+      
+      updateRoomActivity(roomId);
 
       const room = rooms.get(roomId)!;
       const participantCount = room.participants.size;
@@ -570,9 +646,8 @@ serve(async (req) => {
     });
 
   } catch (error: unknown) {
-    console.error("Error:", error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    console.error("WebRTC signaling error"); // Sanitized - no detailed error message
+    return new Response(JSON.stringify({ error: "An error occurred. Please try again." }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -582,16 +657,23 @@ serve(async (req) => {
 function handleJoin(socket: WebSocket, message: SignalingMessage) {
   const { roomId, userId } = message;
 
+  // Enforce room limits before creating new room
+  enforceRoomLimits();
+
+  const now = Date.now();
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
       participants: new Map(),
       offers: new Map(),
       answers: new Map(),
       iceCandidates: new Map(),
+      createdAt: now,
+      lastActivity: now,
     });
   }
 
   const room = rooms.get(roomId)!;
+  updateRoomActivity(roomId);
   
   // Notify existing participants
   room.participants.forEach((participant) => {
@@ -622,6 +704,8 @@ function handleOffer(message: SignalingMessage) {
   
   if (!room || !targetUserId) return;
 
+  updateRoomActivity(roomId);
+
   const targetParticipant = room.participants.get(targetUserId);
   if (targetParticipant && targetParticipant.socket.readyState === WebSocket.OPEN) {
     targetParticipant.socket.send(JSON.stringify({
@@ -638,6 +722,8 @@ function handleAnswer(message: SignalingMessage) {
   
   if (!room || !targetUserId) return;
 
+  updateRoomActivity(roomId);
+
   const targetParticipant = room.participants.get(targetUserId);
   if (targetParticipant && targetParticipant.socket.readyState === WebSocket.OPEN) {
     targetParticipant.socket.send(JSON.stringify({
@@ -653,6 +739,15 @@ function handleIceCandidate(message: SignalingMessage) {
   const room = rooms.get(roomId);
   
   if (!room || !targetUserId) return;
+
+  updateRoomActivity(roomId);
+
+  // Limit ICE candidates per user to prevent memory abuse
+  const existingCandidates = room.iceCandidates.get(userId) || [];
+  if (existingCandidates.length >= MAX_CANDIDATES_PER_USER) {
+    console.log(`ICE candidate limit reached for user ${userId} in room ${roomId}`);
+    return;
+  }
 
   const targetParticipant = room.participants.get(targetUserId);
   if (targetParticipant && targetParticipant.socket.readyState === WebSocket.OPEN) {

@@ -14,3 +14,12 @@ verify_jwt = false
 
 [functions.vibe-notification]
 verify_jwt = false
+
+[functions.verify-admin]
+verify_jwt = false
+
+[functions.video-matching]
+verify_jwt = false
+
+[functions.geocode]
+verify_jwt = false

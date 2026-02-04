@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { Resend } from "https://esm.sh/resend@2.0.0";
+import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -46,6 +47,18 @@ serve(async (req) => {
 
     const userId = user.id;
     const userEmail = user.email;
+
+    // Rate limiting: 1 delete request per hour per user
+    const rateLimitResult = await checkRateLimit(userId, {
+      functionName: "delete-account",
+      maxRequests: 1,
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
+
     console.log(`Starting account deletion for user: ${userId}`);
 
     // Create admin client for privileged operations
@@ -67,7 +80,7 @@ serve(async (req) => {
       .eq("blocked_id", userId);
 
     if (blockedError1 || blockedError2) {
-      console.error("Error deleting blocked_users:", blockedError1?.message || blockedError2?.message);
+      console.error("Error deleting blocked_users"); // Sanitized - no detailed error exposed
     } else {
       console.log("Deleted blocked_users records");
     }
@@ -79,7 +92,7 @@ serve(async (req) => {
       .eq("user_id", userId);
 
     if (mutesError) {
-      console.error("Error deleting match_mutes:", mutesError.message);
+      console.error("Error deleting match_mutes"); // Sanitized
     } else {
       console.log("Deleted match_mutes records");
     }
@@ -96,7 +109,7 @@ serve(async (req) => {
       .eq("candidate_id", userId);
 
     if (dropsError1 || dropsError2) {
-      console.error("Error deleting daily_drops:", dropsError1?.message || dropsError2?.message);
+      console.error("Error deleting daily_drops"); // Sanitized
     } else {
       console.log("Deleted daily_drops records");
     }
@@ -113,7 +126,7 @@ serve(async (req) => {
       .eq("recipient_id", userId);
 
     if (proposalsError1 || proposalsError2) {
-      console.error("Error deleting date_proposals:", proposalsError1?.message || proposalsError2?.message);
+      console.error("Error deleting date_proposals"); // Sanitized
     } else {
       console.log("Deleted date_proposals records");
     }
@@ -125,7 +138,7 @@ serve(async (req) => {
       .eq("user_id", userId);
 
     if (schedulesError) {
-      console.error("Error deleting user_schedules:", schedulesError.message);
+      console.error("Error deleting user_schedules"); // Sanitized
     } else {
       console.log("Deleted user_schedules records");
     }
@@ -137,7 +150,7 @@ serve(async (req) => {
       .eq("user_id", userId);
 
     if (verificationsError) {
-      console.error("Error deleting email_verifications:", verificationsError.message);
+      console.error("Error deleting email_verifications"); // Sanitized
     } else {
       console.log("Deleted email_verifications records");
     }
@@ -149,7 +162,7 @@ serve(async (req) => {
       .eq("sender_id", userId);
     
     if (messagesError) {
-      console.error("Error deleting messages:", messagesError.message);
+      console.error("Error deleting messages"); // Sanitized
     } else {
       console.log("Deleted user messages");
     }
@@ -166,7 +179,7 @@ serve(async (req) => {
       .eq("profile_id_2", userId);
 
     if (matchesError1 || matchesError2) {
-      console.error("Error deleting matches:", matchesError1?.message || matchesError2?.message);
+      console.error("Error deleting matches"); // Sanitized
     } else {
       console.log("Deleted user matches");
     }
@@ -178,7 +191,7 @@ serve(async (req) => {
       .eq("profile_id", userId);
 
     if (registrationsError) {
-      console.error("Error deleting registrations:", registrationsError.message);
+      console.error("Error deleting registrations"); // Sanitized
     } else {
       console.log("Deleted event registrations");
     }
@@ -195,7 +208,7 @@ serve(async (req) => {
       .eq("participant_2_id", userId);
 
     if (videoError1 || videoError2) {
-      console.error("Error deleting video sessions:", videoError1?.message || videoError2?.message);
+      console.error("Error deleting video sessions"); // Sanitized
     } else {
       console.log("Deleted video sessions");
     }
@@ -207,7 +220,7 @@ serve(async (req) => {
       .eq("profile_id", userId);
 
     if (vibesError) {
-      console.error("Error deleting profile vibes:", vibesError.message);
+      console.error("Error deleting profile vibes"); // Sanitized
     } else {
       console.log("Deleted profile vibes");
     }
@@ -219,7 +232,7 @@ serve(async (req) => {
       .eq("user_id", userId);
 
     if (rateLimitsError) {
-      console.error("Error deleting rate limits:", rateLimitsError.message);
+      console.error("Error deleting rate limits"); // Sanitized
     } else {
       console.log("Deleted rate limits");
     }
@@ -231,7 +244,7 @@ serve(async (req) => {
       .eq("user_id", userId);
 
     if (rolesError) {
-      console.error("Error deleting user roles:", rolesError.message);
+      console.error("Error deleting user roles"); // Sanitized
     } else {
       console.log("Deleted user roles");
     }
@@ -243,7 +256,7 @@ serve(async (req) => {
       .eq("id", userId);
 
     if (profileError) {
-      console.error("Error deleting profile:", profileError.message);
+      console.error("Error deleting profile"); // Sanitized
     } else {
       console.log("Deleted user profile");
     }
@@ -284,9 +297,9 @@ serve(async (req) => {
     const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
 
     if (authDeleteError) {
-      console.error("Error deleting auth user:", authDeleteError.message);
+      console.error("Error deleting auth user"); // Sanitized - no detailed error message
       return new Response(
-        JSON.stringify({ error: "Failed to delete user account" }),
+        JSON.stringify({ error: "Failed to delete account. Please try again." }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

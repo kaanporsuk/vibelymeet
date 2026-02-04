@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,6 +45,17 @@ Deno.serve(async (req) => {
 
     const { action, eventId } = await req.json();
 
+    // Rate limiting: 100 matching requests per hour per user
+    const rateLimitResult = await checkRateLimit(user.id, {
+      functionName: `video-matching-${eventId || "general"}`,
+      maxRequests: 100,
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    if (!rateLimitResult.allowed) {
+      return createRateLimitResponse(rateLimitResult, corsHeaders);
+    }
+
     if (!eventId) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing eventId" }),
@@ -62,9 +74,9 @@ Deno.serve(async (req) => {
         });
 
         if (error) {
-          console.error("Error joining queue:", error);
+          console.error("Error joining queue"); // Sanitized
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error: "Failed to join queue. Please try again." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -81,9 +93,9 @@ Deno.serve(async (req) => {
         });
 
         if (error) {
-          console.error("Error finding match:", error);
+          console.error("Error finding match"); // Sanitized
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error: "Failed to find match. Please try again." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -100,9 +112,9 @@ Deno.serve(async (req) => {
         });
 
         if (error) {
-          console.error("Error leaving queue:", error);
+          console.error("Error leaving queue"); // Sanitized
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error: "Failed to leave queue. Please try again." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -121,9 +133,9 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (error) {
-          console.error("Error getting status:", error);
+          console.error("Error getting status"); // Sanitized
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error: "Failed to get status. Please try again." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -156,10 +168,9 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error("Error:", err);
+    console.error("Video matching error"); // Sanitized
     return new Response(
-      JSON.stringify({ success: false, error: errorMessage }),
+      JSON.stringify({ success: false, error: "An error occurred. Please try again." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
