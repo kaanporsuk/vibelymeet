@@ -17,12 +17,13 @@ interface PromptCardsProps {
   onPromptsChange: (prompts: Prompt[]) => void;
 }
 
+// Synced with ProfilePrompt.tsx availablePrompts
 const defaultPrompts: Omit<Prompt, "answer">[] = [
-  { id: "1", question: "I'm weirdly attracted to...", emoji: "🔥", placeholder: "People who can explain complex things simply..." },
-  { id: "2", question: "My ideal Sunday looks like...", emoji: "☀️", placeholder: "Brunch, a good book, and maybe a spontaneous adventure..." },
-  { id: "3", question: "A fun fact about me is...", emoji: "✨", placeholder: "I've watched every Studio Ghibli film at least 3 times..." },
-  { id: "4", question: "The way to my heart is...", emoji: "💝", placeholder: "Through deep conversations and great food..." },
-  { id: "5", question: "My controversial opinion is...", emoji: "🌶️", placeholder: "Pineapple absolutely belongs on pizza..." },
+  { id: "1", question: "A shower thought I had recently", emoji: "🚿", placeholder: "Something that keeps me wondering..." },
+  { id: "2", question: "My simple pleasures", emoji: "✨", placeholder: "Morning coffee, fresh sheets, a good playlist..." },
+  { id: "3", question: "The way to win me over", emoji: "💫", placeholder: "Show genuine curiosity and make me laugh..." },
+  { id: "4", question: "I geek out on", emoji: "🤓", placeholder: "Documentaries, coffee brewing, vintage cameras..." },
+  { id: "5", question: "Together, we could", emoji: "🌙", placeholder: "Explore hidden gems, cook new recipes, start a podcast..." },
 ];
 
 const PromptCards = ({ prompts, onPromptsChange }: PromptCardsProps) => {

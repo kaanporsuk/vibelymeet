@@ -9,7 +9,7 @@ import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useAuth } from "@/contexts/AuthContext";
-import { profileService, videoService } from "@/services/vibelyService";
+import { videoService } from "@/services/vibelyService";
 
 interface ProfileWizardProps {
   isOpen: boolean;
@@ -26,9 +26,9 @@ interface Prompt {
 }
 
 const steps = [
-  { id: 1, title: "Visual Vibe", subtitle: "Show your best self", icon: Camera },
-  { id: 2, title: "Icebreakers", subtitle: "Spark conversations", icon: MessageCircle },
-  { id: 3, title: "Your Vibes", subtitle: "Define your identity", icon: Heart },
+  { id: 1, key: "photos", title: "Visual Vibe", subtitle: "Show your best self", icon: Camera },
+  { id: 2, key: "prompts", title: "Conversation Starters", subtitle: "Give matches something to respond to", icon: MessageCircle },
+  { id: 3, key: "vibes", title: "Your Vibes", subtitle: "Define your identity", icon: Heart },
 ];
 
 const coachTexts = {
@@ -54,6 +54,11 @@ const coachTexts = {
   ],
 };
 
+// Completion thresholds
+const PHOTO_THRESHOLD = 3; // At least 3 photos
+const PROMPT_THRESHOLD = 2; // At least 2 prompts answered
+const VIBE_THRESHOLD = 5; // At least 5 vibes selected
+
 const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
@@ -66,6 +71,23 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Track which sections are incomplete (only show these)
+  const [incompleteSteps, setIncompleteSteps] = useState<typeof steps>([]);
+
+  // Check if section is complete
+  const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileVibes: string[]) => {
+    switch (key) {
+      case "photos":
+        return profilePhotos.filter(p => p !== "").length >= PHOTO_THRESHOLD;
+      case "prompts":
+        return profilePrompts.filter(p => p.answer && p.answer.trim().length > 0).length >= PROMPT_THRESHOLD;
+      case "vibes":
+        return profileVibes.length >= VIBE_THRESHOLD;
+      default:
+        return false;
+    }
+  };
 
   // Load existing profile data when wizard opens
   useEffect(() => {
@@ -77,32 +99,55 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     const loadExistingProfile = async () => {
       setIsLoading(true);
       try {
-        // Fetch profile data
-        const profile = await profileService.getCurrentProfile();
+        // Fetch full profile data using profileService
+        const { fetchMyProfile } = await import("@/services/profileService");
+        const profile = await fetchMyProfile();
+        
+        let loadedPhotos: string[] = Array(6).fill("");
+        let loadedPrompts: Prompt[] = [];
+        let loadedVibes: string[] = [];
+        
         if (profile) {
           // Load photos - pad to 6 slots
           const existingPhotos = profile.photos || [];
-          const paddedPhotos = [...existingPhotos, ...Array(6 - existingPhotos.length).fill("")].slice(0, 6);
-          setPhotos(paddedPhotos);
-          // Mark existing photos as URLs (no file objects)
+          loadedPhotos = [...existingPhotos, ...Array(6 - existingPhotos.length).fill("")].slice(0, 6);
+          setPhotos(loadedPhotos);
           setPhotoFiles(Array(6).fill(null));
 
-          // Parse prompts from bio if available
-          if (profile.bio) {
-            const parsedPrompts = parsePromptsFromBio(profile.bio);
-            if (parsedPrompts.length > 0) {
-              setPrompts(parsedPrompts);
-            }
+          // Load prompts from database (not bio parsing)
+          if (profile.prompts && profile.prompts.length > 0) {
+            loadedPrompts = profile.prompts.map((p, idx) => ({
+              id: String(idx + 1),
+              question: p.question,
+              emoji: getEmojiForQuestion(p.question),
+              placeholder: "",
+              answer: p.answer || ""
+            }));
+            setPrompts(loadedPrompts);
           }
+          
+          // Load vibes
+          loadedVibes = profile.vibes || [];
+          setVibes(loadedVibes);
         }
 
-        // Fetch vibes
-        const existingVibes = await profileService.getProfileVibes(user.id);
-        if (existingVibes.length > 0) {
-          setVibes(existingVibes);
+        // Determine which steps are incomplete
+        const incomplete = steps.filter(step => 
+          !isSectionComplete(step.key, loadedPhotos, loadedPrompts, loadedVibes)
+        );
+        
+        setIncompleteSteps(incomplete);
+        setCurrentStep(0);
+        
+        // If everything is complete, show level up immediately
+        if (incomplete.length === 0) {
+          setIsComplete(true);
+          setShowLevelUp(true);
         }
       } catch (error) {
         console.error('Failed to load existing profile:', error);
+        // Default to showing all steps if load fails
+        setIncompleteSteps(steps);
       } finally {
         setIsLoading(false);
       }
@@ -110,56 +155,34 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
 
     loadExistingProfile();
   }, [isOpen, user]);
-
-  // Helper to parse prompts from bio text
-  const parsePromptsFromBio = (bio: string): Prompt[] => {
-    const promptPatterns = [
-      { emoji: "💬", question: "A perfect first date looks like..." },
-      { emoji: "🎵", question: "My go-to karaoke song is..." },
-      { emoji: "✈️", question: "My dream travel destination is..." },
-      { emoji: "🍳", question: "My signature dish is..." },
-      { emoji: "📚", question: "I'm currently reading..." },
-      { emoji: "🎬", question: "A movie I can watch forever..." },
-    ];
-
-    const parsedPrompts: Prompt[] = [];
-    
-    promptPatterns.forEach(pattern => {
-      const searchText = `${pattern.emoji} ${pattern.question}`;
-      const idx = bio.indexOf(searchText);
-      if (idx !== -1) {
-        // Extract answer between this question and next emoji or end of text
-        const afterQuestion = bio.slice(idx + searchText.length);
-        const nextEmojiMatch = afterQuestion.match(/\n\n[💬🎵✈️🍳📚🎬]/);
-        const answer = nextEmojiMatch 
-          ? afterQuestion.slice(0, nextEmojiMatch.index).trim()
-          : afterQuestion.trim();
-        
-        if (answer) {
-          parsedPrompts.push({
-            id: `prompt-${parsedPrompts.length}`,
-            question: pattern.question,
-            emoji: pattern.emoji,
-            placeholder: "",
-            answer: answer.replace(/^\n+/, '') // Remove leading newlines
-          });
-        }
-      }
-    });
-
-    return parsedPrompts;
+  
+  // Helper to get emoji for a prompt question
+  const getEmojiForQuestion = (question: string): string => {
+    const emojiMap: Record<string, string> = {
+      "A shower thought I had recently": "🚿",
+      "My simple pleasures": "✨",
+      "The way to win me over": "💫",
+      "I geek out on": "🤓",
+      "Together, we could": "🌙",
+      "My most controversial opinion": "🔥",
+      "I'm looking for": "🔮",
+      "A life goal of mine": "🎯",
+      "My love language is": "💕",
+      "Two truths and a lie": "🎭",
+    };
+    return emojiMap[question] || "💭";
   };
 
-  // Calculate progress
+  // Calculate progress based on current data
   const calculateProgress = () => {
     const photoCount = photos.filter((p) => p !== "").length;
-    const promptCount = prompts.filter((p) => p.answer.trim().length > 0).length;
+    const promptCount = prompts.filter((p) => p.answer && p.answer.trim().length > 0).length;
     const vibeCount = vibes.length;
 
     // Weights: Photos 40%, Prompts 30%, Vibes 30%
-    const photoProgress = Math.min(photoCount / 3, 1) * 40;
-    const promptProgress = Math.min(promptCount / 2, 1) * 30;
-    const vibeProgress = Math.min(vibeCount / 5, 1) * 30;
+    const photoProgress = Math.min(photoCount / PHOTO_THRESHOLD, 1) * 40;
+    const promptProgress = Math.min(promptCount / PROMPT_THRESHOLD, 1) * 30;
+    const vibeProgress = Math.min(vibeCount / VIBE_THRESHOLD, 1) * 30;
 
     return Math.round(photoProgress + promptProgress + vibeProgress);
   };
@@ -178,30 +201,44 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     return () => clearTimeout(timeout);
   }, [photos, prompts, vibes]);
 
-  // Check completion
+  // Check completion - only trigger when all incomplete steps have been addressed
   useEffect(() => {
-    if (progress >= 100 && !isComplete) {
-      setIsComplete(true);
-      setTimeout(() => {
-        setShowLevelUp(true);
-        confetti({
-          particleCount: 150,
-          spread: 100,
-          origin: { y: 0.5 },
-          colors: ["#a855f7", "#ec4899", "#06b6d4", "#facc15"],
-        });
-      }, 500);
+    if (progress >= 100 && !isComplete && incompleteSteps.length > 0) {
+      // Recheck if all sections are now complete
+      const stillIncomplete = incompleteSteps.filter(step => 
+        !isSectionComplete(step.key, photos, prompts, vibes)
+      );
+      
+      if (stillIncomplete.length === 0) {
+        setIsComplete(true);
+        setTimeout(() => {
+          setShowLevelUp(true);
+          confetti({
+            particleCount: 150,
+            spread: 100,
+            origin: { y: 0.5 },
+            colors: ["#a855f7", "#ec4899", "#06b6d4", "#facc15"],
+          });
+        }, 500);
+      }
     }
-  }, [progress, isComplete]);
+  }, [progress, isComplete, photos, prompts, vibes, incompleteSteps]);
 
   const getCoachText = () => {
+    if (incompleteSteps.length === 0) {
+      return coachTexts.complete[Math.floor(Math.random() * coachTexts.complete.length)];
+    }
     const category = progress < 33 ? "low" : progress < 66 ? "medium" : progress < 100 ? "high" : "complete";
     const texts = coachTexts[category];
     return texts[Math.floor(Math.random() * texts.length)];
   };
 
+  // Get the current step based on incompleteSteps
+  const activeSteps = incompleteSteps.length > 0 ? incompleteSteps : steps;
+  const currentActiveStep = activeSteps[currentStep];
+
   const nextStep = () => {
-    if (currentStep < steps.length - 1) {
+    if (currentStep < activeSteps.length - 1) {
       setCurrentStep((s) => s + 1);
     }
   };
@@ -229,6 +266,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     setIsSaving(true);
 
     try {
+      // Import the profile update function
+      const { updateMyProfile } = await import("@/services/profileService");
+      
       // Upload photos that are file objects (local uploads)
       const uploadedPhotoUrls: string[] = [];
       
@@ -246,20 +286,23 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
         }
       }
 
-      // Build bio from prompts
-      const bio = prompts
-        .filter(p => p.answer.trim())
-        .map(p => `${p.emoji} ${p.question}\n${p.answer}`)
-        .join('\n\n');
+      // Convert prompts to the database format
+      const dbPrompts = prompts
+        .filter(p => p.answer && p.answer.trim())
+        .map(p => ({
+          question: p.question,
+          answer: p.answer.trim()
+        }));
 
-      // Save everything to the database
-      await profileService.saveCompleteProfile(user.id, {
-        photos: uploadedPhotoUrls,
-        bio: bio || undefined,
-        vibeLabels: vibes
+      // Save all changes to the database
+      await updateMyProfile({
+        photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
+        avatarUrl: uploadedPhotoUrls[0] || undefined,
+        prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
+        vibes: vibes.length > 0 ? vibes : undefined,
       });
 
-      toast.success("Profile complete! You're ready to vibe! 🎉");
+      toast.success("Profile updated! 🎉");
       onComplete();
       onClose();
     } catch (error) {
@@ -293,9 +336,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                 initial={{ scale: 0, rotate: -180 }}
                 animate={{ scale: 1, rotate: 0 }}
                 transition={{ type: "spring", stiffness: 200, delay: 0.2 }}
-                className="w-32 h-32 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center mb-6 shadow-[0_0_60px_rgba(250,204,21,0.5)]"
+                className="w-32 h-32 rounded-full bg-gradient-primary flex items-center justify-center mb-6 shadow-[0_0_60px_hsl(var(--accent)/0.5)]"
               >
-                <Rocket className="w-16 h-16 text-white" />
+                <Rocket className="w-16 h-16 text-primary-foreground" />
               </motion.div>
 
               <motion.h2
@@ -395,9 +438,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
               </motion.p>
             </div>
 
-            {/* Step indicators */}
+            {/* Step indicators - only show incomplete steps */}
             <div className="flex items-center justify-center gap-4 mt-6">
-              {steps.map((step, index) => {
+              {activeSteps.map((step, index) => {
                 const Icon = step.icon;
                 const isActive = index === currentStep;
                 const isPast = index < currentStep;
@@ -435,16 +478,22 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
             </div>
           </div>
 
-          {/* Content */}
+          {/* Content - render based on currentActiveStep.key */}
           <div className="p-6 overflow-y-auto max-h-[50vh]">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
                 <p className="text-muted-foreground text-sm">Loading your profile...</p>
               </div>
+            ) : activeSteps.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <Check className="w-12 h-12 text-primary mb-4" />
+                <p className="text-foreground font-medium text-center">Your profile is complete!</p>
+                <p className="text-muted-foreground text-sm text-center mt-1">You're all set to start matching.</p>
+              </div>
             ) : (
               <AnimatePresence mode="wait">
-                {currentStep === 0 && (
+                {currentActiveStep?.key === "photos" && (
                   <motion.div
                     key="photos"
                     initial={{ opacity: 0, x: 50 }}
@@ -460,7 +509,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                   </motion.div>
                 )}
 
-                {currentStep === 1 && (
+                {currentActiveStep?.key === "prompts" && (
                   <motion.div
                     key="prompts"
                     initial={{ opacity: 0, x: 50 }}
@@ -472,7 +521,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                   </motion.div>
                 )}
 
-                {currentStep === 2 && (
+                {currentActiveStep?.key === "vibes" && (
                   <motion.div
                     key="vibes"
                     initial={{ opacity: 0, x: 50 }}
@@ -500,7 +549,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                 Back
               </Button>
 
-              {currentStep < steps.length - 1 ? (
+              {currentStep < activeSteps.length - 1 ? (
                 <Button variant="gradient" onClick={nextStep} className="gap-2">
                   Next
                   <ChevronRight className="w-4 h-4" />
@@ -509,7 +558,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                 <Button
                   variant="gradient"
                   onClick={handleComplete}
-                  disabled={progress < 100 || isSaving}
+                  disabled={isSaving}
                   className="gap-2"
                 >
                   {isSaving ? (
@@ -520,7 +569,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      {progress >= 100 ? "Complete Profile" : `${progress}% Complete`}
+                      Save & Continue
                     </>
                   )}
                 </Button>
