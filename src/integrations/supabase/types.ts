@@ -1065,7 +1065,71 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      push_notification_events_admin: {
+        Row: {
+          apns_message_id: string | null
+          campaign_id: string | null
+          clicked_at: string | null
+          created_at: string | null
+          delivered_at: string | null
+          device_token: string | null
+          error_code: string | null
+          error_message: string | null
+          fcm_message_id: string | null
+          id: string | null
+          opened_at: string | null
+          platform: Database["public"]["Enums"]["notification_platform"] | null
+          queued_at: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["notification_status"] | null
+          user_id: string | null
+        }
+        Insert: {
+          apns_message_id?: never
+          campaign_id?: string | null
+          clicked_at?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          device_token?: never
+          error_code?: string | null
+          error_message?: string | null
+          fcm_message_id?: never
+          id?: string | null
+          opened_at?: string | null
+          platform?: Database["public"]["Enums"]["notification_platform"] | null
+          queued_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["notification_status"] | null
+          user_id?: string | null
+        }
+        Update: {
+          apns_message_id?: never
+          campaign_id?: string | null
+          clicked_at?: string | null
+          created_at?: string | null
+          delivered_at?: string | null
+          device_token?: never
+          error_code?: string | null
+          error_message?: string | null
+          fcm_message_id?: never
+          id?: string | null
+          opened_at?: string | null
+          platform?: Database["public"]["Enums"]["notification_platform"] | null
+          queued_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["notification_status"] | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "push_notification_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "push_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       can_view_profile_photo: {
