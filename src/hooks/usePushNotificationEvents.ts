@@ -57,18 +57,26 @@ export function usePushNotificationEvents(limit: number = 50) {
   const [isLive, setIsLive] = useState(true);
   const queryClient = useQueryClient();
 
-  // Fetch initial events
+  // Fetch initial events using the secure admin view (masks device tokens)
   const fetchEvents = useCallback(async () => {
     try {
-      // Fetch events with user info
+      // Fetch events from the secure admin view that masks sensitive device tokens
       const { data: eventsData, error: eventsError } = await supabase
-        .from("push_notification_events")
-        .select(`
-          *,
-          push_campaigns (title)
-        `)
+        .from("push_notification_events_admin")
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(limit);
+
+      // Fetch campaign titles separately since views don't support joins
+      const campaignIds = [...new Set(eventsData?.map(e => e.campaign_id).filter(Boolean) || [])];
+      const { data: campaigns } = campaignIds.length > 0 ? await supabase
+        .from("push_campaigns")
+        .select("id, title")
+        .in("id", campaignIds) : { data: [] };
+      
+      const campaignMap = new Map<string, string>(
+        (campaigns || []).map(c => [c.id, c.title] as [string, string])
+      );
 
       if (eventsError) {
         console.error("Error fetching push events:", eventsError);
@@ -102,7 +110,7 @@ export function usePushNotificationEvents(limit: number = 50) {
         opened_at: event.opened_at,
         clicked_at: event.clicked_at,
         created_at: event.created_at,
-        campaign_title: (event.push_campaigns as any)?.title || "Direct Notification",
+        campaign_title: event.campaign_id ? (campaignMap.get(event.campaign_id) || "Direct Notification") : "Direct Notification",
       }));
 
       setEvents(transformedEvents);
