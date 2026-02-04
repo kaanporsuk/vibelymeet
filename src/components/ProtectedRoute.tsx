@@ -20,27 +20,30 @@ export function ProtectedRoute({
   const location = useLocation();
   const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete'>('loading');
 
-  // Server-side admin role verification - queries database directly via RLS
+  // Server-side admin role verification via edge function - cannot be bypassed
   const { data: isServerVerifiedAdmin, isLoading: isAdminCheckLoading } = useQuery({
     queryKey: ['verify-admin-role', session?.user?.id],
     queryFn: async () => {
       if (!session?.user?.id) return false;
       
-      // This query will only succeed if the user has the admin role
-      // RLS policy on user_roles ensures users can only see their own roles
-      const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', session.user.id)
-        .eq('role', 'admin')
-        .maybeSingle();
-      
-      if (error) {
-        console.error('Admin verification error:', error);
+      try {
+        // Call the secure edge function that validates admin status server-side
+        const { data, error } = await supabase.functions.invoke('verify-admin', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+        
+        if (error) {
+          console.error('Admin verification error');
+          return false;
+        }
+        
+        return data?.isAdmin === true;
+      } catch (err) {
+        console.error('Admin verification failed');
         return false;
       }
-      
-      return !!data;
     },
     enabled: !!session?.user?.id && requireAdmin,
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
