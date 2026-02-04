@@ -118,17 +118,28 @@ const AdminExportPanel = () => {
     URL.revokeObjectURL(link.href);
   };
 
+  // HTML escape function to prevent XSS
+  const escapeHtml = (str: string): string => {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
   const generatePDFContent = (title: string, headers: string[], rows: any[][]): string => {
     // Generate a simple HTML table that can be printed as PDF
+    // All content is escaped to prevent XSS attacks
     const tableRows = rows.map(row => 
-      `<tr>${row.map(cell => `<td style="border: 1px solid #ddd; padding: 8px;">${String(cell).replace(/"/g, '')}</td>`).join('')}</tr>`
+      `<tr>${row.map(cell => `<td style="border: 1px solid #ddd; padding: 8px;">${escapeHtml(String(cell))}</td>`).join('')}</tr>`
     ).join('');
     
     return `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>${title}</title>
+        <title>${escapeHtml(title)}</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 20px; }
           h1 { color: #333; }
@@ -140,11 +151,11 @@ const AdminExportPanel = () => {
         </style>
       </head>
       <body>
-        <h1>${title}</h1>
+        <h1>${escapeHtml(title)}</h1>
         <p class="meta">Generated: ${format(new Date(), 'yyyy-MM-dd HH:mm:ss')} | Records: ${rows.length}</p>
         <table>
           <thead>
-            <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>
+            <tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr>
           </thead>
           <tbody>
             ${tableRows}
