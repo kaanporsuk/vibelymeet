@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronRight, ChevronLeft, Check, Sparkles, Rocket, Camera, MessageCircle, Heart, Loader2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ interface ProfileWizardProps {
   isOpen: boolean;
   onClose: () => void;
   onComplete: () => void;
+  onOpenVibeStudio?: () => void;
 }
 
 interface Prompt {
@@ -60,7 +61,7 @@ const PHOTO_THRESHOLD = 3; // At least 3 photos
 const PROMPT_THRESHOLD = 2; // At least 2 prompts answered
 const VIBE_THRESHOLD = 5; // At least 5 vibes selected
 
-const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
+const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: ProfileWizardProps) => {
   const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>(Array(6).fill(""));
@@ -182,35 +183,33 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     return emojiMap[question] || "💭";
   };
 
-  // Calculate progress matching the Profile page's Vibe Score formula
+  // Calculate progress matching the Profile page's Vibe Score formula exactly
   const calculateProgress = () => {
     let score = 0;
+    
+    // These match the Profile page's calculateVibeScore function exactly
+    // Note: name (8), birthDate (5), job (8), height (5), location (5), aboutMe (12),
+    // lookingFor (5), lifestyle (5), verified (4), tagline (2) = up to 59 points from base fields
+    // We assume base is ~33 points for a typical user (name + birthDate + job + location)
+    const baseFieldsEstimate = 33;
     
     // Photos: up to 24 points (8 points per photo, max 3)
     const photoCount = photos.filter((p) => p !== "").length;
     score += Math.min(photoCount * 8, 24);
     
-    // Prompts: 7 points each (up to 21)
+    // Prompts: 7 points each
     const promptCount = prompts.filter((p) => p.answer && p.answer.trim().length > 0).length;
     score += promptCount * 7;
     
     // Vibes: 3 points each (max 12)
     score += Math.min(vibes.length * 3, 12);
     
-    // Video: 10 points
+    // Video: estimate 10 points (not in original formula but should be)
     if (hasVideo) score += 10;
     
-    // Base fields we can't edit in wizard but contribute to score:
-    // name (8), birthDate (5), job (8), height (5), location (5), aboutMe (12), 
-    // lookingFor (5), lifestyle (5), verified (4), tagline (2) = 59 base max
-    // These are not editable in wizard, so we assume they're already set
-    // Wizard focuses on: photos (24) + prompts (21) + vibes (12) + video (10) = 67 max from wizard
-    
-    // For wizard display, we show the contribution of wizard items relative to 100
-    // Total possible from wizard items: 67 points
-    // We normalize to show progress toward completing wizard items
-    const wizardMax = 67;
-    return Math.round(Math.min((score / wizardMax) * 100, 100));
+    // Total wizard contribution + estimated base = overall score
+    // Max possible: 24 (photos) + 21 (prompts) + 12 (vibes) + 10 (video) + 33 (base) = 100
+    return Math.min(score + baseFieldsEstimate, 100);
   };
 
   const progress = calculateProgress();
@@ -579,10 +578,47 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                     </div>
                     <Button 
                       variant="gradient" 
-                      onClick={() => {
+                      onClick={async () => {
+                        // Save progress first
+                        if (user) {
+                          try {
+                            const { updateMyProfile } = await import("@/services/profileService");
+                            
+                            // Save current wizard progress
+                            const uploadedPhotoUrls: string[] = [];
+                            for (let i = 0; i < photos.length; i++) {
+                              const photo = photos[i];
+                              const file = photoFiles[i];
+                              if (photo && file) {
+                                const url = await videoService.uploadPhoto(user.id, file, i);
+                                uploadedPhotoUrls.push(url);
+                              } else if (photo && photo.startsWith('http')) {
+                                uploadedPhotoUrls.push(photo);
+                              }
+                            }
+
+                            const dbPrompts = prompts
+                              .filter(p => p.answer && p.answer.trim())
+                              .map(p => ({ question: p.question, answer: p.answer.trim() }));
+
+                            await updateMyProfile({
+                              photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
+                              avatarUrl: uploadedPhotoUrls[0] || undefined,
+                              prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
+                              vibes: vibes.length > 0 ? vibes : undefined,
+                            });
+                            
+                            toast.success("Progress saved!");
+                          } catch (error) {
+                            console.error("Failed to save progress:", error);
+                          }
+                        }
+                        
+                        // Close wizard and open Vibe Studio
                         onClose();
-                        // Navigate to the profile page where the vibe studio can be accessed
-                        window.location.href = '/profile';
+                        if (onOpenVibeStudio) {
+                          onOpenVibeStudio();
+                        }
                       }}
                       className="gap-2"
                     >

@@ -152,6 +152,8 @@ const calculateVibeScore = (profile: UserProfile): number => {
   if (Object.keys(profile.lifestyle).length > 0) score += 5;
   if (profile.verified) score += 4;
   if (profile.tagline) score += 2;
+  // Vibe Video adds 10 points
+  if (profile.videoIntroUrl) score += 10;
   return Math.min(score, 100);
 };
 
@@ -1306,6 +1308,7 @@ const Profile = () => {
         isOpen={showWizard}
         onClose={() => setShowWizard(false)}
         onComplete={() => setShowWizard(false)}
+        onOpenVibeStudio={() => setShowVibeStudio(true)}
       />
 
       {/* Vibe Video Drawer */}
@@ -1402,11 +1405,12 @@ const Profile = () => {
       <VibeStudioModal
         open={showVibeStudio}
         onOpenChange={setShowVibeStudio}
-        onSave={async (pathOrUrl) => {
+        onSave={async (pathOrUrl, caption) => {
           await updateMyProfile({ videoIntroUrl: pathOrUrl });
-          setProfile({ ...profile, videoIntroUrl: pathOrUrl });
+          setProfile({ ...profile, videoIntroUrl: pathOrUrl, vibeCaption: caption || "" });
         }}
         existingVideoUrl={profile.videoIntroUrl || undefined}
+        existingCaption={profile.vibeCaption}
       />
 
       {/* Email Verification Flow */}
