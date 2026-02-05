@@ -22,8 +22,9 @@ import { UploadProgressBar } from "./UploadProgressBar";
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave?: (videoUrl: string) => void;
+  onSave?: (videoUrl: string, caption?: string) => void;
   existingVideoUrl?: string;
+  existingCaption?: string;
 }
 
 const COACH_TIPS = [
@@ -42,6 +43,7 @@ export const VibeStudioModal = ({
   onOpenChange,
   onSave,
   existingVideoUrl,
+  existingCaption = "",
 }: VibeStudioModalProps) => {
   // Stages: idle → recording → preview (local) → trimming → uploading → posted (final review)
   const [stage, setStage] = useState<"idle" | "recording" | "preview" | "trimming" | "uploading" | "posted">("idle");
@@ -60,6 +62,8 @@ export const VibeStudioModal = ({
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [needsTrimming, setNeedsTrimming] = useState(false);
+  const [vibeCaption, setVibeCaption] = useState(existingCaption);
+  const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
@@ -341,7 +345,7 @@ export const VibeStudioModal = ({
       return;
     }
 
-    onSave?.(uploadedPath);
+    onSave?.(uploadedPath, vibeCaption);
 
     // Clean up
     onOpenChange(false);
@@ -354,9 +358,10 @@ export const VibeStudioModal = ({
     setFinalVideoUrl(null);
     setUploadedPath(null);
     setProcessingStatus(null);
+    setVibeCaption("");
 
     toast.success("Vibe video posted to your profile!");
-  }, [onSave, onOpenChange, recordedVideoUrl, uploadedPath]);
+  }, [onSave, onOpenChange, recordedVideoUrl, uploadedPath, vibeCaption]);
 
   const handleClose = useCallback(() => {
     if (isSaving) return; // Don't close while saving
@@ -562,20 +567,78 @@ export const VibeStudioModal = ({
                 </div>
               )}
 
-              {/* Top HUD - The Question */}
+              {/* Top HUD - Editable Caption */}
               <motion.div
                 initial={{ y: -50, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.2 }}
                 className="absolute top-16 left-4 right-4 z-20"
               >
-                <div className="glass-card px-4 py-3 rounded-2xl text-center">
+                <button
+                  onClick={() => setIsEditingCaption(true)}
+                  className="glass-card px-4 py-3 rounded-2xl text-center w-full hover:bg-secondary/50 transition-colors"
+                >
                   <p className="text-sm text-muted-foreground">What are you</p>
-                  <p className="text-lg font-display font-bold gradient-text">
-                    Vibing on?
-                  </p>
-                </div>
+                  {vibeCaption ? (
+                    <p className="text-lg font-display font-bold gradient-text truncate">
+                      {vibeCaption}
+                    </p>
+                  ) : (
+                    <p className="text-lg font-display font-bold gradient-text">
+                      Vibing on?
+                    </p>
+                  )}
+                  {(stage === "idle" || stage === "preview" || stage === "posted") && (
+                    <p className="text-xs text-muted-foreground/60 mt-1">Tap to edit</p>
+                  )}
+                </button>
               </motion.div>
+
+              {/* Caption Edit Modal */}
+              <AnimatePresence>
+                {isEditingCaption && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 bg-background/90 backdrop-blur-md z-50 flex flex-col items-center justify-center p-6"
+                  >
+                    <div className="w-full max-w-sm space-y-4">
+                      <h3 className="text-lg font-display font-bold text-center text-foreground">
+                        What are you vibing on?
+                      </h3>
+                      <input
+                        type="text"
+                        value={vibeCaption}
+                        onChange={(e) => setVibeCaption(e.target.value)}
+                        placeholder="Seeking a partner in crime..."
+                        maxLength={50}
+                        className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary"
+                        autoFocus
+                      />
+                      <p className="text-xs text-muted-foreground text-center">
+                        {vibeCaption.length}/50 characters
+                      </p>
+                      <div className="flex gap-3">
+                        <Button
+                          variant="ghost"
+                          onClick={() => setIsEditingCaption(false)}
+                          className="flex-1"
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          variant="gradient"
+                          onClick={() => setIsEditingCaption(false)}
+                          className="flex-1"
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Coach Tips (Rotating) */}
               <AnimatePresence mode="wait">
