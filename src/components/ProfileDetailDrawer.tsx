@@ -23,46 +23,7 @@ import { cn } from "@/lib/utils";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
-
-// Mock video URL
-const MOCK_VIBE_VIDEO = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4";
-
-// Mock extended profile data
-const mockProfileData = {
-  photos: [
-    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800",
-    "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=800",
-    "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800",
-  ],
-  hasVideoIntro: true,
-  vibeVideoUrl: MOCK_VIBE_VIDEO,
-  vibeCaption: "Marathon Training 🏃‍♂️",
-  job: "Product Designer",
-  location: "Brooklyn, NY",
-  height: 168,
-  bio: "Creative soul who believes in the magic of spontaneous adventures and deep conversations over good coffee. Looking for someone to share those quiet Sunday mornings and wild Friday nights.",
-  prompts: [
-    {
-      question: "A fact about me that surprises people",
-      answer: "I once lived in a tiny village in Portugal for 3 months and learned to make traditional pastéis de nata from a 90-year-old grandmother.",
-    },
-    {
-      question: "The way to win me over",
-      answer: "Send me a perfectly timed meme, remember my coffee order, or suggest we skip the bar and go stargazing instead.",
-    },
-    {
-      question: "I'm looking for",
-      answer: "Someone who's equally comfortable in a museum or at a music festival. Bonus points if you can beat me at Mario Kart.",
-    },
-  ],
-  interests: ["Photography", "Hiking", "Vinyl Records", "Cooking", "Yoga"],
-  lifestyle: {
-    drinking: "sometimes",
-    smoking: "never",
-    exercise: "often",
-    diet: "omnivore",
-  },
-};
+import { getSignedVideoUrl } from "@/services/videoStorageService";
 
 interface ProfileDetailDrawerProps {
   match: {
@@ -78,6 +39,9 @@ interface ProfileDetailDrawerProps {
     height?: number;
     bio?: string;
     lifestyle?: Record<string, string>;
+    prompts?: { question: string; answer: string }[];
+    videoIntroUrl?: string | null;
+    vibeCaption?: string;
   };
   trigger?: React.ReactNode;
   onMessage?: () => void;
@@ -112,21 +76,45 @@ export const ProfileDetailDrawer = ({
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(true);
+  const [signedVideoUrl, setSignedVideoUrl] = useState<string | null>(null);
 
-  // Use photos from match prop if available, otherwise fall back to mock data
+  // Use photos from match prop - no fallback to mock data
   const photos = match.photos && match.photos.length > 0 
     ? match.photos 
-    : mockProfileData.photos;
+    : [match.image].filter(Boolean);
   
   const profileData = {
-    job: match.job || mockProfileData.job,
-    location: match.location || mockProfileData.location,
-    height: match.height || mockProfileData.height,
-    bio: match.bio || mockProfileData.bio,
-    lifestyle: match.lifestyle || mockProfileData.lifestyle,
+    job: match.job || null,
+    location: match.location || null,
+    height: match.height || null,
+    bio: match.bio || null,
+    lifestyle: match.lifestyle || {},
+    prompts: match.prompts || [],
   };
   
-  const compatibility = match.compatibility ?? Math.floor(Math.random() * 15) + 85;
+  const hasVideoIntro = !!match.videoIntroUrl;
+  const compatibility = match.compatibility ?? 0;
+
+  // Resolve signed video URL when the drawer opens
+  useEffect(() => {
+    if (!open || !match.videoIntroUrl) {
+      setSignedVideoUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    const resolveUrl = async () => {
+      const signed = await getSignedVideoUrl(match.videoIntroUrl!);
+      if (!cancelled) {
+        setSignedVideoUrl(signed);
+      }
+    };
+    resolveUrl();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, match.videoIntroUrl]);
 
   // Hide scroll hint after a few seconds
   useEffect(() => {
@@ -231,45 +219,49 @@ export const ProfileDetailDrawer = ({
       );
     }
 
-    // Prompts interspersed with remaining photos
-    mockProfileData.prompts.forEach((prompt, i) => {
-      sections.push(
-        <motion.div
-          key={`prompt-${i}`}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 + i * 0.05 }}
-          className="glass-card p-5 rounded-2xl"
-        >
-          <p className="text-sm font-medium text-primary mb-2">{prompt.question}</p>
-          <p className="text-lg leading-relaxed text-foreground">{prompt.answer}</p>
-        </motion.div>
-      );
+    // Prompts interspersed with remaining photos (only if user has prompts)
+    if (profileData.prompts && profileData.prompts.length > 0) {
+      profileData.prompts.forEach((prompt, i) => {
+        if (prompt.answer) {
+          sections.push(
+            <motion.div
+              key={`prompt-${i}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 + i * 0.05 }}
+              className="glass-card p-5 rounded-2xl"
+            >
+              <p className="text-sm font-medium text-primary mb-2">{prompt.question}</p>
+              <p className="text-lg leading-relaxed text-foreground">{prompt.answer}</p>
+            </motion.div>
+          );
 
-      // Add a photo after every other prompt
-      if (i % 2 === 0 && photoIndex < photos.length) {
-        sections.push(
-          <motion.div
-            key={`photo-${photoIndex}`}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 + i * 0.05 }}
-            className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
-          >
-            <img
-              src={photos[photoIndex]}
-              alt={`${match.name}'s photo`}
-              className="w-full h-full object-cover cursor-pointer"
-              onClick={() => {
-                setCurrentPhotoIndex(photoIndex);
-                setShowFullscreenPhoto(true);
-              }}
-            />
-          </motion.div>
-        );
-        photoIndex++;
-      }
-    });
+          // Add a photo after every other prompt
+          if (i % 2 === 0 && photoIndex < photos.length) {
+            sections.push(
+              <motion.div
+                key={`photo-${photoIndex}`}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 + i * 0.05 }}
+                className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
+              >
+                <img
+                  src={photos[photoIndex]}
+                  alt={`${match.name}'s photo`}
+                  className="w-full h-full object-cover cursor-pointer"
+                  onClick={() => {
+                    setCurrentPhotoIndex(photoIndex);
+                    setShowFullscreenPhoto(true);
+                  }}
+                />
+              </motion.div>
+            );
+            photoIndex++;
+          }
+        }
+      });
+    }
 
     // Lifestyle section
     if (profileData.lifestyle && Object.keys(profileData.lifestyle).length > 0) {
@@ -337,7 +329,7 @@ export const ProfileDetailDrawer = ({
         <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* Hero Section - Full Width Photo */}
           <div className="relative w-full aspect-[3/4] min-h-[65vh] max-h-[80vh]">
-            {mockProfileData.hasVideoIntro && !showVideoOverlay ? (
+            {hasVideoIntro && !showVideoOverlay ? (
               <>
                 <AnimatePresence mode="wait">
                   <motion.img
@@ -394,11 +386,11 @@ export const ProfileDetailDrawer = ({
                   <span className="text-sm">Watch Intro</span>
                 </motion.button>
               </>
-            ) : mockProfileData.hasVideoIntro && showVideoOverlay ? (
+            ) : hasVideoIntro && showVideoOverlay && signedVideoUrl ? (
               <VibePlayer
-                videoUrl={mockProfileData.vibeVideoUrl}
+                videoUrl={signedVideoUrl}
                 thumbnailUrl={photos[0]}
-                vibeCaption={mockProfileData.vibeCaption}
+                vibeCaption={match.vibeCaption || ""}
                 autoPlay={true}
                 showControls={true}
                 className="w-full h-full"

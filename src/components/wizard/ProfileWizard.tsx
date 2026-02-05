@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronRight, ChevronLeft, Check, Sparkles, Rocket, Camera, MessageCircle, Heart, Loader2 } from "lucide-react";
+import { X, ChevronRight, ChevronLeft, Check, Sparkles, Rocket, Camera, MessageCircle, Heart, Loader2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
@@ -29,6 +29,7 @@ const steps = [
   { id: 1, key: "photos", title: "Visual Vibe", subtitle: "Show your best self", icon: Camera },
   { id: 2, key: "prompts", title: "Conversation Starters", subtitle: "Give matches something to respond to", icon: MessageCircle },
   { id: 3, key: "vibes", title: "Your Vibes", subtitle: "Define your identity", icon: Heart },
+  { id: 4, key: "video", title: "Vibe Video", subtitle: "Record a 15s intro", icon: Video },
 ];
 
 const coachTexts = {
@@ -66,6 +67,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(Array(6).fill(null));
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [vibes, setVibes] = useState<string[]>([]);
+  const [hasVideo, setHasVideo] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [showLevelUp, setShowLevelUp] = useState(false);
@@ -76,7 +78,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
   const [incompleteSteps, setIncompleteSteps] = useState<typeof steps>([]);
 
   // Check if section is complete
-  const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileVibes: string[]) => {
+  const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileVibes: string[], profileHasVideo: boolean) => {
     switch (key) {
       case "photos":
         return profilePhotos.filter(p => p !== "").length >= PHOTO_THRESHOLD;
@@ -84,6 +86,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
         return profilePrompts.filter(p => p.answer && p.answer.trim().length > 0).length >= PROMPT_THRESHOLD;
       case "vibes":
         return profileVibes.length >= VIBE_THRESHOLD;
+      case "video":
+        return profileHasVideo;
       default:
         return false;
     }
@@ -106,6 +110,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
         let loadedPhotos: string[] = Array(6).fill("");
         let loadedPrompts: Prompt[] = [];
         let loadedVibes: string[] = [];
+        let loadedHasVideo = false;
         
         if (profile) {
           // Load photos - pad to 6 slots
@@ -129,11 +134,15 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
           // Load vibes
           loadedVibes = profile.vibes || [];
           setVibes(loadedVibes);
+          
+          // Check video
+          loadedHasVideo = !!profile.videoIntroUrl;
+          setHasVideo(loadedHasVideo);
         }
 
         // Determine which steps are incomplete
         const incomplete = steps.filter(step => 
-          !isSectionComplete(step.key, loadedPhotos, loadedPrompts, loadedVibes)
+          !isSectionComplete(step.key, loadedPhotos, loadedPrompts, loadedVibes, loadedHasVideo)
         );
         
         setIncompleteSteps(incomplete);
@@ -173,18 +182,35 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     return emojiMap[question] || "💭";
   };
 
-  // Calculate progress based on current data
+  // Calculate progress matching the Profile page's Vibe Score formula
   const calculateProgress = () => {
+    let score = 0;
+    
+    // Photos: up to 24 points (8 points per photo, max 3)
     const photoCount = photos.filter((p) => p !== "").length;
+    score += Math.min(photoCount * 8, 24);
+    
+    // Prompts: 7 points each (up to 21)
     const promptCount = prompts.filter((p) => p.answer && p.answer.trim().length > 0).length;
-    const vibeCount = vibes.length;
-
-    // Weights: Photos 40%, Prompts 30%, Vibes 30%
-    const photoProgress = Math.min(photoCount / PHOTO_THRESHOLD, 1) * 40;
-    const promptProgress = Math.min(promptCount / PROMPT_THRESHOLD, 1) * 30;
-    const vibeProgress = Math.min(vibeCount / VIBE_THRESHOLD, 1) * 30;
-
-    return Math.round(photoProgress + promptProgress + vibeProgress);
+    score += promptCount * 7;
+    
+    // Vibes: 3 points each (max 12)
+    score += Math.min(vibes.length * 3, 12);
+    
+    // Video: 10 points
+    if (hasVideo) score += 10;
+    
+    // Base fields we can't edit in wizard but contribute to score:
+    // name (8), birthDate (5), job (8), height (5), location (5), aboutMe (12), 
+    // lookingFor (5), lifestyle (5), verified (4), tagline (2) = 59 base max
+    // These are not editable in wizard, so we assume they're already set
+    // Wizard focuses on: photos (24) + prompts (21) + vibes (12) + video (10) = 67 max from wizard
+    
+    // For wizard display, we show the contribution of wizard items relative to 100
+    // Total possible from wizard items: 67 points
+    // We normalize to show progress toward completing wizard items
+    const wizardMax = 67;
+    return Math.round(Math.min((score / wizardMax) * 100, 100));
   };
 
   const progress = calculateProgress();
@@ -206,7 +232,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
     if (progress >= 100 && !isComplete && incompleteSteps.length > 0) {
       // Recheck if all sections are now complete
       const stillIncomplete = incompleteSteps.filter(step => 
-        !isSectionComplete(step.key, photos, prompts, vibes)
+        !isSectionComplete(step.key, photos, prompts, vibes, hasVideo)
       );
       
       if (stillIncomplete.length === 0) {
@@ -530,6 +556,42 @@ const ProfileWizard = ({ isOpen, onClose, onComplete }: ProfileWizardProps) => {
                     transition={{ type: "spring", damping: 25 }}
                   >
                     <VibeTagCloud selectedTags={vibes} onTagsChange={setVibes} />
+                  </motion.div>
+                )}
+
+                {currentActiveStep?.key === "video" && (
+                  <motion.div
+                    key="video"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -50 }}
+                    transition={{ type: "spring", damping: 25 }}
+                    className="flex flex-col items-center justify-center py-8 space-y-6"
+                  >
+                    <div className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center">
+                      <Video className="w-10 h-10 text-primary-foreground" />
+                    </div>
+                    <div className="text-center space-y-2">
+                      <h3 className="text-lg font-semibold text-foreground">Record Your Vibe Video</h3>
+                      <p className="text-sm text-muted-foreground max-w-xs">
+                        A 15-second video introduction helps you stand out and get 3x more matches!
+                      </p>
+                    </div>
+                    <Button 
+                      variant="gradient" 
+                      onClick={() => {
+                        onClose();
+                        // Navigate to the profile page where the vibe studio can be accessed
+                        window.location.href = '/profile';
+                      }}
+                      className="gap-2"
+                    >
+                      <Video className="w-4 h-4" />
+                      Go to Vibe Studio
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      You can skip this for now and record later from your profile
+                    </p>
                   </motion.div>
                 )}
               </AnimatePresence>
