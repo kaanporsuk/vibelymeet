@@ -137,24 +137,11 @@ const initialProfile: UserProfile = {
   },
 };
 
+// Import shared score calculation
+import { calculateVibeScore as calculateVibeScoreShared } from "@/utils/calculateVibeScore";
+
 const calculateVibeScore = (profile: UserProfile): number => {
-  let score = 0;
-  if (profile.name) score += 8;
-  if (profile.birthDate) score += 5;
-  if (profile.job) score += 8;
-  if (profile.heightCm) score += 5;
-  if (profile.location) score += 5;
-  if (profile.aboutMe && profile.aboutMe.length > 20) score += 12;
-  score += Math.min(profile.photos.length * 8, 24);
-  score += Math.min(profile.vibes.length * 3, 12);
-  score += profile.prompts.filter(p => p.answer).length * 7;
-  if (profile.lookingFor) score += 5;
-  if (Object.keys(profile.lifestyle).length > 0) score += 5;
-  if (profile.verified) score += 4;
-  if (profile.tagline) score += 2;
-  // Vibe Video adds 10 points
-  if (profile.videoIntroUrl) score += 10;
-  return Math.min(score, 100);
+  return calculateVibeScoreShared(profile);
 };
 
 type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | "tagline" | null;

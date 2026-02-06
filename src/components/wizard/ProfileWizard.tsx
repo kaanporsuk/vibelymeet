@@ -183,36 +183,52 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
     return emojiMap[question] || "💭";
   };
 
-  // Calculate progress matching the Profile page's Vibe Score formula exactly
-  const calculateProgress = () => {
-    let score = 0;
-    
-    // These match the Profile page's calculateVibeScore function exactly
-    // Note: name (8), birthDate (5), job (8), height (5), location (5), aboutMe (12),
-    // lookingFor (5), lifestyle (5), verified (4), tagline (2) = up to 59 points from base fields
-    // We assume base is ~33 points for a typical user (name + birthDate + job + location)
-    const baseFieldsEstimate = 33;
-    
-    // Photos: up to 24 points (8 points per photo, max 3)
-    const photoCount = photos.filter((p) => p !== "").length;
-    score += Math.min(photoCount * 8, 24);
-    
-    // Prompts: 7 points each
-    const promptCount = prompts.filter((p) => p.answer && p.answer.trim().length > 0).length;
-    score += promptCount * 7;
-    
-    // Vibes: 3 points each (max 12)
-    score += Math.min(vibes.length * 3, 12);
-    
-    // Video: estimate 10 points (not in original formula but should be)
-    if (hasVideo) score += 10;
-    
-    // Total wizard contribution + estimated base = overall score
-    // Max possible: 24 (photos) + 21 (prompts) + 12 (vibes) + 10 (video) + 33 (base) = 100
-    return Math.min(score + baseFieldsEstimate, 100);
-  };
+  // Calculate progress using the shared Vibe Score function for consistency
+  const calculateProgress = useCallback(async () => {
+    // We need current profile data to calculate an accurate score
+    // Merge loaded profile data with current wizard selections
+    try {
+      const { fetchMyProfile } = await import("@/services/profileService");
+      const profileData = await fetchMyProfile();
+      
+      if (!profileData) return 0;
+      
+      const { calculateVibeScore } = await import("@/utils/calculateVibeScore");
+      
+      // Create a merged profile with wizard's current selections
+      const mergedProfile = {
+        name: profileData.name,
+        birthDate: profileData.birthDate,
+        job: profileData.job,
+        heightCm: profileData.heightCm,
+        location: profileData.location,
+        aboutMe: profileData.aboutMe,
+        lookingFor: profileData.lookingFor,
+        lifestyle: profileData.lifestyle,
+        verified: false,
+        tagline: profileData.tagline,
+        // Use wizard's current state for editable fields
+        photos: photos.filter(p => p !== ""),
+        vibes: vibes,
+        prompts: prompts.filter(p => p.answer && p.answer.trim()),
+        videoIntroUrl: hasVideo ? profileData.videoIntroUrl || "has-video" : null,
+      };
+      
+      return calculateVibeScore(mergedProfile);
+    } catch {
+      return 0;
+    }
+  }, [photos, vibes, prompts, hasVideo]);
 
-  const progress = calculateProgress();
+  // State for the calculated progress
+  const [progress, setProgress] = useState(0);
+  
+  // Update progress when wizard data changes
+  useEffect(() => {
+    calculateProgress().then(setProgress);
+  }, [calculateProgress]);
+
+  
 
   // Auto-save indicator
   useEffect(() => {
