@@ -10,27 +10,32 @@ import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { Loader2, VideoOff, User, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-// Mock partner data (in production, fetch from match data)
-const PARTNER = {
-  name: "Emma",
-  age: 26,
-  tags: ["Music Lover", "Traveler", "Foodie"],
-};
-
 const TOTAL_TIME = 300; // 5 minutes in seconds
+
+interface PartnerData {
+  name: string;
+  age: number;
+  tags: string[];
+}
 
 const VideoDate = () => {
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id } = useParams(); // This is the video_session ID / room ID
   const { user } = useAuth();
-  
+
   const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
   const [showFeedback, setShowFeedback] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
+  const [partner, setPartner] = useState<PartnerData>({
+    name: "Your Match",
+    age: 0,
+    tags: [],
+  });
 
   const localVideoContainerRef = useRef<HTMLDivElement>(null);
   const remoteVideoContainerRef = useRef<HTMLDivElement>(null);
@@ -47,26 +52,66 @@ const VideoDate = () => {
     toggleMute,
     toggleVideo,
   } = useVideoCall({
-    roomId: id || `date-${Date.now()}`,
-    userId: user?.id || `user-${Date.now()}`,
+    roomId: id,
+    userId: user?.id,
     onCallEnded: () => {
       toast.info("Call ended");
     },
     onPartnerJoined: () => {
-      toast.success("Partner joined!");
+      toast.success("Partner joined! 🎉");
     },
     onPartnerLeft: () => {
       toast.info("Partner left the call");
     },
   });
 
-  // Auto-start call when component mounts
+  // Fetch partner info from video_session
   useEffect(() => {
-    if (!callStarted) {
+    if (!id || !user?.id) return;
+
+    const fetchPartner = async () => {
+      try {
+        const { data: session } = await supabase
+          .from("video_sessions")
+          .select("participant_1_id, participant_2_id")
+          .eq("id", id)
+          .maybeSingle();
+
+        if (!session) return;
+
+        const partnerId =
+          session.participant_1_id === user.id
+            ? session.participant_2_id
+            : session.participant_1_id;
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name, age")
+          .eq("id", partnerId)
+          .maybeSingle();
+
+        if (profile) {
+          setPartner({
+            name: profile.name,
+            age: profile.age,
+            tags: [],
+          });
+        }
+      } catch (err) {
+        console.error("Error fetching partner:", err);
+      }
+    };
+
+    fetchPartner();
+  }, [id, user?.id]);
+
+  // Auto-start call
+  useEffect(() => {
+    if (!callStarted && id) {
       setCallStarted(true);
-      startCall();
+      startCall(id);
     }
-  }, [callStarted, startCall]);
+  }, [callStarted, startCall, id]);
 
   // Countdown timer
   useEffect(() => {
@@ -94,26 +139,44 @@ const VideoDate = () => {
 
     const requestWakeLock = async () => {
       try {
-        if ('wakeLock' in navigator) {
-          wakeLock = await navigator.wakeLock.request('screen');
+        if ("wakeLock" in navigator) {
+          wakeLock = await navigator.wakeLock.request("screen");
         }
-      } catch (err) {
-        console.log('Wake Lock not supported or failed');
+      } catch {
+        console.log("Wake Lock not supported or failed");
       }
     };
 
     requestWakeLock();
-
     return () => {
       wakeLock?.release();
     };
   }, []);
 
-  const handleLeave = () => {
+  const handleLeave = async () => {
     endCall();
-    toast("You left the date early. Stay safe! 💜", {
-      duration: 2000,
-    });
+
+    // Reset matching state via edge function
+    if (id && user?.id) {
+      try {
+        // Find the event_id from the video_session
+        const { data: session } = await supabase
+          .from("video_sessions")
+          .select("event_id")
+          .eq("id", id)
+          .maybeSingle();
+
+        if (session?.event_id) {
+          await supabase.functions.invoke("video-matching", {
+            body: { action: "leave_queue", eventId: session.event_id },
+          });
+        }
+      } catch (err) {
+        console.error("Error cleaning up:", err);
+      }
+    }
+
+    toast("You left the date early. Stay safe! 💜", { duration: 2000 });
     navigate("/dashboard");
   };
 
@@ -148,13 +211,14 @@ const VideoDate = () => {
             <div className="text-center space-y-4">
               <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
               <p className="text-muted-foreground">
-                {isConnecting ? "Connecting to your date..." : "Waiting for partner..."}
+                {isConnecting
+                  ? "Connecting to your date..."
+                  : "Waiting for partner to join..."}
               </p>
-              <Button 
-                variant="outline" 
-                onClick={handleLeave}
-                className="mt-4"
-              >
+              <p className="text-xs text-muted-foreground/60">
+                Both users must be on this page for the call to start
+              </p>
+              <Button variant="outline" onClick={handleLeave} className="mt-4">
                 <ArrowLeft className="w-4 h-4 mr-2" />
                 Leave
               </Button>
@@ -175,7 +239,8 @@ const VideoDate = () => {
           >
             <div className="flex items-center gap-2 mb-1">
               <h2 className="font-display font-bold text-lg text-foreground">
-                {PARTNER.name}, {PARTNER.age}
+                {partner.name}
+                {partner.age > 0 ? `, ${partner.age}` : ""}
               </h2>
               <motion.div
                 className="w-2 h-2 rounded-full bg-green-500"
@@ -189,16 +254,18 @@ const VideoDate = () => {
                 transition={{ duration: 1.5, repeat: Infinity }}
               />
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {PARTNER.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-2 py-0.5 rounded-full bg-secondary/80 text-xs text-muted-foreground"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
+            {partner.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {partner.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-2 py-0.5 rounded-full bg-secondary/80 text-xs text-muted-foreground"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -225,9 +292,13 @@ const VideoDate = () => {
               className="w-full h-full object-cover mirror"
             />
           )}
-          
+
           {/* Mic indicator */}
-          <div className={`absolute bottom-2 right-2 w-3 h-3 rounded-full ${!isMuted ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+          <div
+            className={`absolute bottom-2 right-2 w-3 h-3 rounded-full ${
+              !isMuted ? "bg-green-500 animate-pulse" : "bg-red-500"
+            }`}
+          />
         </motion.div>
       </div>
 
@@ -250,7 +321,7 @@ const VideoDate = () => {
       {/* Post-Date Checkpoint Modal */}
       <PostDateCheckpoint
         isOpen={showFeedback}
-        partnerName={PARTNER.name}
+        partnerName={partner.name}
         partnerImage=""
         dateDuration={TOTAL_TIME - timeLeft}
       />
