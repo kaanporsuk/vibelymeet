@@ -20,6 +20,18 @@ interface UseVideoMatchingOptions {
   autoNavigate?: boolean;
 }
 
+async function callVideoMatching(action: string, eventId: string) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase.functions.invoke("video-matching", {
+    body: { action, eventId },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
 export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatchingOptions) => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -55,7 +67,6 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
             dates_completed: number;
           };
 
-          // Only update if this is for our event
           if (newData.event_id !== eventId) return;
 
           setState((prev) => ({
@@ -66,7 +77,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
             datesCompleted: newData.dates_completed,
           }));
 
-          // Auto-navigate when matched - use /date/:id route format
+          // Auto-navigate when matched
           if (newData.queue_status === "matched" && newData.current_room_id && autoNavigate) {
             toast.success("Match found! Starting video date...");
             navigate(`/date/${newData.current_room_id}`);
@@ -87,22 +98,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
     setState((prev) => ({ ...prev, isLoading: true }));
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session.session) throw new Error("Not authenticated");
-
-      const response = await fetch(
-        `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-matching`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.session.access_token}`,
-          },
-          body: JSON.stringify({ action: "get_status", eventId }),
-        }
-      );
-
-      const data = await response.json();
+      const data = await callVideoMatching("get_status", eventId);
 
       if (data.success) {
         setState((prev) => ({
@@ -115,7 +111,6 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
           error: null,
         }));
 
-        // If already matched, auto-navigate - use /date/:id route format
         if (data.queue_status === "matched" && data.room_id && autoNavigate) {
           navigate(`/date/${data.room_id}`);
         }
@@ -135,25 +130,9 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session.session) throw new Error("Not authenticated");
-
-      const response = await fetch(
-        `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-matching`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.session.access_token}`,
-          },
-          body: JSON.stringify({ action: "join_queue", eventId }),
-        }
-      );
-
-      const data = await response.json();
+      const data = await callVideoMatching("join_queue", eventId);
 
       if (data.success && data.matched) {
-        // Immediate match found
         toast.success("Match found! Starting video date...");
         setState((prev) => ({
           ...prev,
@@ -167,7 +146,6 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
           navigate(`/date/${data.room_id}`);
         }
       } else if (data.waiting) {
-        // In queue, waiting for match
         toast.info("Looking for a match...");
         setState((prev) => ({
           ...prev,
@@ -185,29 +163,14 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
     }
   }, [user?.id, eventId, navigate, autoNavigate]);
 
-  // Leave the queue or end the date
+  // Leave the queue
   const leaveQueue = useCallback(async () => {
     if (!user?.id || !eventId) return;
 
     setState((prev) => ({ ...prev, isLoading: true }));
 
     try {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session.session) throw new Error("Not authenticated");
-
-      const response = await fetch(
-        `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-matching`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.session.access_token}`,
-          },
-          body: JSON.stringify({ action: "leave_queue", eventId }),
-        }
-      );
-
-      const data = await response.json();
+      const data = await callVideoMatching("leave_queue", eventId);
 
       if (data.success) {
         setState((prev) => ({
@@ -232,22 +195,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
 
     const pollInterval = setInterval(async () => {
       try {
-        const { data: session } = await supabase.auth.getSession();
-        if (!session.session) return;
-
-        const response = await fetch(
-          `https://schdyxcunwcvddlcshwd.supabase.co/functions/v1/video-matching`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session.session.access_token}`,
-            },
-            body: JSON.stringify({ action: "find_match", eventId }),
-          }
-        );
-
-        const data = await response.json();
+        const data = await callVideoMatching("find_match", eventId);
 
         if (data.success && data.matched) {
           clearInterval(pollInterval);
@@ -266,7 +214,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
       } catch (error) {
         console.error("Error polling for match:", error);
       }
-    }, 3000); // Poll every 3 seconds
+    }, 3000);
 
     return () => clearInterval(pollInterval);
   }, [state.status, user?.id, eventId, navigate, autoNavigate]);
