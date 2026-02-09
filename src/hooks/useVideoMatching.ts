@@ -101,18 +101,43 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
       const data = await callVideoMatching("get_status", eventId);
 
       if (data.success) {
+        // If status is "matched" but no active video session, reset to idle
+        // This prevents stale matched state from auto-navigating to dead rooms
+        let effectiveStatus = data.queue_status || "idle";
+        let effectiveRoomId = data.room_id;
+        let effectivePartnerId = data.partner_id;
+
+        if (effectiveStatus === "matched" && effectiveRoomId) {
+          // Verify the video session is still active (not ended)
+          const { data: session } = await supabase
+            .from("video_sessions")
+            .select("ended_at")
+            .eq("id", effectiveRoomId)
+            .maybeSingle();
+
+          if (!session || session.ended_at) {
+            // Session already ended, reset to idle
+            console.log("[Matching] Stale matched status detected, resetting to idle");
+            effectiveStatus = "idle";
+            effectiveRoomId = null;
+            effectivePartnerId = null;
+            // Also reset in the database
+            await callVideoMatching("leave_queue", eventId).catch(() => {});
+          }
+        }
+
         setState((prev) => ({
           ...prev,
-          status: data.queue_status || "idle",
-          roomId: data.room_id,
-          partnerId: data.partner_id,
+          status: effectiveStatus as QueueStatus,
+          roomId: effectiveRoomId,
+          partnerId: effectivePartnerId,
           datesCompleted: data.dates_completed || 0,
           isLoading: false,
           error: null,
         }));
 
-        if (data.queue_status === "matched" && data.room_id && autoNavigate) {
-          navigate(`/date/${data.room_id}`);
+        if (effectiveStatus === "matched" && effectiveRoomId && autoNavigate) {
+          navigate(`/date/${effectiveRoomId}`);
         }
       } else {
         setState((prev) => ({ ...prev, isLoading: false, error: data.error }));
