@@ -1,44 +1,54 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { User } from "lucide-react";
 
-import { VibeProgressRing } from "@/components/video-date/VibeProgressRing";
+import { CompactTimer } from "@/components/video-date/CompactTimer";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
-import { VideoControls } from "@/components/video-date/VideoControls";
+import { VideoDateControls } from "@/components/video-date/VideoDateControls";
+import { SelfViewPIP } from "@/components/video-date/SelfViewPIP";
+import { ConnectionOverlay } from "@/components/video-date/ConnectionOverlay";
+import { PartnerProfileSheet } from "@/components/video-date/PartnerProfileSheet";
 import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, VideoOff, User, ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
-const TOTAL_TIME = 300; // 5 minutes in seconds
+const TOTAL_TIME = 300; // 5 minutes
 
 interface PartnerData {
   name: string;
   age: number;
   tags: string[];
+  avatarUrl?: string;
+  photos?: string[];
+  bio?: string;
+  job?: string;
+  location?: string;
+  heightCm?: number;
+  prompts?: { question: string; answer: string }[];
 }
 
 const VideoDate = () => {
   const navigate = useNavigate();
-  const { id } = useParams(); // This is the video_session ID / room ID
+  const { id } = useParams();
   const { user } = useAuth();
 
   const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
   const [showFeedback, setShowFeedback] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your Match",
     age: 0,
     tags: [],
   });
 
-  const localVideoContainerRef = useRef<HTMLDivElement>(null);
-  const remoteVideoContainerRef = useRef<HTMLDivElement>(null);
+  const remoteContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     isConnecting,
@@ -54,18 +64,12 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
-    onCallEnded: () => {
-      toast.info("Call ended");
-    },
-    onPartnerJoined: () => {
-      toast.success("Partner joined! 🎉");
-    },
-    onPartnerLeft: () => {
-      toast.info("Partner left the call");
-    },
+    onCallEnded: () => toast.info("Call ended"),
+    onPartnerJoined: () => toast.success("Partner joined! 🎉"),
+    onPartnerLeft: () => toast.info("Partner left the call"),
   });
 
-  // Fetch partner info from video_session
+  // Fetch partner profile
   useEffect(() => {
     if (!id || !user?.id) return;
 
@@ -86,15 +90,38 @@ const VideoDate = () => {
 
         const { data: profile } = await supabase
           .from("profiles")
-          .select("name, age")
+          .select("name, age, avatar_url, photos, bio, job, location, height_cm, prompts")
           .eq("id", partnerId)
           .maybeSingle();
 
         if (profile) {
+          // Fetch vibe tags
+          const { data: vibes } = await supabase
+            .from("profile_vibes")
+            .select("vibe_tags(label)")
+            .eq("profile_id", partnerId);
+
+          const tags = vibes?.map((v: any) => v.vibe_tags?.label).filter(Boolean) || [];
+
+          let prompts: { question: string; answer: string }[] = [];
+          if (profile.prompts && Array.isArray(profile.prompts)) {
+            prompts = (profile.prompts as any[]).map((p) => ({
+              question: p.question || "",
+              answer: p.answer || "",
+            }));
+          }
+
           setPartner({
             name: profile.name,
             age: profile.age,
-            tags: [],
+            tags,
+            avatarUrl: profile.avatar_url || undefined,
+            photos: (profile.photos as string[]) || undefined,
+            bio: profile.bio || undefined,
+            job: profile.job || undefined,
+            location: profile.location || undefined,
+            heightCm: profile.height_cm || undefined,
+            prompts,
           });
         }
       } catch (err) {
@@ -123,9 +150,7 @@ const VideoDate = () => {
           setShowFeedback(true);
           return 0;
         }
-        if (prev <= 10) {
-          setIsUrgent(true);
-        }
+        if (prev <= 10) setIsUrgent(true);
         return prev - 1;
       });
     }, 1000);
@@ -133,33 +158,31 @@ const VideoDate = () => {
     return () => clearInterval(interval);
   }, [showFeedback, isConnected]);
 
-  // Keep screen awake
+  // Auto-hide ice breaker after first 30s
+  useEffect(() => {
+    if (!isConnected) return;
+    const timer = setTimeout(() => setShowIceBreaker(false), 30000);
+    return () => clearTimeout(timer);
+  }, [isConnected]);
+
+  // Wake lock
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
-
-    const requestWakeLock = async () => {
+    const request = async () => {
       try {
         if ("wakeLock" in navigator) {
           wakeLock = await navigator.wakeLock.request("screen");
         }
-      } catch {
-        console.log("Wake Lock not supported or failed");
-      }
+      } catch {}
     };
-
-    requestWakeLock();
-    return () => {
-      wakeLock?.release();
-    };
+    request();
+    return () => { wakeLock?.release(); };
   }, []);
 
-  const handleLeave = async () => {
+  const handleLeave = useCallback(async () => {
     endCall();
-
-    // Reset matching state via edge function
     if (id && user?.id) {
       try {
-        // Find the event_id from the video_session
         const { data: session } = await supabase
           .from("video_sessions")
           .select("event_id")
@@ -175,29 +198,71 @@ const VideoDate = () => {
         console.error("Error cleaning up:", err);
       }
     }
-
-    toast("You left the date early. Stay safe! 💜", { duration: 2000 });
+    toast("You left the date. Stay safe! 💜", { duration: 2000 });
     navigate("/dashboard");
-  };
+  }, [endCall, id, user?.id, navigate]);
 
   return (
-    <div className="min-h-screen bg-background flex flex-col overflow-hidden relative">
-      {/* Urgent border effect */}
+    <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
+      {/* Urgent border */}
       <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
-      {/* Timer Ring - Top Center */}
+      {/* ─── Top HUD ─── */}
       <motion.div
-        initial={{ opacity: 0, y: -20 }}
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="absolute top-4 left-1/2 -translate-x-1/2 z-50"
+        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-3 pb-2"
+        style={{
+          background:
+            "linear-gradient(to bottom, hsl(var(--background) / 0.8), transparent)",
+        }}
       >
-        <VibeProgressRing timeLeft={timeLeft} totalTime={TOTAL_TIME} />
+        {/* Partner info pill */}
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={() => isConnected && setShowProfileSheet(true)}
+          className="flex items-center gap-2 glass-card px-3 py-2"
+        >
+          {partner.avatarUrl ? (
+            <img
+              src={partner.avatarUrl}
+              alt={partner.name}
+              className="w-8 h-8 rounded-full object-cover border border-primary/30"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
+              <User className="w-4 h-4 text-muted-foreground" />
+            </div>
+          )}
+          <div className="text-left">
+            <p className="text-sm font-display font-semibold text-foreground leading-tight">
+              {partner.name}
+              {partner.age > 0 && (
+                <span className="font-normal text-foreground/60 ml-1">
+                  {partner.age}
+                </span>
+              )}
+            </p>
+            {isConnected && (
+              <div className="flex items-center gap-1">
+                <motion.div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: "hsl(142, 71%, 45%)" }}
+                  animate={{ opacity: [1, 0.5, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+                <span className="text-[10px]" style={{ color: "hsl(142, 69%, 58%)" }}>Live</span>
+              </div>
+            )}
+          </div>
+        </motion.button>
+
+        {/* Timer */}
+        <CompactTimer timeLeft={timeLeft} totalTime={TOTAL_TIME} />
       </motion.div>
 
-      {/* Main Video (Remote/Partner) */}
-      <div className="flex-1 relative" ref={remoteVideoContainerRef}>
-        {/* Remote video stream */}
+      {/* ─── Remote Video (Full Screen) ─── */}
+      <div className="flex-1 relative" ref={remoteContainerRef}>
         <video
           ref={remoteVideoRef}
           autoPlay
@@ -205,133 +270,70 @@ const VideoDate = () => {
           className="w-full h-full object-cover"
         />
 
-        {/* Loading/Connecting State */}
-        {(isConnecting || !isConnected) && (
-          <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-50">
-            <div className="text-center space-y-4">
-              <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto" />
-              <p className="text-muted-foreground">
-                {isConnecting
-                  ? "Connecting to your date..."
-                  : "Waiting for partner to join..."}
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                Both users must be on this page for the call to start
-              </p>
-              <Button variant="outline" onClick={handleLeave} className="mt-4">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Leave
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Gradient overlay at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-background via-background/60 to-transparent" />
-
-        {/* Partner Info - Bottom Left */}
-        {isConnected && (
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.4 }}
-            className="absolute bottom-48 left-4 glass-card px-4 py-3"
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="font-display font-bold text-lg text-foreground">
-                {partner.name}
-                {partner.age > 0 ? `, ${partner.age}` : ""}
-              </h2>
-              <motion.div
-                className="w-2 h-2 rounded-full bg-green-500"
-                animate={{
-                  boxShadow: [
-                    "0 0 4px #22c55e",
-                    "0 0 8px #22c55e",
-                    "0 0 4px #22c55e",
-                  ],
-                }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              />
-            </div>
-            {partner.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {partner.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-0.5 rounded-full bg-secondary/80 text-xs text-muted-foreground"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </motion.div>
-        )}
-
-        {/* Local Video (Self View - PIP) */}
-        <motion.div
-          ref={localVideoContainerRef}
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="absolute top-20 right-4 w-32 h-44 rounded-2xl overflow-hidden shadow-lg border-2 border-primary/30 z-40"
-          drag
-          dragConstraints={remoteVideoContainerRef}
-          dragElastic={0.1}
-        >
-          {isVideoOff ? (
-            <div className="w-full h-full bg-secondary flex items-center justify-center">
-              <VideoOff className="w-8 h-8 text-muted-foreground" />
-            </div>
-          ) : (
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover mirror"
+        {/* Connection overlay */}
+        <AnimatePresence>
+          {(isConnecting || !isConnected) && !showFeedback && (
+            <ConnectionOverlay
+              isConnecting={isConnecting}
+              onLeave={handleLeave}
             />
           )}
+        </AnimatePresence>
 
-          {/* Mic indicator */}
-          <div
-            className={`absolute bottom-2 right-2 w-3 h-3 rounded-full ${
-              !isMuted ? "bg-green-500 animate-pulse" : "bg-red-500"
-            }`}
-          />
-        </motion.div>
+        {/* Bottom gradient for controls */}
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background via-background/50 to-transparent pointer-events-none" />
       </div>
 
-      {/* Ice Breaker Card */}
-      <div className="absolute bottom-36 left-0 right-0 px-4 z-30">
-        <IceBreakerCard />
-      </div>
+      {/* ─── Self-View PIP ─── */}
+      {isConnected && (
+        <SelfViewPIP
+          videoRef={localVideoRef}
+          isVideoOff={isVideoOff}
+          isMuted={isMuted}
+          containerRef={remoteContainerRef}
+        />
+      )}
 
-      {/* Controls Dock */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 pb-safe z-30">
-        <VideoControls
+      {/* ─── Ice Breaker ─── */}
+      <AnimatePresence>
+        {isConnected && showIceBreaker && !showFeedback && (
+          <motion.div
+            initial={{ y: 30, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 20, opacity: 0 }}
+            className="absolute bottom-32 left-4 right-4 z-20"
+          >
+            <IceBreakerCard />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Controls Dock ─── */}
+      <div className="absolute bottom-0 left-0 right-0 px-3 pb-safe z-30">
+        <VideoDateControls
           isMuted={isMuted}
           isVideoOff={isVideoOff}
           onToggleMute={toggleMute}
           onToggleVideo={toggleVideo}
           onLeave={handleLeave}
+          onViewProfile={() => setShowProfileSheet(true)}
         />
       </div>
 
-      {/* Post-Date Checkpoint Modal */}
+      {/* ─── Partner Profile Sheet ─── */}
+      <PartnerProfileSheet
+        isOpen={showProfileSheet}
+        onClose={() => setShowProfileSheet(false)}
+        partner={partner}
+      />
+
+      {/* ─── Post-Date Checkpoint ─── */}
       <PostDateCheckpoint
         isOpen={showFeedback}
         partnerName={partner.name}
-        partnerImage=""
+        partnerImage={partner.avatarUrl || partner.photos?.[0] || ""}
         dateDuration={TOTAL_TIME - timeLeft}
       />
-
-      {/* Mirror effect for local video */}
-      <style>{`
-        .mirror {
-          transform: scaleX(-1);
-        }
-      `}</style>
     </div>
   );
 };
