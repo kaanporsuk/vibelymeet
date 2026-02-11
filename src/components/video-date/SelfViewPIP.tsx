@@ -7,6 +7,7 @@ interface SelfViewPIPProps {
   isVideoOff: boolean;
   isMuted: boolean;
   containerRef: RefObject<HTMLDivElement>;
+  blurAmount?: number;
 }
 
 export const SelfViewPIP = ({
@@ -14,6 +15,7 @@ export const SelfViewPIP = ({
   isVideoOff,
   isMuted,
   containerRef,
+  blurAmount = 0,
 }: SelfViewPIPProps) => {
   return (
     <motion.div
@@ -43,7 +45,11 @@ export const SelfViewPIP = ({
           playsInline
           muted
           className="w-full h-full object-cover"
-          style={{ transform: "scaleX(-1)" }}
+          style={{
+            transform: "scaleX(-1)",
+            filter: `blur(${blurAmount}px)`,
+            transition: "filter 10s linear",
+          }}
         />
       )}
 
