@@ -14,7 +14,9 @@ import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
 import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
+import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
 import { useVideoCall } from "@/hooks/useVideoCall";
+import { useCredits } from "@/hooks/useCredits";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -59,6 +61,8 @@ const VideoDate = () => {
 
   const remoteContainerRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
+
+  const { credits, useExtraTime, useExtendedVibe } = useCredits();
 
   const {
     isConnecting,
@@ -271,9 +275,21 @@ const VideoDate = () => {
     setPhase("date");
     setTimeLeft(DATE_TIME);
     setShowIceBreaker(true);
-    // Re-hide after 30s during date
     setTimeout(() => setShowIceBreaker(false), 30000);
   }, []);
+
+  // Handle credit extension
+  const handleExtend = useCallback(
+    async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
+      const success =
+        type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
+      if (success) {
+        setTimeLeft((prev) => prev + minutes * 60);
+      }
+      return success;
+    },
+    [useExtraTime, useExtendedVibe]
+  );
 
   // End call and show feedback
   const handleCallEnd = useCallback(() => {
@@ -397,6 +413,15 @@ const VideoDate = () => {
             phase={phase}
           />
         </div>
+
+        {/* Keep the Vibe — credits extension (date phase only) */}
+        {isConnected && phase === "date" && !showFeedback && (
+          <KeepTheVibe
+            extraTimeCredits={credits.extraTime}
+            extendedVibeCredits={credits.extendedVibe}
+            onExtend={handleExtend}
+          />
+        )}
       </motion.div>
 
       {/* ─── Remote Video (Full Screen) with Progressive Blur ─── */}

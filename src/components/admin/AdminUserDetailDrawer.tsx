@@ -37,6 +37,7 @@ import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
 import { getSignedVideoUrl } from "@/services/videoStorageService";
 
 interface AdminUserDetailDrawerProps {
@@ -48,6 +49,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [showModeration, setShowModeration] = useState(false);
   const [showProfilePreview, setShowProfilePreview] = useState(false);
   const [showMatchMessages, setShowMatchMessages] = useState(false);
+  const [showGrantCredits, setShowGrantCredits] = useState(false);
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -277,6 +279,15 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             >
               <MessagesSquare className="w-4 h-4" />
               Messages
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowGrantCredits(true)}
+              className="gap-2 text-primary border-primary/30 hover:bg-primary/10"
+            >
+              <Sparkles className="w-4 h-4" />
+              Credits
             </Button>
             <Button 
               variant="outline" 
@@ -640,6 +651,16 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         isOpen={lightboxOpen}
         onClose={() => setLightboxOpen(false)}
       />
+
+      {/* Grant Credits Modal */}
+      {profile && (
+        <AdminGrantCreditsModal
+          userId={userId}
+          userName={profile.name || 'User'}
+          isOpen={showGrantCredits}
+          onClose={() => setShowGrantCredits(false)}
+        />
+      )}
     </>
   );
 };
