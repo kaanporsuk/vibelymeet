@@ -14,6 +14,7 @@ import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
+import ReadyGate from "./pages/ReadyGate";
 import VideoLobby from "./pages/VideoLobby";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
 import MatchCelebration from "./pages/MatchCelebration";
@@ -56,6 +57,7 @@ const App = () => (
               <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
+              <Route path="/ready/:id" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
               <Route path="/lobby" element={<ProtectedRoute><VideoLobby /></ProtectedRoute>} />
               <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
               <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />

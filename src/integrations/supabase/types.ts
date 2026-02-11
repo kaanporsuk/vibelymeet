@@ -801,6 +801,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_credits: {
+        Row: {
+          created_at: string
+          extended_vibe_credits: number
+          extra_time_credits: number
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          extended_vibe_credits?: number
+          extra_time_credits?: number
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          extended_vibe_credits?: number
+          extra_time_credits?: number
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_reports: {
         Row: {
           action_taken: string | null
@@ -1015,6 +1042,12 @@ export type Database = {
           participant_1_liked: boolean | null
           participant_2_id: string
           participant_2_liked: boolean | null
+          ready_gate_expires_at: string | null
+          ready_gate_status: string
+          ready_participant_1_at: string | null
+          ready_participant_2_at: string | null
+          snooze_expires_at: string | null
+          snoozed_by: string | null
           started_at: string
         }
         Insert: {
@@ -1026,6 +1059,12 @@ export type Database = {
           participant_1_liked?: boolean | null
           participant_2_id: string
           participant_2_liked?: boolean | null
+          ready_gate_expires_at?: string | null
+          ready_gate_status?: string
+          ready_participant_1_at?: string | null
+          ready_participant_2_at?: string | null
+          snooze_expires_at?: string | null
+          snoozed_by?: string | null
           started_at?: string
         }
         Update: {
@@ -1037,6 +1076,12 @@ export type Database = {
           participant_1_liked?: boolean | null
           participant_2_id?: string
           participant_2_liked?: boolean | null
+          ready_gate_expires_at?: string | null
+          ready_gate_status?: string
+          ready_participant_1_at?: string | null
+          ready_participant_2_at?: string | null
+          snooze_expires_at?: string | null
+          snoozed_by?: string | null
           started_at?: string
         }
         Relationships: [

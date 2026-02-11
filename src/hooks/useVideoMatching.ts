@@ -77,10 +77,10 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
             datesCompleted: newData.dates_completed,
           }));
 
-          // Auto-navigate when matched
+          // Auto-navigate to Ready Gate when matched
           if (newData.queue_status === "matched" && newData.current_room_id && autoNavigate) {
-            toast.success("Match found! Starting video date...");
-            navigate(`/date/${newData.current_room_id}`);
+            toast.success("Match found! Get ready...");
+            navigate(`/ready/${newData.current_room_id}`);
           }
         }
       )
@@ -137,7 +137,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
         }));
 
         if (effectiveStatus === "matched" && effectiveRoomId && autoNavigate) {
-          navigate(`/date/${effectiveRoomId}`);
+          navigate(`/ready/${effectiveRoomId}`);
         }
       } else {
         setState((prev) => ({ ...prev, isLoading: false, error: data.error }));
@@ -158,7 +158,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
       const data = await callVideoMatching("join_queue", eventId);
 
       if (data.success && data.matched) {
-        toast.success("Match found! Starting video date...");
+        toast.success("Match found! Get ready...");
         setState((prev) => ({
           ...prev,
           status: "matched",
@@ -168,7 +168,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
         }));
 
         if (autoNavigate) {
-          navigate(`/date/${data.room_id}`);
+          navigate(`/ready/${data.room_id}`);
         }
       } else if (data.waiting) {
         toast.info("Looking for a match...");
@@ -224,7 +224,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
 
         if (data.success && data.matched) {
           clearInterval(pollInterval);
-          toast.success("Match found! Starting video date...");
+          toast.success("Match found! Get ready...");
           setState((prev) => ({
             ...prev,
             status: "matched",
@@ -233,7 +233,7 @@ export const useVideoMatching = ({ eventId, autoNavigate = true }: UseVideoMatch
           }));
 
           if (autoNavigate) {
-            navigate(`/date/${data.room_id}`);
+            navigate(`/ready/${data.room_id}`);
           }
         }
       } catch (error) {
