@@ -98,6 +98,39 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_adjustments: {
+        Row: {
+          adjustment_reason: string | null
+          admin_id: string
+          created_at: string
+          credit_type: string
+          id: string
+          new_value: number
+          previous_value: number
+          user_id: string
+        }
+        Insert: {
+          adjustment_reason?: string | null
+          admin_id: string
+          created_at?: string
+          credit_type: string
+          id?: string
+          new_value: number
+          previous_value: number
+          user_id: string
+        }
+        Update: {
+          adjustment_reason?: string | null
+          admin_id?: string
+          created_at?: string
+          credit_type?: string
+          id?: string
+          new_value?: number
+          previous_value?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_drops: {
         Row: {
           candidate_id: string

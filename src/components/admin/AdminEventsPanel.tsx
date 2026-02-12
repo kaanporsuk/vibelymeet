@@ -36,6 +36,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
 import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
+import AdminEventControls from "./AdminEventControls";
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
@@ -166,11 +167,17 @@ const AdminEventsPanel = () => {
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <div>
+                        <div className="space-y-1">
                           <p className="font-medium text-foreground">{event.title}</p>
                           <p className="text-xs text-muted-foreground line-clamp-2 max-w-[200px]">
                             {event.description}
                           </p>
+                          <AdminEventControls
+                            eventId={event.id}
+                            eventTitle={event.title}
+                            eventStatus={event.status}
+                            durationMinutes={event.duration_minutes}
+                          />
                         </div>
                       </div>
                     </TableCell>

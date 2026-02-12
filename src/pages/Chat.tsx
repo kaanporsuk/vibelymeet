@@ -31,11 +31,13 @@ import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
 import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useMessages, useSendMessage } from "@/hooks/useMessages";
+import { useAuth } from "@/contexts/AuthContext";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
-interface Message {
+interface ChatMessage {
   id: string;
   text: string;
   sender: "me" | "them";
@@ -47,131 +49,17 @@ interface Message {
   status?: MessageStatusType;
 }
 
-// Mock data for frontend-only implementation
-const mockOtherUser = {
-  id: "user-1",
-  name: "Emma",
-  age: 26,
-  avatar_url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-  vibes: ["Music Lover", "Traveler", "Coffee Addict"],
-  isOnline: true,
-  lastSeen: "2 hours ago",
-};
-
-const mockMessages: Message[] = [
-  { id: "1", text: "Hey! I loved your profile 💜", sender: "them", time: "2:30 PM", type: "text" },
-  { id: "2", text: "The photo from Portugal was amazing", sender: "them", time: "2:30 PM", type: "text" },
-  { id: "3", text: "Thanks! That was such an incredible trip", sender: "me", time: "2:32 PM", type: "text", status: "read" },
-  { id: "4", text: "Have you been?", sender: "me", time: "2:32 PM", type: "text", status: "read" },
-  { id: "5", text: "Not yet, but it's definitely on my list!", sender: "them", time: "2:35 PM", type: "text" },
-  { id: "6", text: "We should totally go sometime 😊", sender: "them", time: "2:35 PM", type: "text" },
-  // Mock voice message
-  { id: "7", text: "", sender: "them", time: "2:36 PM", type: "voice", duration: 8 },
-];
-
-// Mock incoming game messages for testing all 6 games
-const generateMockGameMessages = (): GameMessage[] => [
-  {
-    id: "game-mock-1",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:40 PM",
-    gamePayload: {
-      gameType: "2truths",
-      step: "active",
-      data: {
-        statements: ["I've been skydiving", "I speak 4 languages", "I met a celebrity"],
-        lieIndex: 1,
-      },
-    },
-  },
-  {
-    id: "game-mock-2",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:42 PM",
-    gamePayload: {
-      gameType: "would_rather",
-      step: "active",
-      data: {
-        optionA: "Travel to the past",
-        optionB: "Travel to the future",
-        senderVote: "A" as const,
-      },
-    },
-  },
-  {
-    id: "game-mock-3",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:44 PM",
-    gamePayload: {
-      gameType: "charades",
-      step: "active",
-      data: {
-        emojis: ["🚢", "🧊", "❤️", "🎻"],
-        answer: "Titanic",
-        guesses: [],
-      },
-    },
-  },
-  {
-    id: "game-mock-4",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:46 PM",
-    gamePayload: {
-      gameType: "scavenger",
-      step: "active",
-      data: {
-        prompt: "Show me your favorite mug",
-        senderPhotoUrl: "https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?w=400",
-        isUnlocked: false,
-      },
-    },
-  },
-  {
-    id: "game-mock-5",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:48 PM",
-    gamePayload: {
-      gameType: "roulette",
-      step: "active",
-      data: {
-        question: "What's a dream you've never told anyone?",
-        senderAnswer: "I secretly want to write a novel",
-        isUnlocked: false,
-      },
-    },
-  },
-  {
-    id: "game-mock-6",
-    senderId: "user-1",
-    type: "game_interactive",
-    sender: "them",
-    time: "2:50 PM",
-    gamePayload: {
-      gameType: "intuition",
-      step: "active",
-      data: {
-        prediction: "Staying In",
-        options: ["Staying In", "Going Out"] as [string, string],
-        senderChoice: 0 as const,
-      },
-    },
-  },
-];
-
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const { user } = useAuth();
+  const currentUserId = user?.id || "";
+  
+  // Fetch real messages and other user data
+  const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
+  const { mutate: sendMessage } = useSendMessage();
+  
+  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
@@ -181,12 +69,49 @@ const Chat = () => {
   const [proposals, setProposals] = useState<DateProposal[]>([]);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [gameMessages, setGameMessages] = useState<GameMessage[]>(generateMockGameMessages);
+  const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Real-time message subscription
-  useRealtimeMessages({ matchId: id || null, enabled: !!id });
+  useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
+
+  // Derive chat user info from real data or fallback
+  const otherUser = useMemo(() => {
+    if (chatData?.otherUser) {
+      return {
+        id: chatData.otherUser.id,
+        name: chatData.otherUser.name || "Unknown",
+        age: chatData.otherUser.age || 0,
+        avatar_url: chatData.otherUser.avatar_url || "/placeholder.svg",
+        vibes: [] as string[],
+        isOnline: false,
+        lastSeen: undefined as string | undefined,
+      };
+    }
+    return {
+      id: id || "unknown",
+      name: "Loading...",
+      age: 0,
+      avatar_url: "/placeholder.svg",
+      vibes: [] as string[],
+      isOnline: false,
+      lastSeen: undefined as string | undefined,
+    };
+  }, [chatData?.otherUser, id]);
+
+  // Map real messages to chat format
+  const messages: ChatMessage[] = useMemo(() => {
+    const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => ({
+      id: m.id,
+      text: m.text,
+      sender: m.sender,
+      time: m.time,
+      type: "text" as const,
+      status: "read" as MessageStatusType,
+    }));
+    return [...realMsgs, ...localMessages];
+  }, [chatData?.messages, localMessages]);
 
   // Game creation handlers
   const createGameMessage = (payload: GamePayload): GameMessage => ({
@@ -256,110 +181,56 @@ const Chat = () => {
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
-
-    const msgId = `msg-${Date.now()}`;
-    const newMsg: Message = {
-      id: msgId,
-      text: newMessage,
-      sender: "me",
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      type: "text",
-      status: "sending",
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    
+    const text = newMessage.trim();
     setNewMessage("");
     setShowDateSuggestion(false);
 
-    // Simulate status progression: sending -> sent -> delivered -> read
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) => (msg.id === msgId ? { ...msg, status: "sent" as MessageStatusType } : msg))
-      );
-    }, 300);
+    if (chatData?.matchId) {
+      // Send real message via Supabase
+      const tempId = `temp-${Date.now()}`;
+      const tempMsg: ChatMessage = {
+        id: tempId,
+        text,
+        sender: "me",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        type: "text",
+        status: "sending",
+      };
+      setLocalMessages((prev) => [...prev, tempMsg]);
 
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) => (msg.id === msgId ? { ...msg, status: "delivered" as MessageStatusType } : msg))
-      );
-    }, 800);
-
-    setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((msg) => (msg.id === msgId ? { ...msg, status: "read" as MessageStatusType } : msg))
-      );
-    }, 1500);
-
-    // Simulate typing response
-    setTimeout(() => setIsTyping(true), 2000);
-    setTimeout(() => {
-      setIsTyping(false);
-      const responses = [
-        "That sounds great! 😊",
-        "I'd love that!",
-        "You're so sweet 💜",
-        "Haha, I know right?",
-        "Tell me more!",
-      ];
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-      setMessages((prev) => [
-        ...prev,
+      sendMessage(
+        { matchId: chatData.matchId, content: text },
         {
-          id: `msg-${Date.now()}`,
-          text: randomResponse,
-          sender: "them",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          type: "text",
-        },
-      ]);
-    }, 3500);
+          onSuccess: () => {
+            // Remove temp message once real data refreshes
+            setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+          },
+          onError: () => {
+            setLocalMessages((prev) =>
+              prev.map((m) => (m.id === tempId ? { ...m, status: "sending" as MessageStatusType } : m))
+            );
+            toast.error("Failed to send message");
+          },
+        }
+      );
+    } else {
+      toast.error("No active conversation found");
+    }
   };
 
   const handleSendVideoInvite = () => {
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      text: "VIDEO_DATE_INVITE",
-      sender: "me",
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      type: "video-invite",
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    if (chatData?.matchId) {
+      sendMessage({ matchId: chatData.matchId, content: "📹 Video date invite!" });
+    }
     setNewMessage("");
     setShowDateSuggestion(false);
     toast.success("Video date invite sent!");
   };
 
-  const handleVoiceRecordingComplete = (audioBlob: Blob, duration: number) => {
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      text: "",
-      sender: "me",
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      type: "voice",
-      duration,
-      audioBlob,
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+  const handleVoiceRecordingComplete = (_audioBlob: Blob, _duration: number) => {
     setIsRecording(false);
-    toast.success("Voice message sent!");
-
-    // Simulate a voice message response
-    setTimeout(() => setIsTyping(true), 1500);
-    setTimeout(() => {
-      setIsTyping(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          text: "Love hearing your voice! 💜",
-          sender: "them",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          type: "text",
-        },
-      ]);
-    }, 3000);
+    toast.info("Voice messages coming soon!");
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -370,7 +241,7 @@ const Chat = () => {
   };
 
   const handleReaction = useCallback((messageId: string, emoji: ReactionEmoji | null) => {
-    setMessages((prev) =>
+    setLocalMessages((prev) =>
       prev.map((msg) =>
         msg.id === messageId
           ? { ...msg, reaction: emoji || undefined }
@@ -388,8 +259,9 @@ const Chat = () => {
 
       {/* Header */}
       <ChatHeader
-        user={mockOtherUser}
+        user={otherUser}
         isTyping={isTyping}
+        matchId={chatData?.matchId || undefined}
         onBack={() => navigate("/matches")}
         onVideoCall={() => toast.info("Video call feature coming soon!")}
         onFocusInput={() => inputRef.current?.focus()}
@@ -397,7 +269,11 @@ const Chat = () => {
 
       {/* Messages */}
       <main className="flex-1 overflow-y-auto px-4 py-4 space-y-1 relative z-10">
-        {messages.length === 0 ? (
+        {isLoadingChat ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : messages.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -410,7 +286,7 @@ const Chat = () => {
               Start the conversation
             </h3>
             <p className="text-muted-foreground text-sm max-w-xs">
-              Say hi to {mockOtherUser.name}! They're excited to meet you.
+              Say hi to {otherUser.name}! They're excited to meet you.
             </p>
           </motion.div>
         ) : (
@@ -425,7 +301,7 @@ const Chat = () => {
                   )}
                 >
                   <VideoDateCard
-                    senderName={message.sender === "me" ? "You" : mockOtherUser.name}
+                    senderName={message.sender === "me" ? "You" : otherUser.name}
                     onAccept={() => {
                       toast.success("Video date accepted! 🎉");
                       navigate("/video-date");
@@ -440,7 +316,7 @@ const Chat = () => {
                   isFirstInGroup={message.isFirstInGroup}
                   isLastInGroup={message.isLastInGroup}
                   showAvatar={message.showAvatar}
-                  avatarUrl={mockOtherUser.avatar_url}
+                  avatarUrl={otherUser.avatar_url}
                   onReaction={handleReaction}
                 />
               )
@@ -452,7 +328,7 @@ const Chat = () => {
                 <DateProposalTicket
                   proposal={proposal}
                   isOwn={true}
-                  matchName={mockOtherUser.name}
+                  matchName={otherUser.name}
                 />
               </div>
             ))}
@@ -462,7 +338,7 @@ const Chat = () => {
               <GameBubbleRenderer
                 key={gameMsg.id}
                 message={gameMsg}
-                matchName={mockOtherUser.name}
+                matchName={otherUser.name}
                 onGameUpdate={handleGameUpdate}
               />
             ))}
@@ -627,9 +503,9 @@ const Chat = () => {
       <VibeSyncModal
         isOpen={showVibeSync}
         onClose={() => setShowVibeSync(false)}
-        matchName={mockOtherUser.name}
-        matchAvatar={mockOtherUser.avatar_url}
-        matchId={mockOtherUser.id}
+        matchName={otherUser.name}
+        matchAvatar={otherUser.avatar_url}
+        matchId={otherUser.id}
         onProposalSent={(proposal) => setProposals((prev) => [...prev, proposal])}
       />
 
@@ -670,7 +546,7 @@ const Chat = () => {
         isOpen={activeGameCreator === "intuition"}
         onClose={() => setActiveGameCreator(null)}
         onSubmit={(options, prediction) => handleGameCreated({ gameType: "intuition", step: "active", data: { prediction: options[prediction], options, senderChoice: prediction } })}
-        matchName={mockOtherUser.name}
+        matchName={otherUser.name}
       />
     </div>
   );
