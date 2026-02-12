@@ -62,7 +62,10 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
     const handleBeforeUnload = () => {
       // Use sendBeacon for reliability on page close
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/update_participant_status`;
+      // Include apikey as query param since sendBeacon can't set custom headers
+      // update_participant_status is SECURITY DEFINER so anon key is sufficient
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/update_participant_status?apikey=${anonKey}`;
       const body = JSON.stringify({
         p_event_id: eventId,
         p_user_id: user.id,
