@@ -66,7 +66,7 @@ export const MutualMatchCelebration = ({
           transition={{ delay: 0.4 }}
           className="text-muted-foreground"
         >
-          You and {partnerName} both vibed!
+          You and {partnerName} are now connected. Say hi in your matches!
         </motion.p>
         <motion.div
           initial={{ opacity: 0 }}

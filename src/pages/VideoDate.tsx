@@ -80,10 +80,10 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
-    onCallEnded: () => toast.info("Call ended"),
-    onPartnerJoined: () => toast.success("Partner joined! 🎉"),
+    onCallEnded: () => toast.info("Your date ended — thanks for chatting! 💚"),
+    onPartnerJoined: () => {},
     onPartnerLeft: () => {
-      toast.info("Partner left the call");
+      toast("Connection lost — we hope you enjoyed the chat! 💚", { duration: 3000 });
       if (phaseRef.current !== "ended") {
         handleCallEnd();
       }
@@ -188,14 +188,14 @@ const VideoDate = () => {
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (phaseRef.current === "handshake") {
-            // Handshake ended — check mutual vibe
-            checkMutualVibe();
-          } else {
-            // Date ended
-            handleCallEnd();
-          }
+          if (prev <= 1) {
+            if (phaseRef.current === "handshake") {
+              checkMutualVibe();
+            } else {
+              // Date phase ended
+              toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+              handleCallEnd();
+            }
           return 0;
         }
         return prev - 1;
@@ -261,7 +261,6 @@ const VideoDate = () => {
         // Mutual vibe! Extend to 5-minute date
         setShowMutualToast(true);
       } else {
-        // No mutual vibe — end warmly, show survey
         toast("Great meeting you! 👋", { duration: 2500 });
         endCall();
         handleCallEnd();
@@ -319,7 +318,7 @@ const VideoDate = () => {
         console.error("Error cleaning up:", err);
       }
     }
-    toast("You left the date. Stay safe! 💜", { duration: 2000 });
+    toast("You left the date — stay safe! 💚", { duration: 2000 });
     navigate("/dashboard");
   }, [endCall, id, user?.id, navigate]);
 

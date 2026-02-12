@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AdminReportsSummary from "@/components/admin/AdminReportsSummary";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -265,6 +266,8 @@ const AdminReportsPanel = () => {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
+      {/* Summary Cards */}
+      <AdminReportsSummary />
       {/* Filters */}
       <div className="glass-card p-4 rounded-2xl">
         <div className="flex flex-col md:flex-row gap-4">
