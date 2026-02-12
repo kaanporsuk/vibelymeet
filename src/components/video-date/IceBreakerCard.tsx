@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { RefreshCw, Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 const VIBE_PROMPTS = [
   "What's a weird talent you have? 🎭",
@@ -21,51 +22,112 @@ const VIBE_PROMPTS = [
 ];
 
 interface IceBreakerCardProps {
+  sessionId?: string;
   onPromptChange?: (prompt: string) => void;
 }
 
-export const IceBreakerCard = ({ onPromptChange }: IceBreakerCardProps) => {
-  const [currentPrompt, setCurrentPrompt] = useState(VIBE_PROMPTS[0]);
-  const [promptIndex, setPromptIndex] = useState(0);
+/**
+ * Synchronized vibe questions: both users see the same question at the same time.
+ * On mount, seeds the session's vibe_questions array if empty, then reads from it.
+ * Advances through the list based on a shared timer index.
+ */
+export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProps) => {
+  const [questions, setQuestions] = useState<string[]>(VIBE_PROMPTS);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [isShuffling, setIsShuffling] = useState(false);
+  const [startTime, setStartTime] = useState<number>(Date.now());
 
-  // Auto-cycle prompts every 90 seconds
+  // Seed questions into the session record on mount
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const seedQuestions = async () => {
+      // Check if questions are already stored
+      const { data } = await supabase
+        .from("video_sessions")
+        .select("vibe_questions")
+        .eq("id", sessionId)
+        .maybeSingle();
+
+      const stored = data?.vibe_questions as string[] | null;
+
+      if (stored && Array.isArray(stored) && stored.length > 0) {
+        setQuestions(stored);
+      } else {
+        // Shuffle and store a deterministic list for this session
+        const shuffled = [...VIBE_PROMPTS].sort(() => Math.random() - 0.5);
+        await supabase
+          .from("video_sessions")
+          .update({ vibe_questions: shuffled as any })
+          .eq("id", sessionId);
+        setQuestions(shuffled);
+      }
+    };
+
+    seedQuestions();
+  }, [sessionId]);
+
+  // Subscribe to changes on the session's vibe_questions for sync
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const channel = supabase
+      .channel(`vibe-questions-${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "video_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const newQuestions = (payload.new as any).vibe_questions as string[] | null;
+          if (newQuestions && Array.isArray(newQuestions) && newQuestions.length > 0) {
+            setQuestions(newQuestions);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId]);
+
+  // Auto-advance every 30 seconds using a shared timer
+  // Both clients started roughly at the same time, so they advance together
   useEffect(() => {
     const interval = setInterval(() => {
-      cyclePrompt();
-    }, 90000);
+      setCurrentIndex((prev) => {
+        const next = (prev + 1) % questions.length;
+        onPromptChange?.(questions[next]);
+        return next;
+      });
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [promptIndex]);
+  }, [questions, onPromptChange]);
 
-  const cyclePrompt = () => {
-    const nextIndex = (promptIndex + 1) % VIBE_PROMPTS.length;
-    setPromptIndex(nextIndex);
-    setCurrentPrompt(VIBE_PROMPTS[nextIndex]);
-    onPromptChange?.(VIBE_PROMPTS[nextIndex]);
-  };
+  const currentPrompt = questions[currentIndex] || VIBE_PROMPTS[0];
 
-  const shufflePrompt = () => {
+  const shufflePrompt = useCallback(() => {
     setIsShuffling(true);
-    
-    // Get random prompt different from current
-    let randomIndex;
-    do {
-      randomIndex = Math.floor(Math.random() * VIBE_PROMPTS.length);
-    } while (randomIndex === promptIndex);
-    
-    setTimeout(() => {
-      setPromptIndex(randomIndex);
-      setCurrentPrompt(VIBE_PROMPTS[randomIndex]);
-      onPromptChange?.(VIBE_PROMPTS[randomIndex]);
-      setIsShuffling(false);
-    }, 300);
+    setCurrentIndex((prev) => {
+      let next;
+      do {
+        next = Math.floor(Math.random() * questions.length);
+      } while (next === prev && questions.length > 1);
+      onPromptChange?.(questions[next]);
+      return next;
+    });
 
-    // Haptic feedback
+    setTimeout(() => setIsShuffling(false), 300);
+
     if (navigator.vibrate) {
       navigator.vibrate(50);
     }
-  };
+  }, [questions, onPromptChange]);
 
   return (
     <motion.div
@@ -82,7 +144,7 @@ export const IceBreakerCard = ({ onPromptChange }: IceBreakerCardProps) => {
             Vibe Prompt
           </span>
         </div>
-        
+
         <motion.button
           onClick={shufflePrompt}
           disabled={isShuffling}
@@ -115,7 +177,7 @@ export const IceBreakerCard = ({ onPromptChange }: IceBreakerCardProps) => {
 
       {/* Hint */}
       <p className="text-xs text-muted-foreground mt-3">
-        Tap shuffle if you need a new topic ✨
+        Both of you see the same question ✨
       </p>
     </motion.div>
   );

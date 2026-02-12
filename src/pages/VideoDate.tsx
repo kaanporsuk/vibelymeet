@@ -10,7 +10,7 @@ import { VideoDateControls } from "@/components/video-date/VideoDateControls";
 import { SelfViewPIP } from "@/components/video-date/SelfViewPIP";
 import { ConnectionOverlay } from "@/components/video-date/ConnectionOverlay";
 import { PartnerProfileSheet } from "@/components/video-date/PartnerProfileSheet";
-import { PostDateCheckpoint } from "@/components/video-date/PostDateCheckpoint";
+import { PostDateSurvey } from "@/components/video-date/PostDateSurvey";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
 import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
@@ -53,6 +53,8 @@ const VideoDate = () => {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
   const [isParticipant1, setIsParticipant1] = useState(false);
+  const [partnerId, setPartnerId] = useState<string>("");
+  const [eventId, setEventId] = useState<string | undefined>(undefined);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your Match",
     age: 0,
@@ -101,7 +103,7 @@ const VideoDate = () => {
       try {
         const { data: session } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id")
+          .select("participant_1_id, participant_2_id, event_id")
           .eq("id", id)
           .maybeSingle();
 
@@ -109,22 +111,24 @@ const VideoDate = () => {
 
         const isP1 = session.participant_1_id === user.id;
         setIsParticipant1(isP1);
+        setEventId(session.event_id);
 
-        const partnerId = isP1
+        const pId = isP1
           ? session.participant_2_id
           : session.participant_1_id;
+        setPartnerId(pId);
 
         const { data: profile } = await supabase
           .from("profiles")
           .select("name, age, avatar_url, photos, bio, job, location, height_cm, prompts")
-          .eq("id", partnerId)
+          .eq("id", pId)
           .maybeSingle();
 
         if (profile) {
           const { data: vibes } = await supabase
             .from("profile_vibes")
             .select("vibe_tags(label)")
-            .eq("profile_id", partnerId);
+            .eq("profile_id", pId);
 
           const tags = vibes?.map((v: any) => v.vibe_tags?.label).filter(Boolean) || [];
 
@@ -257,11 +261,10 @@ const VideoDate = () => {
         // Mutual vibe! Extend to 5-minute date
         setShowMutualToast(true);
       } else {
-        // No mutual vibe — end warmly
+        // No mutual vibe — end warmly, show survey
         toast("Great meeting you! 👋", { duration: 2500 });
         endCall();
-        setPhase("ended");
-        setTimeout(() => navigate("/dashboard"), 2000);
+        handleCallEnd();
       }
     } catch (err) {
       console.error("Error checking mutual vibe:", err);
@@ -471,7 +474,7 @@ const VideoDate = () => {
             exit={{ y: 20, opacity: 0 }}
             className="absolute bottom-44 left-4 right-4 z-20"
           >
-            <IceBreakerCard />
+            <IceBreakerCard sessionId={id} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -519,16 +522,14 @@ const VideoDate = () => {
         partner={partner}
       />
 
-      {/* ─── Post-Date Checkpoint ─── */}
-      <PostDateCheckpoint
+      {/* ─── Post-Date Survey ─── */}
+      <PostDateSurvey
         isOpen={showFeedback}
+        sessionId={id || ""}
+        partnerId={partnerId}
         partnerName={partner.name}
         partnerImage={partner.avatarUrl || partner.photos?.[0] || ""}
-        dateDuration={
-          phase === "date"
-            ? DATE_TIME - timeLeft
-            : HANDSHAKE_TIME - timeLeft
-        }
+        eventId={eventId}
       />
     </div>
   );

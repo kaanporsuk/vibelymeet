@@ -12,7 +12,7 @@ interface Particle {
 }
 
 interface ParticleBurstProps {
-  emoji: "❤️" | "🔥";
+  emoji: "❤️" | "🔥" | "🎉" | "💚" | "✨";
   onComplete: () => void;
 }
 

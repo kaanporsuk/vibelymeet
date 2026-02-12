@@ -139,6 +139,57 @@ export type Database = {
           },
         ]
       }
+      date_feedback: {
+        Row: {
+          conversation_flow: string | null
+          created_at: string
+          energy: string | null
+          honest_representation: string | null
+          id: string
+          liked: boolean
+          photo_accurate: string | null
+          session_id: string
+          tag_chemistry: boolean | null
+          tag_fun: boolean | null
+          tag_respectful: boolean | null
+          tag_smart: boolean | null
+          target_id: string
+          user_id: string
+        }
+        Insert: {
+          conversation_flow?: string | null
+          created_at?: string
+          energy?: string | null
+          honest_representation?: string | null
+          id?: string
+          liked?: boolean
+          photo_accurate?: string | null
+          session_id: string
+          tag_chemistry?: boolean | null
+          tag_fun?: boolean | null
+          tag_respectful?: boolean | null
+          tag_smart?: boolean | null
+          target_id: string
+          user_id: string
+        }
+        Update: {
+          conversation_flow?: string | null
+          created_at?: string
+          energy?: string | null
+          honest_representation?: string | null
+          id?: string
+          liked?: boolean
+          photo_accurate?: string | null
+          session_id?: string
+          tag_chemistry?: boolean | null
+          tag_fun?: boolean | null
+          tag_respectful?: boolean | null
+          tag_smart?: boolean | null
+          target_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       date_proposals: {
         Row: {
           activity: string
@@ -1049,6 +1100,7 @@ export type Database = {
           snooze_expires_at: string | null
           snoozed_by: string | null
           started_at: string
+          vibe_questions: Json | null
         }
         Insert: {
           duration_seconds?: number | null
@@ -1066,6 +1118,7 @@ export type Database = {
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
+          vibe_questions?: Json | null
         }
         Update: {
           duration_seconds?: number | null
@@ -1083,6 +1136,7 @@ export type Database = {
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
+          vibe_questions?: Json | null
         }
         Relationships: [
           {
@@ -1188,6 +1242,10 @@ export type Database = {
           _viewer_id: string
         }
         Returns: boolean
+      }
+      check_mutual_vibe_and_match: {
+        Args: { p_session_id: string }
+        Returns: Json
       }
       find_video_date_match: {
         Args: { p_event_id: string; p_user_id: string }
