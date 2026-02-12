@@ -279,6 +279,7 @@ export type Database = {
           event_id: string
           id: string
           joined_queue_at: string | null
+          last_active_at: string | null
           last_matched_at: string | null
           profile_id: string
           queue_status: string | null
@@ -295,6 +296,7 @@ export type Database = {
           event_id: string
           id?: string
           joined_queue_at?: string | null
+          last_active_at?: string | null
           last_matched_at?: string | null
           profile_id: string
           queue_status?: string | null
@@ -311,6 +313,7 @@ export type Database = {
           event_id?: string
           id?: string
           joined_queue_at?: string | null
+          last_active_at?: string | null
           last_matched_at?: string | null
           profile_id?: string
           queue_status?: string | null
@@ -327,6 +330,55 @@ export type Database = {
           {
             foreignKeyName: "event_registrations_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_swipes: {
+        Row: {
+          actor_id: string
+          created_at: string
+          event_id: string
+          id: string
+          swipe_type: string
+          target_id: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          event_id: string
+          id?: string
+          swipe_type: string
+          target_id: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          swipe_type?: string
+          target_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_swipes_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_swipes_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_swipes_target_id_fkey"
+            columns: ["target_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -858,6 +910,7 @@ export type Database = {
           extended_vibe_credits: number
           extra_time_credits: number
           id: string
+          super_vibe_credits: number
           updated_at: string
           user_id: string
         }
@@ -866,6 +919,7 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
+          super_vibe_credits?: number
           updated_at?: string
           user_id: string
         }
@@ -874,6 +928,7 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
+          super_vibe_credits?: number
           updated_at?: string
           user_id?: string
         }
@@ -1247,6 +1302,10 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      drain_match_queue: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
       find_video_date_match: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
@@ -1273,6 +1332,15 @@ export type Database = {
           video_intro_url: string
         }[]
       }
+      handle_swipe: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1295,6 +1363,10 @@ export type Database = {
       leave_matching_queue: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
+      }
+      update_participant_status: {
+        Args: { p_event_id: string; p_status: string; p_user_id: string }
+        Returns: undefined
       }
     }
     Enums: {

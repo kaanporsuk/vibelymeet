@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useReadyGate } from "@/hooks/useReadyGate";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 
 interface PartnerProfile {
@@ -26,6 +27,8 @@ const ReadyGate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useAuth();
+  const [eventId, setEventId] = useState<string | undefined>(undefined);
+  const { setStatus } = useEventStatus({ eventId });
 
   const [partner, setPartner] = useState<PartnerProfile>({
     name: "Your Match",
@@ -40,22 +43,22 @@ const ReadyGate = () => {
 
   const handleBothReady = useCallback(() => {
     setIsTransitioning(true);
+    setStatus("in_handshake");
     toast.success("Both ready! Connecting... 💚", { duration: 1500 });
     setTimeout(() => {
       navigate(`/date/${id}`);
     }, 1500);
-  }, [navigate, id]);
+  }, [navigate, id, setStatus]);
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {
-      // Determine message based on context — the hook handles who sees what
-      // For the current user, show appropriate message
+      setStatus("browsing");
       toast("They had to step away — back to the deck! More people to meet 💚", {
         duration: 3000,
       });
       setTimeout(() => navigate("/dashboard"), 2000);
     },
-    [navigate]
+    [navigate, setStatus]
   );
 
   const {
@@ -80,11 +83,13 @@ const ReadyGate = () => {
     const fetchPartner = async () => {
       const { data: session } = await supabase
         .from("video_sessions")
-        .select("participant_1_id, participant_2_id")
+        .select("participant_1_id, participant_2_id, event_id")
         .eq("id", id)
         .maybeSingle();
 
       if (!session) return;
+
+      if (session.event_id) setEventId(session.event_id);
 
       const partnerId =
         session.participant_1_id === user.id
