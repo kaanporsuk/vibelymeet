@@ -8,14 +8,12 @@ export interface Message {
   time: string;
 }
 
-// Demo user ID for now (until auth is implemented)
-const DEMO_USER_ID = "b2222222-2222-2222-2222-222222222222";
-
-export const useMessages = (otherUserId: string, currentUserId: string = DEMO_USER_ID) => {
+export const useMessages = (otherUserId: string, currentUserId?: string) => {
   return useQuery({
     queryKey: ["messages", otherUserId, currentUserId],
     queryFn: async (): Promise<{ messages: Message[]; matchId: string | null; otherUser: any }> => {
-      // Find the match between these two users
+      if (!currentUserId) return { messages: [], matchId: null, otherUser: null };
+
       const { data: match, error: matchError } = await supabase
         .from("matches")
         .select("id")
@@ -27,7 +25,6 @@ export const useMessages = (otherUserId: string, currentUserId: string = DEMO_US
       if (matchError) throw matchError;
       if (!match) return { messages: [], matchId: null, otherUser: null };
 
-      // Get messages for this match
       const { data: messages, error: msgError } = await supabase
         .from("messages")
         .select("id, match_id, sender_id, content, created_at, read_at")
@@ -36,7 +33,6 @@ export const useMessages = (otherUserId: string, currentUserId: string = DEMO_US
 
       if (msgError) throw msgError;
 
-      // Get other user's profile
       const { data: otherUser } = await supabase
         .from("profiles")
         .select("id, name, age, avatar_url")
@@ -54,21 +50,23 @@ export const useMessages = (otherUserId: string, currentUserId: string = DEMO_US
         })),
       };
     },
-    enabled: !!otherUserId,
+    enabled: !!otherUserId && !!currentUserId,
   });
 };
 
 export const useSendMessage = () => {
   const queryClient = useQueryClient();
-  const currentUserId = DEMO_USER_ID;
 
   return useMutation({
     mutationFn: async ({ matchId, content }: { matchId: string; content: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
       const { data, error } = await supabase
         .from("messages")
         .insert({
           match_id: matchId,
-          sender_id: currentUserId,
+          sender_id: user.id,
           content,
         })
         .select()
@@ -77,7 +75,7 @@ export const useSendMessage = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["messages"] });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
     },
