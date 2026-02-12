@@ -15,8 +15,10 @@ import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
 import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
 import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
+import { ReconnectionOverlay } from "@/components/video-date/ReconnectionOverlay";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
+import { useReconnection } from "@/hooks/useReconnection";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
@@ -56,6 +58,7 @@ const VideoDate = () => {
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
+  const [serverStartedAt, setServerStartedAt] = useState<Date | null>(null);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your Match",
     age: 0,
@@ -85,7 +88,23 @@ const VideoDate = () => {
     onCallEnded: () => toast.info("Your date ended — thanks for chatting! 💚"),
     onPartnerJoined: () => {},
     onPartnerLeft: () => {
-      toast("Connection lost — we hope you enjoyed the chat! 💚", { duration: 3000 });
+      // Start reconnection grace window instead of immediately ending
+      reconnection.startGraceWindow();
+    },
+  });
+
+  // Reconnection hook
+  const reconnection = useReconnection({
+    sessionId: id,
+    eventId,
+    isConnected,
+    onReconnected: () => {
+      toast("They're back! 💚", { duration: 2000 });
+    },
+    onGraceExpired: () => {
+      toast("Your date got disconnected — we hope you enjoyed the chat! 💚", {
+        duration: 3000,
+      });
       if (phaseRef.current !== "ended") {
         handleCallEnd();
       }
@@ -97,7 +116,7 @@ const VideoDate = () => {
     phaseRef.current = phase;
   }, [phase]);
 
-  // Fetch partner profile + determine participant position
+  // Fetch partner profile + determine participant position + server start time
   useEffect(() => {
     if (!id || !user?.id) return;
 
@@ -105,7 +124,7 @@ const VideoDate = () => {
       try {
         const { data: session } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id")
+          .select("participant_1_id, participant_2_id, event_id, started_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -114,6 +133,7 @@ const VideoDate = () => {
         const isP1 = session.participant_1_id === user.id;
         setIsParticipant1(isP1);
         setEventId(session.event_id);
+        setServerStartedAt(new Date(session.started_at));
 
         const pId = isP1
           ? session.participant_2_id
@@ -174,8 +194,6 @@ const VideoDate = () => {
   // Progressive blur: trigger CSS transition when connected
   useEffect(() => {
     if (isConnected) {
-      // Use rAF to ensure the initial blur(20px) is rendered first,
-      // then transition to 0 over 10 seconds via CSS transition
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setBlurAmount(0);
@@ -185,8 +203,9 @@ const VideoDate = () => {
   }, [isConnected]);
 
   // Countdown timer — handles both handshake and date phases
+  // Pauses during partner disconnection grace window
   useEffect(() => {
-    if (showFeedback || !isConnected || phase === "ended") return;
+    if (showFeedback || !isConnected || phase === "ended" || reconnection.isTimerPaused) return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
@@ -194,7 +213,6 @@ const VideoDate = () => {
             if (phaseRef.current === "handshake") {
               checkMutualVibe();
             } else {
-              // Date phase ended
               toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
               handleCallEnd();
             }
@@ -205,7 +223,7 @@ const VideoDate = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [showFeedback, isConnected, phase]);
+  }, [showFeedback, isConnected, phase, reconnection.isTimerPaused]);
 
   // Auto-hide ice breaker after 20s during handshake
   useEffect(() => {
@@ -260,7 +278,6 @@ const VideoDate = () => {
         .maybeSingle();
 
       if (session?.participant_1_liked && session?.participant_2_liked) {
-        // Mutual vibe! Extend to 5-minute date
         setShowMutualToast(true);
         setStatus("in_date");
       } else {
@@ -283,7 +300,7 @@ const VideoDate = () => {
     setTimeout(() => setShowIceBreaker(false), 30000);
   }, []);
 
-  // Handle credit extension
+  // Handle credit extension (atomic via RPC)
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
       const success =
@@ -323,8 +340,8 @@ const VideoDate = () => {
       }
     }
     toast("You left the date — stay safe! 💚", { duration: 2000 });
-    navigate("/dashboard");
-  }, [endCall, id, user?.id, navigate]);
+    handleCallEnd();
+  }, [endCall, id, user?.id, handleCallEnd]);
 
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
   const isUrgent = phase === "date" && timeLeft <= 10;
@@ -445,13 +462,20 @@ const VideoDate = () => {
 
         {/* Connection overlay */}
         <AnimatePresence>
-          {(isConnecting || !isConnected) && !showFeedback && (
+          {(isConnecting || !isConnected) && !showFeedback && !reconnection.isPartnerDisconnected && (
             <ConnectionOverlay
               isConnecting={isConnecting}
               onLeave={handleLeave}
             />
           )}
         </AnimatePresence>
+
+        {/* Reconnection overlay */}
+        <ReconnectionOverlay
+          isVisible={reconnection.isPartnerDisconnected}
+          partnerName={partner.name}
+          graceTimeLeft={reconnection.graceTimeLeft}
+        />
 
         {/* Bottom gradient for controls */}
         <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background via-background/50 to-transparent pointer-events-none" />
