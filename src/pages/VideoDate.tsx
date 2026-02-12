@@ -18,6 +18,7 @@ import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 
 const HANDSHAKE_TIME = 60;
@@ -65,6 +66,7 @@ const VideoDate = () => {
   const phaseRef = useRef<CallPhase>("handshake");
 
   const { credits, useExtraTime, useExtendedVibe } = useCredits();
+  const { setStatus } = useEventStatus({ eventId });
 
   const {
     isConnecting,
@@ -260,6 +262,7 @@ const VideoDate = () => {
       if (session?.participant_1_liked && session?.participant_2_liked) {
         // Mutual vibe! Extend to 5-minute date
         setShowMutualToast(true);
+        setStatus("in_date");
       } else {
         toast("Great meeting you! 👋", { duration: 2500 });
         endCall();
@@ -297,7 +300,8 @@ const VideoDate = () => {
   const handleCallEnd = useCallback(() => {
     setPhase("ended");
     setShowFeedback(true);
-  }, []);
+    setStatus("in_survey");
+  }, [setStatus]);
 
   const handleLeave = useCallback(async () => {
     endCall();

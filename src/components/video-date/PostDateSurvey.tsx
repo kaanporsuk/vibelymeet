@@ -8,6 +8,7 @@ import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
 import { MutualMatchCelebration } from "./survey/MutualMatchCelebration";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 
 interface PostDateSurveyProps {
@@ -31,17 +32,19 @@ export const PostDateSurvey = ({
 }: PostDateSurveyProps) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setStatus } = useEventStatus({ eventId });
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
 
   const finishSurvey = useCallback(() => {
+    setStatus("browsing");
     toast("Thanks! Back to the event 💚", { duration: 2000 });
     if (eventId) {
       navigate(`/events/${eventId}`);
     } else {
       navigate("/dashboard");
     }
-  }, [navigate, eventId]);
+  }, [navigate, eventId, setStatus]);
 
   // Screen 1: Verdict (mandatory)
   const handleVerdict = useCallback(
