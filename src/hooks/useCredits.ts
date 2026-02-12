@@ -34,15 +34,16 @@ export const useCredits = () => {
     fetchCredits();
   }, [fetchCredits]);
 
+  // Atomic credit deduction via RPC
   const useExtraTime = useCallback(async (): Promise<boolean> => {
     if (!user?.id || credits.extraTime <= 0) return false;
 
-    const { error } = await supabase
-      .from("user_credits")
-      .update({ extra_time_credits: credits.extraTime - 1 })
-      .eq("user_id", user.id);
+    const { data, error } = await supabase.rpc("deduct_credit", {
+      p_user_id: user.id,
+      p_credit_type: "extra_time",
+    });
 
-    if (!error) {
+    if (!error && data === true) {
       setCredits((prev) => ({ ...prev, extraTime: prev.extraTime - 1 }));
       return true;
     }
@@ -52,12 +53,12 @@ export const useCredits = () => {
   const useExtendedVibe = useCallback(async (): Promise<boolean> => {
     if (!user?.id || credits.extendedVibe <= 0) return false;
 
-    const { error } = await supabase
-      .from("user_credits")
-      .update({ extended_vibe_credits: credits.extendedVibe - 1 })
-      .eq("user_id", user.id);
+    const { data, error } = await supabase.rpc("deduct_credit", {
+      p_user_id: user.id,
+      p_credit_type: "extended_vibe",
+    });
 
-    if (!error) {
+    if (!error && data === true) {
       setCredits((prev) => ({ ...prev, extendedVibe: prev.extendedVibe - 1 }));
       return true;
     }

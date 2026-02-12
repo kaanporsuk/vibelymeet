@@ -7,8 +7,11 @@ import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
 import { MutualMatchCelebration } from "./survey/MutualMatchCelebration";
+import { EventEndedModal } from "@/components/events/EventEndedModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
+import { useEventLifecycle } from "@/hooks/useEventLifecycle";
+import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 
 interface PostDateSurveyProps {
@@ -35,24 +38,51 @@ export const PostDateSurvey = ({
   const { setStatus } = useEventStatus({ eventId });
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
+  const [showEventEnded, setShowEventEnded] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const finishSurvey = useCallback(() => {
-    setStatus("browsing");
-    toast("Thanks! Back to the event 💚", { duration: 2000 });
-    if (eventId) {
-      navigate(`/events/${eventId}`);
+  const { checkEventActive } = useEventLifecycle({ eventId });
+
+  // Queue drain: when user returns to browsing, check for queued matches
+  const handleQueueMatch = useCallback(
+    (matchId: string, queuePartnerId: string) => {
+      toast("You have a match waiting! 💚", { duration: 2000 });
+      navigate(`/ready/${matchId}`);
+    },
+    [navigate]
+  );
+
+  useMatchQueue({
+    eventId,
+    currentStatus: "browsing", // Will only drain when finishSurvey sets browsing
+    onMatchReady: handleQueueMatch,
+  });
+
+  const finishSurvey = useCallback(async () => {
+    // Check if event is still active
+    const active = await checkEventActive();
+
+    if (active) {
+      setStatus("browsing");
+      toast("Back in the mix! 💚", { duration: 2000 });
+      if (eventId) {
+        navigate(`/events/${eventId}`);
+      } else {
+        navigate("/dashboard");
+      }
     } else {
-      navigate("/dashboard");
+      setStatus("offline");
+      setShowEventEnded(true);
     }
-  }, [navigate, eventId, setStatus]);
+  }, [navigate, eventId, setStatus, checkEventActive]);
 
   // Screen 1: Verdict (mandatory)
   const handleVerdict = useCallback(
     async (liked: boolean) => {
-      if (!user?.id) return;
+      if (!user?.id || isSubmitting) return;
+      setIsSubmitting(true);
 
       try {
-        // Insert feedback
         const { data: feedback, error } = await supabase
           .from("date_feedback")
           .upsert(
@@ -70,7 +100,6 @@ export const PostDateSurvey = ({
         if (error) throw error;
         if (feedback) setFeedbackId(feedback.id);
 
-        // Check for mutual vibe
         const { data: result } = await supabase.rpc("check_mutual_vibe_and_match", {
           p_session_id: sessionId,
         });
@@ -86,9 +115,11 @@ export const PostDateSurvey = ({
       } catch (err) {
         console.error("Error recording verdict:", err);
         toast.error("Something went wrong. Please try again.");
+      } finally {
+        setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, partnerId]
+    [user?.id, sessionId, partnerId, isSubmitting]
   );
 
   // Screen 2: Highlights (optional)
@@ -187,6 +218,11 @@ export const PostDateSurvey = ({
   }, []);
 
   if (!isOpen) return null;
+
+  // Show event ended modal if event has ended
+  if (showEventEnded) {
+    return <EventEndedModal isOpen={true} />;
+  }
 
   return (
     <AnimatePresence>
