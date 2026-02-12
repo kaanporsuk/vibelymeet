@@ -1251,6 +1251,28 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
+      get_event_deck: {
+        Args: { p_event_id: string; p_limit?: number; p_user_id: string }
+        Returns: {
+          age: number
+          avatar_url: string
+          bio: string
+          gender: string
+          has_met_before: boolean
+          has_super_vibed: boolean
+          height_cm: number
+          is_already_connected: boolean
+          job: string
+          location: string
+          looking_for: string
+          name: string
+          photos: string[]
+          profile_id: string
+          queue_status: string
+          tagline: string
+          video_intro_url: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

@@ -32,7 +32,7 @@ import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel"
 import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
 import AdminExportPanel from "@/components/admin/AdminExportPanel";
 import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
-import AdminEventAnalytics from "@/components/admin/AdminEventAnalytics";
+import AdminLiveEventMetrics from "@/components/admin/AdminLiveEventMetrics";
 import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
@@ -155,7 +155,7 @@ const AdminDashboard = () => {
           {activePanel === 'events' && <AdminEventsPanel />}
           {activePanel === 'reports' && <AdminReportsPanel />}
           {activePanel === 'export' && <AdminExportPanel />}
-          {activePanel === 'event-analytics' && <AdminEventAnalytics />}
+          {activePanel === 'event-analytics' && <AdminLiveEventMetrics />}
           {activePanel === 'activity-log' && <AdminActivityLog />}
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}

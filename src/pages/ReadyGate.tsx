@@ -48,6 +48,8 @@ const ReadyGate = () => {
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {
+      // Determine message based on context — the hook handles who sees what
+      // For the current user, show appropriate message
       toast("They had to step away — back to the deck! More people to meet 💚", {
         duration: 3000,
       });

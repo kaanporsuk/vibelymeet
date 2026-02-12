@@ -35,7 +35,7 @@ export const PostDateSurvey = ({
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
 
   const finishSurvey = useCallback(() => {
-    // Navigate back to event or dashboard
+    toast("Thanks! Back to the event 💚", { duration: 2000 });
     if (eventId) {
       navigate(`/events/${eventId}`);
     } else {
@@ -78,9 +78,6 @@ export const PostDateSurvey = ({
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
         } else {
-          if (!liked) {
-            toast("Thanks for your honesty. Better vibes await! 👋", { duration: 2000 });
-          }
           setStep("highlights");
         }
       } catch (err) {
