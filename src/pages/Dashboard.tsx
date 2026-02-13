@@ -205,12 +205,24 @@ const Dashboard = () => {
               </div>
 
               {isRegisteredForNextEvent ? (
-                <Button variant="gradient" className="w-full" onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/date/${nextEvent.id}`);
-                }}>
-                  Join Waiting Room
-                </Button>
+                (() => {
+                  const now = new Date();
+                  const eventStart = nextEvent.eventDate;
+                  const isLive = now >= eventStart;
+                  return (
+                    <Button
+                      variant="gradient"
+                      className="w-full"
+                      disabled={!isLive}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/event/${nextEvent.id}/lobby`);
+                      }}
+                    >
+                      {isLive ? "Enter Lobby" : "Event Not Started Yet"}
+                    </Button>
+                  );
+                })()
               ) : (
                 <Button variant="outline" className="w-full" onClick={(e) => {
                   e.stopPropagation();
