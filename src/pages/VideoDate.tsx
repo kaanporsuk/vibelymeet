@@ -331,8 +331,10 @@ const VideoDate = () => {
           .maybeSingle();
 
         if (session?.event_id) {
-          await supabase.functions.invoke("video-matching", {
-            body: { action: "leave_queue", eventId: session.event_id },
+          // Reset queue status when leaving a date
+          await supabase.rpc("leave_matching_queue", {
+            p_event_id: session.event_id,
+            p_user_id: user.id,
           });
         }
       } catch (err) {

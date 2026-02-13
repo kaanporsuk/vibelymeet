@@ -1,10 +1,8 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play, Loader2, Users } from "lucide-react";
+import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useVideoMatching } from "@/hooks/useVideoMatching";
-import MatchFoundModal from "./MatchFoundModal";
 
 interface VenueCardProps {
   isVirtual: boolean;
@@ -28,20 +26,6 @@ const VenueCard = ({
   const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
   const [eventStatus, setEventStatus] = useState<"upcoming" | "live" | "ended">("upcoming");
-  const [showMatchModal, setShowMatchModal] = useState(false);
-  
-  // Video matching hook - disable autoNavigate so we can show the modal first
-  const matching = useVideoMatching({ 
-    eventId: eventId || "", 
-    autoNavigate: false 
-  });
-
-  // Show match modal when matched
-  useEffect(() => {
-    if (matching.status === "matched" && matching.roomId && matching.partnerId) {
-      setShowMatchModal(true);
-    }
-  }, [matching.status, matching.roomId, matching.partnerId]);
 
   useEffect(() => {
     const updateCountdown = () => {
@@ -50,14 +34,12 @@ const VenueCard = ({
       const endTime = startTime + eventDurationMinutes * 60 * 1000;
       const diff = startTime - now.getTime();
 
-      // Check if event has ended
       if (now.getTime() >= endTime) {
         setEventStatus("ended");
         setTimeUntil("Event ended");
         return;
       }
 
-      // Check if event is live (between start and end)
       if (now.getTime() >= startTime && now.getTime() < endTime) {
         setEventStatus("live");
         const remainingMs = endTime - now.getTime();
@@ -66,7 +48,6 @@ const VenueCard = ({
         return;
       }
 
-      // Event is upcoming
       setEventStatus("upcoming");
       
       if (diff <= 0) {
@@ -88,19 +69,15 @@ const VenueCard = ({
     };
 
     updateCountdown();
-    const interval = setInterval(updateCountdown, 10000); // Update every 10 seconds for accuracy
+    const interval = setInterval(updateCountdown, 10000);
     return () => clearInterval(interval);
   }, [eventDate, eventDurationMinutes]);
 
-  const handleJoinEvent = () => {
+  const handleEnterLobby = () => {
     if (eventId && eventStatus === "live") {
-      // Use the matching system to find a partner
-      matching.joinQueue();
+      navigate(`/event/${eventId}/lobby`);
     }
   };
-
-  const isSearching = matching.status === "searching";
-  const isMatched = matching.status === "matched";
 
   if (isVirtual) {
     return (
@@ -121,7 +98,6 @@ const VenueCard = ({
 
         {/* Animated Digital Grid */}
         <div className="relative h-32 rounded-xl bg-gradient-to-br from-secondary to-background overflow-hidden border border-border">
-          {/* Grid Pattern */}
           <div className="absolute inset-0 opacity-20">
             {[...Array(12)].map((_, i) => (
               <motion.div
@@ -143,35 +119,8 @@ const VenueCard = ({
             ))}
           </div>
 
-          {/* Center Content */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            {isSearching && isRegistered ? (
-              <>
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="flex items-center gap-2"
-                >
-                  <Users className="w-6 h-6 text-primary" />
-                </motion.div>
-                <span className="text-sm font-bold text-primary">Finding your match...</span>
-                <Button variant="ghost" size="sm" onClick={() => matching.leaveQueue()}>
-                  Cancel
-                </Button>
-              </>
-            ) : isMatched && isRegistered ? (
-              <>
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1] }}
-                  transition={{ duration: 0.5, repeat: 3 }}
-                  className="flex items-center gap-2"
-                >
-                  <div className="w-4 h-4 rounded-full bg-green-500" />
-                  <span className="text-sm font-bold text-green-500">Match Found!</span>
-                </motion.div>
-                <span className="text-xs text-muted-foreground">Connecting...</span>
-              </>
-            ) : eventStatus === "live" && isRegistered ? (
+            {eventStatus === "live" && isRegistered ? (
               <>
                 <motion.div
                   animate={{ scale: [1, 1.2, 1] }}
@@ -200,7 +149,7 @@ const VenueCard = ({
                 </motion.div>
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <Clock className="w-3 h-3" />
-                  <span className="text-xs">Link unlocks in: {timeUntil}</span>
+                  <span className="text-xs">Lobby opens in: {timeUntil}</span>
                 </div>
               </>
             ) : (
@@ -211,33 +160,17 @@ const VenueCard = ({
             )}
           </div>
 
-          {/* Glow Effect */}
           <div className="absolute inset-0 bg-gradient-radial from-primary/10 via-transparent to-transparent" />
         </div>
 
-        {/* Action Button - changes based on event and matching status */}
-        {isSearching && isRegistered ? (
-          <Button variant="outline" className="w-full" disabled>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Finding Match...
-          </Button>
-        ) : isMatched && isRegistered ? (
-          <Button className="w-full bg-green-500 hover:bg-green-600 text-white" disabled>
-            <Video className="w-4 h-4 mr-2" />
-            Connecting to Date...
-          </Button>
-        ) : eventStatus === "live" && isRegistered ? (
+        {/* Action Button */}
+        {eventStatus === "live" && isRegistered ? (
           <Button 
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
-            onClick={handleJoinEvent}
-            disabled={matching.isLoading}
+            onClick={handleEnterLobby}
           >
-            {matching.isLoading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <Play className="w-4 h-4 mr-2" />
-            )}
-            Join Event Now
+            <Play className="w-4 h-4 mr-2" />
+            Enter Lobby
           </Button>
         ) : eventStatus === "ended" ? (
           <Button variant="outline" className="w-full" disabled>
@@ -247,7 +180,7 @@ const VenueCard = ({
         ) : isRegistered ? (
           <Button variant="outline" className="w-full" disabled>
             <Video className="w-4 h-4 mr-2" />
-            Join Link Available Soon
+            Lobby Opens Soon
           </Button>
         ) : (
           <Button variant="ghost" className="w-full text-muted-foreground" disabled>
@@ -255,23 +188,6 @@ const VenueCard = ({
             Register to Access
           </Button>
         )}
-
-        {/* Match Found Modal */}
-        <MatchFoundModal
-          isOpen={showMatchModal}
-          partnerId={matching.partnerId}
-          roomId={matching.roomId}
-          onJoinDate={() => {
-            setShowMatchModal(false);
-            if (matching.roomId) {
-              navigate(`/date/${matching.roomId}`);
-            }
-          }}
-          onCancel={() => {
-            setShowMatchModal(false);
-            matching.leaveQueue();
-          }}
-        />
       </motion.div>
     );
   }
@@ -295,7 +211,6 @@ const VenueCard = ({
       {/* Mock Map */}
       <div className="relative h-40 rounded-xl overflow-hidden border border-border">
         <div className="absolute inset-0 bg-secondary">
-          {/* Stylized Map Grid */}
           <svg className="absolute inset-0 w-full h-full opacity-30">
             <defs>
               <pattern id="mapGrid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -305,7 +220,6 @@ const VenueCard = ({
             <rect width="100%" height="100%" fill="url(#mapGrid)" />
           </svg>
 
-          {/* Map Lines */}
           <svg className="absolute inset-0 w-full h-full">
             <path
               d="M 20 80 Q 80 60 120 90 T 200 70 T 280 85"
@@ -323,7 +237,6 @@ const VenueCard = ({
             />
           </svg>
 
-          {/* Location Pin */}
           <motion.div
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full"
             animate={{ y: [0, -5, 0] }}
@@ -340,7 +253,6 @@ const VenueCard = ({
           </motion.div>
         </div>
 
-        {/* Overlay */}
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-background to-transparent h-16" />
       </div>
 
