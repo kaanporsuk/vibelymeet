@@ -8,11 +8,13 @@ import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetail
 import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
+import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addMinutes, differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
+import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -26,7 +28,10 @@ const EventLobby = () => {
     eventId: eventId || "",
     enabled: !!eventId && !!user?.id,
   });
-  const { setStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
+  const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
+
+  // Ready Gate overlay state
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // Current card index in the local deck
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -35,14 +40,23 @@ const EventLobby = () => {
   const [superVibeCount, setSuperVibeCount] = useState(0);
   const [userVibes, setUserVibes] = useState<string[]>([]);
 
-  // Swipe action
+  // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
     eventId: eventId || "",
     onMatch: (matchId) => {
-      toast("It's a match! 💜", { duration: 3000 });
+      setActiveSessionId(matchId);
     },
-    onMatchQueued: (matchId) => {
+    onMatchQueued: () => {
       // Toast already handled by useSwipeAction
+    },
+  });
+
+  // Match queue — fires Ready Gate when a queued match becomes ready
+  const { queuedCount } = useMatchQueue({
+    eventId,
+    currentStatus: currentStatus || "browsing",
+    onMatchReady: (matchId, _partnerId) => {
+      setActiveSessionId(matchId);
     },
   });
 
@@ -312,6 +326,20 @@ const EventLobby = () => {
           </motion.div>
         )}
       </main>
+
+      {/* Ready Gate Overlay */}
+      <AnimatePresence>
+        {activeSessionId && eventId && (
+          <ReadyGateOverlay
+            sessionId={activeSessionId}
+            eventId={eventId}
+            onClose={() => {
+              setActiveSessionId(null);
+              setStatus("browsing");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
