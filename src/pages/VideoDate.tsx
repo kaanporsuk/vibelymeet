@@ -24,7 +24,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 
 const HANDSHAKE_TIME = 60;
-const DATE_TIME = 300; // 5 minutes
+const DATE_TIME = 300;
 
 interface PartnerData {
   name: string;
@@ -46,7 +46,6 @@ const VideoDate = () => {
   const { id } = useParams();
   const { user } = useAuth();
 
-  // Call phase state
   const [phase, setPhase] = useState<CallPhase>("handshake");
   const [timeLeft, setTimeLeft] = useState(HANDSHAKE_TIME);
   const [blurAmount, setBlurAmount] = useState(20);
@@ -58,7 +57,7 @@ const VideoDate = () => {
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
-  const [serverStartedAt, setServerStartedAt] = useState<Date | null>(null);
+  const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
   const [partner, setPartner] = useState<PartnerData>({
     name: "Your Match",
     age: 0,
@@ -67,6 +66,7 @@ const VideoDate = () => {
 
   const remoteContainerRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
+  const sessionIdRef = useRef(id);
 
   const { credits, useExtraTime, useExtendedVibe } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
@@ -85,15 +85,13 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
-    onCallEnded: () => toast.info("Your date ended — thanks for chatting! 💚"),
+    onCallEnded: () => {},
     onPartnerJoined: () => {},
     onPartnerLeft: () => {
-      // Start reconnection grace window instead of immediately ending
       reconnection.startGraceWindow();
     },
   });
 
-  // Reconnection hook
   const reconnection = useReconnection({
     sessionId: id,
     eventId,
@@ -111,12 +109,21 @@ const VideoDate = () => {
     },
   });
 
-  // Keep phaseRef in sync
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
 
-  // Fetch partner profile + determine participant position + server start time
+  // Resolve a photo path to a displayable URL
+  const resolvePhotoUrl = useCallback(async (path: string): Promise<string | null> => {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    const { data } = await supabase.storage
+      .from("profile-photos")
+      .createSignedUrl(path, 3600);
+    return data?.signedUrl || null;
+  }, []);
+
+  // Fetch partner profile
   useEffect(() => {
     if (!id || !user?.id) return;
 
@@ -124,7 +131,7 @@ const VideoDate = () => {
       try {
         const { data: session } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, started_at")
+          .select("participant_1_id, participant_2_id, event_id")
           .eq("id", id)
           .maybeSingle();
 
@@ -133,11 +140,8 @@ const VideoDate = () => {
         const isP1 = session.participant_1_id === user.id;
         setIsParticipant1(isP1);
         setEventId(session.event_id);
-        setServerStartedAt(new Date(session.started_at));
 
-        const pId = isP1
-          ? session.participant_2_id
-          : session.participant_1_id;
+        const pId = isP1 ? session.participant_2_id : session.participant_1_id;
         setPartnerId(pId);
 
         const { data: profile } = await supabase
@@ -162,12 +166,25 @@ const VideoDate = () => {
             }));
           }
 
+          // Resolve photo URLs
+          const photoArr = (profile.photos as string[]) || [];
+          const primaryPath = photoArr[0] || profile.avatar_url;
+          const resolvedUrl = primaryPath ? await resolvePhotoUrl(primaryPath) : null;
+          setPartnerPhotoUrl(resolvedUrl);
+
+          // Resolve all photo URLs for the profile sheet
+          const resolvedPhotos: string[] = [];
+          for (const p of photoArr.slice(0, 6)) {
+            const url = await resolvePhotoUrl(p);
+            if (url) resolvedPhotos.push(url);
+          }
+
           setPartner({
             name: profile.name,
             age: profile.age,
             tags,
-            avatarUrl: profile.avatar_url || undefined,
-            photos: (profile.photos as string[]) || undefined,
+            avatarUrl: resolvedUrl || undefined,
+            photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
             bio: profile.bio || undefined,
             job: profile.job || undefined,
             location: profile.location || undefined,
@@ -181,7 +198,7 @@ const VideoDate = () => {
     };
 
     fetchPartner();
-  }, [id, user?.id]);
+  }, [id, user?.id, resolvePhotoUrl]);
 
   // Auto-start call
   useEffect(() => {
@@ -191,7 +208,7 @@ const VideoDate = () => {
     }
   }, [callStarted, startCall, id]);
 
-  // Progressive blur: trigger CSS transition when connected
+  // Progressive blur: clear over 10s when connected
   useEffect(() => {
     if (isConnected) {
       requestAnimationFrame(() => {
@@ -202,20 +219,20 @@ const VideoDate = () => {
     }
   }, [isConnected]);
 
-  // Countdown timer — handles both handshake and date phases
-  // Pauses during partner disconnection grace window
+  // Countdown timer
   useEffect(() => {
-    if (showFeedback || !isConnected || phase === "ended" || reconnection.isTimerPaused) return;
+    if (showFeedback || !isConnected || phase === "ended" || reconnection.isTimerPaused)
+      return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
-          if (prev <= 1) {
-            if (phaseRef.current === "handshake") {
-              checkMutualVibe();
-            } else {
-              toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-              handleCallEnd();
-            }
+        if (prev <= 1) {
+          if (phaseRef.current === "handshake") {
+            checkMutualVibe();
+          } else {
+            toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+            handleCallEnd();
+          }
           return 0;
         }
         return prev - 1;
@@ -225,7 +242,7 @@ const VideoDate = () => {
     return () => clearInterval(interval);
   }, [showFeedback, isConnected, phase, reconnection.isTimerPaused]);
 
-  // Auto-hide ice breaker after 20s during handshake
+  // Auto-hide ice breaker after 20s
   useEffect(() => {
     if (!isConnected) return;
     const timer = setTimeout(() => setShowIceBreaker(false), 20000);
@@ -248,10 +265,52 @@ const VideoDate = () => {
     };
   }, []);
 
-  // Record user's vibe to DB
-  const handleUserVibe = useCallback(async () => {
+  // Beforeunload — cleanup session and status via sendBeacon
+  useEffect(() => {
     if (!id || !user?.id) return;
 
+    const handleBeforeUnload = () => {
+      // End the session in DB
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+      // Update video_sessions.ended_at
+      const updateUrl = `${baseUrl}/rest/v1/video_sessions?id=eq.${id}&apikey=${anonKey}`;
+      navigator.sendBeacon(
+        updateUrl,
+        new Blob(
+          [JSON.stringify({ ended_at: new Date().toISOString() })],
+          { type: "application/json" }
+        )
+      );
+
+      // Set status to offline
+      if (eventId) {
+        const statusUrl = `${baseUrl}/rest/v1/rpc/update_participant_status?apikey=${anonKey}`;
+        navigator.sendBeacon(
+          statusUrl,
+          new Blob(
+            [JSON.stringify({ p_event_id: eventId, p_user_id: user.id, p_status: "offline" })],
+            { type: "application/json" }
+          )
+        );
+      }
+
+      // Stop media tracks
+      if (localVideoRef.current?.srcObject) {
+        (localVideoRef.current.srcObject as MediaStream)
+          .getTracks()
+          .forEach((t) => t.stop());
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [id, user?.id, eventId]);
+
+  // Record user's vibe
+  const handleUserVibe = useCallback(async () => {
+    if (!id || !user?.id) return;
     try {
       const field = isParticipant1 ? "participant_1_liked" : "participant_2_liked";
       await supabase
@@ -263,13 +322,12 @@ const VideoDate = () => {
     }
   }, [id, user?.id, isParticipant1]);
 
-  // Check if both users vibed at end of handshake
+  // Check mutual vibe at end of handshake
   const checkMutualVibe = useCallback(async () => {
     if (!id) {
       handleCallEnd();
       return;
     }
-
     try {
       const { data: session } = await supabase
         .from("video_sessions")
@@ -289,9 +347,8 @@ const VideoDate = () => {
       console.error("Error checking mutual vibe:", err);
       handleCallEnd();
     }
-  }, [id, endCall, navigate]);
+  }, [id, endCall, setStatus]);
 
-  // Transition from mutual toast to date phase
   const handleMutualToastComplete = useCallback(() => {
     setShowMutualToast(false);
     setPhase("date");
@@ -300,7 +357,6 @@ const VideoDate = () => {
     setTimeout(() => setShowIceBreaker(false), 30000);
   }, []);
 
-  // Handle credit extension (atomic via RPC)
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
       const success =
@@ -313,44 +369,50 @@ const VideoDate = () => {
     [useExtraTime, useExtendedVibe]
   );
 
-  // End call and show feedback
-  const handleCallEnd = useCallback(() => {
+  // End call: update session, show survey
+  const handleCallEnd = useCallback(async () => {
     setPhase("ended");
     setShowFeedback(true);
     setStatus("in_survey");
-  }, [setStatus]);
+
+    // Update video_sessions ended_at
+    if (id) {
+      try {
+        await supabase
+          .from("video_sessions")
+          .update({
+            ended_at: new Date().toISOString(),
+            duration_seconds: phase === "handshake"
+              ? HANDSHAKE_TIME - timeLeft
+              : HANDSHAKE_TIME + DATE_TIME - timeLeft,
+          })
+          .eq("id", id)
+          .is("ended_at", null); // Only update if not already ended
+      } catch {}
+    }
+  }, [id, setStatus, phase, timeLeft]);
 
   const handleLeave = useCallback(async () => {
     endCall();
-    if (id && user?.id) {
+    if (id && user?.id && eventId) {
       try {
-        const { data: session } = await supabase
-          .from("video_sessions")
-          .select("event_id")
-          .eq("id", id)
-          .maybeSingle();
-
-        if (session?.event_id) {
-          // Reset queue status when leaving a date
-          await supabase.rpc("leave_matching_queue", {
-            p_event_id: session.event_id,
-            p_user_id: user.id,
-          });
-        }
+        await supabase.rpc("leave_matching_queue", {
+          p_event_id: eventId,
+          p_user_id: user.id,
+        });
       } catch (err) {
         console.error("Error cleaning up:", err);
       }
     }
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     handleCallEnd();
-  }, [endCall, id, user?.id, handleCallEnd]);
+  }, [endCall, id, user?.id, eventId, handleCallEnd]);
 
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
   const isUrgent = phase === "date" && timeLeft <= 10;
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
-      {/* Urgent border — only during the 5-min date */}
       <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
       {/* ─── Top HUD ─── */}
@@ -369,15 +431,18 @@ const VideoDate = () => {
           onClick={() => isConnected && setShowProfileSheet(true)}
           className="flex items-center gap-2 glass-card px-3 py-2"
         >
-          {partner.avatarUrl ? (
+          {partnerPhotoUrl ? (
             <img
-              src={partner.avatarUrl}
+              src={partnerPhotoUrl}
               alt={partner.name}
               className="w-8 h-8 rounded-full object-cover border border-primary/30"
+              loading="eager"
             />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
-              <User className="w-4 h-4 text-muted-foreground" />
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
+              <span className="text-xs font-display font-bold text-foreground/60">
+                {partner.name.charAt(0).toUpperCase()}
+              </span>
             </div>
           )}
           <div className="text-left">
@@ -392,15 +457,11 @@ const VideoDate = () => {
             {isConnected && (
               <div className="flex items-center gap-1">
                 <motion.div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ backgroundColor: "hsl(142, 71%, 45%)" }}
+                  className="w-1.5 h-1.5 rounded-full bg-green-500"
                   animate={{ opacity: [1, 0.5, 1] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 />
-                <span
-                  className="text-[10px]"
-                  style={{ color: "hsl(142, 69%, 58%)" }}
-                >
+                <span className="text-[10px] text-green-500">
                   {phase === "handshake" ? "Handshake" : "Live"}
                 </span>
               </div>
@@ -449,7 +510,7 @@ const VideoDate = () => {
         )}
       </motion.div>
 
-      {/* ─── Remote Video (Full Screen) with Progressive Blur ─── */}
+      {/* ─── Remote Video with Progressive Blur ─── */}
       <div className="flex-1 relative" ref={remoteContainerRef}>
         <video
           ref={remoteVideoRef}
@@ -464,12 +525,14 @@ const VideoDate = () => {
 
         {/* Connection overlay */}
         <AnimatePresence>
-          {(isConnecting || !isConnected) && !showFeedback && !reconnection.isPartnerDisconnected && (
-            <ConnectionOverlay
-              isConnecting={isConnecting}
-              onLeave={handleLeave}
-            />
-          )}
+          {(isConnecting || !isConnected) &&
+            !showFeedback &&
+            !reconnection.isPartnerDisconnected && (
+              <ConnectionOverlay
+                isConnecting={isConnecting}
+                onLeave={handleLeave}
+              />
+            )}
         </AnimatePresence>
 
         {/* Reconnection overlay */}
@@ -479,11 +542,11 @@ const VideoDate = () => {
           graceTimeLeft={reconnection.graceTimeLeft}
         />
 
-        {/* Bottom gradient for controls */}
+        {/* Bottom gradient */}
         <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background via-background/50 to-transparent pointer-events-none" />
       </div>
 
-      {/* ─── Self-View PIP with blur ─── */}
+      {/* ─── Self-View PIP ─── */}
       {isConnected && (
         <SelfViewPIP
           videoRef={localVideoRef}
@@ -508,7 +571,7 @@ const VideoDate = () => {
         )}
       </AnimatePresence>
 
-      {/* ─── Vibed ✓ Button (handshake phase only) ─── */}
+      {/* ─── Vibed ✓ Button (handshake only) ─── */}
       <AnimatePresence>
         {isConnected && phase === "handshake" && !showFeedback && (
           <motion.div
@@ -517,10 +580,7 @@ const VideoDate = () => {
             exit={{ opacity: 0, y: 10 }}
             className="absolute bottom-28 left-0 right-0 z-25 flex justify-center"
           >
-            <VibeCheckButton
-              timeLeft={timeLeft}
-              onVibe={handleUserVibe}
-            />
+            <VibeCheckButton timeLeft={timeLeft} onVibe={handleUserVibe} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -557,7 +617,7 @@ const VideoDate = () => {
         sessionId={id || ""}
         partnerId={partnerId}
         partnerName={partner.name}
-        partnerImage={partner.avatarUrl || partner.photos?.[0] || ""}
+        partnerImage={partnerPhotoUrl || ""}
         eventId={eventId}
       />
     </div>
