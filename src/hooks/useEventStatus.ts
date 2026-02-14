@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -19,10 +19,12 @@ interface UseEventStatusOptions {
 export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOptions) => {
   const { user } = useAuth();
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
 
   const setStatus = useCallback(
     async (status: ParticipantStatus) => {
       if (!eventId || !user?.id) return;
+      setCurrentStatus(status);
 
       try {
         await supabase.rpc("update_participant_status", {
@@ -81,5 +83,5 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [enabled, eventId, user?.id]);
 
-  return { setStatus };
+  return { setStatus, currentStatus };
 };
