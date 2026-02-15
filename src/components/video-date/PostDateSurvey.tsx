@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -40,6 +40,21 @@ export const PostDateSurvey = ({
   const [feedbackId, setFeedbackId] = useState<string | null>(null);
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isParticipant1, setIsParticipant1] = useState(false);
+
+  // Determine if current user is participant_1 or participant_2
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+    const detect = async () => {
+      const { data } = await supabase
+        .from("video_sessions")
+        .select("participant_1_id")
+        .eq("id", sessionId)
+        .maybeSingle();
+      if (data) setIsParticipant1(data.participant_1_id === user.id);
+    };
+    detect();
+  }, [sessionId, user?.id]);
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
@@ -66,7 +81,7 @@ export const PostDateSurvey = ({
       setStatus("browsing");
       toast("Back in the mix! 💚", { duration: 2000 });
       if (eventId) {
-        navigate(`/events/${eventId}`);
+        navigate(`/event/${eventId}/lobby`);
       } else {
         navigate("/dashboard");
       }
@@ -83,6 +98,13 @@ export const PostDateSurvey = ({
       setIsSubmitting(true);
 
       try {
+        // Update video_sessions with participant liked status
+        const likedField = isParticipant1 ? "participant_1_liked" : "participant_2_liked";
+        await supabase
+          .from("video_sessions")
+          .update({ [likedField]: liked })
+          .eq("id", sessionId);
+
         const { data: feedback, error } = await supabase
           .from("date_feedback")
           .upsert(
@@ -119,7 +141,7 @@ export const PostDateSurvey = ({
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, partnerId, isSubmitting]
+    [user?.id, sessionId, partnerId, isSubmitting, isParticipant1]
   );
 
   // Screen 2: Highlights (optional)
