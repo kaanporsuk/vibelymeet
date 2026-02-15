@@ -79,7 +79,7 @@ export const VerdictScreen = ({
           />
           <div className="relative flex items-center justify-center gap-3 text-primary-foreground">
             <Heart className="w-6 h-6 fill-current" />
-            <span>💚 Vibe</span>
+            <span>Vibe 💜</span>
           </div>
         </motion.button>
 
