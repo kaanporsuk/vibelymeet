@@ -1,14 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const DEMO_USER_ID = "b2222222-2222-2222-2222-222222222222";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const useArchiveMatch = () => {
+  const { user } = useAuth();
+  const userId = user?.id;
   const queryClient = useQueryClient();
 
   const archiveMutation = useMutation({
-    mutationFn: async ({ matchId, userId = DEMO_USER_ID }: { matchId: string; userId?: string }) => {
+    mutationFn: async ({ matchId }: { matchId: string }) => {
+      if (!userId) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("matches")
         .update({ 

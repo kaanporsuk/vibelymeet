@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const DEMO_USER_ID = "b2222222-2222-2222-2222-222222222222";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface BlockedUser {
   id: string;
@@ -12,13 +11,15 @@ export interface BlockedUser {
   created_at: string;
 }
 
-export const useBlockUser = (userId: string = DEMO_USER_ID) => {
+export const useBlockUser = () => {
+  const { user } = useAuth();
+  const userId = user?.id;
   const queryClient = useQueryClient();
 
-  // Get all blocked users
   const { data: blockedUsers = [] } = useQuery({
     queryKey: ["blocked-users", userId],
     queryFn: async (): Promise<BlockedUser[]> => {
+      if (!userId) return [];
       const { data, error } = await supabase
         .from("blocked_users")
         .select("*")
@@ -27,10 +28,12 @@ export const useBlockUser = (userId: string = DEMO_USER_ID) => {
       if (error) throw error;
       return (data || []) as BlockedUser[];
     },
+    enabled: !!userId,
   });
 
   const blockMutation = useMutation({
     mutationFn: async ({ blockedId, reason }: { blockedId: string; reason?: string }) => {
+      if (!userId) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("blocked_users")
         .insert({
@@ -50,6 +53,7 @@ export const useBlockUser = (userId: string = DEMO_USER_ID) => {
 
   const unblockMutation = useMutation({
     mutationFn: async ({ blockedId }: { blockedId: string }) => {
+      if (!userId) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("blocked_users")
         .delete()

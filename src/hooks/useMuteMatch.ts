@@ -2,8 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addHours, addDays, addWeeks } from "date-fns";
-
-const DEMO_USER_ID = "b2222222-2222-2222-2222-222222222222";
+import { useAuth } from "@/contexts/AuthContext";
 
 export type MuteDuration = "1hour" | "1day" | "1week" | "forever";
 
@@ -25,7 +24,7 @@ const getMutedUntilDate = (duration: MuteDuration): Date => {
     case "1week":
       return addWeeks(now, 1);
     case "forever":
-      return addWeeks(now, 520); // 10 years
+      return addWeeks(now, 520);
     default:
       return addDays(now, 1);
   }
@@ -46,13 +45,15 @@ const getDurationLabel = (duration: MuteDuration): string => {
   }
 };
 
-export const useMuteMatch = (userId: string = DEMO_USER_ID) => {
+export const useMuteMatch = () => {
+  const { user } = useAuth();
+  const userId = user?.id;
   const queryClient = useQueryClient();
 
-  // Get all active mutes for the user
   const { data: mutes = [] } = useQuery({
     queryKey: ["match-mutes", userId],
     queryFn: async (): Promise<MatchMute[]> => {
+      if (!userId) return [];
       const { data, error } = await supabase
         .from("match_mutes")
         .select("*")
@@ -62,13 +63,14 @@ export const useMuteMatch = (userId: string = DEMO_USER_ID) => {
       if (error) throw error;
       return (data || []) as MatchMute[];
     },
+    enabled: !!userId,
   });
 
   const muteMutation = useMutation({
     mutationFn: async ({ matchId, duration }: { matchId: string; duration: MuteDuration }) => {
+      if (!userId) throw new Error("Not authenticated");
       const mutedUntil = getMutedUntilDate(duration);
 
-      // Upsert - update if exists, insert if not
       const { error } = await supabase
         .from("match_mutes")
         .upsert({
@@ -80,7 +82,6 @@ export const useMuteMatch = (userId: string = DEMO_USER_ID) => {
         });
 
       if (error) {
-        // If upsert fails due to no unique constraint, try delete then insert
         await supabase
           .from("match_mutes")
           .delete()
@@ -100,13 +101,14 @@ export const useMuteMatch = (userId: string = DEMO_USER_ID) => {
 
       return { duration };
     },
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
     },
   });
 
   const unmuteMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
+      if (!userId) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("match_mutes")
         .delete()
