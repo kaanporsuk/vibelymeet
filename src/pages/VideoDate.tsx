@@ -22,6 +22,7 @@ import { useReconnection } from "@/hooks/useReconnection";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -113,15 +114,11 @@ const VideoDate = () => {
     phaseRef.current = phase;
   }, [phase]);
 
-  // Resolve a photo path to a displayable URL
-  const resolvePhotoUrl = useCallback(async (path: string): Promise<string | null> => {
+  // Resolve a photo path to a displayable URL (sync via public URL)
+  const resolvePhoto = (path: string): string | null => {
     if (!path) return null;
-    if (path.startsWith("http")) return path;
-    const { data } = await supabase.storage
-      .from("profile-photos")
-      .createSignedUrl(path, 3600);
-    return data?.signedUrl || null;
-  }, []);
+    return resolvePhotoUrl(path) || null;
+  };
 
   // Fetch partner profile
   useEffect(() => {
@@ -169,15 +166,13 @@ const VideoDate = () => {
           // Resolve photo URLs
           const photoArr = (profile.photos as string[]) || [];
           const primaryPath = photoArr[0] || profile.avatar_url;
-          const resolvedUrl = primaryPath ? await resolvePhotoUrl(primaryPath) : null;
+          const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
           setPartnerPhotoUrl(resolvedUrl);
 
           // Resolve all photo URLs for the profile sheet
-          const resolvedPhotos: string[] = [];
-          for (const p of photoArr.slice(0, 6)) {
-            const url = await resolvePhotoUrl(p);
-            if (url) resolvedPhotos.push(url);
-          }
+          const resolvedPhotos: string[] = photoArr.slice(0, 6)
+            .map(p => resolvePhoto(p))
+            .filter(Boolean) as string[];
 
           setPartner({
             name: profile.name,
@@ -198,7 +193,7 @@ const VideoDate = () => {
     };
 
     fetchPartner();
-  }, [id, user?.id, resolvePhotoUrl]);
+  }, [id, user?.id]);
 
   // Auto-start call
   useEffect(() => {

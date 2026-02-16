@@ -6,6 +6,7 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { toast } from "sonner";
 
 interface ReadyGateOverlayProps {
@@ -97,16 +98,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
 
       if (profile) {
         const photoPath = (profile.photos as string[])?.[0] || profile.avatar_url;
-        if (photoPath) {
-          if (photoPath.startsWith("http")) {
-            setPartnerPhoto(photoPath);
-          } else {
-            const { data: signed } = await supabase.storage
-              .from("profile-photos")
-              .createSignedUrl(photoPath, 300);
-            setPartnerPhoto(signed?.signedUrl || null);
-          }
-        }
+        setPartnerPhoto(resolvePhotoUrl(photoPath) || null);
       }
 
       // Shared vibes
