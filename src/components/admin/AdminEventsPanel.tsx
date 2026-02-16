@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   X,
   UserCheck,
+  Upload,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -37,11 +38,13 @@ import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
 import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 import AdminEventControls from "./AdminEventControls";
+import BatchEventImportModal from "./BatchEventImportModal";
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showBatchImport, setShowBatchImport] = useState(false);
   const [editingEvent, setEditingEvent] = useState<any>(null);
   const [viewingAttendeesEvent, setViewingAttendeesEvent] = useState<any>(null);
   // Fetch all events
@@ -86,8 +89,11 @@ const AdminEventsPanel = () => {
     const actualStatus = status || (isUpcoming ? 'upcoming' : 'completed');
     
     const statusStyles: Record<string, string> = {
+      draft: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
+      scheduled: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
       upcoming: 'bg-green-500/10 text-green-400 border-green-500/30',
       live: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
+      ended: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
       completed: 'bg-gray-500/10 text-gray-400 border-gray-500/30',
       cancelled: 'bg-red-500/10 text-red-400 border-red-500/30',
     };
@@ -116,13 +122,23 @@ const AdminEventsPanel = () => {
             className="pl-11 bg-secondary/50"
           />
         </div>
-        <Button
-          onClick={() => setShowCreateModal(true)}
-          className="bg-gradient-to-r from-primary to-accent gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Create Event
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setShowBatchImport(true)}
+            className="gap-2"
+          >
+            <Upload className="w-5 h-5" />
+            Batch Import
+          </Button>
+          <Button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-gradient-to-r from-primary to-accent gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            Create Event
+          </Button>
+        </div>
       </div>
 
       {/* Events Table */}
@@ -295,6 +311,13 @@ const AdminEventsPanel = () => {
             event={viewingAttendeesEvent}
             onClose={() => setViewingAttendeesEvent(null)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Batch Import Modal */}
+      <AnimatePresence>
+        {showBatchImport && (
+          <BatchEventImportModal onClose={() => setShowBatchImport(false)} />
         )}
       </AnimatePresence>
     </motion.div>

@@ -392,8 +392,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="upcoming">Upcoming</SelectItem>
                     <SelectItem value="live">Live</SelectItem>
+                    <SelectItem value="ended">Ended</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                   </SelectContent>

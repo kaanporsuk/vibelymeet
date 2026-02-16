@@ -168,12 +168,15 @@ export const useMatches = () => {
         const isArchived =
           match.archived_by === userId && match.archived_at !== null;
 
-        // Use first photo or avatar
+        // Use first photo or avatar, resolve storage paths
         const photoArr = (profile as any)?.photos as string[] | undefined;
-        const image =
+        const rawImage =
           (photoArr && photoArr.length > 0 ? photoArr[0] : null) ||
           profile?.avatar_url ||
           "";
+        const image = rawImage && !rawImage.startsWith("http")
+          ? supabase.storage.from("profile-photos").getPublicUrl(rawImage).data.publicUrl
+          : rawImage;
 
         return {
           id: otherProfileId,
@@ -242,10 +245,15 @@ export const useDashboardMatches = () => {
         const isNew =
           Date.now() - matchedAt.getTime() < 24 * 60 * 60 * 1000;
 
+        const rawImage = profile?.avatar_url || "";
+        const image = rawImage && !rawImage.startsWith("http")
+          ? supabase.storage.from("profile-photos").getPublicUrl(rawImage).data.publicUrl
+          : rawImage;
+
         return {
           id: otherProfileId,
           name: profile?.name || "Unknown",
-          image: profile?.avatar_url || "",
+          image,
           isNew,
         };
       });
