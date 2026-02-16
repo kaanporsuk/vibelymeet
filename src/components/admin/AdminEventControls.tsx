@@ -29,9 +29,19 @@ const AdminEventControls = ({
         .update({ status: "ended" })
         .eq("id", eventId);
       if (error) throw error;
+
+      // Broadcast event ended via Realtime so all clients see EventEndedModal
+      const channel = supabase.channel(`event-status-${eventId}`);
+      await channel.send({
+        type: "broadcast",
+        event: "event_ended",
+        payload: { eventId },
+      });
+      supabase.removeChannel(channel);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
       toast.success(`"${eventTitle}" has been ended`);
       setIsEnding(false);
     },
@@ -46,9 +56,11 @@ const AdminEventControls = ({
         .update({ duration_minutes: newDuration })
         .eq("id", eventId);
       if (error) throw error;
+      return extraMinutes;
     },
-    onSuccess: (_, extraMinutes) => {
+    onSuccess: (extraMinutes) => {
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
       toast.success(`Extended "${eventTitle}" by ${extraMinutes} minutes`);
     },
     onError: () => toast.error("Failed to extend event"),
