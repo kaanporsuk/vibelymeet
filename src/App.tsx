@@ -16,7 +16,7 @@ import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
 import ReadyGate from "./pages/ReadyGate";
-import VideoLobby from "./pages/VideoLobby";
+// VideoLobby import removed — old /lobby route deprecated
 import AdminCreateEvent from "./pages/AdminCreateEvent";
 import MatchCelebration from "./pages/MatchCelebration";
 import VibeStudio from "./pages/VibeStudio";
@@ -60,7 +60,7 @@ const App = () => (
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
               <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
               <Route path="/ready/:id" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
-              <Route path="/lobby" element={<ProtectedRoute><VideoLobby /></ProtectedRoute>} />
+              {/* Old /lobby route removed — use /event/:eventId/lobby instead */}
               <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
               <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
               <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />

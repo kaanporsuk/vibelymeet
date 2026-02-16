@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play, Users } from "lucide-react";
+import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -221,20 +221,8 @@ const VenueCard = ({
           </svg>
 
           <svg className="absolute inset-0 w-full h-full">
-            <path
-              d="M 20 80 Q 80 60 120 90 T 200 70 T 280 85"
-              fill="none"
-              stroke="hsl(var(--muted-foreground))"
-              strokeWidth="2"
-              opacity="0.3"
-            />
-            <path
-              d="M 30 120 Q 100 100 160 130 T 260 110"
-              fill="none"
-              stroke="hsl(var(--muted-foreground))"
-              strokeWidth="2"
-              opacity="0.2"
-            />
+            <path d="M 20 80 Q 80 60 120 90 T 200 70 T 280 85" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" opacity="0.3" />
+            <path d="M 30 120 Q 100 100 160 130 T 260 110" fill="none" stroke="hsl(var(--muted-foreground))" strokeWidth="2" opacity="0.2" />
           </svg>
 
           <motion.div

@@ -94,10 +94,19 @@ const AdminLiveEventMetrics = () => {
 
       const registrations = regs || [];
       const activeUsers = registrations.filter(
-        (r) => r.queue_status !== "idle"
+        (r) => r.queue_status && !["idle", "offline", "completed"].includes(r.queue_status)
+      ).length;
+      const browsing = registrations.filter(
+        (r) => r.queue_status === "browsing"
+      ).length;
+      const inReadyGate = registrations.filter(
+        (r) => r.queue_status === "in_ready_gate"
       ).length;
       const inDates = registrations.filter(
-        (r) => r.queue_status === "matched" || r.queue_status === "in_date"
+        (r) => ["in_handshake", "in_date"].includes(r.queue_status || "")
+      ).length;
+      const inSurvey = registrations.filter(
+        (r) => r.queue_status === "in_survey"
       ).length;
       const inQueue = registrations.filter(
         (r) => r.queue_status === "searching"
@@ -168,7 +177,10 @@ const AdminLiveEventMetrics = () => {
 
       return {
         activeUsers,
+        browsing,
+        inReadyGate,
         inDates,
+        inSurvey,
         inQueue,
         totalDates,
         matchRate,
@@ -277,8 +289,10 @@ const AdminLiveEventMetrics = () => {
           {/* Live Metrics Grid */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             <MetricCard icon={Users} label="Active Users" value={metrics.activeUsers} color="bg-pink-500/20 text-pink-400" />
-            <MetricCard icon={Video} label="Currently in Dates" value={metrics.inDates} color="bg-purple-500/20 text-purple-400" />
-            <MetricCard icon={Search} label="In Queue / Browsing" value={metrics.inQueue} color="bg-cyan-500/20 text-cyan-400" />
+            <MetricCard icon={Search} label="Browsing Deck" value={metrics.browsing} color="bg-cyan-500/20 text-cyan-400" />
+            <MetricCard icon={HandMetal} label="In Ready Gate" value={metrics.inReadyGate} color="bg-yellow-500/20 text-yellow-400" />
+            <MetricCard icon={Video} label="In Dates" value={metrics.inDates} color="bg-purple-500/20 text-purple-400" />
+            <MetricCard icon={MessageSquare} label="In Survey" value={metrics.inSurvey} color="bg-indigo-500/20 text-indigo-400" />
             <MetricCard icon={Activity} label="Total Dates" value={metrics.totalDates} color="bg-orange-500/20 text-orange-400" />
             <MetricCard icon={TrendingUp} label="Match Rate" value={`${metrics.matchRate}%`} color="bg-green-500/20 text-green-400" />
             <MetricCard icon={Clock} label="Extension Rate" value={`${metrics.extensionRate}%`} color="bg-blue-500/20 text-blue-400" />

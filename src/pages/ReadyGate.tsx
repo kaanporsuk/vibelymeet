@@ -10,6 +10,7 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface PartnerProfile {
   name: string;
@@ -56,9 +57,13 @@ const ReadyGate = () => {
       toast("They had to step away — back to the deck! More people to meet 💚", {
         duration: 3000,
       });
-      setTimeout(() => navigate("/dashboard"), 2000);
+      if (eventId) {
+        setTimeout(() => navigate(`/event/${eventId}/lobby`), 2000);
+      } else {
+        setTimeout(() => navigate("/home"), 2000);
+      }
     },
-    [navigate, setStatus]
+    [navigate, setStatus, eventId]
   );
 
   const {
@@ -113,12 +118,15 @@ const ReadyGate = () => {
             ?.map((v: any) => `${v.vibe_tags?.emoji || ""} ${v.vibe_tags?.label || ""}`.trim())
             .filter(Boolean) || [];
 
+        const rawPhotos = (profile.photos as string[]) || [];
+        const resolvedPhotos = rawPhotos.map(p => resolvePhotoUrl(p)).filter(Boolean);
+
         setPartner({
           name: profile.name,
           age: profile.age,
           bio: profile.bio || undefined,
-          avatarUrl: profile.avatar_url || undefined,
-          photos: (profile.photos as string[]) || undefined,
+          avatarUrl: resolvePhotoUrl(profile.avatar_url) || undefined,
+          photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
           tags,
           videoIntroUrl: profile.video_intro_url || undefined,
         });

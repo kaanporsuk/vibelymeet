@@ -52,6 +52,7 @@ import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { getSignedVideoUrl } from "@/services/videoStorageService";
 import {
   Drawer,
@@ -442,9 +443,10 @@ const Profile = () => {
             className="relative"
           >
             <img
-              src={profile.photos[0] || "https://via.placeholder.com/128"}
+              src={resolvePhotoUrl(profile.photos[0]) || "https://via.placeholder.com/128"}
               alt={profile.name}
               className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
+              onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/128"; }}
             />
             
             {/* Camera Button for photos */}

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
-import { Sparkles, User, Briefcase, MapPin } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Sparkles, Briefcase, MapPin } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -10,28 +11,10 @@ interface LobbyProfileCardProps {
 }
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState(false);
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
 
-  // Resolve photo URL from storage
-  useEffect(() => {
-    const path = profile.photos?.[0] || profile.avatar_url;
-    if (!path) {
-      setPhotoUrl(null);
-      return;
-    }
-    if (path.startsWith("http")) {
-      setPhotoUrl(path);
-      return;
-    }
-    (async () => {
-      const { data } = await supabase.storage
-        .from("profile-photos")
-        .createSignedUrl(path, 3600);
-      setPhotoUrl(data?.signedUrl || null);
-    })();
-  }, [profile.photos, profile.avatar_url]);
+  const photoUrl = resolvePhotoUrl(profile.photos?.[0] || profile.avatar_url);
 
   // Fetch vibe tags for this profile
   useEffect(() => {
@@ -55,13 +38,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
   // Count shared vibes
   const sharedCount = vibeLabels.filter((v) => {
-    const label = v.replace(/^\S+\s/, ""); // strip emoji
+    const label = v.replace(/^\S+\s/, "");
     return userVibes.includes(label);
   }).length;
-
-  // Parse prompts
-  const prompts = profile.bio ? null : null; // prompts come from profiles table
-  // We'll show bio as a fallback prompt-like section
 
   return (
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
@@ -104,15 +83,11 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
       {/* Bottom info area */}
       <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
-        {/* Name + Age */}
         <div className="flex items-end gap-2">
-          <h3 className="text-2xl font-display font-bold text-white">
-            {profile.name}
-          </h3>
+          <h3 className="text-2xl font-display font-bold text-white">{profile.name}</h3>
           <span className="text-lg text-white/80 font-medium mb-0.5">{profile.age}</span>
         </div>
 
-        {/* Job / Location row */}
         {(profile.job || profile.location) && (
           <div className="flex items-center gap-3 text-white/60 text-sm">
             {profile.job && (
@@ -130,7 +105,6 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           </div>
         )}
 
-        {/* Vibe tags */}
         {vibeLabels.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
             {vibeLabels.map((tag) => (
@@ -144,7 +118,6 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           </div>
         )}
 
-        {/* Shared vibes indicator */}
         {sharedCount > 0 && (
           <div className="flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -154,7 +127,6 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           </div>
         )}
 
-        {/* Bio / prompt */}
         {profile.bio && (
           <p className="text-sm text-white/70 line-clamp-2">{profile.bio}</p>
         )}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,20 @@ const EventLobby = () => {
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // Ready Gate overlay state
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  // FIX 4: Handle pendingMatch query param from PostDateSurvey
+  useEffect(() => {
+    const pendingMatch = searchParams.get("pendingMatch");
+    if (pendingMatch) {
+      setActiveSessionId(pendingMatch);
+      searchParams.delete("pendingMatch");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Current card index in the local deck
   const [currentIndex, setCurrentIndex] = useState(0);

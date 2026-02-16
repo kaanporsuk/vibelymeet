@@ -41,6 +41,7 @@ export const PostDateSurvey = ({
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isParticipant1, setIsParticipant1] = useState(false);
+  const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
 
   // Determine if current user is participant_1 or participant_2
   useEffect(() => {
@@ -58,32 +59,37 @@ export const PostDateSurvey = ({
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
-  // Queue drain: when user returns to browsing, check for queued matches
+  // FIX 4 & 5: Queue drain with proper status tracking
   const handleQueueMatch = useCallback(
-    (matchId: string, queuePartnerId: string) => {
+    (matchId: string, _queuePartnerId: string) => {
       toast("You have a match waiting! 💚", { duration: 2000 });
-      navigate(`/ready/${matchId}`);
+      if (eventId) {
+        navigate(`/event/${eventId}/lobby?pendingMatch=${matchId}`);
+      } else {
+        navigate("/home");
+      }
     },
-    [navigate]
+    [navigate, eventId]
   );
 
   useMatchQueue({
     eventId,
-    currentStatus: "browsing", // Will only drain when finishSurvey sets browsing
+    currentStatus: surveyStatus,
     onMatchReady: handleQueueMatch,
   });
 
+  // FIX 3: Navigate to lobby, not event details
   const finishSurvey = useCallback(async () => {
-    // Check if event is still active
     const active = await checkEventActive();
 
     if (active) {
       setStatus("browsing");
+      setSurveyStatus("browsing");
       toast("Back in the mix! 💚", { duration: 2000 });
       if (eventId) {
         navigate(`/event/${eventId}/lobby`);
       } else {
-        navigate("/dashboard");
+        navigate("/home");
       }
     } else {
       setStatus("offline");
@@ -98,7 +104,6 @@ export const PostDateSurvey = ({
       setIsSubmitting(true);
 
       try {
-        // Update video_sessions with participant liked status
         const likedField = isParticipant1 ? "participant_1_liked" : "participant_2_liked";
         await supabase
           .from("video_sessions")
@@ -241,7 +246,6 @@ export const PostDateSurvey = ({
 
   if (!isOpen) return null;
 
-  // Show event ended modal if event has ended
   if (showEventEnded) {
     return <EventEndedModal isOpen={true} />;
   }
@@ -254,21 +258,18 @@ export const PostDateSurvey = ({
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-6"
       >
-        {/* Backdrop */}
         <motion.div
           initial={{ backdropFilter: "blur(0px)" }}
           animate={{ backdropFilter: "blur(24px)" }}
           className="absolute inset-0 bg-background/90"
         />
 
-        {/* Content */}
         <motion.div
           initial={{ scale: 0.9, opacity: 0, y: 30 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
           className="relative z-10 w-full max-w-md mx-4"
         >
-          {/* Step indicators */}
           <div className="flex justify-center gap-2 mb-4">
             {["verdict", "highlights", "safety"].map((s, i) => (
               <div
