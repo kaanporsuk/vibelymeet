@@ -79,7 +79,8 @@ export const uploadPhotos = async (
     .filter(Boolean);
 
   const results = await Promise.all(uploadPromises as Promise<UploadResult>[]);
-  return results.map((r) => r.url);
+  // Store raw storage paths, NOT signed URLs — signed URLs expire
+  return results.map((r) => r.path);
 };
 
 /**
@@ -193,11 +194,11 @@ export const persistPhotos = async (
     const file = files[i];
 
     if (isBlobUrl(photo) && file) {
-      // Upload the file and get storage URL
+      // Upload the file and store raw path (not signed URL)
       const result = await uploadPhoto(file, userId, i);
-      persistedUrls.push(result.url);
+      persistedUrls.push(result.path);
     } else if (!isBlobUrl(photo)) {
-      // Already a storage URL, keep it
+      // Already a storage path or URL, keep it
       persistedUrls.push(photo);
     }
   }
