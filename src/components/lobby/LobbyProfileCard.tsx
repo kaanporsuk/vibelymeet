@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Sparkles, User, Briefcase, MapPin } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,7 @@ interface LobbyProfileCardProps {
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState(false);
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
 
   // Resolve photo URL from storage
@@ -66,12 +67,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
       {/* Photo */}
       <div className="absolute inset-0">
-        {photoUrl ? (
+        {photoUrl && !photoError ? (
           <img
             src={photoUrl}
             alt={profile.name}
             className="w-full h-full object-cover"
             loading="eager"
+            onError={() => setPhotoError(true)}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
