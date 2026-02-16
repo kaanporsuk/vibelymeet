@@ -493,6 +493,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 <Input
                   id="duration"
                   type="number"
+                  min="15"
+                  max="480"
+                  step="15"
                   value={duration}
                   onChange={(e) => setDuration(e.target.value)}
                   className="bg-secondary/50"
