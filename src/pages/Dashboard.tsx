@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 import { EventCover, ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
-import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
+
 import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
@@ -31,7 +31,7 @@ const Dashboard = () => {
   const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
   const { unreadCount, markAllAsRead } = useNotifications();
 
-  const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
 
   const nextEvent = nextEventData?.event;
@@ -64,9 +64,10 @@ const Dashboard = () => {
     if (!nextEvent?.eventDate || isLiveEvent) return;
     const updateCountdown = () => {
       const diff = differenceInSeconds(nextEvent.eventDate, new Date());
-      if (diff <= 0) { setCountdown({ hours: 0, minutes: 0, seconds: 0 }); return; }
+      if (diff <= 0) { setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 }); return; }
       setCountdown({
-        hours: Math.floor(diff / 3600),
+        days: Math.floor(diff / 86400),
+        hours: Math.floor((diff % 86400) / 3600),
         minutes: Math.floor((diff % 3600) / 60),
         seconds: diff % 60,
       });
@@ -205,6 +206,7 @@ const Dashboard = () => {
                   {/* Countdown */}
                   <div className="flex justify-center gap-3">
                     {[
+                      { value: countdown.days, label: "DAYS" },
                       { value: countdown.hours, label: "HRS" },
                       { value: countdown.minutes, label: "MIN" },
                       { value: countdown.seconds, label: "SEC" },
@@ -245,8 +247,6 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Daily Drop */}
-        <DailyDropSection />
 
         {/* SECTION 3: YOUR MATCHES */}
         <section className="space-y-3">
