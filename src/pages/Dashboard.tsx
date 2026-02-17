@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, ChevronRight, Sparkles, Video, CalendarCheck } from "lucide-react";
+import { ChevronRight, Sparkles, CalendarCheck, Users, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
-import { EventCard } from "@/components/EventCard";
-import { MatchAvatar } from "@/components/MatchAvatar";
+import { EventCover, ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
 import { DailyDropSection } from "@/components/daily-drop/DailyDropSection";
 import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
@@ -18,13 +17,12 @@ import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { differenceInSeconds } from "date-fns";
+import { motion } from "framer-motion";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  
-  // Enable realtime updates for events
   useRealtimeEvents();
-  
+
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useEvents();
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
@@ -32,20 +30,16 @@ const Dashboard = () => {
   const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
   const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
   const { unreadCount, markAllAsRead } = useNotifications();
-  
+
   const [countdown, setCountdown] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
 
   const nextEvent = nextEventData?.event;
   const isRegisteredForNextEvent = nextEventData?.isRegistered || false;
+  const isLiveEvent = (nextEvent as any)?.isLive === true;
 
-  // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
-    await Promise.all([
-      refetchNextEvent(),
-      refetchEvents(),
-      refetchMatches(),
-    ]);
+    await Promise.all([refetchNextEvent(), refetchEvents(), refetchMatches()]);
   }, [refetchNextEvent, refetchEvents, refetchMatches]);
 
   const handleNotificationClick = () => {
@@ -53,56 +47,41 @@ const Dashboard = () => {
     setShowNotificationFlow(true);
   };
 
-  // Schedule daily drop notification when granted
   useEffect(() => {
-    if (isGranted) {
-      scheduleDailyDropNotification();
-    }
+    if (isGranted) scheduleDailyDropNotification();
   }, [isGranted, scheduleDailyDropNotification]);
 
-  // Schedule date reminders for accepted proposals
   useEffect(() => {
     if (isGranted && proposals.length > 0) {
       proposals
         .filter(p => p.status === 'accepted')
-        .forEach(p => {
-          scheduleDateReminder(p.senderName || 'Your match', p.date, 15);
-        });
+        .forEach(p => scheduleDateReminder(p.senderName || 'Your match', p.date, 15));
     }
   }, [isGranted, proposals, scheduleDateReminder]);
 
   // Countdown timer
   useEffect(() => {
-    if (!nextEvent?.eventDate) return;
-
+    if (!nextEvent?.eventDate || isLiveEvent) return;
     const updateCountdown = () => {
-      const now = new Date();
-      const diff = differenceInSeconds(nextEvent.eventDate, now);
-      
-      if (diff <= 0) {
-        setCountdown({ hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-
-      const hours = Math.floor(diff / 3600);
-      const minutes = Math.floor((diff % 3600) / 60);
-      const seconds = diff % 60;
-      
-      setCountdown({ hours, minutes, seconds });
+      const diff = differenceInSeconds(nextEvent.eventDate, new Date());
+      if (diff <= 0) { setCountdown({ hours: 0, minutes: 0, seconds: 0 }); return; }
+      setCountdown({
+        hours: Math.floor(diff / 3600),
+        minutes: Math.floor((diff % 3600) / 60),
+        seconds: diff % 60,
+      });
     };
-
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [nextEvent?.eventDate]);
+  }, [nextEvent?.eventDate, isLiveEvent]);
 
   const loading = eventLoading || eventsLoading || matchesLoading;
-  const discoverEvents = events.slice(0, 2);
+  const discoverEvents = events.filter(e => e.status !== 'live').slice(0, 4);
   const newMatchCount = matches.filter((m) => m.isNew).length;
 
   return (
     <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
-      {/* Notification Permission Flow */}
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
@@ -114,12 +93,8 @@ const Dashboard = () => {
         <div className="flex items-center justify-between max-w-lg mx-auto">
           <DashboardGreeting />
           <div className="flex items-center gap-2">
-            {/* Mini date countdown if upcoming */}
             {nextReminder && nextReminder.urgency !== 'none' && (
-              <MiniDateCountdown
-                reminder={nextReminder}
-                onClick={() => navigate('/schedule')}
-              />
+              <MiniDateCountdown reminder={nextReminder} onClick={() => navigate('/schedule')} />
             )}
             <NotificationPermissionButton
               isGranted={isGranted}
@@ -134,13 +109,9 @@ const Dashboard = () => {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-8">
-        {/* Imminent Date Reminder - Top Priority */}
+        {/* Imminent Date Reminders */}
         {imminentReminders.length > 0 && (
           <section className="space-y-3">
-            <h2 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
-              <Video className="w-5 h-5 text-destructive animate-pulse" />
-              Starting Soon
-            </h2>
             {imminentReminders.map(reminder => (
               <DateReminderCard
                 key={reminder.id}
@@ -153,97 +124,131 @@ const Dashboard = () => {
           </section>
         )}
 
+        {/* SECTION 1: LIVE EVENT — top priority */}
+        {isLiveEvent && isRegisteredForNextEvent && nextEvent && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-3"
+          >
+            <div className="relative glass-card overflow-hidden neon-glow-pink">
+              {/* Cover background */}
+              <div className="absolute inset-0">
+                <EventCover src={nextEvent.image} title={nextEvent.title} className="!aspect-auto h-full w-full" />
+                <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-background/40" />
+              </div>
+
+              <div className="relative p-6 space-y-4">
+                {/* LIVE badge */}
+                <div className="flex items-center gap-2">
+                  <motion.div
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-destructive/20 border border-destructive/40"
+                  >
+                    <Radio className="w-3.5 h-3.5 text-destructive" />
+                    <span className="text-xs font-bold text-destructive uppercase tracking-wider">Live Now</span>
+                  </motion.div>
+                </div>
+
+                <div>
+                  <h3 className="text-xl font-display font-bold text-foreground">{nextEvent.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    People vibing right now
+                  </p>
+                </div>
+
+                <Button
+                  variant="gradient"
+                  className="w-full text-base py-6"
+                  onClick={() => navigate(`/event/${nextEvent.id}/lobby`)}
+                >
+                  Enter Lobby →
+                </Button>
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        {/* SECTION 2: NEXT EVENT (not live) */}
+        {!isLiveEvent && nextEvent && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-display font-semibold text-foreground">Next Event</h2>
+            </div>
+
+            {loading ? (
+              <EventCardSkeleton />
+            ) : (
+              <div
+                className="glass-card overflow-hidden cursor-pointer"
+                onClick={() => navigate(`/events/${nextEvent.id}`)}
+              >
+                <div className="relative h-36 overflow-hidden">
+                  <EventCover src={nextEvent.image} title={nextEvent.title} className="!aspect-auto h-full w-full" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent" />
+                  {isRegisteredForNextEvent && (
+                    <span className="absolute top-3 right-3 px-2 py-1 text-xs font-medium rounded-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30">
+                      ✓ Registered
+                    </span>
+                  )}
+                  <div className="absolute bottom-3 left-3">
+                    <h3 className="font-display font-semibold text-lg text-white">
+                      {nextEvent.title}
+                    </h3>
+                    <p className="text-sm text-white/70">{nextEvent.date}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 space-y-4">
+                  {/* Countdown */}
+                  <div className="flex justify-center gap-3">
+                    {[
+                      { value: countdown.hours, label: "HRS" },
+                      { value: countdown.minutes, label: "MIN" },
+                      { value: countdown.seconds, label: "SEC" },
+                    ].map((item, i) => (
+                      <div key={i} className="text-center">
+                        <div className="w-14 h-14 rounded-xl bg-secondary flex items-center justify-center">
+                          <span className="text-xl font-display font-bold gradient-text">
+                            {String(item.value).padStart(2, "0")}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground mt-1">{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!isRegisteredForNextEvent && (
+                    <Button variant="outline" size="sm" className="w-full" onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/events/${nextEvent.id}`);
+                    }}>
+                      <CalendarCheck className="w-4 h-4 mr-2" />
+                      View & Register
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* No events at all */}
+        {!nextEvent && !loading && (
+          <div className="glass-card p-6 text-center">
+            <p className="text-muted-foreground">No upcoming events</p>
+            <Button variant="ghost" className="mt-2" onClick={() => navigate("/events")}>
+              Browse Events
+            </Button>
+          </div>
+        )}
+
         {/* Daily Drop */}
         <DailyDropSection />
 
-        {/* Next Event Hero */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-display font-semibold text-foreground">Next Event</h2>
-            <Clock className="w-4 h-4 text-muted-foreground" />
-          </div>
-
-          {loading ? (
-            <EventCardSkeleton />
-          ) : nextEvent ? (
-            <div 
-              className="glass-card p-6 space-y-4 neon-glow-violet cursor-pointer"
-              onClick={() => navigate(`/events/${nextEvent.id}`)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-primary/20 flex items-center justify-center">
-                  <span className="text-2xl">{nextEvent.emoji}</span>
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-display font-semibold text-foreground">
-                    {nextEvent.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">{nextEvent.date}</p>
-                </div>
-                {isRegisteredForNextEvent && (
-                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30">
-                    ✓ Registered
-                  </span>
-                )}
-              </div>
-
-              <div className="flex justify-center gap-4">
-                {[
-                  { value: countdown.hours, label: "HRS" },
-                  { value: countdown.minutes, label: "MIN" },
-                  { value: countdown.seconds, label: "SEC" },
-                ].map((item, i) => (
-                  <div key={i} className="text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center">
-                      <span className="text-2xl font-display font-bold gradient-text">
-                        {String(item.value).padStart(2, "0")}
-                      </span>
-                    </div>
-                    <span className="text-xs text-muted-foreground mt-1">{item.label}</span>
-                  </div>
-                ))}
-              </div>
-
-              {isRegisteredForNextEvent ? (
-                (() => {
-                  const now = new Date();
-                  const eventStart = nextEvent.eventDate;
-                  const isLive = now >= eventStart;
-                  return (
-                    <Button
-                      variant="gradient"
-                      className="w-full"
-                      disabled={!isLive}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/event/${nextEvent.id}/lobby`);
-                      }}
-                    >
-                      {isLive ? "Enter Lobby" : "Event Not Started Yet"}
-                    </Button>
-                  );
-                })()
-              ) : (
-                <Button variant="outline" className="w-full" onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/events/${nextEvent.id}`);
-                }}>
-                  <CalendarCheck className="w-4 h-4 mr-2" />
-                  View Event & Register
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="glass-card p-6 text-center">
-              <p className="text-muted-foreground">No upcoming events</p>
-              <Button variant="ghost" className="mt-2" onClick={() => navigate("/events")}>
-                Browse Events
-              </Button>
-            </div>
-          )}
-        </section>
-
-        {/* Matches Rail */}
+        {/* SECTION 3: YOUR MATCHES */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-display font-semibold text-foreground">
@@ -254,65 +259,78 @@ const Dashboard = () => {
                 </span>
               )}
             </h2>
-            <button
-              onClick={() => navigate("/matches")}
-              className="flex items-center text-sm text-primary"
-            >
+            <button onClick={() => navigate("/matches")} className="flex items-center text-sm text-primary">
               See all <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
           <div className="flex gap-4 overflow-x-auto scrollbar-hide py-2 -mx-4 px-4">
             {loading
-              ? Array(5)
-                  .fill(0)
-                  .map((_, i) => <MatchAvatarSkeleton key={i} />)
+              ? Array(5).fill(0).map((_, i) => <MatchAvatarSkeleton key={i} />)
               : matches.length > 0
               ? matches.map((match) => (
-                  <MatchAvatar
+                  <button
                     key={match.id}
-                    image={match.image}
-                    name={match.name}
-                    isNew={match.isNew}
                     onClick={() => navigate(`/chat/${match.id}`)}
-                  />
+                    className="flex flex-col items-center gap-2 min-w-fit"
+                  >
+                    <div className={`p-[3px] rounded-full ${match.isNew ? "bg-gradient-primary animate-glow-pulse" : "bg-border"}`}>
+                      <div className="rounded-full bg-background p-[2px]">
+                        <ProfilePhoto
+                          avatarUrl={match.image}
+                          name={match.name}
+                          size="md"
+                          rounded="full"
+                          loading="eager"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-xs text-foreground font-medium truncate max-w-[64px]">
+                      {match.name.split(" ")[0]}
+                    </span>
+                  </button>
                 ))
               : (
-                <div className="text-center py-4 w-full text-muted-foreground text-sm">
-                  No matches yet. Join an event to start connecting!
+                <div className="text-center py-4 w-full">
+                  <p className="text-sm text-muted-foreground mb-2">No matches yet. Join an event to start connecting!</p>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/events")}>
+                    Browse Events →
+                  </Button>
                 </div>
               )}
           </div>
         </section>
 
-        {/* Discover Events */}
+        {/* SECTION 4: DISCOVER */}
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-display font-semibold text-foreground">Discover</h2>
-            <button
-              onClick={() => navigate("/events")}
-              className="flex items-center text-sm text-primary"
-            >
+            <h2 className="text-lg font-display font-semibold text-foreground">Upcoming Events</h2>
+            <button onClick={() => navigate("/events")} className="flex items-center text-sm text-primary">
               All events <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="space-y-4">
+          <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-2">
             {loading
-              ? Array(2)
-                  .fill(0)
-                  .map((_, i) => <EventCardSkeleton key={i} />)
+              ? Array(2).fill(0).map((_, i) => (
+                  <div key={i} className="min-w-[260px]"><EventCardSkeleton /></div>
+                ))
               : discoverEvents.map((event) => (
-                  <EventCard
+                  <div
                     key={event.id}
-                    id={event.id}
-                    title={event.title}
-                    image={event.image}
-                    date={event.date}
-                    time={event.time}
-                    attendees={event.attendees}
-                    tags={event.tags}
-                  />
+                    className="min-w-[260px] glass-card overflow-hidden cursor-pointer shrink-0"
+                    onClick={() => navigate(`/events/${event.id}`)}
+                  >
+                    <EventCover src={event.image} title={event.title} />
+                    <div className="p-3 space-y-1.5">
+                      <h3 className="font-display font-semibold text-sm text-foreground line-clamp-1">{event.title}</h3>
+                      <p className="text-xs text-muted-foreground">{event.date} • {event.time}</p>
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Users className="w-3 h-3" />
+                        {event.attendees} attending
+                      </div>
+                    </div>
+                  </div>
                 ))}
           </div>
         </section>

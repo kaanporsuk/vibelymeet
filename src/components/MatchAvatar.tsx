@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
 interface MatchAvatarProps {
   name: string;
@@ -54,13 +55,12 @@ export const MatchAvatar = ({
           )}
         >
           <div className="rounded-full bg-background p-[2px]">
-            <img
-              src={image}
-              alt={name}
-              className={cn(
-                sizeClasses[size],
-                "rounded-full object-cover"
-              )}
+            <ProfilePhoto
+              avatarUrl={image}
+              name={name}
+              size={size === "sm" ? "sm" : size === "lg" ? "lg" : "md"}
+              rounded="full"
+              loading="eager"
             />
           </div>
         </div>

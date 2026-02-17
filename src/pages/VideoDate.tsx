@@ -23,6 +23,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -432,13 +433,16 @@ const VideoDate = () => {
               alt={partner.name}
               className="w-8 h-8 rounded-full object-cover border border-primary/30"
               loading="eager"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-              <span className="text-xs font-display font-bold text-foreground/60">
-                {partner.name.charAt(0).toUpperCase()}
-              </span>
-            </div>
+            <ProfilePhoto
+              name={partner.name}
+              size="sm"
+              rounded="full"
+              loading="eager"
+              className="w-8 h-8"
+            />
           )}
           <div className="text-left">
             <p className="text-sm font-display font-semibold text-foreground leading-tight">
