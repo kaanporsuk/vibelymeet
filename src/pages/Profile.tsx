@@ -53,6 +53,7 @@ import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { getSignedVideoUrl } from "@/services/videoStorageService";
 import {
   Drawer,
@@ -442,11 +443,13 @@ const Profile = () => {
             animate={{ scale: 1, opacity: 1 }}
             className="relative"
           >
-            <img
-              src={resolvePhotoUrl(profile.photos[0]) || "https://via.placeholder.com/128"}
-              alt={profile.name}
-              className="w-32 h-32 rounded-3xl object-cover border-4 border-background shadow-2xl"
-              onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/128"; }}
+            <ProfilePhoto
+              photos={profile.photos}
+              name={profile.name}
+              size="xl"
+              rounded="2xl"
+              loading="eager"
+              className="border-4 border-background shadow-2xl"
             />
             
             {/* Camera Button for photos */}

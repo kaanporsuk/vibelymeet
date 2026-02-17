@@ -6,7 +6,7 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 
 interface ReadyGateOverlayProps {
@@ -22,7 +22,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const { user } = useAuth();
   const { setStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
-  const [partnerPhoto, setPartnerPhoto] = useState<string | null>(null);
+  const [partnerPhotos, setPartnerPhotos] = useState<string[] | null>(null);
+  const [partnerAvatarUrl, setPartnerAvatarUrl] = useState<string | null>(null);
   const [sharedVibes, setSharedVibes] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [isTransitioning, setIsTransitioning] = useState(false);
@@ -97,8 +98,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
         .maybeSingle();
 
       if (profile) {
-        const photoPath = (profile.photos as string[])?.[0] || profile.avatar_url;
-        setPartnerPhoto(resolvePhotoUrl(photoPath) || null);
+        setPartnerPhotos((profile.photos as string[]) || null);
+        setPartnerAvatarUrl(profile.avatar_url || null);
       }
 
       // Shared vibes
@@ -212,21 +213,16 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
           {/* Blurred partner photo */}
           <div className="flex justify-center">
             <div className="relative w-28 h-28 rounded-full overflow-hidden border-2 border-primary/30">
-              {partnerPhoto ? (
-                <img
-                  src={partnerPhoto}
-                  alt={partnerName || "Partner"}
-                  className="w-full h-full object-cover"
-                  style={{ filter: "blur(15px)" }}
+              <div style={{ filter: "blur(15px)" }}>
+                <ProfilePhoto
+                  photos={partnerPhotos}
+                  avatarUrl={partnerAvatarUrl}
+                  name={partnerName || "Match"}
+                  size="full"
+                  rounded="full"
+                  loading="eager"
                 />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-                  <span className="text-3xl font-display font-bold text-foreground/40">
-                    {(partnerName || "?").charAt(0).toUpperCase()}
-                  </span>
-                </div>
-              )}
-              {/* Overlay with name */}
+              </div>
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                 <span className="text-white font-display font-semibold text-sm">
                   {partnerName || "Match"}

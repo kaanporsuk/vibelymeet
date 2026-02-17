@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Sparkles, Briefcase, MapPin } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -11,10 +11,7 @@ interface LobbyProfileCardProps {
 }
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
-  const [photoError, setPhotoError] = useState(false);
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
-
-  const photoUrl = resolvePhotoUrl(profile.photos?.[0] || profile.avatar_url);
 
   // Fetch vibe tags for this profile
   useEffect(() => {
@@ -46,21 +43,14 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
       {/* Photo */}
       <div className="absolute inset-0">
-        {photoUrl && !photoError ? (
-          <img
-            src={photoUrl}
-            alt={profile.name}
-            className="w-full h-full object-cover"
-            loading="eager"
-            onError={() => setPhotoError(true)}
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center">
-            <span className="text-5xl font-display font-bold text-foreground/60">
-              {profile.name.charAt(0).toUpperCase()}
-            </span>
-          </div>
-        )}
+        <ProfilePhoto
+          photos={profile.photos as string[]}
+          avatarUrl={profile.avatar_url}
+          name={profile.name}
+          size="full"
+          rounded="2xl"
+          loading="eager"
+        />
       </div>
 
       {/* Gradient overlay at bottom */}

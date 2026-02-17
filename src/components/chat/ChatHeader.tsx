@@ -40,6 +40,7 @@ import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { useBlockUser } from "@/hooks/useBlockUser";
 import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
 interface ChatUser {
   id: string;
@@ -170,10 +171,13 @@ export const ChatHeader = ({
             trigger={
               <div className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity">
                 <div className="relative">
-                  <img
-                    src={user.avatar_url}
-                    alt={user.name}
-                    className="w-10 h-10 rounded-full object-cover ring-2 ring-primary/30"
+                  <ProfilePhoto
+                    avatarUrl={user.avatar_url}
+                    name={user.name}
+                    size="sm"
+                    rounded="full"
+                    loading="eager"
+                    className="ring-2 ring-primary/30"
                   />
                   {/* Verified badge */}
                   {user.photoVerified && (

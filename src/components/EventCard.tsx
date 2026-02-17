@@ -4,6 +4,7 @@ import { Calendar, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { EventCover } from "@/components/ui/ProfilePhoto";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -69,11 +70,7 @@ export const EventCard = ({
       onClick={handleCardClick}
     >
       <div className="relative h-40 overflow-hidden">
-        <img
-          src={image}
-          alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-        />
+        <EventCover src={image} title={title} className="!aspect-auto h-full w-full group-hover:scale-110 transition-transform duration-500" />
         <div className="absolute inset-0 bg-gradient-to-t from-background/90 to-transparent" />
         <div className="absolute bottom-3 left-3 flex flex-wrap gap-2">
           {tags.slice(0, 2).map((tag) => (
