@@ -169,7 +169,7 @@ const GuestListRoster = ({
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">
-                {totalCount} confirmed guests
+                {totalCount} registered guests
               </p>
               <p className="text-xs text-muted-foreground">
                 {attendees.filter((a) => a.matchPercent >= 70).length} high matches for you
@@ -178,7 +178,7 @@ const GuestListRoster = ({
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              {Math.round(attendees.reduce((sum, a) => sum + a.matchPercent, 0) / attendees.length)}%
+              {attendees.length > 0 ? Math.round(attendees.reduce((sum, a) => sum + a.matchPercent, 0) / attendees.length) : 0}%
             </p>
             <p className="text-[10px] text-muted-foreground">Avg Match</p>
           </div>
