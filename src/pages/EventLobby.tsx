@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { haptics } from "@/lib/haptics";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
 import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
@@ -188,8 +189,14 @@ const EventLobby = () => {
 
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || isAnimating) return;
+    haptics.light();
     const result = await swipe(currentProfile.profile_id, "vibe");
-    if (result) advanceCard("right");
+    if (result) {
+      if ((result as any).result === "match" || (result as any).result === "match_queued") {
+        haptics.medium();
+      }
+      advanceCard("right");
+    }
   }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
 
   const handlePass = useCallback(async () => {
@@ -200,8 +207,9 @@ const EventLobby = () => {
 
   const handleSuperVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || isAnimating) return;
+    haptics.light();
     const result = await swipe(currentProfile.profile_id, "super_vibe");
-    if (result && result.result === "super_vibe_sent") {
+    if (result && (result as any).result === "super_vibe_sent") {
       setSuperVibeCount((prev) => Math.max(0, prev - 1));
       advanceCard("right");
     }
@@ -255,9 +263,19 @@ const EventLobby = () => {
           <LobbyEmptyState onRefresh={refetchDeck} />
         ) : (
           <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "65vh" }}>
-            {/* Next card (behind) */}
+            {/* Third card (deepest stack layer) */}
+            {sortedProfiles[currentIndex + 2] && (
+              <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
+                <LobbyProfileCard
+                  profile={sortedProfiles[currentIndex + 2]}
+                  userVibes={userVibes}
+                  isBehind
+                />
+              </div>
+            )}
+            {/* Second card (behind current) */}
             {nextProfile && (
-              <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none">
+              <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none translate-y-1">
                 <LobbyProfileCard
                   profile={nextProfile}
                   userVibes={userVibes}
@@ -284,12 +302,31 @@ const EventLobby = () => {
                   className="absolute inset-0"
                   initial={{ x: 0, opacity: 1, rotate: 0 }}
                   animate={{
-                    x: exitDirection === "left" ? -400 : 400,
+                    x: exitDirection === "left" ? -500 : 500,
                     opacity: 0,
-                    rotate: exitDirection === "left" ? -15 : 15,
+                    rotate: exitDirection === "left" ? -5 : 5,
                   }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  transition={{ type: "spring", stiffness: 200, damping: 20 }}
                 >
+                  {/* Stamp overlay during fly-off */}
+                  <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+                    <motion.div
+                      initial={{ scale: 0.5, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 0.8 }}
+                      className={`px-6 py-3 rounded-xl border-4 ${
+                        exitDirection === "right"
+                          ? "border-green-400 bg-green-500/20"
+                          : "border-destructive bg-destructive/20"
+                      } backdrop-blur-sm`}
+                      style={{ transform: `rotate(${exitDirection === "right" ? -15 : 15}deg)` }}
+                    >
+                      <span className={`font-display font-bold text-2xl ${
+                        exitDirection === "right" ? "text-green-400" : "text-destructive"
+                      }`}>
+                        {exitDirection === "right" ? "VIBE ✨" : "PASS"}
+                      </span>
+                    </motion.div>
+                  </div>
                   <LobbyProfileCard profile={currentProfile} userVibes={userVibes} />
                 </motion.div>
               )}
@@ -368,14 +405,16 @@ interface SwipeableCardProps {
 
 const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled }: SwipeableCardProps) => {
   const x = useMotionValue(0);
-  const rotate = useTransform(x, [-200, 0, 200], [-12, 0, 12]);
-  const vibeOpacity = useTransform(x, [0, 80], [0, 1]);
-  const passOpacity = useTransform(x, [-80, 0], [1, 0]);
+  const rotate = useTransform(x, [-200, 0, 200], [-5, 0, 5]);
+  const vibeOpacity = useTransform(x, [0, 100], [0, 1]);
+  const passOpacity = useTransform(x, [-100, 0], [1, 0]);
+  const cardOpacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 0.8, 1, 0.8, 0.5]);
 
   const handleDragEnd = (_: any, info: PanInfo) => {
     if (disabled) return;
-    const threshold = 80;
+    const threshold = 100;
     if (info.offset.x > threshold) {
+      haptics.light();
       onSwipeRight();
     } else if (info.offset.x < -threshold) {
       onSwipeLeft();
@@ -385,14 +424,14 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
   return (
     <motion.div
       className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
-      style={{ x, rotate }}
+      style={{ x, rotate, opacity: cardOpacity }}
       drag={disabled ? false : "x"}
       dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.8}
+      dragElastic={0.7}
       onDragEnd={handleDragEnd}
       initial={{ scale: 0.95, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      transition={{ duration: 0.25 }}
+      transition={{ type: "spring", stiffness: 300, damping: 25 }}
     >
       {/* Swipe indicators */}
       <motion.div

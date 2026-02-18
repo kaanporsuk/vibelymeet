@@ -41,7 +41,7 @@ const App = () => (
       <NotificationProvider>
         <TooltipProvider>
           <Toaster />
-          <Sonner position="top-center" theme="dark" />
+          <Sonner position="top-center" theme="dark" richColors />
           <BrowserRouter>
             <NotificationContainer />
             <NotificationManager />

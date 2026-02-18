@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Heart, MessageCircle } from "lucide-react";
 import { ParticleBurst } from "@/components/chat/ParticleBurst";
+import { haptics } from "@/lib/haptics";
 
 interface MutualMatchCelebrationProps {
   partnerName: string;
@@ -13,6 +15,10 @@ export const MutualMatchCelebration = ({
   partnerImage,
   onContinue,
 }: MutualMatchCelebrationProps) => {
+  useEffect(() => {
+    haptics.celebration();
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.8 }}

@@ -110,6 +110,12 @@
   .pb-safe {
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+
+
+  /* Swipe stamp rotation for fly-off */
+  .swipe-stamp {
+    @apply pointer-events-none;
+  }
 }
 
 @layer utilities {
