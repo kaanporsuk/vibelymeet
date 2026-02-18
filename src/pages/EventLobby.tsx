@@ -115,6 +115,52 @@ const EventLobby = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // BUG 4 FIX: Check if user already has a pending ready gate on mount
+  useEffect(() => {
+    if (!user?.id || !eventId) return;
+    const checkExisting = async () => {
+      const { data } = await supabase
+        .from("event_registrations")
+        .select("queue_status, current_room_id")
+        .eq("event_id", eventId)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      if (data?.queue_status === "in_ready_gate" && data.current_room_id && !activeSessionId) {
+        setActiveSessionId(data.current_room_id);
+      }
+    };
+    checkExisting();
+  }, [user?.id, eventId, activeSessionId]);
+
+  // BUG 4 FIX: Realtime subscription for own registration status changes
+  // This ensures the FIRST swiper sees the Ready Gate when the second swiper triggers a mutual match
+  useEffect(() => {
+    if (!user?.id || !eventId) return;
+    const channel = supabase
+      .channel(`my-registration-${eventId}-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "event_registrations",
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          if (row.profile_id !== user.id) return;
+          if (row.queue_status === "in_ready_gate" && row.current_room_id && !activeSessionId) {
+            console.log("[Lobby] Realtime: ready gate detected for me", row.current_room_id);
+            setActiveSessionId(row.current_room_id as string);
+          }
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, eventId, activeSessionId]);
+
   // Event countdown timer
   useEffect(() => {
     if (!event) return;

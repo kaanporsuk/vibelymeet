@@ -6,6 +6,7 @@ import {
   Calendar,
   TrendingUp,
   Activity,
+  Menu,
   Heart,
   MessageSquare,
   UserCheck,
@@ -44,6 +45,7 @@ const AdminDashboard = () => {
   const navigate = useNavigate();
   const [activePanel, setActivePanel] = useState<ActivePanel>('overview');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Enable real-time updates
   useAdminRealtime({ enabled: true });
@@ -73,6 +75,8 @@ const AdminDashboard = () => {
         activePanel={activePanel} 
         setActivePanel={setActivePanel}
         onLogout={handleLogout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       {/* Main Content */}
@@ -80,7 +84,14 @@ const AdminDashboard = () => {
         {/* Header */}
         <header className="sticky top-0 z-40 glass-card border-b border-border/50 rounded-none">
           <div className="px-6 py-4 flex items-center justify-between">
-            <div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-md hover:bg-secondary"
+              >
+                <Menu className="w-5 h-5 text-foreground" />
+              </button>
+              <div>
               <h1 className="text-2xl font-bold font-display text-foreground">
                 {activePanel === 'overview' && 'Dashboard Overview'}
                 {activePanel === 'users' && 'User Management'}
@@ -103,6 +114,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
               </p>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <Button
