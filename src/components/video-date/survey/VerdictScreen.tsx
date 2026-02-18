@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Heart, X, AlertTriangle } from "lucide-react";
+import { haptics } from "@/lib/haptics";
 
 interface VerdictScreenProps {
   partnerName: string;
@@ -16,9 +17,9 @@ export const VerdictScreen = ({
 }: VerdictScreenProps) => {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
+      initial={{ opacity: 0, x: 40 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -40 }}
       className="flex flex-col items-center space-y-8 py-4"
     >
       {/* Partner Photo */}
@@ -59,7 +60,7 @@ export const VerdictScreen = ({
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => onVerdict(true)}
+          onClick={() => { haptics.light(); onVerdict(true); }}
           className="relative w-full py-5 px-6 rounded-xl font-semibold text-lg overflow-hidden group"
           style={{
             background:
