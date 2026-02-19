@@ -221,7 +221,15 @@ export type Database = {
           target_id?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_feedback_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       date_proposals: {
         Row: {
