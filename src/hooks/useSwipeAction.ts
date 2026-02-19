@@ -21,7 +21,7 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
 
   const swipe = useCallback(
     async (targetId: string, swipeType: "vibe" | "pass" | "super_vibe"): Promise<SwipeResult | null> => {
-      if (!user?.id || !eventId || isProcessing) return null;
+      if (!user?.id || !eventId) return null;
 
       setIsProcessing(true);
       try {
@@ -91,7 +91,7 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
         setIsProcessing(false);
       }
     },
-    [user?.id, eventId, isProcessing, onMatch, onMatchQueued]
+    [user?.id, eventId, onMatch, onMatchQueued]
   );
 
   return { swipe, isProcessing };

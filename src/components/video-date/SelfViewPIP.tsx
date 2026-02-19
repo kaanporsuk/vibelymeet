@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
 import { VideoOff, MicOff } from "lucide-react";
-import { RefObject } from "react";
+import { RefObject, useRef, useEffect } from "react";
 
 interface SelfViewPIPProps {
-  videoRef: RefObject<HTMLVideoElement>;
+  stream: MediaStream | null;
   isVideoOff: boolean;
   isMuted: boolean;
   containerRef: RefObject<HTMLDivElement>;
@@ -11,12 +11,21 @@ interface SelfViewPIPProps {
 }
 
 export const SelfViewPIP = ({
-  videoRef,
+  stream,
   isVideoOff,
   isMuted,
   containerRef,
   blurAmount = 0,
 }: SelfViewPIPProps) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Set stream on the video element whenever it changes
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.8 }}

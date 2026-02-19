@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -24,25 +24,20 @@ const VIBE_PROMPTS = [
 interface IceBreakerCardProps {
   sessionId?: string;
   onPromptChange?: (prompt: string) => void;
+  onDismiss?: () => void;
 }
 
-/**
- * Synchronized vibe questions: both users see the same question at the same time.
- * On mount, seeds the session's vibe_questions array if empty, then reads from it.
- * Advances through the list based on a shared timer index.
- */
-export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProps) => {
+export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBreakerCardProps) => {
   const [questions, setQuestions] = useState<string[]>(VIBE_PROMPTS);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isShuffling, setIsShuffling] = useState(false);
-  const [startTime, setStartTime] = useState<number>(Date.now());
+  const [isDismissed, setIsDismissed] = useState(false);
 
   // Seed questions into the session record on mount
   useEffect(() => {
     if (!sessionId) return;
 
     const seedQuestions = async () => {
-      // Check if questions are already stored
       const { data } = await supabase
         .from("video_sessions")
         .select("vibe_questions")
@@ -54,7 +49,6 @@ export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProp
       if (stored && Array.isArray(stored) && stored.length > 0) {
         setQuestions(stored);
       } else {
-        // Shuffle and store a deterministic list for this session
         const shuffled = [...VIBE_PROMPTS].sort(() => Math.random() - 0.5);
         await supabase
           .from("video_sessions")
@@ -67,7 +61,7 @@ export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProp
     seedQuestions();
   }, [sessionId]);
 
-  // Subscribe to changes on the session's vibe_questions for sync
+  // Subscribe to changes for sync
   useEffect(() => {
     if (!sessionId) return;
 
@@ -95,8 +89,7 @@ export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProp
     };
   }, [sessionId]);
 
-  // Auto-advance every 30 seconds using a shared timer
-  // Both clients started roughly at the same time, so they advance together
+  // Auto-advance every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentIndex((prev) => {
@@ -104,14 +97,23 @@ export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProp
         onPromptChange?.(questions[next]);
         return next;
       });
+      // Reappear if dismissed
+      setIsDismissed(false);
     }, 30000);
 
     return () => clearInterval(interval);
   }, [questions, onPromptChange]);
 
+  // Dismiss on tap — reappear after 30s (handled by auto-advance)
+  const handleDismiss = useCallback(() => {
+    setIsDismissed(true);
+    onDismiss?.();
+  }, [onDismiss]);
+
   const currentPrompt = questions[currentIndex] || VIBE_PROMPTS[0];
 
-  const shufflePrompt = useCallback(() => {
+  const shufflePrompt = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsShuffling(true);
     setCurrentIndex((prev) => {
       let next;
@@ -129,56 +131,41 @@ export const IceBreakerCard = ({ sessionId, onPromptChange }: IceBreakerCardProp
     }
   }, [questions, onPromptChange]);
 
+  if (isDismissed) return null;
+
   return (
-    <motion.div
-      initial={{ y: 50, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay: 0.5, type: "spring", stiffness: 200 }}
-      className="glass-card px-5 py-4 max-w-sm mx-auto"
+    <motion.button
+      onClick={handleDismiss}
+      className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-background/60 backdrop-blur-md border border-border/30 max-h-[60px] overflow-hidden cursor-pointer"
+      style={{ boxShadow: "0 4px 20px hsl(var(--background) / 0.4)" }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-accent" />
-          <span className="text-xs font-medium text-accent uppercase tracking-wider">
-            Vibe Prompt
-          </span>
-        </div>
-
-        <motion.button
-          onClick={shufflePrompt}
-          disabled={isShuffling}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className="p-2 rounded-full bg-secondary/50 hover:bg-secondary transition-colors"
-        >
-          <motion.div
-            animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <RefreshCw className="w-4 h-4 text-muted-foreground" />
-          </motion.div>
-        </motion.button>
-      </div>
-
-      {/* Prompt */}
+      {/* Prompt text */}
       <AnimatePresence mode="wait">
         <motion.p
           key={currentPrompt}
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.2 }}
-          className="text-base font-medium text-foreground leading-relaxed"
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.15 }}
+          className="flex-1 text-sm font-medium text-foreground leading-snug text-left line-clamp-2"
         >
           {currentPrompt}
         </motion.p>
       </AnimatePresence>
 
-      {/* Hint */}
-      <p className="text-xs text-muted-foreground mt-3">
-        Both of you see the same question ✨
-      </p>
-    </motion.div>
+      {/* Shuffle button */}
+      <motion.div
+        onClick={shufflePrompt}
+        whileTap={{ scale: 0.85 }}
+        className="shrink-0 w-7 h-7 rounded-full bg-secondary/60 flex items-center justify-center"
+      >
+        <motion.div
+          animate={isShuffling ? { rotate: 360 } : { rotate: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+        </motion.div>
+      </motion.div>
+    </motion.button>
   );
 };

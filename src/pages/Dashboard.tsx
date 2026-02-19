@@ -10,18 +10,53 @@ import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateR
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { ActiveCallBanner } from "@/components/events/ActiveCallBanner";
 import { useNextRegisteredEvent, useEvents, useRealtimeEvents } from "@/hooks/useEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   useRealtimeEvents();
+
+  // Active session detection for rejoin banner
+  const [activeSession, setActiveSession] = useState<{ sessionId: string; eventId: string } | null>(null);
+
+  useEffect(() => {
+    const checkActive = async () => {
+      if (!user?.id) return;
+
+      const { data: reg } = await supabase
+        .from("event_registrations")
+        .select("event_id, current_room_id, queue_status")
+        .eq("profile_id", user.id)
+        .in("queue_status", ["in_handshake", "in_date", "in_ready_gate"])
+        .not("current_room_id", "is", null)
+        .maybeSingle();
+
+      if (reg?.current_room_id) {
+        const { data: session } = await supabase
+          .from("video_sessions")
+          .select("id, ended_at")
+          .eq("id", reg.current_room_id)
+          .is("ended_at", null)
+          .maybeSingle();
+
+        if (session) {
+          setActiveSession({ sessionId: session.id, eventId: reg.event_id });
+        }
+      }
+    };
+    checkActive();
+  }, [user?.id]);
 
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useEvents();
@@ -83,6 +118,23 @@ const Dashboard = () => {
 
   return (
     <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
+      {/* Active Call Rejoin Banner */}
+      <AnimatePresence>
+        {activeSession && (
+          <ActiveCallBanner
+            sessionId={activeSession.sessionId}
+            onRejoin={() => navigate(`/date/${activeSession.sessionId}`)}
+            onEnd={async () => {
+              await supabase.from("video_sessions").update({ ended_at: new Date().toISOString() }).eq("id", activeSession.sessionId);
+              if (user?.id) {
+                await supabase.from("event_registrations").update({ queue_status: "browsing", current_room_id: null, current_partner_id: null }).eq("profile_id", user.id).eq("event_id", activeSession.eventId);
+              }
+              setActiveSession(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
