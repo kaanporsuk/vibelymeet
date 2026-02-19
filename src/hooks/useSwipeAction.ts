@@ -71,6 +71,10 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             toast("You've already sent them a Super Vibe recently.", { duration: 2500 });
             return result;
 
+          case "already_matched":
+            // Silently return — user already matched with this person
+            return result;
+
           case "blocked":
           case "reported":
             toast("This person is not available for matching.", { duration: 2000 });
