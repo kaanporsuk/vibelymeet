@@ -80,6 +80,7 @@ const VideoDate = () => {
     isVideoOff,
     localVideoRef,
     remoteVideoRef,
+    localStream,
     startCall,
     endCall,
     toggleMute,
@@ -261,11 +262,17 @@ const VideoDate = () => {
     };
   }, []);
 
-  // Beforeunload — cleanup session and status via sendBeacon
+  // Beforeunload — warn user and cleanup session via sendBeacon
   useEffect(() => {
     if (!id || !user?.id) return;
 
-    const handleBeforeUnload = () => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Warn user they're leaving an active call
+      if (isConnected) {
+        e.preventDefault();
+        e.returnValue = "You're in a video date. Are you sure you want to leave?";
+      }
+
       // End the session in DB
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       const baseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -302,7 +309,7 @@ const VideoDate = () => {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [id, user?.id, eventId]);
+  }, [id, user?.id, eventId, isConnected]);
 
   // Record user's vibe
   const handleUserVibe = useCallback(async () => {
@@ -548,7 +555,7 @@ const VideoDate = () => {
       {/* ─── Self-View PIP ─── */}
       {isConnected && (
         <SelfViewPIP
-          videoRef={localVideoRef}
+          stream={localStream}
           isVideoOff={isVideoOff}
           isMuted={isMuted}
           containerRef={remoteContainerRef}
@@ -556,16 +563,19 @@ const VideoDate = () => {
         />
       )}
 
-      {/* ─── Ice Breaker ─── */}
+      {/* ─── Ice Breaker (compact pill) ─── */}
       <AnimatePresence>
         {isConnected && showIceBreaker && !showFeedback && (
           <motion.div
-            initial={{ y: 30, opacity: 0 }}
+            initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 20, opacity: 0 }}
-            className="absolute bottom-44 left-4 right-4 z-20"
+            exit={{ y: 10, opacity: 0 }}
+            className="absolute bottom-28 left-3 right-3 z-20"
           >
-            <IceBreakerCard sessionId={id} />
+            <IceBreakerCard
+              sessionId={id}
+              onDismiss={() => setShowIceBreaker(false)}
+            />
           </motion.div>
         )}
       </AnimatePresence>

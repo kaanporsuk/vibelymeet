@@ -238,34 +238,37 @@ const EventLobby = () => {
     }, 300);
   }, []);
 
-  // FAILURE 3 FIX: ALWAYS advance card after swipe, regardless of result
+  // FIX A1: Advance card IMMEDIATELY before awaiting swipe result
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing || isAnimating) return;
+    if (!currentProfile || isAnimating) return;
     haptics.light();
-    const result = await swipe(currentProfile.profile_id, "vibe");
+    const targetId = currentProfile.profile_id;
+    advanceCard("right");
+
+    const result = await swipe(targetId, "vibe");
     if (result && ((result as any).result === "match" || (result as any).result === "match_queued")) {
       haptics.medium();
     }
-    // Always advance — swipe is recorded (or was already recorded)
-    advanceCard("right");
-  }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
+  }, [currentProfile, isAnimating, swipe, advanceCard]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || isProcessing || isAnimating) return;
-    await swipe(currentProfile.profile_id, "pass");
+    if (!currentProfile || isAnimating) return;
+    const targetId = currentProfile.profile_id;
     advanceCard("left");
-  }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
+    await swipe(targetId, "pass");
+  }, [currentProfile, isAnimating, swipe, advanceCard]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing || isAnimating) return;
+    if (!currentProfile || isAnimating) return;
     haptics.light();
-    const result = await swipe(currentProfile.profile_id, "super_vibe");
+    const targetId = currentProfile.profile_id;
+    advanceCard("right");
+
+    const result = await swipe(targetId, "super_vibe");
     if (result && (result as any).result === "super_vibe_sent") {
       setSuperVibeCount((prev) => Math.max(0, prev - 1));
     }
-    // Always advance
-    advanceCard("right");
-  }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
+  }, [currentProfile, isAnimating, swipe, advanceCard]);
 
   // Loading state
   if (eventLoading || regLoading) {
@@ -345,7 +348,7 @@ const EventLobby = () => {
                   userVibes={userVibes}
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
-                  disabled={isProcessing || isAnimating}
+                  disabled={isAnimating}
                 />
               )}
               {currentProfile && exitDirection && (
@@ -396,7 +399,7 @@ const EventLobby = () => {
             {/* Pass */}
             <button
               onClick={handlePass}
-              disabled={isProcessing || isAnimating}
+              disabled={isAnimating}
               className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center hover:bg-destructive/20 hover:border-destructive/40 transition-all active:scale-90 disabled:opacity-40"
             >
               <X className="w-6 h-6 text-muted-foreground" />
@@ -405,7 +408,7 @@ const EventLobby = () => {
             {/* Super Vibe */}
             <button
               onClick={handleSuperVibe}
-              disabled={isProcessing || isAnimating || superVibeCount <= 0}
+              disabled={isAnimating || superVibeCount <= 0}
               className="relative w-12 h-12 rounded-full bg-neon-yellow/20 border border-neon-yellow/40 flex items-center justify-center hover:bg-neon-yellow/30 transition-all active:scale-90 disabled:opacity-30"
             >
               <Star className="w-5 h-5 text-neon-yellow" fill="hsl(var(--neon-yellow))" />
@@ -419,7 +422,7 @@ const EventLobby = () => {
             {/* Vibe */}
             <button
               onClick={handleVibe}
-              disabled={isProcessing || isAnimating}
+              disabled={isAnimating}
               className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center hover:shadow-lg hover:shadow-primary/30 transition-all active:scale-90 disabled:opacity-40 neon-glow-pink"
             >
               <Heart className="w-6 h-6 text-primary-foreground" fill="white" />

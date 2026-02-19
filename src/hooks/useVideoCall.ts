@@ -39,6 +39,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -78,6 +79,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
     localStreamRef.current = stream;
+    setLocalStream(stream);
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = stream;
     }
@@ -422,6 +424,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
     }
+    setLocalStream(null);
 
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -492,6 +495,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     connectionAttempt,
     localVideoRef,
     remoteVideoRef,
+    localStream,
     checkPermissions,
     startCall,
     endCall,
