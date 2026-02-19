@@ -87,6 +87,33 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
           refreshQueueCount();
         }
       )
+      // Also listen for INSERT — immediate matches are CREATED with 'ready' status
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "video_sessions",
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          const session = payload.new as any;
+          const isParticipant =
+            session.participant_1_id === user.id || session.participant_2_id === user.id;
+
+          if (!isParticipant) return;
+
+          if (session.ready_gate_status === "ready") {
+            const partnerId =
+              session.participant_1_id === user.id
+                ? session.participant_2_id
+                : session.participant_1_id;
+            onMatchReadyRef.current?.(session.id, partnerId);
+          }
+
+          refreshQueueCount();
+        }
+      )
       .subscribe();
 
     return () => {

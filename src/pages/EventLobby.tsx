@@ -132,26 +132,31 @@ const EventLobby = () => {
     checkExisting();
   }, [user?.id, eventId, activeSessionId]);
 
-  // BUG 4 FIX: Realtime subscription for own registration status changes
-  // This ensures the FIRST swiper sees the Ready Gate when the second swiper triggers a mutual match
+  // FAILURE 1 FIX: Realtime subscription for own registration status changes
+  // Uses profile_id filter for efficiency — only fires for THIS user's row
   useEffect(() => {
     if (!user?.id || !eventId) return;
     const channel = supabase
-      .channel(`my-registration-${eventId}-${user.id}`)
+      .channel(`lobby-match-${eventId}-${user.id}`)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "event_registrations",
-          filter: `event_id=eq.${eventId}`,
+          filter: `profile_id=eq.${user.id}`,
         },
         (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          if (row.profile_id !== user.id) return;
-          if (row.queue_status === "in_ready_gate" && row.current_room_id && !activeSessionId) {
-            console.log("[Lobby] Realtime: ready gate detected for me", row.current_room_id);
-            setActiveSessionId(row.current_room_id as string);
+          const newData = payload.new as Record<string, unknown>;
+          if (newData.event_id !== eventId) return;
+
+          // Detect when we've been matched and moved to ready gate
+          if (
+            newData.queue_status === "in_ready_gate" &&
+            newData.current_room_id
+          ) {
+            console.log("[Lobby] Realtime: ready gate detected", newData.current_room_id);
+            setActiveSessionId(newData.current_room_id as string);
           }
         }
       )
@@ -159,7 +164,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, activeSessionId]);
+  }, [user?.id, eventId]);
 
   // Event countdown timer
   useEffect(() => {
@@ -233,22 +238,22 @@ const EventLobby = () => {
     }, 300);
   }, []);
 
+  // FAILURE 3 FIX: ALWAYS advance card after swipe, regardless of result
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || isAnimating) return;
     haptics.light();
     const result = await swipe(currentProfile.profile_id, "vibe");
-    if (result) {
-      if ((result as any).result === "match" || (result as any).result === "match_queued") {
-        haptics.medium();
-      }
-      advanceCard("right");
+    if (result && ((result as any).result === "match" || (result as any).result === "match_queued")) {
+      haptics.medium();
     }
+    // Always advance — swipe is recorded (or was already recorded)
+    advanceCard("right");
   }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing || isAnimating) return;
-    const result = await swipe(currentProfile.profile_id, "pass");
-    if (result) advanceCard("left");
+    await swipe(currentProfile.profile_id, "pass");
+    advanceCard("left");
   }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
 
   const handleSuperVibe = useCallback(async () => {
@@ -257,8 +262,9 @@ const EventLobby = () => {
     const result = await swipe(currentProfile.profile_id, "super_vibe");
     if (result && (result as any).result === "super_vibe_sent") {
       setSuperVibeCount((prev) => Math.max(0, prev - 1));
-      advanceCard("right");
     }
+    // Always advance
+    advanceCard("right");
   }, [currentProfile, isProcessing, isAnimating, swipe, advanceCard]);
 
   // Loading state
