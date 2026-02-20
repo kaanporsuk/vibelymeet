@@ -474,23 +474,39 @@ export type Database = {
       }
       events: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
+          city: string | null
+          country: string | null
           cover_image: string
           created_at: string
           current_attendees: number | null
           description: string | null
           duration_minutes: number | null
+          ended_at: string | null
           event_date: string
           id: string
           is_free: boolean | null
           is_location_specific: boolean | null
+          is_recurring: boolean | null
+          latitude: number | null
           location_address: string | null
           location_name: string | null
+          longitude: number | null
           max_attendees: number | null
           max_female_attendees: number | null
           max_male_attendees: number | null
           max_nonbinary_attendees: number | null
+          occurrence_number: number | null
+          parent_event_id: string | null
           price_amount: number | null
           price_currency: string | null
+          radius_km: number | null
+          recurrence_count: number | null
+          recurrence_days: number[] | null
+          recurrence_ends_at: string | null
+          recurrence_type: string | null
+          scope: string | null
           status: string | null
           tags: string[] | null
           title: string
@@ -499,23 +515,39 @@ export type Database = {
           visibility: string | null
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
+          city?: string | null
+          country?: string | null
           cover_image: string
           created_at?: string
           current_attendees?: number | null
           description?: string | null
           duration_minutes?: number | null
+          ended_at?: string | null
           event_date: string
           id?: string
           is_free?: boolean | null
           is_location_specific?: boolean | null
+          is_recurring?: boolean | null
+          latitude?: number | null
           location_address?: string | null
           location_name?: string | null
+          longitude?: number | null
           max_attendees?: number | null
           max_female_attendees?: number | null
           max_male_attendees?: number | null
           max_nonbinary_attendees?: number | null
+          occurrence_number?: number | null
+          parent_event_id?: string | null
           price_amount?: number | null
           price_currency?: string | null
+          radius_km?: number | null
+          recurrence_count?: number | null
+          recurrence_days?: number[] | null
+          recurrence_ends_at?: string | null
+          recurrence_type?: string | null
+          scope?: string | null
           status?: string | null
           tags?: string[] | null
           title: string
@@ -524,23 +556,39 @@ export type Database = {
           visibility?: string | null
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
+          city?: string | null
+          country?: string | null
           cover_image?: string
           created_at?: string
           current_attendees?: number | null
           description?: string | null
           duration_minutes?: number | null
+          ended_at?: string | null
           event_date?: string
           id?: string
           is_free?: boolean | null
           is_location_specific?: boolean | null
+          is_recurring?: boolean | null
+          latitude?: number | null
           location_address?: string | null
           location_name?: string | null
+          longitude?: number | null
           max_attendees?: number | null
           max_female_attendees?: number | null
           max_male_attendees?: number | null
           max_nonbinary_attendees?: number | null
+          occurrence_number?: number | null
+          parent_event_id?: string | null
           price_amount?: number | null
           price_currency?: string | null
+          radius_km?: number | null
+          recurrence_count?: number | null
+          recurrence_days?: number[] | null
+          recurrence_ends_at?: string | null
+          recurrence_type?: string | null
+          scope?: string | null
           status?: string | null
           tags?: string[] | null
           title?: string
@@ -548,7 +596,15 @@ export type Database = {
           vibes?: string[] | null
           visibility?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "events_parent_event_id_fkey"
+            columns: ["parent_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       match_mutes: {
         Row: {
@@ -1359,6 +1415,10 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
+      generate_recurring_events: {
+        Args: { p_count?: number; p_parent_id: string }
+        Returns: number
+      }
       get_event_deck: {
         Args: { p_event_id: string; p_limit?: number; p_user_id: string }
         Returns: {
@@ -1381,6 +1441,49 @@ export type Database = {
           video_intro_url: string
         }[]
       }
+      get_other_city_events: {
+        Args: { p_user_id: string; p_user_lat?: number; p_user_lng?: number }
+        Returns: {
+          city: string
+          country: string
+          event_count: number
+          sample_cover: string
+        }[]
+      }
+      get_visible_events: {
+        Args: {
+          p_browse_lat?: number
+          p_browse_lng?: number
+          p_is_premium?: boolean
+          p_user_id: string
+          p_user_lat?: number
+          p_user_lng?: number
+        }
+        Returns: {
+          city: string
+          computed_status: string
+          country: string
+          cover_image: string
+          current_attendees: number
+          description: string
+          distance_km: number
+          duration_minutes: number
+          event_date: string
+          id: string
+          is_recurring: boolean
+          is_registered: boolean
+          latitude: number
+          longitude: number
+          max_attendees: number
+          occurrence_number: number
+          parent_event_id: string
+          radius_km: number
+          scope: string
+          status: string
+          tags: string[]
+          title: string
+        }[]
+      }
       handle_swipe: {
         Args: {
           p_actor_id: string
@@ -1396,6 +1499,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      haversine_distance: {
+        Args: { lat1: number; lat2: number; lng1: number; lng2: number }
+        Returns: number
       }
       is_blocked: {
         Args: { user1_id: string; user2_id: string }
