@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
@@ -12,10 +12,12 @@ import { FeaturedEventSkeleton, EventsRailSkeleton } from "@/components/ShimmerS
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -29,9 +31,25 @@ const LocationPromptBanner = () => {
         navigator.geolocation.getCurrentPosition(res, rej)
       );
       const { lat, lng } = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+      // Reverse geocode to get country
+      let country: string | null = null;
+      try {
+        const { data: geoData } = await supabase.functions.invoke('geocode', {
+          body: { lat, lng }
+        });
+        country = geoData?.country || null;
+      } catch { /* ignore geocode errors */ }
+
       await supabase.from("profiles").update({
         location_data: { lat, lng } as any,
+        ...(country ? { country } : {}),
       }).eq("id", user.id);
+
+      // Refresh event lists with new location
+      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+      queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
+
       toast.success("Location saved! Discovering events near you…");
       setDismissed(true);
     } catch {
@@ -151,11 +169,14 @@ const Events = () => {
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
 
   // Check if user has location set
-  useMemo(async () => {
-    if (!user?.id) return;
-    const { data } = await supabase.from("profiles").select("location_data").eq("id", user.id).maybeSingle();
-    const ld = data?.location_data as { lat?: number } | null;
-    setHasLocation(!!(ld?.lat));
+  useEffect(() => {
+    const checkLocation = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase.from("profiles").select("location_data").eq("id", user.id).maybeSingle();
+      const ld = data?.location_data as { lat?: number } | null;
+      setHasLocation(!!(ld?.lat));
+    };
+    checkLocation();
   }, [user?.id]);
 
   // Map to the shape EventCardPremium / EventsRail expect
@@ -273,7 +294,9 @@ const Events = () => {
                       animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.2 }}>
                       <EventCardPremium id={event.id} title={event.title} image={event.image}
                         date={event.date} time={event.time} attendees={event.attendees}
-                        tags={event.tags} status={event.status} />
+                        tags={event.tags} status={event.status}
+                        scope={(event as any).scope} city={(event as any).city}
+                        country={(event as any).country} distanceKm={(event as any).distance_km} />
                     </motion.div>
                   ))}
                 </motion.div>

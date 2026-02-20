@@ -4,10 +4,17 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { EventCardPremium } from "./EventCardPremium";
 import type { Event } from "@/hooks/useEvents";
 
+interface ExtendedEvent extends Event {
+  scope?: string;
+  city?: string | null;
+  country?: string | null;
+  distance_km?: number | null;
+}
+
 interface EventsRailProps {
   title: string;
   emoji?: string;
-  events: Event[];
+  events: ExtendedEvent[];
   accentColor?: "pink" | "violet" | "cyan";
 }
 
@@ -49,7 +56,7 @@ export const EventsRail = ({
           {emoji && <span className="text-2xl">{emoji}</span>}
           <span className={accentClasses[accentColor]}>{title}</span>
         </h2>
-        
+
         {/* Navigation Arrows (Desktop) */}
         <div className="hidden md:flex items-center gap-2">
           <button
@@ -71,9 +78,7 @@ export const EventsRail = ({
       <div
         ref={scrollRef}
         className="flex gap-4 overflow-x-auto pb-4 px-4 scrollbar-hide scroll-smooth"
-        style={{
-          scrollSnapType: "x mandatory",
-        }}
+        style={{ scrollSnapType: "x mandatory" }}
       >
         {events.map((event, index) => (
           <motion.div
@@ -92,6 +97,10 @@ export const EventsRail = ({
               attendees={event.attendees}
               tags={event.tags}
               status={event.status}
+              scope={event.scope}
+              city={event.city}
+              country={event.country}
+              distanceKm={event.distance_km}
             />
           </motion.div>
         ))}

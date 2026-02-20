@@ -25,7 +25,13 @@ export interface EventDetails {
   currentWomen: number;
   tags: string[];
   isFree: boolean;
-  eventVibes: string[]; // The event's vibe tags
+  eventVibes: string[];
+  // New geo/series fields
+  parentEventId: string | null;
+  occurrenceNumber: number | null;
+  scope: string | null;
+  city: string | null;
+  country: string | null;
 }
 
 export interface EventAttendee {
@@ -151,6 +157,11 @@ export const useEventDetails = (eventId: string | undefined) => {
         }),
         isFree: data.is_free || false,
         eventVibes: eventVibeLabels,
+        parentEventId: data.parent_event_id ?? null,
+        occurrenceNumber: data.occurrence_number ?? null,
+        scope: data.scope ?? null,
+        city: data.city ?? null,
+        country: data.country ?? null,
       };
     },
   });

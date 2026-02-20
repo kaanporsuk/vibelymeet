@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users, Ticket, Check, Sparkles } from "lucide-react";
+import { Ticket, Sparkles, MapPin, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,10 @@ interface EventCardPremiumProps {
   tags: string[];
   vibeMatch?: number;
   status?: string;
+  scope?: string;
+  city?: string | null;
+  country?: string | null;
+  distanceKm?: number | null;
 }
 
 const tagEmojis: Record<string, string> = {
@@ -44,6 +48,10 @@ export const EventCardPremium = ({
   tags,
   vibeMatch = Math.floor(Math.random() * 20) + 80,
   status,
+  scope,
+  city,
+  country,
+  distanceKm,
 }: EventCardPremiumProps) => {
   const isLive = status === "live";
   const navigate = useNavigate();
@@ -194,6 +202,23 @@ export const EventCardPremium = ({
         <h3 className="font-display font-semibold text-lg text-foreground line-clamp-1 group-hover:text-primary transition-colors">
           {title}
         </h3>
+
+        {/* Location context */}
+        {scope === 'local' && city && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground -mt-1">
+            <MapPin className="w-3 h-3 shrink-0" />
+            <span>{city}{distanceKm != null ? ` · ${Math.round(distanceKm)}km away` : ''}</span>
+          </div>
+        )}
+        {scope === 'regional' && country && (
+          <div className="text-xs text-muted-foreground -mt-1">🏳️ {country}</div>
+        )}
+        {(scope === 'global' || !scope) && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground -mt-1">
+            <Globe className="w-3 h-3" />
+            <span>Global Event</span>
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>{date} • {time}</span>
