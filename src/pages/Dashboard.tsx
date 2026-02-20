@@ -18,6 +18,7 @@ import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
@@ -65,6 +66,7 @@ const Dashboard = () => {
   const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
   const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
   const { unreadCount, markAllAsRead } = useNotifications();
+  const { data: otherCities = [] } = useOtherCityEvents();
 
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
@@ -299,6 +301,34 @@ const Dashboard = () => {
           </div>
         )}
 
+
+        {/* Premium Nudge — other cities */}
+        {otherCities.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card p-4 border border-primary/20 bg-gradient-to-r from-primary/5 to-accent/5"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xl">💎</span>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {otherCities.reduce((sum, c) => sum + Number(c.event_count), 0)} events in {otherCities.length} {otherCities.length === 1 ? 'city' : 'cities'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {otherCities.slice(0, 3).map(c => c.city).join(' · ')}
+                    {otherCities.length > 3 ? ` + ${otherCities.length - 3} more` : ''}
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="shrink-0 text-xs border-primary/30 text-primary"
+                onClick={() => navigate("/events")}>
+                Go Premium →
+              </Button>
+            </div>
+          </motion.div>
+        )}
 
         {/* SECTION 3: YOUR MATCHES */}
         <section className="space-y-3">

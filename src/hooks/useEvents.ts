@@ -203,7 +203,8 @@ export const useNextRegisteredEvent = () => {
         .select(`
           event_id,
           events:event_id (
-            id, title, cover_image, event_date, current_attendees, duration_minutes
+            id, title, cover_image, event_date, current_attendees, duration_minutes,
+            scope, city, country, latitude, longitude
           )
         `)
         .eq("profile_id", user.id);

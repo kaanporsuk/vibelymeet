@@ -779,6 +779,7 @@ export type Database = {
           bio: string | null
           birth_date: string | null
           company: string | null
+          country: string | null
           created_at: string
           email_verified: boolean | null
           events_attended: number | null
@@ -813,6 +814,7 @@ export type Database = {
           bio?: string | null
           birth_date?: string | null
           company?: string | null
+          country?: string | null
           created_at?: string
           email_verified?: boolean | null
           events_attended?: number | null
@@ -847,6 +849,7 @@ export type Database = {
           bio?: string | null
           birth_date?: string | null
           company?: string | null
+          country?: string | null
           created_at?: string
           email_verified?: boolean | null
           events_attended?: number | null

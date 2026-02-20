@@ -121,6 +121,20 @@ const AdminEventsPanel = () => {
         await supabase.from('events').update({ status: 'ended', ended_at: new Date().toISOString() }).in('id', staleIds);
       }
 
+      // Auto-live events that have started but are still 'upcoming'
+      const liveIds = (data || [])
+        .filter(e => {
+          const now2 = new Date();
+          const start = new Date(e.event_date);
+          const end = new Date(start.getTime() + (e.duration_minutes || 60) * 60000);
+          return now2 >= start && now2 < end && e.status === 'upcoming';
+        })
+        .map(e => e.id);
+
+      if (liveIds.length > 0) {
+        await supabase.from('events').update({ status: 'live' }).in('id', liveIds);
+      }
+
       return data || [];
     },
   });

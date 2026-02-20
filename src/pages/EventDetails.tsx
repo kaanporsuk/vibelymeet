@@ -7,11 +7,15 @@ import {
   Clock, 
   Sparkles, 
   Share2,
-  Loader2
+  Loader2,
+  MapPin,
+  Globe,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
+import { format } from "date-fns";
 import VenueCard from "@/components/events/VenueCard";
 import MiniProfileModal from "@/components/events/MiniProfileModal";
 import TicketStub from "@/components/events/TicketStub";
@@ -28,7 +32,7 @@ import { useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useRealtimeEvents } from "@/hooks/useEvents";
 import { useEventVibes } from "@/hooks/useEventVibes";
 import { MutualVibesSection } from "@/components/events/MutualVibesSection";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 const EventDetails = () => {
@@ -48,6 +52,25 @@ const EventDetails = () => {
   
   // Event vibes hook for pre-event interest expressions
   const eventVibes = useEventVibes(id || "");
+
+  // Next event in series (for recurring indicator)
+  const { data: nextInSeries } = useQuery({
+    queryKey: ['next-in-series', event?.parentEventId],
+    enabled: !!event?.parentEventId,
+    queryFn: async () => {
+      if (!event?.parentEventId) return null;
+      const { data } = await supabase
+        .from('events')
+        .select('id, event_date, occurrence_number')
+        .eq('parent_event_id', event.parentEventId)
+        .gt('event_date', event.eventDate.toISOString())
+        .is('archived_at', null)
+        .order('event_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
   
   // Fetch current user's profile for gender-based pricing
   const [userProfile, setUserProfile] = useState<{ gender: string } | null>(null);
@@ -284,6 +307,40 @@ const EventDetails = () => {
 
       {/* Content */}
       <div className="px-4 py-6 space-y-6">
+
+        {/* Location context */}
+        {event.scope === 'local' && event.city && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground -mt-2">
+            <MapPin className="w-4 h-4 shrink-0 text-primary" />
+            <span>{event.city}{event.country ? `, ${event.country}` : ''}</span>
+          </div>
+        )}
+        {event.scope === 'global' && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground -mt-2">
+            <Globe className="w-4 h-4 shrink-0 text-primary" />
+            <span>Global Event — open to everyone</span>
+          </div>
+        )}
+
+        {/* Recurring series indicator */}
+        {event.parentEventId && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground rounded-xl bg-muted/40 px-3 py-2 -mt-2">
+            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+            <span>Part of a recurring series</span>
+            {nextInSeries && (
+              <>
+                <span>·</span>
+                <button
+                  onClick={() => navigate(`/events/${nextInSeries.id}`)}
+                  className="text-primary font-medium hover:underline"
+                >
+                  Next: {format(new Date(nextInSeries.event_date), 'MMM d')}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Tags */}
         <div className="flex gap-2 flex-wrap">
           {event.tags.map((tag) => (
