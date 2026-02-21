@@ -48,6 +48,7 @@ interface ChatUser {
   age: number;
   avatar_url: string;
   vibes: string[];
+  photos?: string[];
   isOnline: boolean;
   lastSeen?: string;
   photoVerified?: boolean;
@@ -167,7 +168,9 @@ export const ChatHeader = ({
               age: user.age,
               image: user.avatar_url,
               vibes: user.vibes,
+              photos: user.photos,
             }}
+            showActions={false}
             trigger={
               <div className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity">
                 <div className="relative">

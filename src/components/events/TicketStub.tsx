@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Calendar, Clock, MapPin, Ticket, QrCode } from "lucide-react";
+import { Calendar, Clock, MapPin, Ticket, QrCode, Video } from "lucide-react";
 
 interface TicketStubProps {
   eventTitle: string;
@@ -52,11 +52,13 @@ const TicketStub = ({
                 </div>
                 <div>
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    Vibely Ticket
+                    {isVirtual ? "Vibely Registration" : "Vibely Ticket"}
                   </span>
-                  <p className="text-xs text-muted-foreground">
-                    #{ticketNumber}
-                  </p>
+                  {!isVirtual && (
+                    <p className="text-xs text-muted-foreground">
+                      #{ticketNumber}
+                    </p>
+                  )}
                 </div>
               </div>
               <h2 className="text-xl font-bold text-foreground">{eventTitle}</h2>
@@ -102,16 +104,31 @@ const TicketStub = ({
                 </div>
               </div>
 
-              {/* QR Code */}
-              <div className="flex items-center justify-center pt-4">
-                <div className="p-4 bg-foreground rounded-xl">
-                  <QrCode className="w-24 h-24 text-background" />
+              {/* QR Code OR Virtual Join Instructions */}
+              {isVirtual ? (
+                <div className="flex flex-col items-center gap-3 pt-4">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                    <Video className="w-8 h-8 text-primary" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm font-semibold text-foreground">Virtual Event</p>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-[250px]">
+                      When the event goes live, tap "Enter Lobby" from the home page to join.
+                    </p>
+                  </div>
                 </div>
-              </div>
-
-              <p className="text-center text-xs text-muted-foreground">
-                Show this ticket at entry or use the link in your email
-              </p>
+              ) : (
+                <>
+                  <div className="flex items-center justify-center pt-4">
+                    <div className="p-4 bg-foreground rounded-xl">
+                      <QrCode className="w-24 h-24 text-background" />
+                    </div>
+                  </div>
+                  <p className="text-center text-xs text-muted-foreground">
+                    Show this ticket at entry
+                  </p>
+                </>
+              )}
             </div>
           </div>
 

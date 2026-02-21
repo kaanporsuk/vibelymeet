@@ -6,6 +6,8 @@ export interface Message {
   text: string;
   sender: "me" | "them";
   time: string;
+  audioUrl?: string;
+  audioDuration?: number;
 }
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
@@ -27,7 +29,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: messages, error: msgError } = await supabase
         .from("messages")
-        .select("id, match_id, sender_id, content, created_at, read_at")
+        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds")
         .eq("match_id", match.id)
         .order("created_at", { ascending: true });
 
@@ -35,7 +37,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: otherUser } = await supabase
         .from("profiles")
-        .select("id, name, age, avatar_url")
+        .select("id, name, age, avatar_url, photos, last_seen_at, photo_verified")
         .eq("id", otherUserId)
         .maybeSingle();
 
@@ -45,8 +47,10 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
         messages: (messages || []).map((msg) => ({
           id: msg.id,
           text: msg.content,
-          sender: msg.sender_id === currentUserId ? "me" : "them",
+          sender: msg.sender_id === currentUserId ? "me" as const : "them" as const,
           time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          audioUrl: msg.audio_url || undefined,
+          audioDuration: msg.audio_duration_seconds || undefined,
         })),
       };
     },

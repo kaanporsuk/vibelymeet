@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -16,6 +17,7 @@ import { VideoDateCard } from "@/components/chat/VideoDateCard";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
+import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -45,6 +47,8 @@ interface ChatMessage {
   type: "text" | "video-invite" | "voice";
   duration?: number;
   audioBlob?: Blob;
+  audioUrl?: string;
+  audioDuration?: number;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
 }
@@ -79,14 +83,27 @@ const Chat = () => {
   // Derive chat user info from real data or fallback
   const otherUser = useMemo(() => {
     if (chatData?.otherUser) {
+      const ou = chatData.otherUser;
+      const lastSeenAt = ou.last_seen_at ? new Date(ou.last_seen_at) : null;
+      const now = new Date();
+      const diffMinutes = lastSeenAt ? (now.getTime() - lastSeenAt.getTime()) / 60000 : Infinity;
+
       return {
-        id: chatData.otherUser.id,
-        name: chatData.otherUser.name || "Unknown",
-        age: chatData.otherUser.age || 0,
-        avatar_url: chatData.otherUser.avatar_url || "/placeholder.svg",
+        id: ou.id,
+        name: ou.name || "Unknown",
+        age: ou.age || 0,
+        avatar_url: ou.photos?.[0] || ou.avatar_url || "/placeholder.svg",
+        photos: ou.photos || [],
         vibes: [] as string[],
-        isOnline: false,
-        lastSeen: undefined as string | undefined,
+        isOnline: diffMinutes <= 5,
+        lastSeen: diffMinutes <= 5
+          ? undefined
+          : diffMinutes <= 60
+            ? "Recently active"
+            : lastSeenAt
+              ? `Active ${Math.round(diffMinutes / 60)}h ago`
+              : undefined,
+        photoVerified: ou.photo_verified || false,
       };
     }
     return {
@@ -94,9 +111,11 @@ const Chat = () => {
       name: "Loading...",
       age: 0,
       avatar_url: "/placeholder.svg",
+      photos: [] as string[],
       vibes: [] as string[],
       isOnline: false,
       lastSeen: undefined as string | undefined,
+      photoVerified: false,
     };
   }, [chatData?.otherUser, id]);
 
@@ -107,8 +126,10 @@ const Chat = () => {
       text: m.text,
       sender: m.sender,
       time: m.time,
-      type: "text" as const,
-      status: "read" as MessageStatusType,
+      type: (m.audioUrl ? "voice" : "text") as ChatMessage["type"],
+      audioUrl: m.audioUrl,
+      audioDuration: m.audioDuration,
+      status: "delivered" as MessageStatusType,
     }));
     return [...realMsgs, ...localMessages];
   }, [chatData?.messages, localMessages]);
@@ -228,9 +249,40 @@ const Chat = () => {
     toast.success("Video date invite sent!");
   };
 
-  const handleVoiceRecordingComplete = (_audioBlob: Blob, _duration: number) => {
+  const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
     setIsRecording(false);
-    toast.info("Voice messages coming soon!");
+
+    if (!chatData?.matchId || !user?.id) {
+      toast.error("Cannot send voice message right now");
+      return;
+    }
+
+    try {
+      const fileName = `${user.id}/${Date.now()}.webm`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("voice-messages")
+        .upload(fileName, audioBlob, { contentType: "audio/webm", upsert: false });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("voice-messages")
+        .getPublicUrl(uploadData.path);
+
+      const { error: msgError } = await supabase.from("messages").insert({
+        match_id: chatData.matchId,
+        sender_id: user.id,
+        content: "🎤 Voice message",
+        audio_url: publicUrl,
+        audio_duration_seconds: duration,
+      });
+
+      if (msgError) throw msgError;
+      toast.success("Voice message sent!");
+    } catch (err) {
+      console.error("Voice message error:", err);
+      toast.error("Failed to send voice message");
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -308,6 +360,25 @@ const Chat = () => {
                     }}
                     onDecline={() => toast.info("Maybe next time!")}
                   />
+                </div>
+              ) : message.audioUrl ? (
+                <div
+                  key={message.id}
+                  className={cn("flex", message.sender === "me" ? "justify-end" : "justify-start")}
+                >
+                  <div className={cn(
+                    "max-w-[75%] rounded-2xl px-4 py-3",
+                    message.sender === "me"
+                      ? "bg-gradient-to-r from-primary to-accent text-primary-foreground"
+                      : "glass-card border border-border/50 text-foreground"
+                  )}>
+                    <VoiceMessageBubble
+                      audioUrl={message.audioUrl}
+                      duration={message.audioDuration || 0}
+                      isMine={message.sender === "me"}
+                    />
+                    <p className="text-[10px] opacity-60 mt-1 text-right">{message.time}</p>
+                  </div>
                 </div>
               ) : (
                 <MessageBubble
