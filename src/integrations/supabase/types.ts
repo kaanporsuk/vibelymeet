@@ -695,6 +695,8 @@ export type Database = {
       }
       messages: {
         Row: {
+          audio_duration_seconds: number | null
+          audio_url: string | null
           content: string
           created_at: string
           id: string
@@ -703,6 +705,8 @@ export type Database = {
           sender_id: string
         }
         Insert: {
+          audio_duration_seconds?: number | null
+          audio_url?: string | null
           content: string
           created_at?: string
           id?: string
@@ -711,6 +715,8 @@ export type Database = {
           sender_id: string
         }
         Update: {
+          audio_duration_seconds?: number | null
+          audio_url?: string | null
           content?: string
           created_at?: string
           id?: string
@@ -789,6 +795,7 @@ export type Database = {
           interested_in: string[] | null
           is_suspended: boolean | null
           job: string | null
+          last_seen_at: string | null
           lifestyle: Json | null
           location: string | null
           location_data: Json | null
@@ -824,6 +831,7 @@ export type Database = {
           interested_in?: string[] | null
           is_suspended?: boolean | null
           job?: string | null
+          last_seen_at?: string | null
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
@@ -859,6 +867,7 @@ export type Database = {
           interested_in?: string[] | null
           is_suspended?: boolean | null
           job?: string | null
+          last_seen_at?: string | null
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null

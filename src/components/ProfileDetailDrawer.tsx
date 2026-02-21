@@ -328,7 +328,7 @@ export const ProfileDetailDrawer = ({
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* Hero Section - Full Width Photo */}
-          <div className="relative w-full aspect-[3/4] min-h-[65vh] max-h-[80vh]">
+          <div className="relative w-full aspect-[3/4] max-h-[60vh]">
             {hasVideoIntro && !showVideoOverlay ? (
               <>
                 <AnimatePresence mode="wait">

@@ -173,7 +173,9 @@ const EventDetails = () => {
       });
 
       toast.success("You're on the list! 🎉", {
-        description: "Check your email for confirmation",
+        description: event.isVirtual
+          ? "You'll be able to join when the event goes live"
+          : "Check your email for confirmation",
       });
 
       setTimeout(() => setShowTicket(true), 800);

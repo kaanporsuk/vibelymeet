@@ -32,6 +32,12 @@ import { AuthProvider } from "./contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
+
+const AppContent = () => {
+  useActivityHeartbeat();
+  return null;
+};
 
 const queryClient = new QueryClient();
 
@@ -43,6 +49,7 @@ const App = () => (
           <Toaster />
           <Sonner position="top-center" theme="dark" richColors />
           <BrowserRouter>
+            <AppContent />
             <NotificationContainer />
             <NotificationManager />
             <Routes>

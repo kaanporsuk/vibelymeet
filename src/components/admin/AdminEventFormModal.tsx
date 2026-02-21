@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, memo } from "react";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
+import React from "react";
 
 interface AdminEventFormModalProps {
   event?: any;
@@ -56,6 +57,46 @@ interface GeoResult {
   display_name: string;
 }
 
+// ✅ CollapsibleSection defined OUTSIDE the component to prevent re-mount on parent re-render
+interface CollapsibleSectionProps {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isOpen: boolean;
+  onToggle: () => void;
+  badge?: string;
+  children: React.ReactNode;
+}
+
+const CollapsibleSection = memo(({
+  title,
+  icon: Icon,
+  isOpen,
+  onToggle,
+  badge,
+  children,
+}: CollapsibleSectionProps) => (
+  <div className="rounded-xl border border-border overflow-hidden">
+    <button type="button" onClick={onToggle}
+      className="w-full flex items-center justify-between p-4 bg-secondary/30 hover:bg-secondary/50 transition-colors">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold text-foreground uppercase tracking-wider">{title}</span>
+        {badge && <Badge variant="secondary" className="text-xs">{badge}</Badge>}
+      </div>
+      {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+    </button>
+    <AnimatePresence initial={false}>
+      {isOpen && (
+        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+          <div className="p-4 space-y-4 bg-card">{children}</div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+));
+CollapsibleSection.displayName = "CollapsibleSection";
+
 const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const queryClient = useQueryClient();
   const { logActivity } = useAdminActivityLog();
@@ -74,9 +115,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     themes: false,
   });
 
-  const toggleSection = (section: keyof typeof openSections) => {
+  const toggleSection = useCallback((section: keyof typeof openSections) => {
     setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  }, []);
 
   const { data: vibeTags = [] } = useQuery({
     queryKey: ['vibe-tags'],
@@ -225,14 +266,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         visibility, is_free: isFree,
         price_amount: isFree ? 0 : parseFloat(priceAmount),
         price_currency: priceCurrency,
-        // Scope / geo
         scope,
         latitude: scope === 'local' ? resolvedLat : null,
         longitude: scope === 'local' ? resolvedLng : null,
         radius_km: scope === 'local' ? radiusKm : null,
         city: scope === 'local' ? resolvedCity : null,
         country: scope !== 'global' ? resolvedCountry : null,
-        // Recurring
         is_recurring: isRecurring,
         recurrence_type: isRecurring ? recurrenceType : null,
         recurrence_days: isRecurring && ['weekly', 'biweekly'].includes(recurrenceType) ? selectedDays : null,
@@ -265,7 +304,6 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           });
         } catch (_) {}
 
-        // Auto-generate recurring child events
         if (isRecurring) {
           setIsGenerating(true);
           try {
@@ -307,33 +345,6 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     saveEvent.mutate();
   };
 
-  const Section = ({ title: sTitle, icon: Icon, sectionKey, badge, children }: {
-    title: string; icon: any; sectionKey: keyof typeof openSections; badge?: string; children: React.ReactNode;
-  }) => {
-    const isOpen = openSections[sectionKey];
-    return (
-      <div className="rounded-xl border border-border overflow-hidden">
-        <button type="button" onClick={() => toggleSection(sectionKey)}
-          className="w-full flex items-center justify-between p-4 bg-secondary/30 hover:bg-secondary/50 transition-colors">
-          <div className="flex items-center gap-2">
-            <Icon className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground uppercase tracking-wider">{sTitle}</span>
-            {badge && <Badge variant="secondary" className="text-xs">{badge}</Badge>}
-          </div>
-          {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-        </button>
-        <AnimatePresence initial={false}>
-          {isOpen && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-              <div className="p-4 space-y-4 bg-card">{children}</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  };
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 bg-background z-50 flex flex-col">
@@ -363,7 +374,6 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               <span className="text-sm font-semibold text-foreground uppercase tracking-wider">Basic Info</span>
             </div>
 
-            {/* Title — full width */}
             <div className="space-y-2">
               <Label htmlFor="title">Event Title *</Label>
               <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)}
@@ -395,7 +405,8 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           </div>
 
           {/* Date & Time */}
-          <Section title="Date & Time" icon={Calendar} sectionKey="dateTime"
+          <CollapsibleSection title="Date & Time" icon={Calendar} isOpen={openSections.dateTime}
+            onToggle={() => toggleSection('dateTime')}
             badge={eventDate && eventTime ? `${eventDate} ${eventTime}` : undefined}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-2">
@@ -418,10 +429,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                   onChange={(e) => setDuration(e.target.value)} className="bg-secondary/50" />
               </div>
             </div>
-          </Section>
+          </CollapsibleSection>
 
           {/* Recurrence */}
-          <Section title="🔁 Recurrence" icon={RefreshCw} sectionKey="recurrence"
+          <CollapsibleSection title="🔁 Recurrence" icon={RefreshCw} isOpen={openSections.recurrence}
+            onToggle={() => toggleSection('recurrence')}
             badge={isRecurring ? getRecurrenceLabel() : 'One-time'}>
             <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
               <Switch id="recurringToggle" checked={isRecurring} onCheckedChange={setIsRecurring} />
@@ -503,10 +515,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </div>
               </div>
             )}
-          </Section>
+          </CollapsibleSection>
 
           {/* Capacity */}
-          <Section title="Capacity" icon={UserCircle} sectionKey="capacity"
+          <CollapsibleSection title="Capacity" icon={UserCircle} isOpen={openSections.capacity}
+            onToggle={() => toggleSection('capacity')}
             badge={totalCapacity > 0 ? `${totalCapacity} spots` : undefined}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-2">
@@ -530,10 +543,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 Total Capacity: <span className="text-foreground font-medium">{totalCapacity}</span>
               </p>
             )}
-          </Section>
+          </CollapsibleSection>
 
           {/* Location & Scope */}
-          <Section title="Location & Scope" icon={MapPin} sectionKey="location"
+          <CollapsibleSection title="Location & Scope" icon={MapPin} isOpen={openSections.location}
+            onToggle={() => toggleSection('location')}
             badge={scope === 'local' ? `📍 ${resolvedCity || 'Set city'} · ${radiusKm}km` : scope === 'regional' ? `🏳️ ${resolvedCountry || 'Regional'}` : '🌍 Global'}>
             
             {/* Scope Selector */}
@@ -627,10 +641,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </div>
               </div>
             )}
-          </Section>
+          </CollapsibleSection>
 
           {/* Visibility */}
-          <Section title="Visibility" icon={Eye} sectionKey="visibility"
+          <CollapsibleSection title="Visibility" icon={Eye} isOpen={openSections.visibility}
+            onToggle={() => toggleSection('visibility')}
             badge={visibility === 'all' ? 'All Users' : visibility === 'premium' ? 'Premium' : 'VIP'}>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -651,10 +666,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 );
               })}
             </div>
-          </Section>
+          </CollapsibleSection>
 
           {/* Pricing */}
-          <Section title="Pricing" icon={DollarSign} sectionKey="pricing"
+          <CollapsibleSection title="Pricing" icon={DollarSign} isOpen={openSections.pricing}
+            onToggle={() => toggleSection('pricing')}
             badge={isFree ? 'Free' : `${priceAmount} ${priceCurrency}`}>
             <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30">
               <Switch id="freeToggle" checked={isFree} onCheckedChange={setIsFree} />
@@ -680,10 +696,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </div>
               </div>
             )}
-          </Section>
+          </CollapsibleSection>
 
           {/* Vibes */}
-          <Section title="Target Vibes" icon={Sparkles} sectionKey="vibes"
+          <CollapsibleSection title="Target Vibes" icon={Sparkles} isOpen={openSections.vibes}
+            onToggle={() => toggleSection('vibes')}
             badge={selectedVibes.length > 0 ? `${selectedVibes.length} selected` : undefined}>
             <div className="flex flex-wrap gap-2">
               {vibeTags.map((vibe: any) => (
@@ -696,10 +713,11 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </motion.button>
               ))}
             </div>
-          </Section>
+          </CollapsibleSection>
 
           {/* Themes */}
-          <Section title="Event Themes" icon={Sparkles} sectionKey="themes"
+          <CollapsibleSection title="Event Themes" icon={Sparkles} isOpen={openSections.themes}
+            onToggle={() => toggleSection('themes')}
             badge={selectedTags.length > 0 ? `${selectedTags.length} selected` : undefined}>
             <div className="flex flex-wrap gap-2">
               {eventThemes.map((theme) => (
@@ -712,7 +730,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 </motion.button>
               ))}
             </div>
-          </Section>
+          </CollapsibleSection>
         </form>
       </div>
 
@@ -721,12 +739,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={() => saveEvent.mutate()} disabled={saveEvent.isPending || isGenerating}
-            className="bg-gradient-to-r from-primary to-accent gap-2">
-            {saveEvent.isPending || isGenerating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <><Save className="w-4 h-4" />{isEditing ? 'Update Event' : 'Create Event'}</>
-            )}
+            className="bg-gradient-primary text-primary-foreground gap-2">
+            {(saveEvent.isPending || isGenerating) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isEditing ? 'Update Event' : 'Create Event'}
           </Button>
         </div>
       </div>
