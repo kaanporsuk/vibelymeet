@@ -315,12 +315,18 @@ const Chat = () => {
         isTyping={isTyping}
         matchId={chatData?.matchId || undefined}
         onBack={() => navigate("/matches")}
-        onVideoCall={() => toast.info("Video call feature coming soon!")}
+        onVideoCall={() => {
+          if (!otherUser.isOnline) {
+            toast.info(`${otherUser.name} isn't online right now. Try again when they're active!`, { id: "video-call-offline" });
+          } else {
+            toast.info("Direct video calls are coming soon! For now, join an event to video date.", { id: "video-call-soon" });
+          }
+        }}
         onFocusInput={() => inputRef.current?.focus()}
       />
 
       {/* Messages */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-1 relative z-10">
+      <main className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 relative z-10">
         {isLoadingChat ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -364,20 +370,33 @@ const Chat = () => {
               ) : message.audioUrl ? (
                 <div
                   key={message.id}
-                  className={cn("flex", message.sender === "me" ? "justify-end" : "justify-start")}
+                  className={cn(
+                    "flex items-end gap-2",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                  )}
                 >
+                  {message.sender !== "me" && (
+                    <div className="w-7 shrink-0">
+                      {message.showAvatar && (
+                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                      )}
+                    </div>
+                  )}
                   <div className={cn(
-                    "max-w-[75%] rounded-2xl px-4 py-3",
+                    "max-w-[70%] rounded-2xl px-3 py-2.5",
                     message.sender === "me"
-                      ? "bg-gradient-to-r from-primary to-accent text-primary-foreground"
-                      : "glass-card border border-border/50 text-foreground"
+                      ? "bg-gradient-primary text-primary-foreground"
+                      : "glass-card border border-border/30 text-foreground"
                   )}>
                     <VoiceMessageBubble
                       audioUrl={message.audioUrl}
                       duration={message.audioDuration || 0}
                       isMine={message.sender === "me"}
                     />
-                    <p className="text-[10px] opacity-60 mt-1 text-right">{message.time}</p>
+                    {message.isLastInGroup && (
+                      <p className={cn("text-[10px] mt-1", message.sender === "me" ? "text-primary-foreground/60 text-right" : "text-muted-foreground")}>{message.time}</p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -406,12 +425,21 @@ const Chat = () => {
 
             {/* Game Messages */}
             {gameMessages.map((gameMsg) => (
-              <GameBubbleRenderer
+              <div
                 key={gameMsg.id}
-                message={gameMsg}
-                matchName={otherUser.name}
-                onGameUpdate={handleGameUpdate}
-              />
+                className={cn(
+                  "flex mt-2",
+                  gameMsg.sender === "me" ? "justify-end" : "justify-start"
+                )}
+              >
+                <div className="max-w-[75%] overflow-hidden">
+                  <GameBubbleRenderer
+                    message={gameMsg}
+                    matchName={otherUser.name}
+                    onGameUpdate={handleGameUpdate}
+                  />
+                </div>
+              </div>
             ))}
 
             {/* Typing indicator */}
@@ -474,45 +502,45 @@ const Chat = () => {
         </AnimatePresence>
 
         {/* Input bar */}
-        <div className="glass-card border-t border-border/50 p-3 pb-safe">
-          <div className="flex items-end gap-2 max-w-lg mx-auto">
-            {/* Plus button */}
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowMediaOptions(!showMediaOptions)}
-              className={cn(
-                "shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors",
-                showMediaOptions ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80"
-              )}
-            >
-              <motion.div
-                animate={{ rotate: showMediaOptions ? 45 : 0 }}
-                transition={{ duration: 0.2 }}
+        <div className="glass-card border-t border-border/50 p-2 pb-safe">
+          <div className="flex items-end gap-1.5 max-w-lg mx-auto">
+            {/* Action buttons — compact row */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowMediaOptions(!showMediaOptions)}
+                className={cn(
+                  "w-9 h-9 rounded-full flex items-center justify-center transition-colors",
+                  showMediaOptions ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80"
+                )}
               >
-                {showMediaOptions ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-              </motion.div>
-            </motion.button>
+                <motion.div
+                  animate={{ rotate: showMediaOptions ? 45 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {showMediaOptions ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                </motion.div>
+              </motion.button>
 
-            {/* Calendar button for scheduling */}
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowVibeSync(true)}
-              className="shrink-0 w-10 h-10 rounded-full bg-neon-cyan/20 flex items-center justify-center text-neon-cyan hover:bg-neon-cyan/30 transition-colors"
-            >
-              <CalendarDays className="w-5 h-5" />
-            </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowVibeSync(true)}
+                className="hidden xs:flex w-9 h-9 rounded-full bg-neon-cyan/20 items-center justify-center text-neon-cyan hover:bg-neon-cyan/30 transition-colors"
+              >
+                <CalendarDays className="w-4 h-4" />
+              </motion.button>
 
-            {/* Arcade button for games */}
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowArcade(true)}
-              className="shrink-0 w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary hover:bg-primary/30 transition-colors"
-            >
-              <Gamepad2 className="w-5 h-5" />
-            </motion.button>
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => setShowArcade(true)}
+                className="hidden xs:flex w-9 h-9 rounded-full bg-primary/20 items-center justify-center text-primary hover:bg-primary/30 transition-colors"
+              >
+                <Gamepad2 className="w-4 h-4" />
+              </motion.button>
+            </div>
 
-            {/* Text input */}
-            <div className="flex-1 relative">
+            {/* Text input — takes all remaining space */}
+            <div className="flex-1 min-w-0">
               <textarea
                 ref={inputRef}
                 placeholder="Type a message..."
@@ -520,10 +548,10 @@ const Chat = () => {
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
                 rows={1}
-                className="w-full px-4 py-2.5 rounded-2xl glass-card border border-border/50 bg-secondary/30 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all max-h-32"
+                className="w-full text-sm px-3.5 py-2.5 rounded-2xl glass-card border border-border/50 bg-secondary/30 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all max-h-32"
                 style={{
                   height: "auto",
-                  minHeight: "44px",
+                  minHeight: "40px",
                 }}
               />
             </div>
