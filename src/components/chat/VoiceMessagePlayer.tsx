@@ -94,30 +94,14 @@ const VoiceMessagePlayer = ({
 
   // Play/pause toggle
   const togglePlayback = () => {
-    if (!audioRef.current) {
-      // Mock playback for demo
-      if (!isPlaying) {
-        setIsPlaying(true);
-        const interval = setInterval(() => {
-          setCurrentTime((prev) => {
-            if (prev >= duration) {
-              clearInterval(interval);
-              setIsPlaying(false);
-              return 0;
-            }
-            return prev + 0.1 * playbackSpeed;
-          });
-        }, 100);
-      } else {
-        setIsPlaying(false);
-      }
-      return;
-    }
+    if (!audioRef.current) return;
 
     if (isPlaying) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play();
+      audioRef.current.play().catch(() => {
+        // Audio failed to load/play
+      });
     }
     setIsPlaying(!isPlaying);
   };

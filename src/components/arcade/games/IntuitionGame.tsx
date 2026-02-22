@@ -41,7 +41,7 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-indigo-500/20 to-blue-600/20",
         "border border-indigo-500/30 backdrop-blur-sm"
       )}

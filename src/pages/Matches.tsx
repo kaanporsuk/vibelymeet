@@ -181,10 +181,11 @@ const Matches = () => {
     });
   };
 
-  const handleViewProfile = (id: string, name: string) => {
-    toast.info(`Viewing ${name}'s profile`, {
-      description: "Profile view coming soon!",
-    });
+  const [viewProfileMatch, setViewProfileMatch] = useState<Match | null>(null);
+
+  const handleViewProfile = (id: string) => {
+    const match = matches?.find(m => m.id === id);
+    if (match) setViewProfileMatch(match);
   };
 
   const handleOpenDropChat = (dropId: string) => {
@@ -353,8 +354,8 @@ const Matches = () => {
                               {...match}
                               photoVerified={match.photoVerified}
                               onClick={() => navigate(`/chat/${match.id}`)}
-                              onViewProfile={() =>
-                                handleViewProfile(match.id, match.name)
+                            onViewProfile={() =>
+                                handleViewProfile(match.id)
                               }
                               onUnmatch={() => handleUnmatchClick(match)}
                             />
@@ -470,6 +471,27 @@ const Matches = () => {
           }
         }}
       />
+
+      {/* Profile Detail Drawer */}
+      {viewProfileMatch && (
+        <ProfileDetailDrawer
+          match={{
+            id: viewProfileMatch.id,
+            name: viewProfileMatch.name,
+            age: viewProfileMatch.age,
+            image: viewProfileMatch.image,
+            vibes: viewProfileMatch.vibes,
+          }}
+          open={!!viewProfileMatch}
+          onOpenChange={(open) => { if (!open) setViewProfileMatch(null); }}
+          onMessage={() => {
+            const matchId = viewProfileMatch.id;
+            setViewProfileMatch(null);
+            navigate(`/chat/${matchId}`);
+          }}
+          showActions={false}
+        />
+      )}
 
       {/* Report Sheet */}
       <Sheet open={showReportSheet} onOpenChange={setShowReportSheet}>

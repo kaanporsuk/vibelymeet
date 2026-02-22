@@ -49,7 +49,7 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-pink-500/20 to-rose-600/20",
         "border border-pink-500/30 backdrop-blur-sm"
       )}
