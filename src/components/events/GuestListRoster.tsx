@@ -63,8 +63,8 @@ const GuestListRoster = ({
       </div>
 
       {/* Roster Grid */}
-      <div className="overflow-x-auto -mx-4 px-4">
-        <div className="flex gap-4 pb-2">
+      <div className="overflow-x-auto -mx-4 px-4 scrollbar-hide">
+        <div className="flex gap-4 pb-2" style={{ minWidth: 'max-content' }}>
           {attendees.map((attendee, index) => {
             // Use actual hasVibeVideo from profile
             const hasVibeVideo = attendee.hasVibeVideo ?? false;
@@ -78,7 +78,7 @@ const GuestListRoster = ({
                 whileHover={{ scale: 1.05, y: -4 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => onAttendeeClick(attendee)}
-                className="flex-shrink-0"
+                className="shrink-0"
               >
                 <div className="relative glass-card rounded-2xl p-3 w-[110px] border border-border/50 hover:border-primary/50 transition-colors">
                   {/* Match Badge */}

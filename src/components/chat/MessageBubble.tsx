@@ -181,7 +181,7 @@ export const MessageBubble = ({
               isMe ? "justify-end" : "justify-start"
             )}>
               <MessageStatus
-                status={message.status || "read"}
+                status={message.status || "delivered"}
                 time={message.time}
                 isMyMessage={isMe}
               />
