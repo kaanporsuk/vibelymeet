@@ -97,13 +97,8 @@ export const GameBubbleRenderer = ({ message, matchName = "Match", onGameUpdate 
   };
 
   return (
-    <div className={cn(
-      "flex",
-      isOwn ? "justify-end" : "justify-start"
-    )}>
-      <div className="max-w-[85vw] sm:max-w-[320px] overflow-hidden">
-        {renderGame()}
-      </div>
+    <div className="w-full overflow-hidden">
+      {renderGame()}
     </div>
   );
 };

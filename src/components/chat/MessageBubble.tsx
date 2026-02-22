@@ -229,24 +229,25 @@ export const MessageBubble = ({
       </AnimatePresence>
 
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 400, damping: 25 }}
         className={cn(
           "flex items-end gap-2 relative",
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
-          message.reaction && "mb-4"
+          message.reaction && "mb-4",
+          isFirstInGroup ? "mt-3" : "mt-0.5"
         )}
       >
-        {/* Avatar placeholder or actual avatar */}
+        {/* Avatar */}
         {!isMe && (
-          <div className="w-8 shrink-0">
+          <div className="w-7 shrink-0">
             {showAvatar ? (
               <img
-                src={avatarUrl || "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100"}
+                src={avatarUrl || "/placeholder.svg"}
                 alt="Avatar"
-                className="w-8 h-8 rounded-full object-cover"
+                className="w-7 h-7 rounded-full object-cover"
               />
             ) : null}
           </div>
@@ -255,7 +256,7 @@ export const MessageBubble = ({
         {bubbleContent}
 
         {/* Spacer for my messages */}
-        {isMe && <div className="w-8 shrink-0" />}
+        {isMe && <div className="w-1 shrink-0" />}
       </motion.div>
     </>
   );
