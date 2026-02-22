@@ -105,26 +105,20 @@ export const MessageStatus = ({ status, time, isMyMessage = true }: MessageStatu
         )}
         
         {status === "delivered" && (
-          <motion.div 
-            className="flex -space-x-1"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-primary-foreground/70"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-primary-foreground/70">
-              <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M5 12l5 5L20 7"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
-            <motion.svg 
-              width="14" 
-              height="14" 
-              viewBox="0 0 24 24" 
-              fill="none" 
-              className="text-primary-foreground/70"
-              initial={{ x: -5, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-            >
-              <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-            </motion.svg>
           </motion.div>
         )}
         

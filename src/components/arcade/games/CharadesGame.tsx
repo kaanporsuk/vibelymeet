@@ -83,7 +83,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-purple-500/20 to-violet-600/20",
         "border border-purple-500/30 backdrop-blur-sm"
       )}

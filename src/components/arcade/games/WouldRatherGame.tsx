@@ -51,7 +51,7 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "border backdrop-blur-sm",
         isMatch ? "bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border-amber-500/50" : "bg-gradient-to-br from-amber-500/10 to-orange-600/10 border-amber-500/30"
       )}

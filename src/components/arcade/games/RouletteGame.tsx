@@ -26,7 +26,7 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-cyan-500/20 to-teal-600/20",
         "border border-cyan-500/30 backdrop-blur-sm"
       )}

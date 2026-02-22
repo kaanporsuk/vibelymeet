@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Ticket, Calendar, Clock, MapPin, QrCode, Share2 } from "lucide-react";
+import { X, Ticket, Calendar, Clock, MapPin, QrCode, Share2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -13,6 +13,7 @@ interface ManageBookingModalProps {
   venue: string;
   ticketNumber: string;
   price: number;
+  isVirtual?: boolean;
 }
 
 const ManageBookingModal = ({
@@ -25,6 +26,7 @@ const ManageBookingModal = ({
   venue,
   ticketNumber,
   price,
+  isVirtual = false,
 }: ManageBookingModalProps) => {
   const handleShare = async () => {
     try {
@@ -112,15 +114,26 @@ const ManageBookingModal = ({
                 </div>
               </div>
 
-              {/* QR Code Placeholder */}
-              <div className="glass-card p-6 rounded-2xl flex flex-col items-center gap-3">
-                <div className="w-32 h-32 rounded-2xl bg-white flex items-center justify-center">
-                  <QrCode className="w-20 h-20 text-gray-900" />
+              {/* QR Code or Virtual Instructions */}
+              {!isVirtual ? (
+                <div className="glass-card p-6 rounded-2xl flex flex-col items-center gap-3">
+                  <div className="w-32 h-32 rounded-2xl bg-white flex items-center justify-center">
+                    <QrCode className="w-20 h-20 text-gray-900" />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Show this at the door for check-in
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground text-center">
-                  Show this at the door for check-in
-                </p>
-              </div>
+              ) : (
+                <div className="glass-card p-6 rounded-2xl flex flex-col items-center gap-3">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                    <Video className="w-8 h-8 text-primary" />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Join via the <strong>Enter Lobby</strong> button when the event is live
+                  </p>
+                </div>
+              )}
 
               {/* Price Info */}
               <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/30">
