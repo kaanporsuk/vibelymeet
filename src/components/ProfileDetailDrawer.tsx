@@ -312,7 +312,7 @@ export const ProfileDetailDrawer = ({
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
-      <DrawerContent className="h-[95vh] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
+      <DrawerContent className="h-[95vh] max-w-[100vw] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
         {/* Close Button - Floating */}
         <div className="absolute top-4 right-4 z-30">
           <Button
@@ -328,7 +328,7 @@ export const ProfileDetailDrawer = ({
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overscroll-contain">
           {/* Hero Section - Full Width Photo */}
-          <div className="relative w-full aspect-[3/4] max-h-[60vh]">
+          <div className="relative w-full aspect-[3/4] max-h-[60vh] overflow-hidden">
             {hasVideoIntro && !showVideoOverlay ? (
               <>
                 <AnimatePresence mode="wait">

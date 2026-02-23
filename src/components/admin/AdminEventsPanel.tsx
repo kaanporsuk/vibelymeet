@@ -415,6 +415,20 @@ const AdminEventsPanel = () => {
                     }} className="gap-2 text-muted-foreground">
                       <Archive className="w-4 h-4" />Archive
                     </DropdownMenuItem>
+
+                    {/* Delete — only for draft or cancelled events */}
+                    {(['draft', 'cancelled'].includes(computed)) && (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          if (confirm(`Permanently delete "${event.title}"? This cannot be undone. All registrations and related data will be removed.`)) {
+                            deleteEvent.mutate(event.id);
+                          }
+                        }}
+                        className="gap-2 text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />Delete
+                      </DropdownMenuItem>
+                    )}
                   </>
                 )}
               </DropdownMenuContent>
