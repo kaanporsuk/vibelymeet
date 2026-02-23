@@ -1,13 +1,10 @@
 import { useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { MatchAvatar } from "./MatchAvatar";
-import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
 import { Button } from "./ui/button";
-import { toast } from "sonner";
 
-interface NewVibe {
+export interface NewVibe {
   id: string;
   name: string;
   image: string;
@@ -21,9 +18,10 @@ interface NewVibe {
 interface NewVibesRailProps {
   vibes: NewVibe[];
   onVibeClick: (id: string) => void;
+  onVibeProfileOpen?: (vibe: NewVibe) => void;
 }
 
-export const NewVibesRail = ({ vibes, onVibeClick }: NewVibesRailProps) => {
+export const NewVibesRail = ({ vibes, onVibeClick, onVibeProfileOpen }: NewVibesRailProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (direction: "left" | "right") => {
@@ -88,27 +86,16 @@ export const NewVibesRail = ({ vibes, onVibeClick }: NewVibesRailProps) => {
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: index * 0.05 }}
+            onClick={() => onVibeProfileOpen ? onVibeProfileOpen(vibe) : onVibeClick(vibe.id)}
+            className="cursor-pointer"
           >
-            <ProfileDetailDrawer
-              match={{
-                id: vibe.id,
-                name: vibe.name,
-                age: vibe.age,
-                image: vibe.image,
-                vibes: vibe.vibes,
-              }}
-              trigger={
-                <MatchAvatar
-                  name={vibe.name}
-                  image={vibe.image}
-                  isNew={vibe.isNew}
-                  hasUnread={vibe.hasUnread}
-                  photoVerified={vibe.photoVerified}
-                  size="lg"
-                />
-              }
-              onMessage={() => onVibeClick(vibe.id)}
-              onVideoCall={() => toast.info("Video call feature coming soon!")}
+            <MatchAvatar
+              name={vibe.name}
+              image={vibe.image}
+              isNew={vibe.isNew}
+              hasUnread={vibe.hasUnread}
+              photoVerified={vibe.photoVerified}
+              size="lg"
             />
           </motion.div>
         ))}

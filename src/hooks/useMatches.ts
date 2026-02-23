@@ -18,6 +18,15 @@ export interface Match {
   photoVerified?: boolean;
   isArchived?: boolean;
   eventName?: string;
+  photos?: string[];
+  bio?: string | null;
+  job?: string | null;
+  location?: string | null;
+  height?: number | null;
+  prompts?: { question: string; answer: string }[];
+  videoIntroUrl?: string | null;
+  lifestyle?: Record<string, string>;
+  tagline?: string | null;
 }
 
 const PAGE_SIZE = 20;
@@ -105,7 +114,7 @@ export const useMatches = () => {
           supabase
             .from("profiles")
             .select(
-              "id, name, age, avatar_url, photos, photo_verified"
+              "id, name, age, avatar_url, photos, photo_verified, bio, job, location, height_cm, looking_for, prompts, video_intro_url, lifestyle, tagline"
             )
             .in("id", otherProfileIds),
           supabase
@@ -178,6 +187,17 @@ export const useMatches = () => {
           ? supabase.storage.from("profile-photos").getPublicUrl(rawImage).data.publicUrl
           : rawImage;
 
+        // Resolve all photos to public URLs
+        const resolvedPhotos = (photoArr || []).map((p: string) =>
+          p && !p.startsWith("http")
+            ? supabase.storage.from("profile-photos").getPublicUrl(p).data.publicUrl
+            : p
+        );
+
+        // Parse prompts from JSON
+        const rawPrompts = (profile as any)?.prompts;
+        const parsedPrompts = Array.isArray(rawPrompts) ? rawPrompts : [];
+
         return {
           id: otherProfileId,
           name: profile?.name || "Unknown",
@@ -200,6 +220,15 @@ export const useMatches = () => {
           eventName: match.event_id
             ? eventsById[match.event_id] || undefined
             : undefined,
+          photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
+          bio: (profile as any)?.bio || null,
+          job: (profile as any)?.job || null,
+          location: (profile as any)?.location || null,
+          height: (profile as any)?.height_cm || null,
+          prompts: parsedPrompts as { question: string; answer: string }[],
+          videoIntroUrl: (profile as any)?.video_intro_url || null,
+          lifestyle: (profile as any)?.lifestyle as Record<string, string> || undefined,
+          tagline: (profile as any)?.tagline || null,
         };
       });
     },

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, SlidersHorizontal, MessageCircle, Droplet, Loader2 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
-import { NewVibesRail } from "@/components/NewVibesRail";
+import { NewVibesRail, NewVibe } from "@/components/NewVibesRail";
 import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
@@ -325,6 +325,10 @@ const Matches = () => {
                   <NewVibesRail
                     vibes={newVibes}
                     onVibeClick={(id) => navigate(`/chat/${id}`)}
+                    onVibeProfileOpen={(vibe) => {
+                      const match = matches?.find(m => m.id === vibe.id);
+                      if (match) setViewProfileMatch(match);
+                    }}
                   />
 
                   {/* Section divider */}
@@ -481,6 +485,14 @@ const Matches = () => {
             age: viewProfileMatch.age,
             image: viewProfileMatch.image,
             vibes: viewProfileMatch.vibes,
+            photos: viewProfileMatch.photos,
+            bio: viewProfileMatch.bio || undefined,
+            job: viewProfileMatch.job || undefined,
+            location: viewProfileMatch.location || undefined,
+            height: viewProfileMatch.height || undefined,
+            prompts: viewProfileMatch.prompts,
+            videoIntroUrl: viewProfileMatch.videoIntroUrl,
+            lifestyle: viewProfileMatch.lifestyle,
           }}
           open={!!viewProfileMatch}
           onOpenChange={(open) => { if (!open) setViewProfileMatch(null); }}
@@ -489,7 +501,7 @@ const Matches = () => {
             setViewProfileMatch(null);
             navigate(`/chat/${matchId}`);
           }}
-          showActions={false}
+          showActions={true}
         />
       )}
 

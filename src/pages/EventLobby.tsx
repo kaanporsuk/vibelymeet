@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, SetStateAction } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User } from "lucide-react";
@@ -45,6 +45,9 @@ const EventLobby = () => {
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Track seen profile IDs to prevent duplicates on refetch
+  const seenProfileIds = useRef<Set<string>>(new Set());
 
   // Current card index in the local deck
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -207,21 +210,21 @@ const EventLobby = () => {
     }
   }, [event, eventLoading, regLoading, isRegistered, eventId, navigate]);
 
-  // Sort deck: super vibes first
+  // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
-    const sorted = [...profiles];
-    sorted.sort((a, b) => {
+    const filtered = profiles.filter(p => !seenProfileIds.current.has(p.profile_id));
+    filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
-    return sorted;
+    return filtered;
   }, [profiles]);
 
   const currentProfile = sortedProfiles[currentIndex] || null;
   const nextProfile = sortedProfiles[currentIndex + 1] || null;
 
-  // Reset index when deck refreshes with new data
+  // Reset index only if it's past the end (new data with fewer items)
   useEffect(() => {
     if (currentIndex >= sortedProfiles.length && sortedProfiles.length > 0) {
       setCurrentIndex(0);
@@ -238,11 +241,12 @@ const EventLobby = () => {
     }, 300);
   }, []);
 
-  // FIX A1: Advance card IMMEDIATELY before awaiting swipe result
+  // Mark profile as seen and advance
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isAnimating) return;
     haptics.light();
     const targetId = currentProfile.profile_id;
+    seenProfileIds.current.add(targetId);
     advanceCard("right");
 
     const result = await swipe(targetId, "vibe");
@@ -254,6 +258,7 @@ const EventLobby = () => {
   const handlePass = useCallback(async () => {
     if (!currentProfile || isAnimating) return;
     const targetId = currentProfile.profile_id;
+    seenProfileIds.current.add(targetId);
     advanceCard("left");
     await swipe(targetId, "pass");
   }, [currentProfile, isAnimating, swipe, advanceCard]);
@@ -262,11 +267,12 @@ const EventLobby = () => {
     if (!currentProfile || isAnimating) return;
     haptics.light();
     const targetId = currentProfile.profile_id;
+    seenProfileIds.current.add(targetId);
     advanceCard("right");
 
     const result = await swipe(targetId, "super_vibe");
     if (result && (result as any).result === "super_vibe_sent") {
-      setSuperVibeCount((prev) => Math.max(0, prev - 1));
+      setSuperVibeCount((prev: number) => Math.max(0, prev - 1));
     }
   }, [currentProfile, isAnimating, swipe, advanceCard]);
 
