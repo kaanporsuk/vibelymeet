@@ -23,6 +23,8 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
   const animationFrameRef = useRef<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const mimeTypeRef = useRef<string>('');
+  const durationRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
 
   // Request wake lock to prevent screen sleep
@@ -78,10 +80,29 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      // Set up media recorder
-      const mediaRecorder = new MediaRecorder(stream);
+      // Detect best supported MIME type (Safari doesn't support webm)
+      const supportedTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/aac',
+        'audio/mpeg',
+      ];
+      let mimeType = '';
+      for (const type of supportedTypes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
+          mimeType = type;
+          break;
+        }
+      }
+      mimeTypeRef.current = mimeType;
+
+      // Set up media recorder with detected MIME type
+      const options = mimeType ? { mimeType } : undefined;
+      const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
+      durationRef.current = 0;
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
@@ -90,17 +111,22 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        onRecordingComplete(audioBlob, duration);
+        const blobType = mimeTypeRef.current || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
+        onRecordingComplete(audioBlob, durationRef.current);
       };
 
       mediaRecorder.start(100);
       setIsRecording(true);
       setDuration(0);
 
-      // Start timer
+      // Start timer — update both state and ref
       timerRef.current = setInterval(() => {
-        setDuration((prev) => prev + 1);
+        setDuration((prev) => {
+          const next = prev + 1;
+          durationRef.current = next;
+          return next;
+        });
       }, 1000);
 
       // Start visualization
