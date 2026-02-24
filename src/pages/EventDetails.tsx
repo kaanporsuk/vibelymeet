@@ -26,6 +26,7 @@ import PaymentModal from "@/components/events/PaymentModal";
 import ManageBookingModal from "@/components/events/ManageBookingModal";
 import CancelBookingModal from "@/components/events/CancelBookingModal";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
@@ -524,17 +525,18 @@ const EventDetails = () => {
           id: fullProfileAttendee?.id || "",
           name: fullProfileAttendee?.name || "",
           age: fullProfileAttendee?.age || 0,
-          image: fullProfileAttendee?.avatar || "",
+          image: resolvePhotoUrl(fullProfileAttendee?.avatar) || "",
           vibes: fullProfileAttendee?.vibeTags || [fullProfileAttendee?.vibeTag || ""],
           compatibility: fullProfileAttendee?.matchPercent,
-          photos: fullProfileAttendee?.photos,
+          photos: (fullProfileAttendee?.photos || []).map(p => resolvePhotoUrl(p)).filter(Boolean) as string[],
           bio: fullProfileAttendee?.bio,
         }}
         open={!!fullProfileAttendee}
         onOpenChange={(open) => {
           if (!open) setFullProfileAttendee(null);
         }}
-        showActions={false} // Don't show message/video buttons for event attendees
+        showActions={false}
+        mode="discovery"
       />
 
       {/* Ticket Stub */}

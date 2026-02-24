@@ -513,6 +513,7 @@ const Matches = () => {
             navigate(`/chat/${matchId}`);
           }}
           showActions={true}
+          mode="match"
         />
       )}
 

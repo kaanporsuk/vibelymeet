@@ -171,6 +171,7 @@ export const ChatHeader = ({
               photos: user.photos,
             }}
             showActions={false}
+            mode="match"
             trigger={
               <div className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity">
                 <div className="relative">

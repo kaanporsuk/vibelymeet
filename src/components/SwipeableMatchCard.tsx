@@ -3,6 +3,7 @@ import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { MessageCircle, User, X, Sparkles, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { LazyImage } from "@/components/LazyImage";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
@@ -113,6 +114,7 @@ export const SwipeableMatchCard = ({
         {/* Avatar with ProfileDetailDrawer */}
         <ProfileDetailDrawer
           match={{ id, name, age, image, vibes, compatibility }}
+          mode="match"
           trigger={
             <div className="relative shrink-0 cursor-pointer">
               <div
@@ -121,11 +123,13 @@ export const SwipeableMatchCard = ({
                   unread ? "bg-gradient-primary" : "bg-border"
                 )}
               >
-                <img
-                  src={image}
-                  alt={name}
-                  className="w-14 h-14 rounded-full object-cover bg-background"
+                <ProfilePhoto
+                  avatarUrl={image}
+                  name={name}
+                  size="md"
+                  rounded="full"
                   loading="lazy"
+                  className="w-14 h-14"
                 />
               </div>
               <div className="absolute -bottom-1 -right-1">

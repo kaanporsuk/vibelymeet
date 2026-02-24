@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
@@ -48,7 +49,8 @@ interface ProfileDetailDrawerProps {
   onVideoCall?: () => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  showActions?: boolean; // Whether to show message/video call buttons
+  showActions?: boolean; // Whether to show action buttons
+  mode?: 'discovery' | 'match'; // discovery = X/Heart/Message/Video, match = Message/Video only
 }
 
 export const ProfileDetailDrawer = ({
@@ -59,6 +61,7 @@ export const ProfileDetailDrawer = ({
   open: controlledOpen,
   onOpenChange,
   showActions = true,
+  mode = 'match',
 }: ProfileDetailDrawerProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
   
@@ -78,10 +81,13 @@ export const ProfileDetailDrawer = ({
   const [showScrollHint, setShowScrollHint] = useState(true);
   const [signedVideoUrl, setSignedVideoUrl] = useState<string | null>(null);
 
-  // Use photos from match prop - no fallback to mock data
-  const photos = match.photos && match.photos.length > 0 
-    ? match.photos 
-    : [match.image].filter(Boolean);
+  // Use photos from match prop - resolve storage paths to full URLs
+  const photos = useMemo(() => {
+    const raw = match.photos && match.photos.length > 0 
+      ? match.photos 
+      : [match.image].filter(Boolean);
+    return raw.map(p => resolvePhotoUrl(p)).filter(Boolean) as string[];
+  }, [match.photos, match.image]);
   
   const profileData = {
     job: match.job || null,
@@ -312,7 +318,7 @@ export const ProfileDetailDrawer = ({
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
-      <DrawerContent className="h-[95vh] max-w-[100vw] bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
+      <DrawerContent className="h-[95vh] max-w-full bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
         {/* Close Button - Floating */}
         <div className="absolute top-4 right-4 z-30">
           <Button
@@ -326,9 +332,9 @@ export const ProfileDetailDrawer = ({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
           {/* Hero Section - Full Width Photo */}
-          <div className="relative w-full aspect-[3/4] max-h-[60vh] overflow-hidden">
+          <div className="relative w-full aspect-[3/4] max-h-[70vh] overflow-hidden">
             {hasVideoIntro && !showVideoOverlay ? (
               <>
                 <AnimatePresence mode="wait">
@@ -538,24 +544,28 @@ export const ProfileDetailDrawer = ({
         {showActions && (
           <div className="shrink-0 absolute bottom-0 left-0 right-0 p-4 pb-8 pointer-events-none">
             <div className="flex items-center justify-center gap-4 pointer-events-auto">
-              {/* Pass button */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setOpen(false)}
-                className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
-              >
-                <X className="w-6 h-6 text-muted-foreground" />
-              </motion.button>
+              {/* Pass button — only in discovery mode */}
+              {mode === 'discovery' && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setOpen(false)}
+                  className="w-14 h-14 rounded-full bg-card border-2 border-border shadow-xl flex items-center justify-center"
+                >
+                  <X className="w-6 h-6 text-muted-foreground" />
+                </motion.button>
+              )}
 
-              {/* Like button */}
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="w-16 h-16 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
-              >
-                <Heart className="w-7 h-7 text-primary-foreground" fill="currentColor" />
-              </motion.button>
+              {/* Like button — only in discovery mode */}
+              {mode === 'discovery' && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-16 h-16 rounded-full bg-gradient-primary shadow-xl flex items-center justify-center neon-glow-pink"
+                >
+                  <Heart className="w-7 h-7 text-primary-foreground" fill="currentColor" />
+                </motion.button>
+              )}
 
               {/* Message button */}
               {onMessage && (
