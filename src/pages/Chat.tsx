@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import {
   Send,
   Plus,
@@ -88,12 +89,14 @@ const Chat = () => {
       const now = new Date();
       const diffMinutes = lastSeenAt ? (now.getTime() - lastSeenAt.getTime()) / 60000 : Infinity;
 
+      const resolvedAvatar = resolvePhotoUrl(ou.photos?.[0]) || resolvePhotoUrl(ou.avatar_url) || "/placeholder.svg";
+
       return {
         id: ou.id,
         name: ou.name || "Unknown",
         age: ou.age || 0,
-        avatar_url: ou.photos?.[0] || ou.avatar_url || "/placeholder.svg",
-        photos: ou.photos || [],
+        avatar_url: resolvedAvatar,
+        photos: (ou.photos || []).map((p: string) => resolvePhotoUrl(p)).filter(Boolean) as string[],
         vibes: [] as string[],
         isOnline: diffMinutes <= 5,
         lastSeen: diffMinutes <= 5
@@ -258,10 +261,14 @@ const Chat = () => {
     }
 
     try {
-      const fileName = `${user.id}/${Date.now()}.webm`;
+      // Determine file extension from blob MIME type
+      const blobType = audioBlob.type || '';
+      const ext = blobType.includes('mp4') ? 'mp4' : blobType.includes('aac') ? 'aac' : 'webm';
+      const fileName = `${user.id}/${Date.now()}_voice.${ext}`;
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("voice-messages")
-        .upload(fileName, audioBlob, { contentType: "audio/webm", upsert: false });
+        .upload(fileName, audioBlob, { contentType: blobType || "audio/webm", upsert: false });
 
       if (uploadError) throw uploadError;
 
@@ -274,11 +281,10 @@ const Chat = () => {
         sender_id: user.id,
         content: "🎤 Voice message",
         audio_url: publicUrl,
-        audio_duration_seconds: duration,
+        audio_duration_seconds: Math.round(duration),
       });
 
       if (msgError) throw msgError;
-      toast.success("Voice message sent!");
     } catch (err) {
       console.error("Voice message error:", err);
       toast.error("Failed to send voice message");

@@ -19,21 +19,25 @@ const generateWaveformData = (length: number = 30): number[] => {
   return data;
 };
 
-export const VoiceMessageBubble = ({ audioUrl, duration, isMine }: VoiceMessageBubbleProps) => {
+export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine }: VoiceMessageBubbleProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [resolvedDuration, setResolvedDuration] = useState(initialDuration);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const waveformData = useMemo(() => generateWaveformData(30), []);
 
+  const duration = resolvedDuration || initialDuration;
+
   // Create and configure audio element
   useEffect(() => {
-    if (!audioUrl) return;
+    if (!audioUrl) { setHasError(true); return; }
 
     const audio = new Audio();
     audio.preload = "metadata";
+    audio.crossOrigin = "anonymous";
     audio.src = audioUrl;
     audioRef.current = audio;
 
@@ -46,9 +50,19 @@ export const VoiceMessageBubble = ({ audioUrl, duration, isMine }: VoiceMessageB
       setIsPlaying(false);
     };
     const onTimeUpdate = () => {
-      if (audio.duration && isFinite(audio.duration)) {
+      if (audio.duration && isFinite(audio.duration) && audio.duration !== Infinity) {
         setProgress((audio.currentTime / audio.duration) * 100);
         setCurrentTime(audio.currentTime);
+      }
+    };
+    const onDurationChange = () => {
+      if (audio.duration && isFinite(audio.duration) && audio.duration !== Infinity) {
+        setResolvedDuration(Math.round(audio.duration));
+      }
+    };
+    const onLoadedMetadata = () => {
+      if (audio.duration && isFinite(audio.duration) && audio.duration !== Infinity) {
+        setResolvedDuration(Math.round(audio.duration));
       }
     };
     const onEnded = () => {
@@ -61,6 +75,8 @@ export const VoiceMessageBubble = ({ audioUrl, duration, isMine }: VoiceMessageB
     audio.addEventListener("waiting", onWaiting);
     audio.addEventListener("error", onError);
     audio.addEventListener("timeupdate", onTimeUpdate);
+    audio.addEventListener("durationchange", onDurationChange);
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("ended", onEnded);
 
     return () => {
@@ -68,6 +84,8 @@ export const VoiceMessageBubble = ({ audioUrl, duration, isMine }: VoiceMessageB
       audio.removeEventListener("waiting", onWaiting);
       audio.removeEventListener("error", onError);
       audio.removeEventListener("timeupdate", onTimeUpdate);
+      audio.removeEventListener("durationchange", onDurationChange);
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
       audio.removeEventListener("ended", onEnded);
       audio.pause();
       audio.src = "";
