@@ -189,9 +189,15 @@ const AdminEventsPanel = () => {
     onError: () => toast.error('Failed to update archive status'),
   });
 
-  // Permanent delete
+  // Permanent delete — cascades related data first
   const deleteEvent = useMutation({
     mutationFn: async (eventId: string) => {
+      // Delete related data in order to avoid FK violations
+      await supabase.from('event_swipes').delete().eq('event_id', eventId);
+      await supabase.from('video_sessions').delete().eq('event_id', eventId);
+      await supabase.from('event_vibes').delete().eq('event_id', eventId);
+      await supabase.from('event_registrations').delete().eq('event_id', eventId);
+      // Finally delete the event itself
       const { error } = await supabase.from('events').delete().eq('id', eventId);
       if (error) throw error;
     },
@@ -199,7 +205,7 @@ const AdminEventsPanel = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success('Event permanently deleted');
     },
-    onError: () => toast.error('Failed to delete event'),
+    onError: (err: any) => toast.error(`Failed to delete: ${err.message}`),
   });
 
   // Archive entire series
@@ -416,19 +422,17 @@ const AdminEventsPanel = () => {
                       <Archive className="w-4 h-4" />Archive
                     </DropdownMenuItem>
 
-                    {/* Delete — only for draft or cancelled events */}
-                    {(['draft', 'cancelled'].includes(computed)) && (
-                      <DropdownMenuItem
-                        onClick={() => {
-                          if (confirm(`Permanently delete "${event.title}"? This cannot be undone. All registrations and related data will be removed.`)) {
-                            deleteEvent.mutate(event.id);
-                          }
-                        }}
-                        className="gap-2 text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />Delete
-                      </DropdownMenuItem>
-                    )}
+                    {/* Delete — available for all non-archived events */}
+                    <DropdownMenuItem
+                      onClick={() => {
+                        if (confirm(`Permanently delete "${event.title}" and all its data? This cannot be undone.`)) {
+                          deleteEvent.mutate(event.id);
+                        }
+                      }}
+                      className="gap-2 text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="w-4 h-4" />Delete
+                    </DropdownMenuItem>
                   </>
                 )}
               </DropdownMenuContent>

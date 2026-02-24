@@ -240,9 +240,9 @@ const EventDetails = () => {
   }));
 
   return (
-    <div className="min-h-screen bg-background pb-28">
+    <div className="min-h-screen bg-background pb-28 overflow-y-auto">
       {/* Parallax Hero */}
-      <div className="relative h-[50vh] overflow-hidden">
+      <div className="relative w-full aspect-[16/9] max-h-[50vh] overflow-hidden">
         <motion.div
           style={{ y: scrollY * 0.5 }}
           className="absolute inset-0"

@@ -343,15 +343,35 @@ const Chat = () => {
             animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center justify-center h-full text-center py-12"
           >
-            <div className="w-20 h-20 rounded-3xl bg-gradient-primary flex items-center justify-center mb-4">
-              <span className="text-4xl">👋</span>
+            {otherUser.avatar_url && (
+              <img
+                src={resolvePhotoUrl(otherUser.avatar_url) || ''}
+                alt={otherUser.name}
+                className="w-16 h-16 rounded-full object-cover mb-3 border-2 border-primary/30"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            )}
+            <div className="w-16 h-16 rounded-3xl bg-gradient-primary flex items-center justify-center mb-4">
+              <span className="text-3xl">👋</span>
             </div>
             <h3 className="text-lg font-display font-semibold text-foreground mb-2">
-              Start the conversation
+              You and {otherUser.name} matched!
             </h3>
-            <p className="text-muted-foreground text-sm max-w-xs">
-              Say hi to {otherUser.name}! They're excited to meet you.
+            <p className="text-muted-foreground text-sm max-w-xs mb-4">
+              You both vibed! Say hi before the momentum fades 💬
             </p>
+            <button
+              onClick={() => {
+                if (!chatData?.matchId) return;
+                sendMessage({
+                  matchId: chatData.matchId,
+                  content: "👋",
+                });
+              }}
+              className="px-6 py-2.5 rounded-full bg-gradient-primary text-primary-foreground font-medium text-sm shadow-lg hover:opacity-90 transition-opacity"
+            >
+              Send a Wave 👋
+            </button>
           </motion.div>
         ) : (
           <>

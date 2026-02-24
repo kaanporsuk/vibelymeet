@@ -85,10 +85,16 @@ const Matches = () => {
   const pendingDropsCount = drops.filter(d => d.status === 'received' || d.status === 'sent').length;
   const matchedDropsCount = drops.filter(d => d.status === 'matched').length;
 
+  // Track which new vibes the user has opened (session-level)
+  const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
+
   // Separate new vibes, regular matches, and archived matches
   const { newVibes, regularMatches, archivedMatches } = useMemo(() => {
     const newVibes = matches
-      .filter((m) => m.isNew && !m.isArchived)
+      .filter((m) => {
+        const matchedAt = new Date(m.time === 'new' ? Date.now() : Date.now()); // isNew is already computed in hook
+        return m.isNew && !m.isArchived && !openedVibeIds.has(m.id);
+      })
       .map((m) => ({
         id: m.id,
         name: m.name,
@@ -100,10 +106,11 @@ const Matches = () => {
         photoVerified: m.photoVerified,
       }));
 
-    const regular = matches.filter((m) => !m.isNew && !m.isArchived);
+    // Regular matches include opened new vibes
+    const regular = matches.filter((m) => (!m.isNew || openedVibeIds.has(m.id)) && !m.isArchived);
     const archived = matches.filter((m) => m.isArchived);
     return { newVibes, regularMatches: regular, archivedMatches: archived };
-  }, [matches]);
+  }, [matches, openedVibeIds]);
 
   // Filter and sort matches
   const filteredMatches = useMemo(() => {
@@ -324,8 +331,12 @@ const Matches = () => {
                   {/* New Vibes Rail */}
                   <NewVibesRail
                     vibes={newVibes}
-                    onVibeClick={(id) => navigate(`/chat/${id}`)}
+                    onVibeClick={(id) => {
+                      setOpenedVibeIds(prev => new Set(prev).add(id));
+                      navigate(`/chat/${id}`);
+                    }}
                     onVibeProfileOpen={(vibe) => {
+                      setOpenedVibeIds(prev => new Set(prev).add(vibe.id));
                       const match = matches?.find(m => m.id === vibe.id);
                       if (match) setViewProfileMatch(match);
                     }}
