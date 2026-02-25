@@ -132,6 +132,19 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setIsConnecting(false);
         });
 
+        callObject.on("network-connection", (event: any) => {
+          if (event?.event === "interrupted") {
+            console.log("[Daily] Network interrupted — partner may be reconnecting");
+            optionsRef.current?.onPartnerLeft?.();
+          }
+        });
+
+        callObject.on("network-quality-change", (event: any) => {
+          if (event?.threshold === "low" || event?.quality < 30) {
+            toast.warning("Weak connection — try moving closer to WiFi 📶", { duration: 3000, id: "network-quality" });
+          }
+        });
+
         await callObject.join({ url: roomData.room_url, token: roomData.token });
 
         const localParticipant = callObject.participants().local;
