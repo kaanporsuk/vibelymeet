@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Video,
+  Phone,
   MoreVertical,
   BellOff,
   Bell,
@@ -59,7 +60,7 @@ interface ChatHeaderProps {
   isTyping: boolean;
   matchId?: string;
   onBack: () => void;
-  onVideoCall: () => void;
+  onVideoCall: (type: "voice" | "video") => void;
   onFocusInput: () => void;
 }
 
@@ -146,8 +147,12 @@ export const ChatHeader = ({
     navigate("/matches");
   };
 
+  const handleVoiceCall = () => {
+    onVideoCall("voice");
+  };
+
   const handleVideoCall = () => {
-    navigate("/video-date");
+    onVideoCall("video");
   };
 
   return (
@@ -273,6 +278,14 @@ export const ChatHeader = ({
           />
 
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl"
+              onClick={handleVoiceCall}
+            >
+              <Phone className="w-5 h-5 text-muted-foreground" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"

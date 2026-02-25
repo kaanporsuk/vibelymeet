@@ -36,6 +36,9 @@ import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessages, useSendMessage } from "@/hooks/useMessages";
 import { useAuth } from "@/contexts/AuthContext";
+import { useMatchCall } from "@/hooks/useMatchCall";
+import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
+import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -77,6 +80,12 @@ const Chat = () => {
   const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Match call hook for voice/video calls
+  const matchCall = useMatchCall({
+    matchId: chatData?.matchId || "",
+    onCallEnded: () => {},
+  });
 
   // Real-time message subscription
   useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
@@ -321,11 +330,11 @@ const Chat = () => {
         isTyping={isTyping}
         matchId={chatData?.matchId || undefined}
         onBack={() => navigate("/matches")}
-        onVideoCall={() => {
-          if (!otherUser.isOnline) {
-            toast.info(`${otherUser.name} isn't online right now. Try again when they're active!`, { id: "video-call-offline" });
+        onVideoCall={(type) => {
+          if (chatData?.matchId) {
+            matchCall.startCall(type);
           } else {
-            toast.info("Direct video calls are coming soon! For now, join an event to video date.", { id: "video-call-soon" });
+            toast.error("No active match for calling");
           }
         }}
         onFocusInput={() => inputRef.current?.focus()}
@@ -673,6 +682,37 @@ const Chat = () => {
         onSubmit={(options, prediction) => handleGameCreated({ gameType: "intuition", step: "active", data: { prediction: options[prediction], options, senderChoice: prediction } })}
         matchName={otherUser.name}
       />
+      {/* Incoming call overlay */}
+      <AnimatePresence>
+        {matchCall.incomingCall && (
+          <IncomingCallOverlay
+            incomingCall={matchCall.incomingCall}
+            onAnswer={matchCall.answerCall}
+            onDecline={matchCall.declineCall}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Active call overlay */}
+      <AnimatePresence>
+        {(matchCall.isInCall || matchCall.isRinging) && !matchCall.incomingCall && (
+          <ActiveCallOverlay
+            isRinging={matchCall.isRinging}
+            isInCall={matchCall.isInCall}
+            callType={matchCall.callType}
+            isMuted={matchCall.isMuted}
+            isVideoOff={matchCall.isVideoOff}
+            callDuration={matchCall.callDuration}
+            partnerName={otherUser.name}
+            partnerAvatar={otherUser.avatar_url}
+            localVideoRef={matchCall.localVideoRef}
+            remoteVideoRef={matchCall.remoteVideoRef}
+            onToggleMute={matchCall.toggleMute}
+            onToggleVideo={matchCall.toggleVideo}
+            onEndCall={matchCall.endCall}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

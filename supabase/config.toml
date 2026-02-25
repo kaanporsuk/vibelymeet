@@ -1,6 +1,6 @@
 project_id = "schdyxcunwcvddlcshwd"
 
-[functions.webrtc-signaling]
+[functions.daily-room]
 verify_jwt = false
 
 [functions.delete-account]

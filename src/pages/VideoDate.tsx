@@ -267,13 +267,11 @@ const VideoDate = () => {
     if (!id || !user?.id) return;
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Warn user they're leaving an active call
       if (isConnected) {
         e.preventDefault();
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
 
-      // End the session in DB
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       const baseUrl = import.meta.env.VITE_SUPABASE_URL;
 
@@ -298,6 +296,16 @@ const VideoDate = () => {
           )
         );
       }
+
+      // Best-effort Daily room cleanup via sendBeacon
+      const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
+      navigator.sendBeacon(
+        dailyRoomUrl,
+        new Blob(
+          [JSON.stringify({ action: "delete_room", roomName: `date-${id?.replace(/-/g, "")}` })],
+          { type: "application/json" }
+        )
+      );
 
       // Stop media tracks
       if (localVideoRef.current?.srcObject) {

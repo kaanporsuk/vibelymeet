@@ -606,6 +606,73 @@ export type Database = {
           },
         ]
       }
+      match_calls: {
+        Row: {
+          call_type: string
+          callee_id: string
+          caller_id: string
+          created_at: string
+          daily_room_name: string
+          daily_room_url: string
+          duration_seconds: number | null
+          ended_at: string | null
+          id: string
+          match_id: string
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          call_type: string
+          callee_id: string
+          caller_id: string
+          created_at?: string
+          daily_room_name: string
+          daily_room_url: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          id?: string
+          match_id: string
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          call_type?: string
+          callee_id?: string
+          caller_id?: string
+          created_at?: string
+          daily_room_name?: string
+          daily_room_url?: string
+          duration_seconds?: number | null
+          ended_at?: string | null
+          id?: string
+          match_id?: string
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_calls_callee_id_fkey"
+            columns: ["callee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_calls_caller_id_fkey"
+            columns: ["caller_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_calls_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       match_mutes: {
         Row: {
           created_at: string
@@ -1249,6 +1316,8 @@ export type Database = {
       }
       video_sessions: {
         Row: {
+          daily_room_name: string | null
+          daily_room_url: string | null
           duration_seconds: number | null
           ended_at: string | null
           event_id: string
@@ -1267,6 +1336,8 @@ export type Database = {
           vibe_questions: Json | null
         }
         Insert: {
+          daily_room_name?: string | null
+          daily_room_url?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
           event_id: string
@@ -1285,6 +1356,8 @@ export type Database = {
           vibe_questions?: Json | null
         }
         Update: {
+          daily_room_name?: string | null
+          daily_room_url?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
           event_id?: string
