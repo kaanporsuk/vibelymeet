@@ -6,6 +6,9 @@ import { MessageCircle, Sparkles, Zap, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { LazyImage } from "@/components/LazyImage";
+import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface MatchSuccessModalProps {
   isOpen: boolean;
@@ -39,8 +42,29 @@ const MatchSuccessModal = ({
   },
 }: MatchSuccessModalProps) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [animationPhase, setAnimationPhase] = useState(0);
   const { playFeedback, preloadAll } = useSoundEffects();
+  const [showPhoneNudge, setShowPhoneNudge] = useState(false);
+
+  // Check if this is user's first match and phone not verified
+  useEffect(() => {
+    if (!isOpen || !user) return;
+    const dismissed = localStorage.getItem("vibely_phone_nudge_match_dismissed");
+    if (dismissed) return;
+
+    const checkFirstMatch = async () => {
+      const [{ count }, { data: phoneData }] = await Promise.all([
+        supabase.from("matches").select("*", { count: "exact", head: true })
+          .or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
+        supabase.from("profiles").select("phone_verified").eq("id", user.id).maybeSingle(),
+      ]);
+      if (count === 1 && phoneData && !phoneData.phone_verified) {
+        setShowPhoneNudge(true);
+      }
+    };
+    checkFirstMatch();
+  }, [isOpen, user]);
 
   // Preload sounds on mount
   useEffect(() => {
@@ -473,6 +497,18 @@ const MatchSuccessModal = ({
                   >
                     Keep Vibing (Back to Event)
                   </Button>
+
+                  {/* Phone verification nudge after first match */}
+                  {showPhoneNudge && (
+                    <PhoneVerificationNudge
+                      variant="match"
+                      onDismiss={() => {
+                        localStorage.setItem("vibely_phone_nudge_match_dismissed", "true");
+                        setShowPhoneNudge(false);
+                      }}
+                      onVerified={() => setShowPhoneNudge(false)}
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

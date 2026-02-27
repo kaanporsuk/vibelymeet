@@ -35,6 +35,7 @@ import { useEventVibes } from "@/hooks/useEventVibes";
 import { MutualVibesSection } from "@/components/events/MutualVibesSection";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -97,6 +98,26 @@ const EventDetails = () => {
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
+  const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
+
+  // Check phone verification for event nudge
+  useEffect(() => {
+    if (!user?.id) return;
+    const dismissed = localStorage.getItem("vibely_phone_nudge_event_dismissed");
+    if (dismissed) return;
+
+    const check = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("phone_verified")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data && !data.phone_verified) {
+        setShowEventPhoneNudge(true);
+      }
+    };
+    check();
+  }, [user?.id]);
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
@@ -310,6 +331,18 @@ const EventDetails = () => {
 
       {/* Content */}
       <div className="px-4 py-6 space-y-6">
+
+        {/* Phone verification nudge for events */}
+        {showEventPhoneNudge && !isRegistered && (
+          <PhoneVerificationNudge
+            variant="event"
+            onDismiss={() => {
+              localStorage.setItem("vibely_phone_nudge_event_dismissed", "true");
+              setShowEventPhoneNudge(false);
+            }}
+            onVerified={() => setShowEventPhoneNudge(false)}
+          />
+        )}
 
         {/* Location context */}
         {event.scope === 'local' && event.city && (
