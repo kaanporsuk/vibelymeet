@@ -23,6 +23,7 @@ import {
   Loader2,
   Mail,
   ShieldCheck,
+  Phone,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { PhotoVerificationModal } from "@/components/verification/PhotoVerificationModal";
+import { PhoneVerification } from "@/components/PhoneVerification";
 import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
@@ -167,8 +169,10 @@ const Profile = () => {
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   // Fetch profile and user email on mount
   useEffect(() => {
@@ -178,6 +182,18 @@ const Profile = () => {
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.email) {
           setUserEmail(user.email);
+        }
+
+        // Fetch phone_verified status directly
+        if (user) {
+          const { data: phoneData } = await supabase
+            .from("profiles")
+            .select("phone_verified")
+            .eq("id", user.id)
+            .maybeSingle();
+          if (phoneData?.phone_verified) {
+            setPhoneVerified(true);
+          }
         }
 
         const data = await fetchMyProfile();
@@ -377,7 +393,7 @@ const Profile = () => {
   const verificationSteps = [
     { id: "email", label: "Email verification", description: emailVerified ? "Verified" : "Verify your email", icon: Mail, completed: emailVerified },
     { id: "photo", label: "Photo verification", description: profile.photoVerified ? "Verified" : "Take a quick selfie", icon: Camera, completed: profile.photoVerified },
-    { id: "phone", label: "Phone number", description: "Verify your number", icon: Shield, completed: false },
+    { id: "phone", label: "Phone number", description: phoneVerified ? "Verified" : "Verify your number", icon: Phone, completed: phoneVerified },
   ];
 
   const handleVerificationStep = (stepId: string) => {
@@ -390,6 +406,9 @@ const Profile = () => {
         return;
       }
       setShowPhotoVerification(true);
+    }
+    if (stepId === "phone" && !phoneVerified) {
+      setShowPhoneVerification(true);
     }
   };
 
@@ -1414,6 +1433,15 @@ const Profile = () => {
           toast.success("Email verified successfully!");
         }}
         userEmail={userEmail}
+      />
+
+      {/* Phone Verification */}
+      <PhoneVerification
+        open={showPhoneVerification}
+        onOpenChange={setShowPhoneVerification}
+        onVerified={() => {
+          setPhoneVerified(true);
+        }}
       />
 
       {/* Photo Verification Modal */}
