@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
+import { PhoneVerifiedBadge } from "@/components/PhoneVerifiedBadge";
 import { LazyImage } from "@/components/LazyImage";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { toast } from "sonner";
@@ -19,6 +20,7 @@ interface SwipeableMatchCardProps {
   unread: boolean;
   vibes: string[];
   photoVerified?: boolean;
+  phoneVerified?: boolean;
   compatibility?: number;
   onClick: () => void;
   onViewProfile: () => void;
@@ -35,6 +37,7 @@ export const SwipeableMatchCard = ({
   unread,
   vibes,
   photoVerified,
+  phoneVerified,
   compatibility = Math.floor(Math.random() * 20) + 80,
   onClick,
   onViewProfile,
@@ -132,8 +135,9 @@ export const SwipeableMatchCard = ({
                   className="w-14 h-14"
                 />
               </div>
-              <div className="absolute -bottom-1 -right-1">
+              <div className="absolute -bottom-1 -right-1 flex gap-0.5">
                 <PhotoVerifiedMark verified={!!photoVerified} />
+                <PhoneVerifiedBadge verified={!!phoneVerified} />
               </div>
               {unread && (
                 <motion.div

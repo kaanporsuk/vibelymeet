@@ -25,6 +25,7 @@ export interface ProfileData {
   avatarUrl: string | null;
   videoIntroUrl: string | null;
   photoVerified: boolean;
+  phoneVerified: boolean;
   stats: {
     events: number;
     matches: number;
@@ -54,6 +55,7 @@ interface DbProfile {
   avatar_url: string | null;
   video_intro_url: string | null;
   photo_verified: boolean | null;
+  phone_verified: boolean | null;
   events_attended: number | null;
   total_matches: number | null;
   total_conversations: number | null;
@@ -136,6 +138,7 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     avatarUrl: dbProfile.avatar_url,
     videoIntroUrl: dbProfile.video_intro_url,
     photoVerified: dbProfile.photo_verified || false,
+    phoneVerified: dbProfile.phone_verified || false,
     stats: {
       events: dbProfile.events_attended || 0,
       matches: dbProfile.total_matches || 0,

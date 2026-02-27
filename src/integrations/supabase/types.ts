@@ -868,6 +868,9 @@ export type Database = {
           location_data: Json | null
           looking_for: string | null
           name: string
+          phone_number: string | null
+          phone_verified: boolean
+          phone_verified_at: string | null
           photo_verified: boolean | null
           photo_verified_at: string | null
           photos: string[] | null
@@ -904,6 +907,9 @@ export type Database = {
           location_data?: Json | null
           looking_for?: string | null
           name: string
+          phone_number?: string | null
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
@@ -940,6 +946,9 @@ export type Database = {
           location_data?: Json | null
           looking_for?: string | null
           name?: string
+          phone_number?: string | null
+          phone_verified?: boolean
+          phone_verified_at?: string | null
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
