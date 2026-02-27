@@ -876,6 +876,7 @@ export type Database = {
           photos: string[] | null
           prompts: Json | null
           proof_selfie_url: string | null
+          referred_by: string | null
           suspension_reason: string | null
           tagline: string | null
           total_conversations: number | null
@@ -915,6 +916,7 @@ export type Database = {
           photos?: string[] | null
           prompts?: Json | null
           proof_selfie_url?: string | null
+          referred_by?: string | null
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
@@ -954,6 +956,7 @@ export type Database = {
           photos?: string[] | null
           prompts?: Json | null
           proof_selfie_url?: string | null
+          referred_by?: string | null
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null

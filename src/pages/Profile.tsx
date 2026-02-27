@@ -891,6 +891,40 @@ const Profile = () => {
           />
         </motion.div>
 
+        {/* Invite Friends */}
+        <motion.div
+          className="glass-card p-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.65 }}
+        >
+          <button
+            onClick={async () => {
+              const link = `https://vibelymeet.lovable.app/auth?mode=signup&ref=${profile.id}`;
+              try {
+                await navigator.share({
+                  title: "Join me on Vibely!",
+                  text: "I'm using Vibely for video dates — come find your vibe! 💜",
+                  url: link,
+                });
+              } catch {
+                await navigator.clipboard.writeText(link);
+                toast.success("Invite link copied!");
+              }
+            }}
+            className="w-full flex items-center gap-3 text-left"
+          >
+            <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center text-lg">
+              💌
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground">Invite Friends</p>
+              <p className="text-xs text-muted-foreground">Share Vibely with your friends</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </motion.div>
+
         {/* Logout */}
         <Button
           variant="ghost"

@@ -19,6 +19,14 @@ const Auth = () => {
   // Check URL param for initial mode
   const initialMode = searchParams.get("mode") === "signup" ? "signup" : "signin";
   const [mode, setMode] = useState<AuthMode>(initialMode);
+
+  // Store referral ID if present
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref) {
+      localStorage.setItem("vibely_referrer_id", ref);
+    }
+  }, [searchParams]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");

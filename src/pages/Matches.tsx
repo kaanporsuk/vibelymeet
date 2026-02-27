@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, SlidersHorizontal, MessageCircle, Droplet, Loader2 } from "lucide-react";
@@ -39,12 +39,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
 const Matches = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: matches = [], isLoading, refetch } = useMatches();
+  const [phoneVerifiedForEmpty, setPhoneVerifiedForEmpty] = useState(true);
+
+  // Check phone verification status for empty state nudge
+  useEffect(() => {
+    if (!user?.id) return;
+    const check = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("phone_verified")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data) setPhoneVerifiedForEmpty(data.phone_verified);
+    };
+    check();
+  }, [user?.id]);
   const { data: drops = [], isLoading: isLoadingDrops, refetch: refetchDrops } = useDropMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
@@ -413,9 +432,49 @@ const Matches = () => {
                       </p>
                     </motion.div>
                   )}
+
+                  {/* Invite friends banner */}
+                  {matches.length >= 1 && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.6 }}
+                      className="mx-4 mb-6"
+                    >
+                      <button
+                        onClick={async () => {
+                          const link = `https://vibelymeet.lovable.app/auth?mode=signup&ref=${user?.id || ""}`;
+                          try {
+                            await navigator.share({
+                              title: "Join me on Vibely!",
+                              text: "I'm using Vibely for video dates — come find your vibe! 💜",
+                              url: link,
+                            });
+                          } catch {
+                            await navigator.clipboard.writeText(link);
+                            toast.success("Invite link copied!");
+                          }
+                        }}
+                        className="w-full p-3 glass-card rounded-2xl border border-border/50 flex items-center gap-3 hover:bg-secondary/30 transition-colors"
+                      >
+                        <span className="text-lg">💌</span>
+                        <span className="text-sm text-muted-foreground">Invite friends to Vibely</span>
+                      </button>
+                    </motion.div>
+                  )}
                 </>
               ) : (
+              <div className="space-y-4">
                 <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
+                {!phoneVerifiedForEmpty && (
+                  <div className="px-4">
+                    <PhoneVerificationNudge
+                      variant="empty"
+                      onVerified={() => setPhoneVerifiedForEmpty(true)}
+                    />
+                  </div>
+                )}
+              </div>
               )}
             </motion.div>
           )}

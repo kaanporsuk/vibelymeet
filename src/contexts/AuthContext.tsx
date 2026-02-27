@@ -114,12 +114,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Create profile if user was created
     if (data.user) {
+      // Check for referral
+      const refId = localStorage.getItem("vibely_referrer_id");
+      
       await supabase.from('profiles').insert({
         id: data.user.id,
         name,
         age: 25,
         gender: 'prefer_not_to_say',
+        ...(refId ? { referred_by: refId } : {}),
       });
+
+      // Clean up referral
+      if (refId) localStorage.removeItem("vibely_referrer_id");
     }
 
     return { error: null };

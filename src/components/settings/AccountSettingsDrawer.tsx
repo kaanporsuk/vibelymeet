@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -11,7 +11,9 @@ import {
   Check,
   AlertCircle,
   Loader2,
+  Phone,
 } from "lucide-react";
+import { PhoneVerification } from "@/components/PhoneVerification";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +49,26 @@ export const AccountSettingsDrawer = ({
   const { user } = useAuth();
   
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+
+  // Fetch phone verification status
+  useEffect(() => {
+    if (!open || !user) return;
+    const fetchPhone = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("phone_verified, phone_number")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data) {
+        setPhoneVerified(data.phone_verified);
+        setPhoneNumber(data.phone_number);
+      }
+    };
+    fetchPhone();
+  }, [open, user]);
   
   // Email change state
   const [newEmail, setNewEmail] = useState("");
@@ -180,6 +202,37 @@ export const AccountSettingsDrawer = ({
             <p className="text-foreground font-medium break-all">
               {user?.email || "No email set"}
             </p>
+          </div>
+
+          {/* Phone Number Section */}
+          <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
+              <Phone className="w-3 h-3" />
+              Phone Number
+            </div>
+            {phoneVerified && phoneNumber ? (
+              <div className="flex items-center justify-between">
+                <p className="text-foreground font-medium">
+                  📱 {phoneNumber.replace(/(\+\d{1,3})\d+(\d{2})$/, "$1 •••• ••$2")}
+                </p>
+                <button
+                  onClick={() => setShowPhoneVerification(true)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <p className="text-muted-foreground text-sm">📱 Not verified</p>
+                <button
+                  onClick={() => setShowPhoneVerification(true)}
+                  className="text-xs text-primary hover:underline font-medium"
+                >
+                  Verify now
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Edit Profile Button */}
@@ -471,6 +524,15 @@ export const AccountSettingsDrawer = ({
           </DrawerClose>
         </DrawerFooter>
       </DrawerContent>
+
+      <PhoneVerification
+        open={showPhoneVerification}
+        onOpenChange={setShowPhoneVerification}
+        onVerified={() => {
+          setPhoneVerified(true);
+          setShowPhoneVerification(false);
+        }}
+      />
     </Drawer>
   );
 };
