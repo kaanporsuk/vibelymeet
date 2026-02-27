@@ -26,26 +26,26 @@ interface PhoneVerificationProps {
 }
 
 const COUNTRY_CODES = [
-  { code: "+1", label: "🇺🇸 +1", country: "US" },
-  { code: "+44", label: "🇬🇧 +44", country: "UK" },
-  { code: "+90", label: "🇹🇷 +90", country: "TR" },
-  { code: "+49", label: "🇩🇪 +49", country: "DE" },
-  { code: "+33", label: "🇫🇷 +33", country: "FR" },
-  { code: "+91", label: "🇮🇳 +91", country: "IN" },
-  { code: "+61", label: "🇦🇺 +61", country: "AU" },
-  { code: "+81", label: "🇯🇵 +81", country: "JP" },
-  { code: "+55", label: "🇧🇷 +55", country: "BR" },
-  { code: "+34", label: "🇪🇸 +34", country: "ES" },
-  { code: "+39", label: "🇮🇹 +39", country: "IT" },
-  { code: "+31", label: "🇳🇱 +31", country: "NL" },
-  { code: "+46", label: "🇸🇪 +46", country: "SE" },
-  { code: "+47", label: "🇳🇴 +47", country: "NO" },
-  { code: "+82", label: "🇰🇷 +82", country: "KR" },
+  { code: "+1", label: "🇺🇸 +1", country: "US", placeholder: "234 567 8900" },
+  { code: "+44", label: "🇬🇧 +44", country: "UK", placeholder: "7700 900000" },
+  { code: "+90", label: "🇹🇷 +90", country: "TR", placeholder: "532 XXX XXXX" },
+  { code: "+49", label: "🇩🇪 +49", country: "DE", placeholder: "170 XXXXXXX" },
+  { code: "+33", label: "🇫🇷 +33", country: "FR", placeholder: "6 12 34 56 78" },
+  { code: "+91", label: "🇮🇳 +91", country: "IN", placeholder: "98765 43210" },
+  { code: "+61", label: "🇦🇺 +61", country: "AU", placeholder: "412 345 678" },
+  { code: "+81", label: "🇯🇵 +81", country: "JP", placeholder: "90 1234 5678" },
+  { code: "+55", label: "🇧🇷 +55", country: "BR", placeholder: "11 98765 4321" },
+  { code: "+34", label: "🇪🇸 +34", country: "ES", placeholder: "612 345 678" },
+  { code: "+39", label: "🇮🇹 +39", country: "IT", placeholder: "312 345 6789" },
+  { code: "+31", label: "🇳🇱 +31", country: "NL", placeholder: "6 12345678" },
+  { code: "+46", label: "🇸🇪 +46", country: "SE", placeholder: "70 123 45 67" },
+  { code: "+47", label: "🇳🇴 +47", country: "NO", placeholder: "412 34 567" },
+  { code: "+82", label: "🇰🇷 +82", country: "KR", placeholder: "10 1234 5678" },
 ];
 
 export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerificationProps) {
   const [screen, setScreen] = useState<"phone" | "otp" | "success">("phone");
-  const [countryCode, setCountryCode] = useState("+1");
+  const [countryCode, setCountryCode] = useState("+90");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isLoading, setIsLoading] = useState(false);
@@ -55,8 +55,10 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
   const [shakeOtp, setShakeOtp] = useState(false);
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const fullPhoneNumber = `${countryCode}${phoneNumber.replace(/\D/g, "")}`;
+  const cleanedNumber = phoneNumber.replace(/\D/g, "").replace(/^0+/, "");
+  const fullPhoneNumber = `${countryCode}${cleanedNumber}`;
   const maskedPhone = fullPhoneNumber.replace(/(\+\d{1,3})\d+(\d{2})$/, "$1 •••• ••$2");
+  const selectedCountry = COUNTRY_CODES.find(cc => cc.code === countryCode);
 
   // Reset state on close
   useEffect(() => {
@@ -77,9 +79,12 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
   }, [resendCooldown]);
 
   const handleSendOtp = async () => {
-    const cleaned = phoneNumber.replace(/\D/g, "");
-    if (cleaned.length < 4) {
+    if (cleanedNumber.length < 4) {
       setError("Please enter a valid phone number.");
+      return;
+    }
+    if (fullPhoneNumber.length < 10 || fullPhoneNumber.length > 16) {
+      setError("Please enter a valid phone number (without leading zero).");
       return;
     }
 
@@ -213,6 +218,10 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 We'll send you a 6-digit code via SMS. Standard messaging rates apply.
               </p>
 
+              <p className="text-xs text-muted-foreground mb-2">
+                Enter your number without the leading zero
+              </p>
+
               <div className="flex gap-2">
                 <Select value={countryCode} onValueChange={setCountryCode}>
                   <SelectTrigger className="w-[110px] shrink-0">
@@ -228,7 +237,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 </Select>
                 <Input
                   type="tel"
-                  placeholder="Phone number"
+                  placeholder={selectedCountry?.placeholder || "Phone number"}
                   value={phoneNumber}
                   onChange={(e) => {
                     setPhoneNumber(e.target.value);
@@ -240,6 +249,12 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 />
               </div>
 
+              {cleanedNumber.length >= 4 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  We'll send the code to: <span className="text-foreground font-mono font-medium">{fullPhoneNumber}</span>
+                </p>
+              )}
+
               {error && (
                 <p className="text-sm text-destructive text-center">{error}</p>
               )}
@@ -248,7 +263,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 className="w-full"
                 variant="gradient"
                 onClick={handleSendOtp}
-                disabled={isLoading || phoneNumber.replace(/\D/g, "").length < 4}
+                disabled={isLoading || cleanedNumber.length < 4}
               >
                 {isLoading ? (
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
