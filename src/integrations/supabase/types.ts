@@ -278,6 +278,35 @@ export type Database = {
           },
         ]
       }
+      email_drip_log: {
+        Row: {
+          email_key: string
+          id: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          email_key: string
+          id?: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          email_key?: string
+          id?: string
+          sent_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_drip_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_verifications: {
         Row: {
           code: string
@@ -854,6 +883,7 @@ export type Database = {
           company: string | null
           country: string | null
           created_at: string
+          email_unsubscribed: boolean
           email_verified: boolean | null
           events_attended: number | null
           gender: string
@@ -894,6 +924,7 @@ export type Database = {
           company?: string | null
           country?: string | null
           created_at?: string
+          email_unsubscribed?: boolean
           email_verified?: boolean | null
           events_attended?: number | null
           gender: string
@@ -934,6 +965,7 @@ export type Database = {
           company?: string | null
           country?: string | null
           created_at?: string
+          email_unsubscribed?: boolean
           email_verified?: boolean | null
           events_attended?: number | null
           gender?: string

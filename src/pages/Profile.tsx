@@ -47,7 +47,7 @@ import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
-import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
+// EmailVerificationFlow removed — Supabase Auth "Confirm email" handles this
 import { PhotoVerificationModal } from "@/components/verification/PhotoVerificationModal";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { useNavigate } from "react-router-dom";
@@ -167,32 +167,32 @@ const Profile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
-  const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
-  const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
 
   // Fetch profile and user email on mount
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        // Get user email
         const { data: { user } } = await supabase.auth.getUser();
-        if (user?.email) {
-          setUserEmail(user.email);
-        }
 
         // Fetch phone_verified status directly
         if (user) {
           const { data: phoneData } = await supabase
             .from("profiles")
-            .select("phone_verified")
+            .select("phone_verified, email_verified")
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) {
             setPhoneVerified(true);
+          }
+          // Auto-sync: user is logged in = email is confirmed by Supabase Auth
+          if (phoneData && !phoneData.email_verified && user.email) {
+            await supabase.from("profiles").update({
+              email_verified: true,
+              verified_email: user.email,
+            }).eq("id", user.id);
           }
         }
 
@@ -391,14 +391,15 @@ const Profile = () => {
   };
 
   const verificationSteps = [
-    { id: "email", label: "Email verification", description: emailVerified ? "Verified" : "Verify your email", icon: Mail, completed: emailVerified },
+    { id: "email", label: "Email verification", description: "Verified", icon: Mail, completed: true },
     { id: "photo", label: "Photo verification", description: profile.photoVerified ? "Verified" : "Take a quick selfie", icon: Camera, completed: profile.photoVerified },
     { id: "phone", label: "Phone number", description: phoneVerified ? "Verified" : "Verify your number", icon: Phone, completed: phoneVerified },
   ];
 
   const handleVerificationStep = (stepId: string) => {
-    if (stepId === "email" && !emailVerified) {
-      setShowEmailVerification(true);
+    if (stepId === "email") {
+      toast.success("Your email is already verified ✓");
+      return;
     }
     if (stepId === "photo" && !profile.photoVerified) {
       if (profile.photos.length === 0) {
@@ -900,7 +901,7 @@ const Profile = () => {
         >
           <button
             onClick={async () => {
-              const link = `https://vibelymeet.lovable.app/auth?mode=signup&ref=${profile.id}`;
+              const link = `https://vibelymeet.com/auth?mode=signup&ref=${profile.id}`;
               try {
                 await navigator.share({
                   title: "Join me on Vibely!",
@@ -1456,17 +1457,6 @@ const Profile = () => {
         }}
         existingVideoUrl={profile.videoIntroUrl || undefined}
         existingCaption={profile.vibeCaption}
-      />
-
-      {/* Email Verification Flow */}
-      <EmailVerificationFlow
-        open={showEmailVerification}
-        onOpenChange={setShowEmailVerification}
-        onVerified={() => {
-          setEmailVerified(true);
-          toast.success("Email verified successfully!");
-        }}
-        userEmail={userEmail}
       />
 
       {/* Phone Verification */}

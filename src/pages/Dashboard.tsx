@@ -22,6 +22,7 @@ import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
+import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -30,6 +31,27 @@ const Dashboard = () => {
 
   // Active session detection for rejoin banner
   const [activeSession, setActiveSession] = useState<{ sessionId: string; eventId: string } | null>(null);
+
+  // Phone verification nudge on dashboard
+  const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const dismissed = localStorage.getItem("vibely_phone_nudge_dashboard_dismissed");
+    if (dismissed) return;
+
+    const check = async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("phone_verified")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data && !data.phone_verified) {
+        setShowDashboardPhoneNudge(true);
+      }
+    };
+    check();
+  }, [user?.id]);
 
   useEffect(() => {
     const checkActive = async () => {
@@ -164,6 +186,25 @@ const Dashboard = () => {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-8">
+        {/* Phone Verification Nudge */}
+        <AnimatePresence>
+          {showDashboardPhoneNudge && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <PhoneVerificationNudge
+                variant="wizard"
+                onDismiss={() => {
+                  localStorage.setItem("vibely_phone_nudge_dashboard_dismissed", "true");
+                  setShowDashboardPhoneNudge(false);
+                }}
+                onVerified={() => setShowDashboardPhoneNudge(false)}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* Imminent Date Reminders */}
         {imminentReminders.length > 0 && (
           <section className="space-y-3">

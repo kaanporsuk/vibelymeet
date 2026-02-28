@@ -52,6 +52,9 @@ export const AccountSettingsDrawer = ({
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [showPasswordForPhone, setShowPasswordForPhone] = useState(false);
+  const [phoneChangePassword, setPhoneChangePassword] = useState("");
+  const [phoneReauthLoading, setPhoneReauthLoading] = useState(false);
 
   // Fetch phone verification status
   useEffect(() => {
@@ -216,7 +219,7 @@ export const AccountSettingsDrawer = ({
                   📱 {phoneNumber.replace(/(\+\d{1,3})\d+(\d{2})$/, "$1 •••• ••$2")}
                 </p>
                 <button
-                  onClick={() => setShowPhoneVerification(true)}
+                  onClick={() => setShowPasswordForPhone(true)}
                   className="text-xs text-primary hover:underline"
                 >
                   Change
@@ -234,6 +237,64 @@ export const AccountSettingsDrawer = ({
               </div>
             )}
           </div>
+
+          {/* Password prompt for phone change */}
+          <AnimatePresence>
+            {showPasswordForPhone && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="p-4 rounded-xl bg-secondary/40 space-y-3">
+                  <p className="text-sm text-muted-foreground">Enter your password to change your phone number</p>
+                  <Input
+                    type="password"
+                    placeholder="Current password"
+                    value={phoneChangePassword}
+                    onChange={(e) => setPhoneChangePassword(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setShowPasswordForPhone(false); setPhoneChangePassword(""); }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="gradient"
+                      size="sm"
+                      disabled={!phoneChangePassword || phoneReauthLoading}
+                      onClick={async () => {
+                        setPhoneReauthLoading(true);
+                        try {
+                          const { error } = await supabase.auth.signInWithPassword({
+                            email: user?.email || "",
+                            password: phoneChangePassword,
+                          });
+                          if (error) {
+                            toast.error("Incorrect password");
+                            return;
+                          }
+                          setShowPasswordForPhone(false);
+                          setPhoneChangePassword("");
+                          setShowPhoneVerification(true);
+                        } catch {
+                          toast.error("Verification failed");
+                        } finally {
+                          setPhoneReauthLoading(false);
+                        }
+                      }}
+                    >
+                      {phoneReauthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm & Change"}
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Edit Profile Button */}
           <button

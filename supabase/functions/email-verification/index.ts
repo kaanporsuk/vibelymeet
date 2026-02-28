@@ -47,7 +47,7 @@ async function sendEmail(to: string, otp: string): Promise<void> {
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: "Vibely <onboarding@resend.dev>",
+      from: "Vibely <login@vibelymeet.com>",
       to: [to],
       subject: "Your Vibely Verification Code",
       html: `

@@ -10,7 +10,6 @@ import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useAuth } from "@/contexts/AuthContext";
 import { videoService } from "@/services/vibelyService";
-import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ProfileWizardProps {
@@ -76,7 +75,6 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   
   // Track which sections are incomplete (only show these)
   const [incompleteSteps, setIncompleteSteps] = useState<typeof steps>([]);
@@ -158,17 +156,6 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           setShowLevelUp(true);
         }
 
-        // Check phone verification status for nudge
-        if (user) {
-          const { data: phoneData } = await supabase
-            .from("profiles")
-            .select("phone_verified")
-            .eq("id", user.id)
-            .maybeSingle();
-          if (phoneData && !phoneData.phone_verified) {
-            setShowPhoneNudge(true);
-          }
-        }
       } catch (error) {
         console.error('Failed to load existing profile:', error);
         // Default to showing all steps if load fails
@@ -445,14 +432,6 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                   )}
                 </Button>
 
-                {/* Phone Verification Nudge */}
-                {showPhoneNudge && (
-                  <PhoneVerificationNudge
-                    variant="wizard"
-                    onDismiss={() => setShowPhoneNudge(false)}
-                    onVerified={() => setShowPhoneNudge(false)}
-                  />
-                )}
               </motion.div>
             </motion.div>
           )}

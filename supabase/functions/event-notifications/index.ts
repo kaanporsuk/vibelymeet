@@ -30,7 +30,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: "Vibely <onboarding@resend.dev>",
+      from: "Vibely <login@vibelymeet.com>",
       to: [to],
       subject,
       html,
@@ -153,7 +153,7 @@ const handler = async (req: Request): Promise<Response> => {
               </div>
               
               <div style="text-align: center;">
-                <a href="https://vibelymeet.lovable.app/events/${event.id}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
+                <a href="https://vibelymeet.com/events/${event.id}" style="display: inline-block; background: linear-gradient(135deg, #8b5cf6, #ec4899); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
               </div>
               
               <p style="color: #71717a; text-align: center; font-size: 12px; margin-top: 32px;">
@@ -233,7 +233,7 @@ const handler = async (req: Request): Promise<Response> => {
               </p>
               
               <div style="text-align: center;">
-                <a href="https://vibelymeet.lovable.app/events/${event.id}" style="display: inline-block; background: linear-gradient(135deg, #fb923c, #f97316); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
+                <a href="https://vibelymeet.com/events/${event.id}" style="display: inline-block; background: linear-gradient(135deg, #fb923c, #f97316); color: white; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600;">View Event</a>
               </div>
             </div>
           </body>

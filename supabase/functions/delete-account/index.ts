@@ -266,22 +266,32 @@ serve(async (req) => {
       try {
         const resend = new Resend(resendApiKey);
         await resend.emails.send({
-          from: "Vibely <onboarding@resend.dev>",
+          from: "Vibely <login@vibelymeet.com>",
           to: [userEmail],
           subject: "Your Vibely account has been deleted",
           html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-              <h1 style="color: #1a1a2e; margin-bottom: 24px;">Goodbye from Vibely</h1>
-              <p style="color: #4a4a68; font-size: 16px; line-height: 1.6;">
-                Your Vibely account has been permanently deleted. All your data, matches, and conversations have been removed from our systems.
-              </p>
-              <p style="color: #4a4a68; font-size: 16px; line-height: 1.6;">
-                We're sorry to see you go. If you ever want to reconnect with amazing people, you're always welcome back.
-              </p>
-              <p style="color: #888; font-size: 14px; margin-top: 40px;">
-                — The Vibely Team
-              </p>
-            </div>
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0a0a0a; color: #ffffff; padding: 40px 20px; margin: 0;">
+              <div style="max-width: 500px; margin: 0 auto; background: linear-gradient(145deg, #1a1a2e, #16162a); border-radius: 24px; padding: 40px; border: 1px solid rgba(139, 92, 246, 0.2);">
+                <div style="text-align: center; margin-bottom: 32px;">
+                  <h1 style="font-size: 28px; font-weight: bold; background: linear-gradient(135deg, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Vibely</h1>
+                </div>
+                <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #ffffff;">We're sorry to see you go</h2>
+                <p style="color: #a1a1aa; text-align: center; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+                  Your Vibely account has been permanently deleted. All your data, matches, and conversations have been removed from our systems.
+                </p>
+                <p style="color: #a1a1aa; text-align: center; font-size: 14px; line-height: 1.6; margin-bottom: 32px;">
+                  If you ever want to reconnect with amazing people, you're always welcome back.
+                </p>
+                <p style="color: #71717a; text-align: center; font-size: 12px; margin: 0;">
+                  Vibely — Where connections come alive<br>
+                  <a href="https://vibelymeet.com" style="color: #8b5cf6; text-decoration: none;">vibelymeet.com</a>
+                </p>
+              </div>
+            </body>
+            </html>
           `,
         });
         console.log("Farewell email sent to:", userEmail);
