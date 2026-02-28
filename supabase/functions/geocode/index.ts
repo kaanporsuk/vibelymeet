@@ -67,7 +67,7 @@ serve(async (req) => {
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`,
       {
         headers: {
-          'User-Agent': 'Vibely Dating App (contact@vibely.app)',
+          'User-Agent': 'Vibely Dating App (support@vibelymeet.com)',
           'Accept': 'application/json',
         },
       }
