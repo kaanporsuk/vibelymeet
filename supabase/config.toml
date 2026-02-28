@@ -23,3 +23,9 @@ verify_jwt = false
 
 [functions.phone-verify]
 verify_jwt = false
+
+[functions.email-drip]
+verify_jwt = false
+
+[functions.unsubscribe]
+verify_jwt = false
