@@ -216,10 +216,11 @@ const Auth = () => {
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 0.1 }}
               >
-                <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-primary to-accent flex items-center justify-center neon-glow-violet">
-                  <Sparkles className="w-10 h-10 text-primary-foreground" />
-                </div>
-                <h1 className="text-4xl font-display font-bold gradient-text">Vibely</h1>
+                <img 
+                  src="/vibely-logo-full-gradient.png" 
+                  alt="Vibely" 
+                  className="h-10 mx-auto"
+                />
                 <p className="text-muted-foreground">
                   {mode === "signin" ? "Welcome back! Sign in to continue." : "Create your account to get started."}
                 </p>

@@ -40,8 +40,8 @@ function profileCompleteEmail(name: string, unsubscribeUrl: string): { subject: 
       <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0a0a0a; color: #ffffff; padding: 40px 20px; margin: 0;">
         <div style="max-width: 500px; margin: 0 auto; background: linear-gradient(145deg, #1a1a2e, #16162a); border-radius: 24px; padding: 40px; border: 1px solid rgba(139, 92, 246, 0.2);">
-          <div style="text-align: center; margin-bottom: 32px;">
-            <h1 style="font-size: 28px; font-weight: bold; background: linear-gradient(135deg, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Vibely</h1>
+          <div style="text-align:center;margin-bottom:24px;">
+            <img src="https://vibelymeet.com/vibely-logo-full-gradient.png" alt="Vibely" height="36" style="height:36px;display:inline-block;" />
           </div>
           <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #ffffff;">You're live, ${name}! 🎉</h2>
           <p style="color: #a1a1aa; text-align: center; font-size: 14px; margin-bottom: 24px;">Your profile is looking great. Here's how to get your first match:</p>
@@ -73,8 +73,8 @@ function firstEventNudgeEmail(name: string, unsubscribeUrl: string): { subject: 
       <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0a0a0a; color: #ffffff; padding: 40px 20px; margin: 0;">
         <div style="max-width: 500px; margin: 0 auto; background: linear-gradient(145deg, #1a1a2e, #16162a); border-radius: 24px; padding: 40px; border: 1px solid rgba(139, 92, 246, 0.2);">
-          <div style="text-align: center; margin-bottom: 32px;">
-            <h1 style="font-size: 28px; font-weight: bold; background: linear-gradient(135deg, #8b5cf6, #ec4899); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">Vibely</h1>
+          <div style="text-align:center;margin-bottom:24px;">
+            <img src="https://vibelymeet.com/vibely-logo-full-gradient.png" alt="Vibely" height="36" style="height:36px;display:inline-block;" />
           </div>
           <h2 style="font-size: 20px; font-weight: 600; text-align: center; margin-bottom: 16px; color: #ffffff;">Hey ${name}, ready to vibe? 💜</h2>
           <p style="color: #a1a1aa; text-align: center; font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
