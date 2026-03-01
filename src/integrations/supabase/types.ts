@@ -1362,14 +1362,17 @@ export type Database = {
         Row: {
           daily_room_name: string | null
           daily_room_url: string | null
+          date_started_at: string | null
           duration_seconds: number | null
           ended_at: string | null
           event_id: string
+          handshake_started_at: string | null
           id: string
           participant_1_id: string
           participant_1_liked: boolean | null
           participant_2_id: string
           participant_2_liked: boolean | null
+          phase: string
           ready_gate_expires_at: string | null
           ready_gate_status: string
           ready_participant_1_at: string | null
@@ -1382,14 +1385,17 @@ export type Database = {
         Insert: {
           daily_room_name?: string | null
           daily_room_url?: string | null
+          date_started_at?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
           event_id: string
+          handshake_started_at?: string | null
           id?: string
           participant_1_id: string
           participant_1_liked?: boolean | null
           participant_2_id: string
           participant_2_liked?: boolean | null
+          phase?: string
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
@@ -1402,14 +1408,17 @@ export type Database = {
         Update: {
           daily_room_name?: string | null
           daily_room_url?: string | null
+          date_started_at?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
           event_id?: string
+          handshake_started_at?: string | null
           id?: string
           participant_1_id?: string
           participant_1_liked?: boolean | null
           participant_2_id?: string
           participant_2_liked?: boolean | null
+          phase?: string
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null

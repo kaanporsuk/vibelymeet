@@ -173,10 +173,16 @@ export const useFaceVerification = () => {
       await videoElement.play();
       setStatus("capturing");
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error("Camera access error:", error);
       setStatus("error");
-      setErrorMessage("Could not access camera. Please grant permission and try again.");
+      if (error?.name === "NotAllowedError") {
+        setErrorMessage("Camera access denied. Please allow camera in your browser settings.");
+      } else if (error?.name === "NotFoundError") {
+        setErrorMessage("No camera found on this device.");
+      } else {
+        setErrorMessage("Could not access camera. Please try again.");
+      }
       return false;
     }
   }, []);

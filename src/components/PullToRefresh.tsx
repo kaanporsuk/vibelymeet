@@ -82,7 +82,7 @@ export const PullToRefresh = ({
   }, [isPulling, disabled, pullDistance, threshold, isRefreshing, onRefresh, hapticSuccess]);
 
   return (
-    <div className={cn("relative overflow-hidden", className)}>
+    <div className={cn("relative overflow-x-hidden", className)}>
       {/* Pull indicator */}
       <AnimatePresence>
         {(isPulling || isRefreshing) && (
