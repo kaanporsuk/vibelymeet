@@ -108,9 +108,25 @@ serve(async (req) => {
       const twilioData = await twilioRes.json();
 
       if (!twilioRes.ok) {
-        console.error("Twilio send error:", twilioData);
-        return new Response(JSON.stringify({ error: "Failed to send verification code. Please try again." }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        const twilioCode = twilioData?.code;
+        const twilioMessage = twilioData?.message || "Unknown error";
+        console.error("Twilio send error:", twilioCode, twilioMessage);
+
+        let userMessage = "Failed to send verification code.";
+        if (twilioCode === 21608 || twilioMessage.includes("unverified")) {
+          userMessage = "Phone number not enabled. Please contact support.";
+        } else if (twilioCode === 21211) {
+          userMessage = "Invalid phone number format. Please check and try again.";
+        } else if (twilioCode === 21614) {
+          userMessage = "This phone number cannot receive SMS.";
+        } else if (twilioCode === 60203 || twilioMessage.includes("Max")) {
+          userMessage = "Too many attempts. Please wait 10 minutes.";
+        } else if (twilioCode === 20003 || twilioMessage.includes("Authenticate")) {
+          userMessage = "Verification service error. Please try again later.";
+        }
+
+        return new Response(JSON.stringify({ error: userMessage, debug: twilioCode }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 

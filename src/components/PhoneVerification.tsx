@@ -43,9 +43,43 @@ const COUNTRY_CODES = [
   { code: "+82", label: "🇰🇷 +82", country: "KR", placeholder: "10 1234 5678" },
 ];
 
+function detectCountryFromLocale(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzToCountry: Record<string, string> = {
+      "Europe/Istanbul": "TR", "Europe/London": "GB", "Europe/Berlin": "DE",
+      "Europe/Paris": "FR", "Europe/Amsterdam": "NL", "Europe/Rome": "IT",
+      "Europe/Madrid": "ES", "America/New_York": "US", "America/Chicago": "US",
+      "America/Denver": "US", "America/Los_Angeles": "US", "Asia/Dubai": "AE",
+      "Asia/Riyadh": "SA", "Australia/Sydney": "AU", "Asia/Tokyo": "JP",
+      "Asia/Seoul": "KR", "Asia/Kolkata": "IN", "America/Sao_Paulo": "BR",
+      "America/Toronto": "CA", "Europe/Warsaw": "PL", "Europe/Stockholm": "SE",
+      "Europe/Zurich": "CH", "Europe/Vienna": "AT", "Europe/Brussels": "BE",
+      "Europe/Copenhagen": "DK", "Europe/Helsinki": "FI", "Europe/Athens": "GR",
+      "Europe/Lisbon": "PT", "Europe/Prague": "CZ", "Europe/Budapest": "HU",
+      "Europe/Bucharest": "RO", "Europe/Sofia": "BG", "Europe/Zagreb": "HR",
+      "Europe/Kiev": "UA", "Europe/Moscow": "RU", "Asia/Shanghai": "CN",
+      "Asia/Singapore": "SG", "Asia/Bangkok": "TH", "Asia/Jakarta": "ID",
+      "Africa/Cairo": "EG", "Africa/Lagos": "NG", "Africa/Johannesburg": "ZA",
+      "Pacific/Auckland": "NZ", "America/Mexico_City": "MX",
+      "America/Argentina/Buenos_Aires": "AR",
+    };
+    if (tz && tzToCountry[tz]) return tzToCountry[tz];
+    const lang = navigator.language || navigator.languages?.[0];
+    if (lang) {
+      const parts = lang.split("-");
+      if (parts.length > 1) return parts[1].toUpperCase();
+    }
+  } catch {}
+  return "TR";
+}
+
 export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerificationProps) {
+  const detectedCountry = detectCountryFromLocale();
+  const defaultDialCode = COUNTRY_CODES.find(c => c.country === detectedCountry)?.code || "+90";
+
   const [screen, setScreen] = useState<"phone" | "otp" | "success">("phone");
-  const [countryCode, setCountryCode] = useState("+90");
+  const [countryCode, setCountryCode] = useState(defaultDialCode);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isLoading, setIsLoading] = useState(false);
