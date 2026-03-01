@@ -75,6 +75,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [vibeSkipped, setVibeSkipped] = useState(false);
   
   // Track which sections are incomplete (only show these)
   const [incompleteSteps, setIncompleteSteps] = useState<typeof steps>([]);
@@ -587,67 +588,78 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                     transition={{ type: "spring", damping: 25 }}
                     className="flex flex-col items-center justify-center py-8 space-y-6"
                   >
-                    <div className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center">
-                      <Video className="w-10 h-10 text-primary-foreground" />
-                    </div>
-                    <div className="text-center space-y-2">
-                      <h3 className="text-lg font-semibold text-foreground">Record Your Vibe Video</h3>
-                      <p className="text-sm text-muted-foreground max-w-xs">
-                        A 15-second video introduction helps you stand out and get 3x more matches!
-                      </p>
-                    </div>
-                    <Button 
-                      variant="gradient" 
-                      onClick={async () => {
-                        // Save progress first
-                        if (user) {
-                          try {
-                            const { updateMyProfile } = await import("@/services/profileService");
-                            
-                            // Save current wizard progress
-                            const uploadedPhotoUrls: string[] = [];
-                            for (let i = 0; i < photos.length; i++) {
-                              const photo = photos[i];
-                              const file = photoFiles[i];
-                              if (photo && file) {
-                                const url = await videoService.uploadPhoto(user.id, file, i);
-                                uploadedPhotoUrls.push(url);
-                              } else if (photo && photo.startsWith('http')) {
-                                uploadedPhotoUrls.push(photo);
+                    {vibeSkipped ? (
+                      <div className="text-center space-y-3 py-4">
+                        <p className="text-sm text-muted-foreground">
+                          📹 Profiles with a Vibe Video get 5x more matches
+                        </p>
+                        <button
+                          onClick={() => setVibeSkipped(false)}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Record a Vibe Video
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-20 h-20 rounded-full bg-gradient-primary flex items-center justify-center">
+                          <Video className="w-10 h-10 text-primary-foreground" />
+                        </div>
+                        <div className="text-center space-y-2">
+                          <h3 className="text-lg font-semibold text-foreground">Record Your Vibe Video</h3>
+                          <p className="text-sm text-muted-foreground max-w-xs">
+                            A 15-second video introduction helps you stand out and get 3x more matches!
+                          </p>
+                        </div>
+                        <Button 
+                          variant="gradient" 
+                          onClick={async () => {
+                            if (user) {
+                              try {
+                                const { updateMyProfile } = await import("@/services/profileService");
+                                const uploadedPhotoUrls: string[] = [];
+                                for (let i = 0; i < photos.length; i++) {
+                                  const photo = photos[i];
+                                  const file = photoFiles[i];
+                                  if (photo && file) {
+                                    const url = await videoService.uploadPhoto(user.id, file, i);
+                                    uploadedPhotoUrls.push(url);
+                                  } else if (photo && photo.startsWith('http')) {
+                                    uploadedPhotoUrls.push(photo);
+                                  }
+                                }
+                                const dbPrompts = prompts
+                                  .filter(p => p.answer && p.answer.trim())
+                                  .map(p => ({ question: p.question, answer: p.answer.trim() }));
+                                await updateMyProfile({
+                                  photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
+                                  avatarUrl: uploadedPhotoUrls[0] || undefined,
+                                  prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
+                                  vibes: vibes.length > 0 ? vibes : undefined,
+                                });
+                                toast.success("Progress saved!");
+                              } catch (error) {
+                                console.error("Failed to save progress:", error);
                               }
                             }
-
-                            const dbPrompts = prompts
-                              .filter(p => p.answer && p.answer.trim())
-                              .map(p => ({ question: p.question, answer: p.answer.trim() }));
-
-                            await updateMyProfile({
-                              photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
-                              avatarUrl: uploadedPhotoUrls[0] || undefined,
-                              prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
-                              vibes: vibes.length > 0 ? vibes : undefined,
-                            });
-                            
-                            toast.success("Progress saved!");
-                          } catch (error) {
-                            console.error("Failed to save progress:", error);
-                          }
-                        }
-                        
-                        // Close wizard and open Vibe Studio
-                        onClose();
-                        if (onOpenVibeStudio) {
-                          onOpenVibeStudio();
-                        }
-                      }}
-                      className="gap-2"
-                    >
-                      <Video className="w-4 h-4" />
-                      Go to Vibe Studio
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      You can skip this for now and record later from your profile
-                    </p>
+                            onClose();
+                            if (onOpenVibeStudio) {
+                              onOpenVibeStudio();
+                            }
+                          }}
+                          className="gap-2"
+                        >
+                          <Video className="w-4 h-4" />
+                          Go to Vibe Studio
+                        </Button>
+                        <button
+                          onClick={() => setVibeSkipped(true)}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Skip for now
+                        </button>
+                      </>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
