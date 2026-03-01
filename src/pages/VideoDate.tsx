@@ -49,7 +49,8 @@ const VideoDate = () => {
   const { user } = useAuth();
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
-  const [timeLeft, setTimeLeft] = useState(HANDSHAKE_TIME);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [serverTimeLoaded, setServerTimeLoaded] = useState(false);
   const [blurAmount, setBlurAmount] = useState(20);
   const [showFeedback, setShowFeedback] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
@@ -205,6 +206,78 @@ const VideoDate = () => {
     }
   }, [callStarted, startCall, id]);
 
+  // Fetch server-side timing on mount and refresh
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchTiming = async () => {
+      const { data } = await supabase
+        .from("video_sessions")
+        .select("handshake_started_at, date_started_at, phase")
+        .eq("id", id)
+        .single();
+
+      if (!data) {
+        // Fallback: use frontend-only timer
+        setTimeLeft(HANDSHAKE_TIME);
+        setServerTimeLoaded(true);
+        return;
+      }
+
+      const now = Date.now();
+
+      if (data.phase === "date" && data.date_started_at) {
+        const elapsed = (now - new Date(data.date_started_at).getTime()) / 1000;
+        setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
+        setPhase("date");
+      } else if (data.handshake_started_at) {
+        const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
+        setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed)));
+      } else {
+        // No server timestamp yet — set it now and start
+        await supabase
+          .from("video_sessions")
+          .update({ handshake_started_at: new Date().toISOString() })
+          .eq("id", id)
+          .is("handshake_started_at", null);
+        setTimeLeft(HANDSHAKE_TIME);
+      }
+      setServerTimeLoaded(true);
+    };
+
+    fetchTiming();
+  }, [id]);
+
+  // Subscribe to phase changes via Realtime
+  useEffect(() => {
+    if (!id) return;
+
+    const channel = supabase
+      .channel(`session-timer-${id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "video_sessions",
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          const newPhase = (payload.new as any).phase;
+          if (newPhase === "date" && (payload.new as any).date_started_at) {
+            const elapsed = (Date.now() - new Date((payload.new as any).date_started_at).getTime()) / 1000;
+            setTimeLeft(Math.ceil(Math.max(0, DATE_TIME - elapsed)));
+            setPhase("date");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id]);
+
   // Progressive blur: clear over 10s when connected
   useEffect(() => {
     if (isConnected) {
@@ -218,12 +291,12 @@ const VideoDate = () => {
 
   // Countdown timer
   useEffect(() => {
-    if (showFeedback || !isConnected || phase === "ended" || reconnection.isTimerPaused)
+    if (timeLeft === null || showFeedback || !isConnected || phase === "ended" || reconnection.isTimerPaused)
       return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) {
+        if (prev === null || prev <= 1) {
           if (phaseRef.current === "handshake") {
             checkMutualVibe();
           } else {
@@ -237,7 +310,7 @@ const VideoDate = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [showFeedback, isConnected, phase, reconnection.isTimerPaused]);
+  }, [timeLeft !== null, showFeedback, isConnected, phase, reconnection.isTimerPaused]);
 
   // Auto-hide ice breaker after 20s
   useEffect(() => {
@@ -360,13 +433,21 @@ const VideoDate = () => {
     }
   }, [id, endCall, setStatus]);
 
-  const handleMutualToastComplete = useCallback(() => {
+  const handleMutualToastComplete = useCallback(async () => {
     setShowMutualToast(false);
     setPhase("date");
     setTimeLeft(DATE_TIME);
     setShowIceBreaker(true);
     setTimeout(() => setShowIceBreaker(false), 30000);
-  }, []);
+
+    // Set server-side date phase timestamp
+    if (id) {
+      await supabase
+        .from("video_sessions")
+        .update({ phase: "date", date_started_at: new Date().toISOString() })
+        .eq("id", id);
+    }
+  }, [id]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
@@ -394,8 +475,8 @@ const VideoDate = () => {
           .update({
             ended_at: new Date().toISOString(),
             duration_seconds: phase === "handshake"
-              ? HANDSHAKE_TIME - timeLeft
-              : HANDSHAKE_TIME + DATE_TIME - timeLeft,
+              ? HANDSHAKE_TIME - (timeLeft ?? 0)
+              : HANDSHAKE_TIME + DATE_TIME - (timeLeft ?? 0),
           })
           .eq("id", id)
           .is("ended_at", null); // Only update if not already ended
@@ -420,7 +501,7 @@ const VideoDate = () => {
   }, [endCall, id, user?.id, eventId, handleCallEnd]);
 
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
-  const isUrgent = phase === "date" && timeLeft <= 10;
+  const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
@@ -508,7 +589,7 @@ const VideoDate = () => {
             </motion.div>
           )}
           <HandshakeTimer
-            timeLeft={timeLeft}
+            timeLeft={timeLeft ?? 0}
             totalTime={totalTime}
             phase={phase}
           />

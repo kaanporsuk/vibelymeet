@@ -297,8 +297,13 @@ export const PhotoVerificationModal = ({
   const initializeVerification = async () => {
     setShowTutorial(false);
     const modelsReady = await loadModels();
-    if (modelsReady && videoRef.current) {
-      await startCamera(videoRef.current);
+    if (modelsReady) {
+      // Delay camera start to ensure video element is rendered in DOM
+      setTimeout(async () => {
+        if (videoRef.current) {
+          await startCamera(videoRef.current);
+        }
+      }, 300);
     }
   };
 
