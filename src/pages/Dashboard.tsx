@@ -178,9 +178,7 @@ const Dashboard = () => {
               onClick={handleNotificationClick}
               unreadCount={unreadCount}
             />
-            <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
+            <img src="/vibely-logomark.png" alt="Vibely" className="w-8 h-8" />
           </div>
         </div>
       </header>
