@@ -105,6 +105,21 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
     }
   }, [open]);
 
+  // Health check on modal open
+  useEffect(() => {
+    if (open) {
+      supabase.functions.invoke("phone-verify", {
+        body: { action: "health_check", phoneNumber: "+0" },
+      }).then(({ data, error: invokeError }) => {
+        if (invokeError) {
+          console.error("Phone verify health check failed:", invokeError);
+        } else {
+          console.log("Phone verify health check:", data);
+        }
+      });
+    }
+  }, [open]);
+
   // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -125,21 +140,39 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
     setIsLoading(true);
     setError(null);
 
+    console.log("Sending OTP to:", fullPhoneNumber);
+
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("phone-verify", {
+      const { data, error: invokeError } = await supabase.functions.invoke("phone-verify", {
         body: { action: "send_otp", phoneNumber: fullPhoneNumber },
       });
 
-      if (fnError || data?.error) {
-        setError(data?.error || "Failed to send code. Please try again.");
+      console.log("Phone verify response:", { data, invokeError });
+
+      // Handle invoke-level errors (network, CORS, function crash)
+      if (invokeError) {
+        console.error("Function invoke error:", invokeError);
+        setError(invokeError.message || "Could not reach verification service. Check your connection.");
+        setIsLoading(false);
         return;
       }
 
+      // Handle application-level errors returned by our function
+      if (data?.error) {
+        console.error("Phone verify error:", data.error, data.debug);
+        setError(data.error);
+        setIsLoading(false);
+        return;
+      }
+
+      // Success
+      console.log("OTP sent successfully");
       setScreen("otp");
       setResendCooldown(60);
       setTimeout(() => otpRefs.current[0]?.focus(), 100);
-    } catch {
-      setError("Network error. Please try again.");
+    } catch (err: any) {
+      console.error("Unexpected error sending OTP:", err);
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -149,12 +182,42 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
     setIsLoading(true);
     setError(null);
 
+    const cleaned = phoneNumber.replace(/\D/g, "").replace(/^0+/, "");
+    const fullNumber = `${countryCode}${cleaned}`;
+
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("phone-verify", {
-        body: { action: "verify_otp", phoneNumber: fullPhoneNumber, code: otpCode },
+      const { data, error: invokeError } = await supabase.functions.invoke("phone-verify", {
+        body: { action: "verify_otp", phoneNumber: fullNumber, code: otpCode },
       });
 
-      if (data?.verified) {
+      console.log("Verify OTP response:", { data, invokeError });
+
+      if (invokeError) {
+        setError(invokeError.message || "Verification service unavailable.");
+        setIsLoading(false);
+        return;
+      }
+
+      if (data?.error) {
+        const newAttempts = failedAttempts + 1;
+        setFailedAttempts(newAttempts);
+        setShakeOtp(true);
+        setTimeout(() => setShakeOtp(false), 500);
+
+        if (newAttempts >= 3) {
+          setError("Too many attempts. Please request a new code.");
+          setScreen("phone");
+          setOtp(["", "", "", "", "", ""]);
+          setFailedAttempts(0);
+          return;
+        }
+
+        setError(data.error);
+        setIsLoading(false);
+        return;
+      }
+
+      if (data?.verified || data?.success) {
         setScreen("success");
         toast.success("Phone verified! ✅");
         setTimeout(() => {
@@ -164,27 +227,14 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
         return;
       }
 
-      // Wrong code
-      const newAttempts = failedAttempts + 1;
-      setFailedAttempts(newAttempts);
-      setShakeOtp(true);
-      setTimeout(() => setShakeOtp(false), 500);
-
-      if (newAttempts >= 3) {
-        setError("Too many attempts. Please request a new code.");
-        setScreen("phone");
-        setOtp(["", "", "", "", "", ""]);
-        setFailedAttempts(0);
-        return;
-      }
-
-      setError(data?.error || fnError?.message || "Invalid code. Please try again.");
-    } catch {
+      setError("Unexpected response. Please try again.");
+    } catch (err: any) {
+      console.error("Unexpected error verifying OTP:", err);
       setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  }, [fullPhoneNumber, failedAttempts, onVerified, onOpenChange]);
+  }, [countryCode, phoneNumber, failedAttempts, onVerified, onOpenChange]);
 
   const handleOtpChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
@@ -197,7 +247,6 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
       otpRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all 6 digits filled
     const code = newOtp.join("");
     if (code.length === 6 && newOtp.every((d) => d !== "")) {
       handleVerifyOtp(code);
@@ -233,15 +282,9 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
         </DialogHeader>
 
         <AnimatePresence mode="wait">
-          {/* ── SCREEN 1: Enter Phone ── */}
           {screen === "phone" && (
-            <motion.div
-              key="phone"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="space-y-5 py-2"
-            >
+            <motion.div key="phone" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }} className="space-y-5 py-2">
               <div className="flex items-center justify-center">
                 <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
                   <Phone className="w-8 h-8 text-primary" />
@@ -263,9 +306,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                   </SelectTrigger>
                   <SelectContent>
                     {COUNTRY_CODES.map((cc) => (
-                      <SelectItem key={cc.code} value={cc.code}>
-                        {cc.label}
-                      </SelectItem>
+                      <SelectItem key={cc.code} value={cc.code}>{cc.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -273,10 +314,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                   type="tel"
                   placeholder={selectedCountry?.placeholder || "Phone number"}
                   value={phoneNumber}
-                  onChange={(e) => {
-                    setPhoneNumber(e.target.value);
-                    setError(null);
-                  }}
+                  onChange={(e) => { setPhoneNumber(e.target.value); setError(null); }}
                   onKeyDown={(e) => e.key === "Enter" && handleSendOtp()}
                   className="flex-1"
                   autoFocus
@@ -289,60 +327,36 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 </p>
               )}
 
-              {error && (
-                <p className="text-sm text-destructive text-center">{error}</p>
-              )}
+              {error && <p className="text-sm text-destructive text-center">{error}</p>}
 
-              <Button
-                className="w-full"
-                variant="gradient"
-                onClick={handleSendOtp}
-                disabled={isLoading || cleanedNumber.length < 4}
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : null}
+              <Button className="w-full" variant="gradient" onClick={handleSendOtp}
+                disabled={isLoading || cleanedNumber.length < 4}>
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                 Send Verification Code
               </Button>
             </motion.div>
           )}
 
-          {/* ── SCREEN 2: Enter OTP ── */}
           {screen === "otp" && (
-            <motion.div
-              key="otp"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-5 py-2"
-            >
+            <motion.div key="otp" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }} className="space-y-5 py-2">
               <button
                 onClick={() => { setScreen("phone"); setOtp(["", "", "", "", "", ""]); setError(null); }}
                 className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                <ArrowLeft className="w-4 h-4" />
-                Back
+                <ArrowLeft className="w-4 h-4" /> Back
               </button>
 
               <p className="text-center text-sm text-muted-foreground">
                 Enter the code sent to <span className="text-foreground font-medium">{maskedPhone}</span>
               </p>
 
-              {/* OTP Input Boxes */}
-              <motion.div
-                className="flex justify-center gap-2"
+              <motion.div className="flex justify-center gap-2"
                 animate={shakeOtp ? { x: [0, -8, 8, -8, 8, 0] } : {}}
-                transition={{ duration: 0.4 }}
-                onPaste={handleOtpPaste}
-              >
+                transition={{ duration: 0.4 }} onPaste={handleOtpPaste}>
                 {otp.map((digit, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => { otpRefs.current[i] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
+                  <input key={i} ref={(el) => { otpRefs.current[i] = el; }}
+                    type="text" inputMode="numeric" maxLength={1} value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(i, e)}
                     className="w-12 h-14 text-center text-xl font-display font-bold rounded-xl border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
@@ -351,9 +365,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 ))}
               </motion.div>
 
-              {error && (
-                <p className="text-sm text-destructive text-center">{error}</p>
-              )}
+              {error && <p className="text-sm text-destructive text-center">{error}</p>}
 
               {isLoading && (
                 <div className="flex justify-center">
@@ -361,22 +373,12 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 </div>
               )}
 
-              {/* Resend */}
               <div className="text-center">
                 {resendCooldown > 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    Resend code in {resendCooldown}s
-                  </p>
+                  <p className="text-xs text-muted-foreground">Resend code in {resendCooldown}s</p>
                 ) : (
-                  <button
-                    onClick={() => {
-                      setOtp(["", "", "", "", "", ""]);
-                      setError(null);
-                      handleSendOtp();
-                    }}
-                    className="text-sm text-primary hover:underline"
-                    disabled={isLoading}
-                  >
+                  <button onClick={() => { setOtp(["", "", "", "", "", ""]); setError(null); handleSendOtp(); }}
+                    className="text-sm text-primary hover:underline" disabled={isLoading}>
                     Resend code
                   </button>
                 )}
@@ -384,20 +386,12 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
             </motion.div>
           )}
 
-          {/* ── SCREEN 3: Success ── */}
           {screen === "success" && (
-            <motion.div
-              key="success"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center gap-4 py-8"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
+            <motion.div key="success" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
+              className="flex flex-col items-center gap-4 py-8">
+              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
                 transition={{ type: "spring", stiffness: 200, damping: 15 }}
-                className="w-20 h-20 rounded-full bg-neon-cyan/20 flex items-center justify-center"
-              >
+                className="w-20 h-20 rounded-full bg-neon-cyan/20 flex items-center justify-center">
                 <CheckCircle2 className="w-10 h-10 text-neon-cyan" />
               </motion.div>
               <p className="text-lg font-display font-semibold text-foreground">Phone Verified!</p>
