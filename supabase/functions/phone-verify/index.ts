@@ -4,106 +4,87 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type",
 };
+
+// IMPORTANT: Always return HTTP 200. Use { success: false, error: "..." }
+// for errors. The Supabase SDK discards response bodies for non-2xx codes.
+function jsonResponse(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const responseHeaders = { ...corsHeaders, "Content-Type": "application/json" };
-
   try {
-    // ── Step 1: Parse request ──
     const body = await req.json();
     const { action, phoneNumber, code } = body;
-    console.log("📱 Phone verify request:", { action, phoneNumber: phoneNumber?.replace(/\d(?=\d{4})/g, "*") });
+    console.log("📱 Request:", { action, phone: phoneNumber?.slice(0, 6) + "****" });
 
     if (!action || !phoneNumber) {
-      return new Response(
-        JSON.stringify({ error: "Missing action or phoneNumber" }),
-        { status: 400, headers: responseHeaders }
-      );
+      return jsonResponse({ success: false, error: "Missing action or phone number." });
     }
 
-    // ── Step 2: Verify Twilio credentials exist ──
-    const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
-    const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
-    const TWILIO_VERIFY_SERVICE_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID");
+    const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
+    const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
+    const TWILIO_VERIFY_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID");
 
-    console.log("🔑 Twilio credentials check:", {
-      hasAccountSid: !!TWILIO_ACCOUNT_SID,
-      accountSidPrefix: TWILIO_ACCOUNT_SID?.substring(0, 4) || "MISSING",
-      hasAuthToken: !!TWILIO_AUTH_TOKEN,
-      authTokenLength: TWILIO_AUTH_TOKEN?.length || 0,
-      hasVerifyServiceSid: !!TWILIO_VERIFY_SERVICE_SID,
-      verifyServicePrefix: TWILIO_VERIFY_SERVICE_SID?.substring(0, 4) || "MISSING",
+    console.log("🔑 Secrets:", {
+      sid: TWILIO_SID ? TWILIO_SID.slice(0, 6) + "..." : "MISSING",
+      token: TWILIO_TOKEN ? `${TWILIO_TOKEN.length} chars` : "MISSING",
+      verify: TWILIO_VERIFY_SID ? TWILIO_VERIFY_SID.slice(0, 6) + "..." : "MISSING",
     });
 
-    // ── Health check endpoint ──
     if (action === "health_check") {
-      return new Response(
-        JSON.stringify({
-          healthy: true,
-          hasTwilioSid: !!TWILIO_ACCOUNT_SID,
-          hasTwilioToken: !!TWILIO_AUTH_TOKEN,
-          hasVerifyService: !!TWILIO_VERIFY_SERVICE_SID,
-          timestamp: new Date().toISOString(),
-        }),
-        { status: 200, headers: responseHeaders }
-      );
+      return jsonResponse({
+        success: true,
+        hasSid: !!TWILIO_SID,
+        hasToken: !!TWILIO_TOKEN,
+        hasVerify: !!TWILIO_VERIFY_SID,
+      });
     }
 
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_VERIFY_SERVICE_SID) {
-      const missing: string[] = [];
-      if (!TWILIO_ACCOUNT_SID) missing.push("TWILIO_ACCOUNT_SID");
-      if (!TWILIO_AUTH_TOKEN) missing.push("TWILIO_AUTH_TOKEN");
-      if (!TWILIO_VERIFY_SERVICE_SID) missing.push("TWILIO_VERIFY_SERVICE_SID");
-
-      console.error("❌ Missing Twilio secrets:", missing.join(", "));
-      return new Response(
-        JSON.stringify({
-          error: "SMS service not configured. Please contact support.",
-          debug: `Missing: ${missing.join(", ")}`,
-        }),
-        { status: 500, headers: responseHeaders }
-      );
+    if (!TWILIO_SID || !TWILIO_TOKEN || !TWILIO_VERIFY_SID) {
+      const missing = [
+        !TWILIO_SID && "TWILIO_ACCOUNT_SID",
+        !TWILIO_TOKEN && "TWILIO_AUTH_TOKEN",
+        !TWILIO_VERIFY_SID && "TWILIO_VERIFY_SERVICE_SID",
+      ].filter(Boolean);
+      console.error("❌ Missing secrets:", missing);
+      return jsonResponse({
+        success: false,
+        error: "SMS service not configured. Missing: " + missing.join(", "),
+      });
     }
 
-    // ── Step 3: Authenticate user ──
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Not authenticated" }),
-        { status: 401, headers: responseHeaders }
-      );
+      return jsonResponse({ success: false, error: "Not authenticated." });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) {
-      console.error("❌ Auth error:", userError?.message);
-      return new Response(
-        JSON.stringify({ error: "Authentication failed" }),
-        { status: 401, headers: responseHeaders }
-      );
+    if (authError || !user) {
+      console.error("❌ Auth failed:", authError?.message);
+      return jsonResponse({ success: false, error: "Authentication failed. Please log in again." });
     }
-    console.log("✅ User authenticated:", user.id);
+    console.log("✅ User:", user.id);
 
-    const supabaseAdmin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`);
 
-    // ═══════════════════════════════════════════════════════════
-    // ACTION: send_otp
-    // ═══════════════════════════════════════════════════════════
+    // ═══ SEND OTP ═══
     if (action === "send_otp") {
-      // Check if phone already verified by another user
-      const { data: existingUser } = await supabaseAdmin
+      const { data: existing } = await admin
         .from("profiles")
         .select("id")
         .eq("phone_number", phoneNumber)
@@ -111,192 +92,102 @@ serve(async (req) => {
         .neq("id", user.id)
         .maybeSingle();
 
-      if (existingUser) {
-        console.log("⚠️ Phone already verified by another user");
-        return new Response(
-          JSON.stringify({ error: "This phone number is already verified by another account." }),
-          { status: 400, headers: responseHeaders }
-        );
+      if (existing) {
+        return jsonResponse({ success: false, error: "This number is already verified by another account." });
       }
 
-      // Call Twilio Verify API to send OTP
-      const twilioUrl = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SERVICE_SID}/Verifications`;
-      const twilioBody = new URLSearchParams({ To: phoneNumber, Channel: "sms" });
+      const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`;
+      console.log("📤 Twilio send:", { to: phoneNumber, url: url.slice(0, 60) });
 
-      console.log("📤 Sending Twilio request:", {
-        url: twilioUrl,
-        to: phoneNumber,
-        channel: "sms",
-        serviceSid: TWILIO_VERIFY_SERVICE_SID.substring(0, 6) + "...",
-      });
-
-      const twilioAuth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
-
-      const twilioResponse = await fetch(twilioUrl, {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${twilioAuth}`,
+          "Authorization": `Basic ${twilioAuth}`,
         },
-        body: twilioBody.toString(),
+        body: new URLSearchParams({ To: phoneNumber, Channel: "sms" }).toString(),
       });
 
-      const twilioData = await twilioResponse.json();
-      console.log("📥 Twilio response:", {
-        status: twilioResponse.status,
-        ok: twilioResponse.ok,
-        sid: twilioData?.sid?.substring(0, 8) || "none",
-        twilioStatus: twilioData?.status,
-        code: twilioData?.code,
-        message: twilioData?.message,
-      });
+      const data = await res.json();
+      console.log("📥 Twilio:", { status: res.status, sid: data?.sid?.slice(0, 8), code: data?.code, msg: data?.message });
 
-      if (!twilioResponse.ok) {
-        const twilioCode = twilioData?.code;
-        const twilioMessage = twilioData?.message || "Unknown Twilio error";
+      if (!res.ok) {
+        const twilioCode = data?.code;
+        const msg = data?.message || "Unknown error";
+        console.error("❌ Twilio error:", twilioCode, msg);
 
-        console.error("❌ Twilio API error:", { code: twilioCode, message: twilioMessage });
+        const errorMap: Record<number, string> = {
+          20003: "SMS authentication error — check Twilio credentials.",
+          20404: "Verify service not found — check TWILIO_VERIFY_SERVICE_SID.",
+          21211: "Invalid phone number format.",
+          21408: "SMS to this country is not enabled in Twilio.",
+          21610: "This number opted out of SMS. Text START to re-enable.",
+          21614: "This number cannot receive SMS.",
+          60200: "Twilio service error. Try again in 1 minute.",
+          60203: "Too many attempts. Wait 10 minutes.",
+          60205: "Too many SMS sent to this number. Wait and retry.",
+        };
 
-        let userMessage = "Failed to send verification code.";
-
-        if (twilioCode === 60200) {
-          userMessage = "Verification service error. Please try again in a minute.";
-        } else if (twilioCode === 60203) {
-          userMessage = "Too many attempts. Please wait 10 minutes and try again.";
-        } else if (twilioCode === 60205) {
-          userMessage = "Too many SMS sent. Please wait and try again later.";
-        } else if (twilioCode === 21211) {
-          userMessage = "Invalid phone number. Please check the number and try again.";
-        } else if (twilioCode === 21408) {
-          userMessage = "Cannot send SMS to this region. Please contact support.";
-        } else if (twilioCode === 21610) {
-          userMessage = "This number has opted out of SMS. Reply START to re-enable.";
-        } else if (twilioCode === 21614) {
-          userMessage = "This number cannot receive SMS messages.";
-        } else if (twilioCode === 20003) {
-          userMessage = "SMS service authentication error. Please contact support.";
-        } else if (twilioCode === 20404) {
-          userMessage = "SMS service not found. Please contact support.";
-        } else if (twilioMessage.includes("not a valid phone number")) {
-          userMessage = "Invalid phone number format. Please check and try again.";
-        } else if (twilioMessage.includes("has not been enabled")) {
-          userMessage = "SMS to this country is not enabled. Please contact support.";
-        } else if (twilioMessage.includes("unverified")) {
-          userMessage = "Twilio account needs upgrade. Please contact support.";
-        } else {
-          userMessage = `SMS failed: ${twilioMessage}`;
-        }
-
-        return new Response(
-          JSON.stringify({ error: userMessage, debug: { code: twilioCode, message: twilioMessage } }),
-          { status: 400, headers: responseHeaders }
-        );
+        return jsonResponse({
+          success: false,
+          error: errorMap[twilioCode] || `Twilio error: ${msg}`,
+          twilioCode,
+        });
       }
 
-      console.log("✅ OTP sent successfully. Twilio status:", twilioData.status);
-      return new Response(
-        JSON.stringify({ success: true, message: "Verification code sent" }),
-        { status: 200, headers: responseHeaders }
-      );
+      console.log("✅ OTP sent:", data.status);
+      return jsonResponse({ success: true });
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // ACTION: verify_otp
-    // ═══════════════════════════════════════════════════════════
+    // ═══ VERIFY OTP ═══
     if (action === "verify_otp") {
-      if (!code) {
-        return new Response(
-          JSON.stringify({ error: "Verification code is required" }),
-          { status: 400, headers: responseHeaders }
-        );
+      if (!code || code.length !== 6) {
+        return jsonResponse({ success: false, error: "Enter the 6-digit code." });
       }
 
-      const twilioUrl = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`;
-      const twilioBody = new URLSearchParams({ To: phoneNumber, Code: code });
+      const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/VerificationCheck`;
+      console.log("🔍 Verify OTP for:", phoneNumber.slice(0, 6) + "****");
 
-      console.log("🔍 Verifying OTP for:", phoneNumber.replace(/\d(?=\d{4})/g, "*"));
-
-      const twilioAuth = btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`);
-
-      const twilioResponse = await fetch(twilioUrl, {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          Authorization: `Basic ${twilioAuth}`,
+          "Authorization": `Basic ${twilioAuth}`,
         },
-        body: twilioBody.toString(),
+        body: new URLSearchParams({ To: phoneNumber, Code: code }).toString(),
       });
 
-      const twilioData = await twilioResponse.json();
-      console.log("📥 Twilio verify response:", {
-        status: twilioResponse.status,
-        verifyStatus: twilioData?.status,
-        valid: twilioData?.valid,
-        code: twilioData?.code,
-      });
+      const data = await res.json();
+      console.log("📥 Verify:", { status: res.status, approved: data?.status, code: data?.code });
 
-      if (!twilioResponse.ok) {
-        const twilioCode = twilioData?.code;
-        let userMessage = "Verification failed. Please try again.";
-
-        if (twilioCode === 60202) {
-          userMessage = "Max verification attempts reached. Request a new code.";
-        } else if (twilioCode === 20404) {
-          userMessage = "Verification expired. Please request a new code.";
-        }
-
-        return new Response(
-          JSON.stringify({ error: userMessage }),
-          { status: 400, headers: responseHeaders }
-        );
+      if (!res.ok) {
+        const errCode = data?.code;
+        if (errCode === 60202) return jsonResponse({ success: false, error: "Max attempts reached. Request a new code." });
+        if (errCode === 20404) return jsonResponse({ success: false, error: "Code expired. Request a new one." });
+        return jsonResponse({ success: false, error: data?.message || "Verification failed." });
       }
 
-      if (twilioData.status !== "approved") {
-        console.log("❌ OTP not approved. Status:", twilioData.status);
-        return new Response(
-          JSON.stringify({ error: "Invalid verification code. Please check and try again." }),
-          { status: 400, headers: responseHeaders }
-        );
+      if (data.status !== "approved") {
+        return jsonResponse({ success: false, error: "Wrong code. Please try again." });
       }
 
-      // Update profile
-      console.log("✅ OTP verified. Updating profile for user:", user.id);
-
-      const { error: updateError } = await supabaseAdmin
+      const { error: updateErr } = await admin
         .from("profiles")
-        .update({
-          phone_number: phoneNumber,
-          phone_verified: true,
-        })
+        .update({ phone_number: phoneNumber, phone_verified: true })
         .eq("id", user.id);
 
-      if (updateError) {
-        console.error("❌ Profile update failed:", updateError.message);
-        return new Response(
-          JSON.stringify({ error: "Verified but failed to update profile. Please try again." }),
-          { status: 500, headers: responseHeaders }
-        );
+      if (updateErr) {
+        console.error("❌ Profile update:", updateErr.message);
+        return jsonResponse({ success: false, error: "Verified but profile update failed. Try again." });
       }
 
-      console.log("✅ Phone verified and profile updated for user:", user.id);
-      return new Response(
-        JSON.stringify({ success: true, verified: true, message: "Phone number verified" }),
-        { status: 200, headers: responseHeaders }
-      );
+      console.log("✅ Phone verified for:", user.id);
+      return jsonResponse({ success: true, verified: true });
     }
 
-    return new Response(
-      JSON.stringify({ error: "Invalid action. Use 'send_otp' or 'verify_otp'." }),
-      { status: 400, headers: responseHeaders }
-    );
-  } catch (error) {
-    console.error("💥 Unhandled error in phone-verify:", error);
-    return new Response(
-      JSON.stringify({
-        error: "An unexpected error occurred. Please try again.",
-        debug: error?.message || String(error),
-      }),
-      { status: 500, headers: responseHeaders }
-    );
+    return jsonResponse({ success: false, error: "Invalid action." });
+  } catch (err) {
+    console.error("💥 Crash:", err);
+    return jsonResponse({ success: false, error: "Server error: " + (err?.message || String(err)) });
   }
 });

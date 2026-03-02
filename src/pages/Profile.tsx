@@ -48,7 +48,7 @@ import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 // EmailVerificationFlow removed — Supabase Auth "Confirm email" handles this
-import { PhotoVerificationModal } from "@/components/verification/PhotoVerificationModal";
+import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { useNavigate } from "react-router-dom";
 import { useLogout } from "@/hooks/useLogout";
@@ -1469,10 +1469,9 @@ const Profile = () => {
       />
 
       {/* Photo Verification Modal */}
-      <PhotoVerificationModal
+      <SimplePhotoVerification
         open={showPhotoVerification}
         onOpenChange={setShowPhotoVerification}
-        profilePhotoUrl={profile.photos[0] || ""}
         userId={profile.id}
         onVerificationComplete={(success) => {
           if (success) {

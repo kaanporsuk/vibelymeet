@@ -115,6 +115,9 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
           console.error("Phone verify health check failed:", invokeError);
         } else {
           console.log("Phone verify health check:", data);
+          if (data && (!data.hasSid || !data.hasToken || !data.hasVerify)) {
+            console.error("⚠️ Twilio secrets missing!", data);
+          }
         }
       });
     }
@@ -147,20 +150,20 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
         body: { action: "send_otp", phoneNumber: fullPhoneNumber },
       });
 
-      console.log("Phone verify response:", { data, invokeError });
+      console.log("Send OTP response:", JSON.stringify({ data, invokeError }));
 
-      // Handle invoke-level errors (network, CORS, function crash)
+      // Network-level failure (offline, CORS, function crashed)
       if (invokeError) {
         console.error("Function invoke error:", invokeError);
-        setError(invokeError.message || "Could not reach verification service. Check your connection.");
+        setError("Could not reach server. Check your connection.");
         setIsLoading(false);
         return;
       }
 
-      // Handle application-level errors returned by our function
-      if (data?.error) {
-        console.error("Phone verify error:", data.error, data.debug);
-        setError(data.error);
+      // Application-level error (always HTTP 200, check data.success)
+      if (!data?.success) {
+        console.error("Phone verify error:", data?.error, data?.twilioCode);
+        setError(data?.error || "Failed to send code.");
         setIsLoading(false);
         return;
       }
@@ -190,15 +193,15 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
         body: { action: "verify_otp", phoneNumber: fullNumber, code: otpCode },
       });
 
-      console.log("Verify OTP response:", { data, invokeError });
+      console.log("Verify OTP response:", JSON.stringify({ data, invokeError }));
 
       if (invokeError) {
-        setError(invokeError.message || "Verification service unavailable.");
+        setError("Could not reach server.");
         setIsLoading(false);
         return;
       }
 
-      if (data?.error) {
+      if (!data?.success) {
         const newAttempts = failedAttempts + 1;
         setFailedAttempts(newAttempts);
         setShakeOtp(true);
@@ -212,22 +215,18 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
           return;
         }
 
-        setError(data.error);
+        setError(data?.error || "Wrong code.");
         setIsLoading(false);
         return;
       }
 
-      if (data?.verified || data?.success) {
-        setScreen("success");
-        toast.success("Phone verified! ✅");
-        setTimeout(() => {
-          onVerified();
-          onOpenChange(false);
-        }, 2000);
-        return;
-      }
-
-      setError("Unexpected response. Please try again.");
+      // Success
+      setScreen("success");
+      toast.success("Phone verified! ✅");
+      setTimeout(() => {
+        onVerified();
+        onOpenChange(false);
+      }, 2000);
     } catch (err: any) {
       console.error("Unexpected error verifying OTP:", err);
       setError("Network error. Please try again.");
