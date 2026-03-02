@@ -3,6 +3,7 @@ import { Plus, X, Crown, Upload, GripVertical, Image as ImageIcon, Expand } from
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 
 interface PhotoManagerProps {
@@ -147,7 +148,7 @@ export const PhotoManager = ({
               )}
             >
               <img
-                src={photo}
+                src={resolvePhotoUrl(photo)}
                 alt={`Photo ${index + 1}`}
                 className="w-full h-full object-cover"
                 draggable={false}
