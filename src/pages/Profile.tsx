@@ -966,7 +966,7 @@ const Profile = () => {
                 <AnimatePresence mode="wait">
                   <motion.img 
                     key={selectedPhotoIndex}
-                    src={editForm.photos[selectedPhotoIndex] || editForm.photos[0]} 
+                    src={resolvePhotoUrl(editForm.photos[selectedPhotoIndex] || editForm.photos[0])} 
                     alt="Selected photo"
                     className="w-full h-full object-cover select-none"
                     initial={{ opacity: 0, x: 50 }}

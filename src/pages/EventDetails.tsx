@@ -409,7 +409,7 @@ const EventDetails = () => {
               <GuestListRoster
                 attendees={rosterAttendees}
                 totalCount={attendees.length}
-                onAttendeeClick={setSelectedProfile}
+                onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
                 onTicketClick={() => setShowManageBooking(true)}
               />
             </motion.div>
@@ -432,12 +432,7 @@ const EventDetails = () => {
         {isRegistered && eventVibes.mutualVibes.length > 0 && (
           <MutualVibesSection
             mutualVibes={eventVibes.mutualVibes}
-            onProfileClick={(profileId) => {
-              const attendee = attendees.find(a => a.id === profileId);
-              if (attendee) {
-                setSelectedProfile(attendee);
-              }
-            }}
+            onProfileClick={(profileId) => navigate(`/user/${profileId}`)}
           />
         )}
 

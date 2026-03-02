@@ -3,6 +3,7 @@ import { motion, AnimatePresence, PanInfo, useAnimation } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface PhotoPreviewModalProps {
   photos: string[];
@@ -292,7 +293,7 @@ export const PhotoPreviewModal = ({
               >
                 <motion.img
                   ref={imageRef}
-                  src={photos[currentIndex]}
+                  src={resolvePhotoUrl(photos[currentIndex])}
                   alt={`Photo ${currentIndex + 1}`}
                   animate={controls}
                   className="max-w-full max-h-full object-contain rounded-xl select-none"
@@ -331,7 +332,7 @@ export const PhotoPreviewModal = ({
                     )}
                   >
                     <img
-                      src={photo}
+                      src={resolvePhotoUrl(photo)}
                       alt={`Thumbnail ${index + 1}`}
                       className="w-full h-full object-cover"
                     />

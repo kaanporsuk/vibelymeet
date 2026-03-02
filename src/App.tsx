@@ -23,6 +23,7 @@ import VibeStudio from "./pages/VibeStudio";
 import VibeFeed from "./pages/VibeFeed";
 import Schedule from "./pages/Schedule";
 import HowItWorks from "./pages/HowItWorks";
+import UserProfile from "./pages/UserProfile";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
 import AdminLogin from "./pages/admin/AdminLogin";
@@ -75,6 +76,7 @@ const App = () => (
               <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
               <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
               {/* Admin Routes */}
               <Route path="/kaan" element={<AdminLogin />} />
               <Route path="/kaan/dashboard" element={<ProtectedRoute requireAdmin requireOnboarding={false}><AdminDashboard /></ProtectedRoute>} />

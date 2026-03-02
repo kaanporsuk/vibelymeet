@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, X, Sparkles, Crown, Upload } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface PhotoGalleryProps {
   photos: string[];
@@ -98,7 +99,7 @@ export const PhotoGallery = ({
             whileTap={onPhotoClick ? { scale: 0.98 } : undefined}
           >
             <img
-              src={photo}
+              src={resolvePhotoUrl(photo)}
               alt={`Photo ${index + 1}`}
               className="w-full h-full object-cover"
               loading="lazy"
@@ -147,7 +148,7 @@ export const PhotoGallery = ({
               whileDrag={{ scale: 1.05, zIndex: 10 }}
             >
               <img
-                src={photo}
+                src={resolvePhotoUrl(photo)}
                 alt={`Photo ${index + 1}`}
                 className="w-full h-full object-cover"
                 loading="lazy"
