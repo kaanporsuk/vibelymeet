@@ -22,7 +22,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.phone-verify]
-verify_jwt = false
+verify_jwt = true
 
 [functions.email-drip]
 verify_jwt = false
