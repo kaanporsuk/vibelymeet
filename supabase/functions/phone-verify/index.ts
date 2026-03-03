@@ -84,6 +84,46 @@ serve(async (req) => {
 
     // ═══ SEND OTP ═══
     if (action === "send_otp") {
+      // Rate limiting: max 5 SMS per hour per user
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { count: attemptCount } = await admin
+        .from("verification_attempts")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("attempt_at", oneHourAgo);
+
+      if (attemptCount !== null && attemptCount >= 5) {
+        return jsonResponse({
+          success: false,
+          error: "Too many verification attempts. Please try again in an hour.",
+          errorType: "rate_limited",
+          retry_after: 3600,
+        });
+      }
+
+      // Anti-VoIP: Twilio Lookup V2
+      try {
+        const lookupUrl = `https://lookups.twilio.com/v2/PhoneNumbers/${encodeURIComponent(phoneNumber)}?Fields=line_type_intelligence`;
+        const lookupRes = await fetch(lookupUrl, {
+          headers: { "Authorization": `Basic ${twilioAuth}` },
+        });
+        const lookupData = await lookupRes.json();
+        const lineType = lookupData?.line_type_intelligence?.type;
+        console.log("📞 Lookup:", { lineType, phone: phoneNumber.slice(0, 6) });
+
+        if (lineType && lineType !== "mobile" && lineType !== "cellphone") {
+          return jsonResponse({
+            success: false,
+            error: "Please use a real mobile phone number. Virtual numbers, VoIP, and landlines are not accepted.",
+            errorType: "invalid_number_type",
+          });
+        }
+      } catch (lookupErr) {
+        // If Lookup fails, continue anyway (don't block legitimate users)
+        console.warn("⚠️ Lookup failed, continuing:", lookupErr);
+      }
+
+      // Check duplicate phone
       const { data: existing } = await admin
         .from("profiles")
         .select("id")
@@ -93,8 +133,18 @@ serve(async (req) => {
         .maybeSingle();
 
       if (existing) {
-        return jsonResponse({ success: false, error: "This number is already verified by another account." });
+        return jsonResponse({
+          success: false,
+          error: "This number is already verified by another account.",
+          errorType: "phone_already_claimed",
+        });
       }
+
+      // Log attempt
+      await admin.from("verification_attempts").insert({
+        user_id: user.id,
+        ip_address: req.headers.get("x-forwarded-for") || "unknown",
+      });
 
       const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`;
       console.log("📤 Twilio send:", { to: phoneNumber, url: url.slice(0, 60) });
@@ -171,9 +221,30 @@ serve(async (req) => {
         return jsonResponse({ success: false, error: "Wrong code. Please try again." });
       }
 
+      // 1:1 association check
+      const { data: existingProfile } = await admin
+        .from("profiles")
+        .select("id")
+        .eq("phone_number", phoneNumber)
+        .eq("phone_verified", true)
+        .neq("id", user.id)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return jsonResponse({
+          success: false,
+          error: "This phone number is already associated with another account.",
+          errorType: "phone_already_claimed",
+        });
+      }
+
       const { error: updateErr } = await admin
         .from("profiles")
-        .update({ phone_number: phoneNumber, phone_verified: true })
+        .update({
+          phone_number: phoneNumber,
+          phone_verified: true,
+          phone_verified_at: new Date().toISOString(),
+        })
         .eq("id", user.id);
 
       if (updateErr) {

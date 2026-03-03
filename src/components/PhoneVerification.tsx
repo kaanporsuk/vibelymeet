@@ -356,6 +356,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
                 {otp.map((digit, i) => (
                   <input key={i} ref={(el) => { otpRefs.current[i] = el; }}
                     type="text" inputMode="numeric" maxLength={1} value={digit}
+                    autoComplete={i === 0 ? "one-time-code" : "off"}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(i, e)}
                     className="w-12 h-14 text-center text-xl font-display font-bold rounded-xl border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
