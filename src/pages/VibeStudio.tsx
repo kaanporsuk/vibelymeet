@@ -42,7 +42,7 @@ const VibeStudio = () => {
     const initCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1080 }, height: { ideal: 1920 } },
+          video: { facingMode: "user", width: { ideal: 480, max: 720 }, height: { ideal: 854, max: 1280 } },
           audio: true,
         });
         streamRef.current = stream;
