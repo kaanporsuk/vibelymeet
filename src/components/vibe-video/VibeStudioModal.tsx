@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Play, Pause, Scissors, Loader2 } from "lucide-react";
+import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Play, Pause, Scissors, Loader2, SwitchCamera } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +65,7 @@ export const VibeStudioModal = ({
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const finalVideoRef = useRef<HTMLVideoElement>(null);
@@ -83,7 +84,7 @@ export const VibeStudioModal = ({
     const initCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1080 }, height: { ideal: 1920 } },
+          video: { facingMode: facingMode, width: { ideal: 480, max: 720 }, height: { ideal: 854, max: 1280 } },
           audio: true,
         });
         streamRef.current = stream;
@@ -117,7 +118,7 @@ export const VibeStudioModal = ({
         audioContextRef.current.close();
       }
     };
-  }, [open]);
+  }, [open, facingMode]);
 
   // Rotate coach tips
   useEffect(() => {
@@ -389,6 +390,12 @@ export const VibeStudioModal = ({
     }
   }, []);
 
+  const toggleCamera = useCallback(async () => {
+    const newMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newMode);
+    // The useEffect watching [open, facingMode] will re-init the camera
+  }, [facingMode]);
+
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -544,7 +551,10 @@ export const VibeStudioModal = ({
               ) : (
                 <video
                   ref={videoRef}
-                  className="w-full h-full object-cover mirror"
+                  className={cn(
+                    "w-full h-full object-cover",
+                    facingMode === 'user' && "scale-x-[-1]"
+                  )}
                   autoPlay
                   muted
                   playsInline
@@ -749,22 +759,32 @@ export const VibeStudioModal = ({
                     onChange={handleFileUpload}
                   />
 
-                  {/* Mic Toggle */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleMic}
-                    className={cn(
-                      "rounded-full w-12 h-12",
-                      isMicOn ? "bg-secondary" : "bg-destructive/20"
-                    )}
-                  >
-                    {isMicOn ? (
-                      <Mic className="w-5 h-5" />
-                    ) : (
-                      <MicOff className="w-5 h-5 text-destructive" />
-                    )}
-                  </Button>
+                   {/* Mic & Camera Flip */}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleMic}
+                      className={cn(
+                        "rounded-full w-12 h-12",
+                        isMicOn ? "bg-secondary" : "bg-destructive/20"
+                      )}
+                    >
+                      {isMicOn ? (
+                        <Mic className="w-5 h-5" />
+                      ) : (
+                        <MicOff className="w-5 h-5 text-destructive" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleCamera}
+                      className="rounded-full w-12 h-12 bg-secondary"
+                    >
+                      <SwitchCamera className="w-5 h-5" />
+                    </Button>
+                  </div>
 
                   {/* Record Button */}
                   <motion.button
@@ -953,11 +973,6 @@ export const VibeStudioModal = ({
           )}
         </div>
 
-        <style>{`
-          .mirror {
-            transform: scaleX(-1);
-          }
-        `}</style>
       </DialogContent>
     </Dialog>
   );

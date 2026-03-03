@@ -26,6 +26,7 @@ import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
 import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface ProfilePreviewProps {
   profile: {
@@ -64,7 +65,9 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [isResolvingVibeVideo, setIsResolvingVibeVideo] = useState(false);
   const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
-  const hasPhotos = profile.photos.length > 0;
+  // Resolve all photo URLs from raw storage paths
+  const resolvedPhotos = profile.photos.map(p => resolvePhotoUrl(p)).filter(Boolean);
+  const hasPhotos = resolvedPhotos.length > 0;
 
   // Resolve a playable URL for vibe videos (bucket is private, so we need a signed URL)
   useEffect(() => {
@@ -98,7 +101,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   }, []);
 
   const goToPhoto = (index: number) => {
-    if (index >= 0 && index < profile.photos.length) {
+    if (index >= 0 && index < resolvedPhotos.length) {
       setCurrentPhotoIndex(index);
       hapticSwipe();
     }
@@ -126,7 +129,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
     let photoIndex = 1; // Start from second photo (first is hero)
     let contentIndex = 0;
 
-    while (contentIndex < contentSections.length || photoIndex < profile.photos.length) {
+    while (contentIndex < contentSections.length || photoIndex < resolvedPhotos.length) {
       // Add a content section
       if (contentIndex < contentSections.length) {
         const section = contentSections[contentIndex];
@@ -135,7 +138,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
       }
 
       // Add a photo (every 2 content sections or if we have more photos)
-      if (photoIndex < profile.photos.length && (contentIndex % 2 === 0 || contentIndex >= contentSections.length)) {
+      if (photoIndex < resolvedPhotos.length && (contentIndex % 2 === 0 || contentIndex >= contentSections.length)) {
         const currentPhotoIdx = photoIndex; // Capture for closure
         elements.push(
           <motion.div
@@ -146,7 +149,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
             className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
           >
             <LazyImage
-              src={profile.photos[photoIndex]}
+              src={resolvedPhotos[photoIndex]}
               alt={`${profile.name}'s photo`}
               className="w-full h-full cursor-pointer"
               onClick={() => {
@@ -343,21 +346,21 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
               <AnimatePresence mode="wait" initial={false}>
                 <motion.img
                   key={currentPhotoIndex}
-                  src={profile.photos[currentPhotoIndex]}
-                  alt={`${profile.name}'s photo`}
-                  className="w-full h-full object-cover touch-pan-y"
-                  initial={{ opacity: 0, x: 100 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -100 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  drag="x"
-                  dragConstraints={{ left: 0, right: 0 }}
-                  dragElastic={0.1}
-                  onDragEnd={(_, info) => {
-                    const threshold = 50;
-                    if (info.offset.x > threshold && currentPhotoIndex > 0) {
-                      goToPhoto(currentPhotoIndex - 1);
-                    } else if (info.offset.x < -threshold && currentPhotoIndex < profile.photos.length - 1) {
+              src={resolvedPhotos[currentPhotoIndex]}
+              alt={`${profile.name}'s photo`}
+              className="w-full h-full object-cover touch-pan-y"
+              initial={{ opacity: 0, x: 100 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -100 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.1}
+              onDragEnd={(_, info) => {
+                const threshold = 50;
+                if (info.offset.x > threshold && currentPhotoIndex > 0) {
+                  goToPhoto(currentPhotoIndex - 1);
+                } else if (info.offset.x < -threshold && currentPhotoIndex < resolvedPhotos.length - 1) {
                       goToPhoto(currentPhotoIndex + 1);
                     }
                   }}
@@ -374,7 +377,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
               {/* Photo indicators at top */}
               <div className="absolute top-14 left-4 right-4 flex gap-1.5 z-10">
-                {profile.photos.map((_, index) => (
+                {resolvedPhotos.map((_, index) => (
                   <button
                     key={index}
                     onClick={() => goToPhoto(index)}
@@ -524,7 +527,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
       {/* Fullscreen Photo Modal */}
       <PhotoPreviewModal
-        photos={profile.photos}
+        photos={resolvedPhotos}
         initialIndex={currentPhotoIndex}
         isOpen={showFullscreenPhoto}
         onClose={() => setShowFullscreenPhoto(false)}
