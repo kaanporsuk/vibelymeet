@@ -837,6 +837,51 @@ export type Database = {
           },
         ]
       }
+      photo_verifications: {
+        Row: {
+          client_confidence_score: number | null
+          client_match_result: boolean | null
+          created_at: string
+          expires_at: string
+          id: string
+          profile_photo_url: string
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          selfie_url: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          client_confidence_score?: number | null
+          client_match_result?: boolean | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          profile_photo_url: string
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          selfie_url: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          client_confidence_score?: number | null
+          client_match_result?: boolean | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          profile_photo_url?: string
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          selfie_url?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profile_vibes: {
         Row: {
           created_at: string
@@ -901,6 +946,7 @@ export type Database = {
           phone_number: string | null
           phone_verified: boolean
           phone_verified_at: string | null
+          photo_verification_expires_at: string | null
           photo_verified: boolean | null
           photo_verified_at: string | null
           photos: string[] | null
@@ -942,6 +988,7 @@ export type Database = {
           phone_number?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
+          photo_verification_expires_at?: string | null
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
@@ -983,6 +1030,7 @@ export type Database = {
           phone_number?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
+          photo_verification_expires_at?: string | null
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null

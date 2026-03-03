@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.unsubscribe]
 verify_jwt = false
+
+[functions.admin-review-verification]
+verify_jwt = false

@@ -37,9 +37,10 @@ import AdminLiveEventMetrics from "@/components/admin/AdminLiveEventMetrics";
 import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
+import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -102,6 +103,7 @@ const AdminDashboard = () => {
                 {activePanel === 'activity-log' && 'Activity Log'}
                 {activePanel === 'engagement' && 'Engagement Analytics'}
                 {activePanel === 'campaigns' && 'Push Campaigns'}
+                {activePanel === 'photo-verification' && 'Photo Verification'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -113,6 +115,7 @@ const AdminDashboard = () => {
                 {activePanel === 'activity-log' && 'Track all admin moderation actions'}
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
+                {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
               </p>
               </div>
             </div>
@@ -171,6 +174,7 @@ const AdminDashboard = () => {
           {activePanel === 'activity-log' && <AdminActivityLog />}
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
+          {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
         </main>
       </div>
 

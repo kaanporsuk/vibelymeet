@@ -1,24 +1,27 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Camera, RotateCcw, Check, AlertCircle, Loader2, Shield } from "lucide-react";
+import { Camera, RotateCcw, Check, AlertCircle, Loader2, Shield, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface SimplePhotoVerificationProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
   onVerificationComplete: (success: boolean) => void;
+  profilePhotoUrl?: string;
 }
 
-type Screen = "intro" | "camera" | "preview" | "uploading" | "success" | "error";
+type Screen = "intro" | "camera" | "preview" | "uploading" | "submitted" | "error";
 
 export function SimplePhotoVerification({
   open,
   onOpenChange,
   userId,
   onVerificationComplete,
+  profilePhotoUrl,
 }: SimplePhotoVerificationProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -52,6 +55,13 @@ export function SimplePhotoVerification({
   }, []);
 
   const startCamera = async () => {
+    // Check if getUserMedia is available
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Your browser doesn't support camera access. Please try from a mobile device or a modern browser like Chrome, Firefox, or Edge.");
+      setScreen("error");
+      return;
+    }
+
     setCameraError(null);
     setScreen("camera");
 
@@ -126,40 +136,63 @@ export function SimplePhotoVerification({
     try {
       const fileName = `${userId}/${Date.now()}_verification.jpg`;
 
-      // Try proof-selfies bucket first, fallback to profile-photos
-      let uploadOk = false;
+      // Upload to proof-selfies bucket
       const { error: uploadError } = await supabase.storage
         .from("proof-selfies")
         .upload(fileName, capturedBlob, { contentType: "image/jpeg", cacheControl: "3600" });
 
+      let selfieUrl = fileName;
       if (uploadError) {
         console.warn("proof-selfies upload failed, trying profile-photos:", uploadError.message);
+        const fallbackName = `${userId}/verification_${Date.now()}.jpg`;
         const { error: fallbackError } = await supabase.storage
           .from("profile-photos")
-          .upload(`${userId}/verification_${Date.now()}.jpg`, capturedBlob, {
+          .upload(fallbackName, capturedBlob, {
             contentType: "image/jpeg",
             cacheControl: "3600",
           });
         if (fallbackError) throw fallbackError;
+        selfieUrl = fallbackName;
       }
 
-      const { error: updateError } = await supabase
+      // Get user's first profile photo for comparison reference
+      const { data: profileData } = await supabase
         .from("profiles")
-        .update({
-          photo_verified: true,
-          photo_verified_at: new Date().toISOString(),
-        })
+        .select("photos")
+        .eq("id", userId)
+        .maybeSingle();
+
+      const profilePhoto = profilePhotoUrl || (profileData?.photos as string[])?.[0] || "";
+
+      // Insert verification record for admin review (NOT auto-approving)
+      const { error: insertError } = await supabase
+        .from("photo_verifications")
+        .insert({
+          user_id: userId,
+          selfie_url: selfieUrl,
+          profile_photo_url: profilePhoto,
+          status: "pending",
+        });
+
+      if (insertError) {
+        console.error("Failed to insert verification record:", insertError);
+        throw insertError;
+      }
+
+      // Update proof_selfie_url on profile for reference
+      await supabase
+        .from("profiles")
+        .update({ proof_selfie_url: selfieUrl })
         .eq("id", userId);
 
-      if (updateError) throw updateError;
-
-      setScreen("success");
-      toast.success("Photo verified! ✅");
+      // Do NOT set photo_verified = true — admin will do that
+      setScreen("submitted");
+      toast.success("Selfie submitted for review!");
 
       setTimeout(() => {
-        onVerificationComplete(true);
+        onVerificationComplete(false); // false = pending, not yet verified
         onOpenChange(false);
-      }, 2000);
+      }, 3000);
     } catch (err: any) {
       console.error("Verification upload failed:", err);
       setCameraError("Failed to upload selfie. Please try again.");
@@ -261,18 +294,23 @@ export function SimplePhotoVerification({
           {screen === "uploading" && (
             <div className="flex flex-col items-center gap-4 py-12">
               <Loader2 className="w-10 h-10 text-primary animate-spin" />
-              <p className="text-foreground font-medium">Verifying...</p>
+              <p className="text-foreground font-medium">Submitting...</p>
             </div>
           )}
 
-          {/* SUCCESS */}
-          {screen === "success" && (
+          {/* SUBMITTED FOR REVIEW (not auto-approved) */}
+          {screen === "submitted" && (
             <div className="flex flex-col items-center gap-4 py-12">
-              <div className="w-20 h-20 rounded-full bg-neon-cyan/20 flex items-center justify-center">
-                <Check className="w-10 h-10 text-neon-cyan" />
+              <div className="w-20 h-20 rounded-full bg-amber-500/20 flex items-center justify-center">
+                <Clock className="w-10 h-10 text-amber-500" />
               </div>
-              <p className="text-lg font-display font-semibold text-foreground">You're Verified! ✅</p>
-              <p className="text-sm text-muted-foreground">Your trust badge is now active.</p>
+              <p className="text-lg font-display font-semibold text-foreground">Selfie Submitted!</p>
+              <p className="text-sm text-muted-foreground text-center">
+                Your verification is being reviewed. You'll get a notification once approved — usually within a few hours.
+              </p>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Got it
+              </Button>
             </div>
           )}
 

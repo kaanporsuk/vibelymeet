@@ -170,6 +170,8 @@ const Profile = () => {
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [photoVerificationStatus, setPhotoVerificationStatus] = useState<"none" | "pending" | "approved" | "rejected" | "expired">("none");
+  const [photoVerificationExpiresAt, setPhotoVerificationExpiresAt] = useState<string | null>(null);
 
   // Fetch profile and user email on mount
   useEffect(() => {
@@ -181,7 +183,7 @@ const Profile = () => {
         if (user) {
           const { data: phoneData } = await supabase
             .from("profiles")
-            .select("phone_verified, email_verified")
+            .select("phone_verified, email_verified, photo_verified, photo_verification_expires_at")
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) {
@@ -193,6 +195,34 @@ const Profile = () => {
               email_verified: true,
               verified_email: user.email,
             }).eq("id", user.id);
+          }
+
+          // Determine photo verification status
+          if (phoneData?.photo_verified) {
+            // Check expiry
+            if (phoneData.photo_verification_expires_at && new Date(phoneData.photo_verification_expires_at) < new Date()) {
+              setPhotoVerificationStatus("expired");
+            } else {
+              setPhotoVerificationStatus("approved");
+            }
+            setPhotoVerificationExpiresAt(phoneData.photo_verification_expires_at);
+          } else {
+            // Check for pending verification
+            const { data: pendingVerification } = await supabase
+              .from("photo_verifications")
+              .select("status")
+              .eq("user_id", user.id)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (pendingVerification?.status === "pending") {
+              setPhotoVerificationStatus("pending");
+            } else if (pendingVerification?.status === "rejected") {
+              setPhotoVerificationStatus("rejected");
+            } else {
+              setPhotoVerificationStatus("none");
+            }
           }
         }
 
@@ -390,9 +420,24 @@ const Profile = () => {
     }
   };
 
+  const getPhotoVerificationStep = () => {
+    switch (photoVerificationStatus) {
+      case "approved":
+        return { id: "photo", label: "Photo verification", description: "Verified", icon: Camera, completed: true };
+      case "pending":
+        return { id: "photo", label: "Photo verification", description: "⏳ Under Review", icon: Camera, completed: false };
+      case "rejected":
+        return { id: "photo", label: "Photo verification", description: "❌ Declined — Try again", icon: Camera, completed: false };
+      case "expired":
+        return { id: "photo", label: "Photo verification", description: "🔄 Expired — Re-verify", icon: Camera, completed: false };
+      default:
+        return { id: "photo", label: "Photo verification", description: "Take a quick selfie", icon: Camera, completed: false };
+    }
+  };
+
   const verificationSteps = [
     { id: "email", label: "Email verification", description: "Verified", icon: Mail, completed: true },
-    { id: "photo", label: "Photo verification", description: profile.photoVerified ? "Verified" : "Take a quick selfie", icon: Camera, completed: profile.photoVerified },
+    getPhotoVerificationStep(),
     { id: "phone", label: "Phone number", description: phoneVerified ? "Verified" : "Verify your number", icon: Phone, completed: phoneVerified },
   ];
 
@@ -401,7 +446,15 @@ const Profile = () => {
       toast.success("Your email is already verified ✓");
       return;
     }
-    if (stepId === "photo" && !profile.photoVerified) {
+    if (stepId === "photo") {
+      if (photoVerificationStatus === "approved") {
+        toast.success("Photo already verified ✓");
+        return;
+      }
+      if (photoVerificationStatus === "pending") {
+        toast.info("Your verification is under review. Please wait.");
+        return;
+      }
       if (profile.photos.length === 0) {
         toast.error("Please add a profile photo first");
         return;
@@ -1473,11 +1526,16 @@ const Profile = () => {
         open={showPhotoVerification}
         onOpenChange={setShowPhotoVerification}
         userId={profile.id}
+        profilePhotoUrl={profile.photos[0]}
         onVerificationComplete={(success) => {
           if (success) {
             setProfile({ ...profile, photoVerified: true });
-            setShowPhotoVerification(false);
+            setPhotoVerificationStatus("approved");
+          } else {
+            // Submitted for review
+            setPhotoVerificationStatus("pending");
           }
+          setShowPhotoVerification(false);
         }}
       />
 
