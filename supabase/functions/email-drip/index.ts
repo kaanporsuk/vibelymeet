@@ -20,7 +20,7 @@ async function sendEmail(to: string, subject: string, html: string) {
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: "Vibely <login@vibelymeet.com>",
+      from: "Vibely <no-reply@vibelymeet.com>",
       to: [to],
       subject,
       html,

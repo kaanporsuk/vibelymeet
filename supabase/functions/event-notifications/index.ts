@@ -30,7 +30,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: "Vibely <login@vibelymeet.com>",
+      from: "Vibely <notifications@vibelymeet.com>",
       to: [to],
       subject,
       html,

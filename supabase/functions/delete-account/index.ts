@@ -266,7 +266,7 @@ serve(async (req) => {
       try {
         const resend = new Resend(resendApiKey);
         await resend.emails.send({
-          from: "Vibely <login@vibelymeet.com>",
+          from: "Vibely <hello@vibelymeet.com>",
           to: [userEmail],
           subject: "Your Vibely account has been deleted",
           html: `
@@ -284,6 +284,9 @@ serve(async (req) => {
                 </p>
                 <p style="color: #a1a1aa; text-align: center; font-size: 14px; line-height: 1.6; margin-bottom: 32px;">
                   If you ever want to reconnect with amazing people, you're always welcome back.
+                </p>
+                <p style="color: #a1a1aa; text-align: center; font-size: 13px; margin-bottom: 16px;">
+                  If you have any questions, reach us at <a href="mailto:support@vibelymeet.com" style="color: #8b5cf6; text-decoration: none;">support@vibelymeet.com</a>
                 </p>
                 <p style="color: #71717a; text-align: center; font-size: 12px; margin: 0;">
                   Vibely — Where connections come alive<br>

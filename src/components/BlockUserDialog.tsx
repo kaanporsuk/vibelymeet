@@ -79,7 +79,9 @@ export const BlockUserDialog = ({
           <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              Blocking is permanent and cannot be undone from the app. Contact support if you need to unblock someone.
+              Blocking is permanent and cannot be undone from the app. Email{" "}
+              <a href="mailto:support@vibelymeet.com" className="text-primary hover:underline">support@vibelymeet.com</a>{" "}
+              if you need to unblock someone.
             </p>
           </div>
 
