@@ -25,7 +25,7 @@ import { LazyImage } from "@/components/LazyImage";
 import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
-import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface ProfilePreviewProps {
@@ -80,7 +80,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
       }
 
       setIsResolvingVibeVideo(true);
-      const signed = await getSignedVideoUrl(profile.videoIntroUrl);
+      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
       if (cancelled) return;
 
       setVibeVideoPlaybackUrl(signed);

@@ -115,6 +115,7 @@ export const VibeVideoThumbnail = ({
             loop
             muted
             playsInline
+            preload="metadata"
             onLoadedData={() => setIsVideoLoaded(true)}
           />
         )}

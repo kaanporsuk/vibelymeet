@@ -254,6 +254,8 @@ export function VibeReplyModal({
                   controls
                   autoPlay
                   loop
+                  playsInline
+                  preload="metadata"
                 />
               ) : (
                 <video

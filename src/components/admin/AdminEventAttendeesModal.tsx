@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -400,7 +401,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                       onCheckedChange={() => toggleSelect(reg.id)}
                     />
                     <Avatar className="w-12 h-12 border-2 border-border">
-                      <AvatarImage src={profile?.avatar_url || ''} />
+                      <AvatarImage src={resolvePhotoUrl(profile?.avatar_url) || ''} />
                       <AvatarFallback className="bg-gradient-to-br from-primary to-accent text-white">
                         {profile?.name?.charAt(0) || '?'}
                       </AvatarFallback>
