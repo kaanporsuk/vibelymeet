@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// IntersectionObserver-based iOS hardware decoder management
+
 interface VibePlayerProps {
   videoUrl: string;
   thumbnailUrl?: string;
@@ -31,7 +33,10 @@ export const VibePlayer = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isVisible, setIsVisible] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const savedSrcRef = useRef<string>(videoUrl);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -39,7 +44,40 @@ export const VibePlayer = ({
     setHasError(false);
     setIsLoading(true);
     setIsPlaying(false);
+    savedSrcRef.current = videoUrl;
   }, [videoUrl]);
+
+  // IntersectionObserver: pause and release hardware decoder when offscreen (iOS limit ~4 simultaneous videos)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          const videoEl = videoRef.current;
+          if (videoEl && !videoEl.src && savedSrcRef.current) {
+            videoEl.src = savedSrcRef.current;
+          }
+        } else {
+          setIsVisible(false);
+          const videoEl = videoRef.current;
+          if (videoEl && videoEl.src) {
+            savedSrcRef.current = videoEl.src;
+            videoEl.pause();
+            videoEl.removeAttribute("src");
+            videoEl.load(); // Forces release of hardware decoder
+            setIsPlaying(false);
+          }
+        }
+      },
+      { threshold: [0, 0.5] }
+    );
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const attemptPlay = useCallback(() => {
     if (videoRef.current && isLoaded && !hasError) {
@@ -98,7 +136,7 @@ export const VibePlayer = ({
   };
 
   return (
-    <div className={cn("relative overflow-hidden bg-secondary", className)}>
+    <div ref={containerRef} className={cn("relative overflow-hidden bg-secondary", className)}>
       {/* Loading state */}
       {isLoading && !hasError && (
         <div className="absolute inset-0 flex items-center justify-center bg-secondary z-10">

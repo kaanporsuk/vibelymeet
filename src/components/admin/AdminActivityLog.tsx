@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { format, formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 
@@ -211,7 +212,7 @@ const AdminActivityLog = () => {
 
                       <div className="flex items-center gap-2 text-sm">
                         <Avatar className="w-5 h-5">
-                          <AvatarImage src={admin?.avatar_url || undefined} />
+                          <AvatarImage src={resolvePhotoUrl(admin?.avatar_url) || undefined} />
                           <AvatarFallback className="text-[10px]">
                             {admin?.name?.[0] || 'A'}
                           </AvatarFallback>
@@ -222,7 +223,7 @@ const AdminActivityLog = () => {
                           <>
                             <span className="text-muted-foreground">→</span>
                             <Avatar className="w-5 h-5">
-                              <AvatarImage src={target.avatar_url || undefined} />
+                              <AvatarImage src={resolvePhotoUrl(target.avatar_url) || undefined} />
                               <AvatarFallback className="text-[10px]">
                                 {target.name?.[0] || 'U'}
                               </AvatarFallback>

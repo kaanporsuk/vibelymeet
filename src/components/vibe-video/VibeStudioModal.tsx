@@ -245,6 +245,12 @@ export const VibeStudioModal = ({
         const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
         const url = URL.createObjectURL(blob);
+        console.log('[VibeVideo] Recording complete. Stream tracks:', {
+          video: streamRef.current?.getVideoTracks().length,
+          audio: streamRef.current?.getAudioTracks().length,
+          mimeType: detectedType,
+          blobSize: blob.size
+        });
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
         setStage("preview");
@@ -578,6 +584,7 @@ export const VibeStudioModal = ({
                   autoPlay
                   loop
                   playsInline
+                  preload="metadata"
                   onClick={toggleVideoPlayback}
                 />
               ) : /* Local preview before upload */
@@ -589,6 +596,7 @@ export const VibeStudioModal = ({
                   autoPlay
                   loop
                   playsInline
+                  preload="metadata"
                   onClick={toggleVideoPlayback}
                 />
               ) : /* Uploading state - show the local video */
@@ -600,6 +608,7 @@ export const VibeStudioModal = ({
                   loop
                   muted
                   playsInline
+                  preload="metadata"
                 />
               ) : (
                 <video

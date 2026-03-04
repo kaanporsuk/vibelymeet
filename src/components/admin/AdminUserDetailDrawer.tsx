@@ -37,8 +37,9 @@ import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
-import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -225,7 +226,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
 
     const resolveVideo = async () => {
       setIsLoadingVideo(true);
-      const signed = await getSignedVideoUrl(profile.video_intro_url);
+      const signed = await resolveVibeVideoUrl(profile.video_intro_url);
       setVideoUrl(signed);
       setIsLoadingVideo(false);
     };
@@ -316,7 +317,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               {/* Profile Header */}
               <div className="flex items-start gap-4">
                 <Avatar className="h-24 w-24 border-4 border-border">
-                  <AvatarImage src={profile.avatar_url || profile.photos?.[0]} />
+                  <AvatarImage src={resolvePhotoUrl(profile.avatar_url) || resolvePhotoUrl(profile.photos?.[0])} />
                   <AvatarFallback className="bg-primary/20 text-primary text-2xl">
                     {profile.name?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
@@ -543,7 +544,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={candidate?.avatar_url || candidate?.photos?.[0]} />
+                            <AvatarImage src={resolvePhotoUrl(candidate?.avatar_url) || resolvePhotoUrl(candidate?.photos?.[0])} />
                             <AvatarFallback>{candidate?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
@@ -587,7 +588,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={match.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10 border-2 border-pink-500/30">
-                            <AvatarImage src={otherUser?.avatar_url || otherUser?.photos?.[0]} />
+                            <AvatarImage src={resolvePhotoUrl(otherUser?.avatar_url) || resolvePhotoUrl(otherUser?.photos?.[0])} />
                             <AvatarFallback>{otherUser?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">

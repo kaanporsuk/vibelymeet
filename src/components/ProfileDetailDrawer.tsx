@@ -26,7 +26,7 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
-import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 
 interface ProfileDetailDrawerProps {
   match: {
@@ -114,7 +114,7 @@ export const ProfileDetailDrawer = ({
 
     let cancelled = false;
     const resolveUrl = async () => {
-      const signed = await getSignedVideoUrl(match.videoIntroUrl!);
+      const signed = await resolveVibeVideoUrl(match.videoIntroUrl!);
       if (!cancelled) {
         setSignedVideoUrl(signed);
       }

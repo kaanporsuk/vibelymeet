@@ -236,7 +236,8 @@ export const LazyVideo = ({
           loop={loop}
           muted={muted}
           controls={controls}
-          playsInline={playsInline}
+          playsInline
+          preload="metadata"
           onLoadedData={() => setIsLoaded(true)}
           onError={() => setHasError(true)}
           initial={{ opacity: 0 }}

@@ -56,7 +56,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
-import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 import {
   Drawer,
   DrawerClose,
@@ -281,7 +281,7 @@ const Profile = () => {
         return;
       }
 
-      const signed = await getSignedVideoUrl(profile.videoIntroUrl);
+      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
       if (cancelled) return;
 
       setVibeVideoPlaybackUrl(signed);

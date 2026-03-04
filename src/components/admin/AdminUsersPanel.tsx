@@ -43,6 +43,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
 type SortDirection = 'asc' | 'desc';
@@ -335,7 +336,7 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10 border-2 border-border">
-                          <AvatarImage src={refreshedAvatars[user.id] || user.avatar_url || user.photos?.[0]} />
+                          <AvatarImage src={refreshedAvatars[user.id] || resolvePhotoUrl(user.avatar_url) || resolvePhotoUrl(user.photos?.[0])} />
                           <AvatarFallback className="bg-primary/20 text-primary">
                             {user.name?.[0]?.toUpperCase() || 'U'}
                           </AvatarFallback>
