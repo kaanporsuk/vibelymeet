@@ -37,6 +37,7 @@ const COACH_TIPS = [
 
 const RECORDING_DURATION = 15;
 const MAX_CLIP_DURATION = 15;
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
 
 export const VibeStudioModal = ({
   open,
@@ -76,6 +77,8 @@ export const VibeStudioModal = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Store detected mimeType for use in onstop
+  const detectedMimeTypeRef = useRef<string | null>(null);
 
   // Request camera/mic permissions when modal opens
   useEffect(() => {
@@ -83,12 +86,29 @@ export const VibeStudioModal = ({
 
     const initCamera = async () => {
       try {
+        // Stop existing tracks before requesting new stream
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facingMode, width: { ideal: 480, max: 720 }, height: { ideal: 854, max: 1280 } },
-          audio: true,
+          video: { facingMode: facingMode, aspectRatio: { ideal: 9 / 16 }, width: { ideal: 720 } },
+          audio: { echoCancellation: true, noiseSuppression: true },
         });
         streamRef.current = stream;
         setHasPermission(true);
+
+        // Reset zoom to 1x if the browser supports it (iOS safety net)
+        try {
+          const videoTrack = stream.getVideoTracks()[0];
+          const capabilities = (videoTrack as any).getCapabilities?.();
+          if (capabilities?.zoom) {
+            await (videoTrack as any).applyConstraints({ advanced: [{ zoom: 1 }] });
+          }
+        } catch (e) {
+          // Not all browsers support zoom constraint — that's fine
+        }
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -111,8 +131,22 @@ export const VibeStudioModal = ({
     initCamera();
 
     return () => {
+      // 1. Stop MediaRecorder if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          // Ignore
+        }
+      }
+      // 2. Stop ALL tracks on the stream
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      // 3. Clear video element src
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -173,14 +207,29 @@ export const VibeStudioModal = ({
 
     chunksRef.current = [];
 
-    const preferredTypes = [
-      "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
-      "video/webm",
-      "video/mp4",
-    ];
+    // Safari supports MP4 recording and plays it back natively.
+    // Chrome/Firefox support WebM recording. Prioritize each browser's native format.
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const preferredTypes = isSafari
+      ? [
+          "video/mp4",
+          "video/mp4;codecs=avc1",
+          "video/mp4;codecs=avc1.42E01E",
+          "video/webm;codecs=vp9",
+          "video/webm;codecs=vp8",
+          "video/webm",
+        ]
+      : [
+          "video/webm;codecs=vp9",
+          "video/webm;codecs=vp8",
+          "video/webm",
+          "video/mp4",
+          "video/mp4;codecs=avc1",
+        ];
 
     const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
+    detectedMimeTypeRef.current = mimeType || null;
+    console.log('[VibeVideo] Selected mimeType:', mimeType);
 
     try {
       const mediaRecorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
@@ -192,12 +241,13 @@ export const VibeStudioModal = ({
       };
 
       mediaRecorder.onstop = () => {
-        const blobType = mimeType?.startsWith("video/") ? mimeType.split(";")[0] : "video/webm";
+        const detectedType = detectedMimeTypeRef.current;
+        const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
         const blob = new Blob(chunksRef.current, { type: blobType });
         const url = URL.createObjectURL(blob);
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
-        setStage("preview"); // Go to local preview first
+        setStage("preview");
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -276,7 +326,7 @@ export const VibeStudioModal = ({
             videoBitrate: 1500000,
             onProgress: (p) => {
               setProcessingStatus("Compressing video...");
-              setUploadProgress(p * 0.3); // Compression is 0-30%
+              setUploadProgress(p * 0.3);
             },
           });
         } catch (compressError) {
@@ -308,13 +358,14 @@ export const VibeStudioModal = ({
 
       // Upload video with progress tracking
       setProcessingStatus("Uploading video...");
+      console.log('[VibeVideo] Upload starting');
       const result = await uploadVideo(videoToUpload, user.id, (progress, status) => {
-        // Map upload progress to 40-95%
         const mappedProgress = 40 + (progress * 0.55);
         setUploadProgress(mappedProgress);
         setProcessingStatus(status);
       });
       setUploadedPath(result.path);
+      console.log('[VibeVideo] Upload complete for path:', result.path);
 
       // Get signed URL for playback
       setProcessingStatus("Preparing preview...");
@@ -323,7 +374,7 @@ export const VibeStudioModal = ({
       if (signedUrl) {
         setUploadProgress(100);
         setFinalVideoUrl(signedUrl);
-        setStage("posted"); // Move to final review stage
+        setStage("posted");
         setIsVideoPlaying(true);
       } else {
         throw new Error("Failed to get video preview URL");
@@ -332,7 +383,7 @@ export const VibeStudioModal = ({
     } catch (error) {
       console.error("Error uploading video:", error);
       toast.error("Failed to upload video. Please try again.");
-      setStage("preview"); // Go back to preview on error
+      setStage("preview");
     } finally {
       setIsSaving(false);
       setProcessingStatus(null);
@@ -365,7 +416,7 @@ export const VibeStudioModal = ({
   }, [onSave, onOpenChange, recordedVideoUrl, uploadedPath, vibeCaption]);
 
   const handleClose = useCallback(() => {
-    if (isSaving) return; // Don't close while saving
+    if (isSaving) return;
     onOpenChange(false);
     setStage("idle");
     setCountdown(RECORDING_DURATION);
@@ -390,11 +441,9 @@ export const VibeStudioModal = ({
     }
   }, []);
 
-  const toggleCamera = useCallback(async () => {
-    const newMode = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(newMode);
-    // The useEffect watching [open, facingMode] will re-init the camera
-  }, [facingMode]);
+  const toggleCamera = useCallback(() => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  }, []);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -407,34 +456,40 @@ export const VibeStudioModal = ({
     }
 
     // Validate file size (50MB max)
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("Video must be under 50MB");
+    if (file.size > MAX_UPLOAD_SIZE) {
+      toast.error("Video too large. Please trim it to under 50MB before uploading.");
       return;
     }
 
     const url = URL.createObjectURL(file);
     
-    // Check video duration to determine if trimming is needed
+    // Check video duration
     const tempVideo = document.createElement("video");
+    tempVideo.preload = "metadata";
     tempVideo.src = url;
     tempVideo.onloadedmetadata = () => {
       const duration = tempVideo.duration;
+      URL.revokeObjectURL(tempVideo.src);
+
+      if (duration > 60) {
+        toast.error("Video must be under 60 seconds. Please trim it first.");
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       setOriginalVideoDuration(duration);
       setRecordedVideoUrl(url);
       setUploadedFile(file);
       
       if (duration > MAX_CLIP_DURATION) {
-        // Video is longer than 15s, needs trimming
         setNeedsTrimming(true);
         setStage("trimming");
       } else {
-        // Video is already 15s or less, go to preview
         setNeedsTrimming(false);
         setStage("preview");
       }
     };
     tempVideo.onerror = () => {
-      // If we can't read duration, assume it needs preview
       setRecordedVideoUrl(url);
       setUploadedFile(file);
       setStage("preview");
@@ -442,16 +497,14 @@ export const VibeStudioModal = ({
   }, []);
 
   const handleTrimComplete = useCallback((trimmedBlob: Blob, startTime: number, endTime: number) => {
-    // Revoke old URL
     if (recordedVideoUrl) {
       URL.revokeObjectURL(recordedVideoUrl);
     }
     
-    // Create new blob URL for trimmed video
     const url = URL.createObjectURL(trimmedBlob);
     setRecordedVideoUrl(url);
     setRecordedBlob(trimmedBlob);
-    setUploadedFile(null); // Clear the original file, use the trimmed blob
+    setUploadedFile(null);
     setNeedsTrimming(false);
     setStage("preview");
     toast.success(`Trimmed to ${Math.round(endTime - startTime)}s clip`);
@@ -532,7 +585,7 @@ export const VibeStudioModal = ({
                 <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                   autoPlay
                   loop
                   playsInline

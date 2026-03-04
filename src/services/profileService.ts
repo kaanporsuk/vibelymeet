@@ -24,6 +24,8 @@ export interface ProfileData {
   photos: string[];
   avatarUrl: string | null;
   videoIntroUrl: string | null;
+  vibeCaption: string;
+  vibeVideoStatus: string | null;
   photoVerified: boolean;
   phoneVerified: boolean;
   stats: {
@@ -137,6 +139,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     photos: dbProfile.photos || [],
     avatarUrl: dbProfile.avatar_url,
     videoIntroUrl: dbProfile.video_intro_url,
+    vibeCaption: (dbProfile as any).vibe_caption || "",
+    vibeVideoStatus: (dbProfile as any).vibe_video_status || null,
     photoVerified: dbProfile.photo_verified || false,
     phoneVerified: dbProfile.phone_verified || false,
     stats: {
@@ -174,6 +178,8 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.photos !== undefined) dbData.photos = profile.photos;
   if (profile.avatarUrl !== undefined) dbData.avatar_url = profile.avatarUrl;
   if (profile.videoIntroUrl !== undefined) dbData.video_intro_url = profile.videoIntroUrl;
+  if (profile.vibeCaption !== undefined) dbData.vibe_caption = profile.vibeCaption;
+  if (profile.vibeVideoStatus !== undefined) dbData.vibe_video_status = profile.vibeVideoStatus;
 
   return dbData;
 };
