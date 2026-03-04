@@ -25,6 +25,7 @@ export function VibeReplyModal({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const detectedMimeTypeRef = useRef<string | null>(null);
 
   const [recording, setRecording] = useState(false);
   const [countdown, setCountdown] = useState(maxDuration);
@@ -45,11 +46,22 @@ export function VibeReplyModal({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 720 }, height: { ideal: 1280 } },
+        video: { facingMode, aspectRatio: { ideal: 9 / 16 }, width: { ideal: 720 } },
         audio: audioEnabled,
       });
 
       streamRef.current = stream;
+
+      // Reset zoom to 1x if the browser supports it (iOS safety net)
+      try {
+        const videoTrack = stream.getVideoTracks()[0];
+        const capabilities = (videoTrack as any).getCapabilities?.();
+        if (capabilities?.zoom) {
+          await (videoTrack as any).applyConstraints({ advanced: [{ zoom: 1 }] });
+        }
+      } catch (e) {
+        // Not all browsers support zoom constraint
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -71,9 +83,16 @@ export function VibeReplyModal({
 
     chunksRef.current = [];
     
-    const mediaRecorder = new MediaRecorder(streamRef.current, {
-      mimeType: 'video/webm;codecs=vp9',
-    });
+    // Browser-conditional codec priority
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const preferredTypes = isSafari
+      ? ["video/mp4", "video/mp4;codecs=avc1", "video/mp4;codecs=avc1.42E01E", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+      : ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4", "video/mp4;codecs=avc1"];
+    
+    const mimeType = preferredTypes.find((t) => MediaRecorder.isTypeSupported(t));
+    detectedMimeTypeRef.current = mimeType || null;
+
+    const mediaRecorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
 
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
@@ -82,7 +101,9 @@ export function VibeReplyModal({
     };
 
     mediaRecorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+      const detectedType = detectedMimeTypeRef.current;
+      const blobType = detectedType?.startsWith("video/") ? detectedType.split(";")[0] : "video/webm";
+      const blob = new Blob(chunksRef.current, { type: blobType });
       setRecordedBlob(blob);
       setRecordedUrl(URL.createObjectURL(blob));
     };
@@ -141,8 +162,22 @@ export function VibeReplyModal({
     }
 
     return () => {
+      // Stop MediaRecorder if active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          // Ignore
+        }
+      }
+      // Stop ALL tracks
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      // Clear video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
     };
   }, [open, initCamera, recordedUrl]);
@@ -158,6 +193,10 @@ export function VibeReplyModal({
   const handleClose = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
     resetRecording();
     onOpenChange(false);

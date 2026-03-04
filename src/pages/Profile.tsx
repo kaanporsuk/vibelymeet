@@ -257,7 +257,7 @@ const Profile = () => {
             verified: false,
             photoVerified: data.photoVerified || false,
             videoIntroUrl: data.videoIntroUrl,
-            vibeCaption: "",
+            vibeCaption: (data as any).vibeCaption || "",
             stats: data.stats,
           });
         }
@@ -1505,7 +1505,7 @@ const Profile = () => {
         open={showVibeStudio}
         onOpenChange={setShowVibeStudio}
         onSave={async (pathOrUrl, caption) => {
-          await updateMyProfile({ videoIntroUrl: pathOrUrl });
+          await updateMyProfile({ videoIntroUrl: pathOrUrl, vibeCaption: caption || "", vibeVideoStatus: "ready" });
           setProfile({ ...profile, videoIntroUrl: pathOrUrl, vibeCaption: caption || "" });
         }}
         existingVideoUrl={profile.videoIntroUrl || undefined}

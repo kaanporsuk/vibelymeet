@@ -81,6 +81,11 @@ export const uploadVideo = async (
   const fileName = `${userId}/${Date.now()}_vibe.${fileExt}`;
   const fileSize = file.size;
 
+  // Bug 9: Server-side file size validation
+  if (file.size > 50 * 1024 * 1024) {
+    throw new Error("File exceeds 50MB upload limit");
+  }
+
   // Report initial progress
   onProgress?.(0, "Starting upload...");
 

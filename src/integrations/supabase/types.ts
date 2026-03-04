@@ -959,6 +959,8 @@ export type Database = {
           total_matches: number | null
           updated_at: string
           verified_email: string | null
+          vibe_caption: string | null
+          vibe_video_status: string | null
           video_intro_url: string | null
         }
         Insert: {
@@ -1001,6 +1003,8 @@ export type Database = {
           total_matches?: number | null
           updated_at?: string
           verified_email?: string | null
+          vibe_caption?: string | null
+          vibe_video_status?: string | null
           video_intro_url?: string | null
         }
         Update: {
@@ -1043,6 +1047,8 @@ export type Database = {
           total_matches?: number | null
           updated_at?: string
           verified_email?: string | null
+          vibe_caption?: string | null
+          vibe_video_status?: string | null
           video_intro_url?: string | null
         }
         Relationships: []
