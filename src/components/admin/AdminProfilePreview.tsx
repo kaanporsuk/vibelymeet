@@ -19,7 +19,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VibeTag } from "@/components/VibeTag";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
-import { getSignedVideoUrl } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -115,7 +115,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
 
     const resolveVideo = async () => {
       setIsResolvingVideo(true);
-      const signed = await getSignedVideoUrl(profile.video_intro_url);
+      const signed = await resolveVibeVideoUrl(profile.video_intro_url);
       setVibeVideoPlaybackUrl(signed);
       setIsResolvingVideo(false);
     };
