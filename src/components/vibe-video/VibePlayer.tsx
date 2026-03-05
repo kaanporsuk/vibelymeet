@@ -33,9 +33,8 @@ export const VibePlayer = ({
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isVisible, setIsVisible] = useState(true);
+  const [shouldLoad, setShouldLoad] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const savedSrcRef = useRef<string>(videoUrl);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Reset state when videoUrl changes
@@ -44,10 +43,10 @@ export const VibePlayer = ({
     setHasError(false);
     setIsLoading(true);
     setIsPlaying(false);
-    savedSrcRef.current = videoUrl;
   }, [videoUrl]);
 
-  // IntersectionObserver: pause and release hardware decoder when offscreen (iOS limit ~4 simultaneous videos)
+  // iOS Safari has a hard limit on ~4 simultaneous buffering <video> elements.
+  // Use React state to control src prop — avoids fighting React reconciliation.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -55,24 +54,16 @@ export const VibePlayer = ({
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          setIsVisible(true);
-          const videoEl = videoRef.current;
-          if (videoEl && !videoEl.src && savedSrcRef.current) {
-            videoEl.src = savedSrcRef.current;
-          }
+          setShouldLoad(true);
         } else {
-          setIsVisible(false);
-          const videoEl = videoRef.current;
-          if (videoEl && videoEl.src) {
-            savedSrcRef.current = videoEl.src;
-            videoEl.pause();
-            videoEl.removeAttribute("src");
-            videoEl.load(); // Forces release of hardware decoder
+          setShouldLoad(false);
+          if (videoRef.current) {
+            videoRef.current.pause();
             setIsPlaying(false);
           }
         }
       },
-      { threshold: [0, 0.5] }
+      { threshold: 0 }
     );
 
     observer.observe(container);
@@ -91,10 +82,10 @@ export const VibePlayer = ({
   }, [isLoaded, hasError]);
 
   useEffect(() => {
-    if (autoPlay && isLoaded) {
+    if (autoPlay && isLoaded && shouldLoad) {
       attemptPlay();
     }
-  }, [autoPlay, isLoaded, attemptPlay]);
+  }, [autoPlay, isLoaded, shouldLoad, attemptPlay]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -176,7 +167,7 @@ export const VibePlayer = ({
       {/* Video */}
       <video
         ref={videoRef}
-        src={videoUrl}
+        src={shouldLoad ? videoUrl : undefined}
         className="w-full h-full object-cover"
         loop
         muted={isMuted}

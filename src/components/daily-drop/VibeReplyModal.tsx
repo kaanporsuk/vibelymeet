@@ -175,8 +175,11 @@ export function VibeReplyModal({
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
-      // Clear video element
+      // Clear video element and revoke blob URLs
       if (videoRef.current) {
+        if (videoRef.current.src?.startsWith('blob:')) {
+          URL.revokeObjectURL(videoRef.current.src);
+        }
         videoRef.current.srcObject = null;
       }
     };

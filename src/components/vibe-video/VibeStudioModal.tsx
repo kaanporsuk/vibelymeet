@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideo, blobUrlToFile, getSignedVideoUrl } from "@/services/videoStorageService";
+import { uploadVideo, blobUrlToFile } from "@/services/videoStorageService";
+import { resolveVibeVideoUrl } from "@/utils/videoUrl";
 import {
   generateVideoThumbnail,
   compressVideo,
@@ -144,8 +145,11 @@ export const VibeStudioModal = ({
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
       }
-      // 3. Clear video element src
+      // 3. Clear video element src and revoke any blob URLs
       if (videoRef.current) {
+        if (videoRef.current.src?.startsWith('blob:')) {
+          URL.revokeObjectURL(videoRef.current.src);
+        }
         videoRef.current.srcObject = null;
       }
       if (audioContextRef.current) {
@@ -376,7 +380,7 @@ export const VibeStudioModal = ({
       // Get signed URL for playback
       setProcessingStatus("Preparing preview...");
       setUploadProgress(98);
-      const signedUrl = await getSignedVideoUrl(result.path);
+      const signedUrl = await resolveVibeVideoUrl(result.path);
       if (signedUrl) {
         setUploadProgress(100);
         setFinalVideoUrl(signedUrl);
