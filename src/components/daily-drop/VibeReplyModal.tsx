@@ -46,20 +46,23 @@ export function VibeReplyModal({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, aspectRatio: { ideal: 9 / 16 }, width: { ideal: 720 } },
+        video: {
+          facingMode: facingMode ?? "user",
+          width: { ideal: 480 },
+        },
         audio: audioEnabled,
       });
 
       streamRef.current = stream;
 
-      // Reset zoom to 1x if the browser supports it (iOS safety net)
+      // Reset zoom to minimum if the browser supports it (iOS Safari safety net)
       try {
         const videoTrack = stream.getVideoTracks()[0];
-        const capabilities = (videoTrack as any).getCapabilities?.();
-        if (capabilities?.zoom) {
-          await (videoTrack as any).applyConstraints({ advanced: [{ zoom: 1 }] });
+        const caps = (videoTrack as any).getCapabilities?.();
+        if (caps?.zoom && typeof caps.zoom === 'object' && 'min' in caps.zoom) {
+          await (videoTrack as any).applyConstraints({ advanced: [{ zoom: (caps.zoom as any).min }] } as any);
         }
-      } catch (e) {
+      } catch (_) {
         // Not all browsers support zoom constraint
       }
       
