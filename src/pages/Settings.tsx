@@ -43,6 +43,7 @@ import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDraw
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { toast } from "sonner";
 
 interface NotificationSettings {
@@ -126,6 +127,9 @@ const Settings = () => {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-4">
+        {/* Premium Status / Upgrade CTA */}
+        <PremiumSettingsCard />
+
         {/* Notifications Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

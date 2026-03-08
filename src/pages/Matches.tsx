@@ -42,6 +42,8 @@ import { toast } from "sonner";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSubscription } from "@/hooks/useSubscription";
+import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
@@ -49,6 +51,7 @@ const Matches = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: matches = [], isLoading, refetch } = useMatches();
+  const { isPremium } = useSubscription();
   const [phoneVerifiedForEmpty, setPhoneVerifiedForEmpty] = useState(true);
 
   // Check phone verification status for empty state nudge
@@ -347,19 +350,23 @@ const Matches = () => {
                 </div>
               ) : matches.length > 0 ? (
                 <>
-                  {/* New Vibes Rail */}
-                  <NewVibesRail
-                    vibes={newVibes}
-                    onVibeClick={(id) => {
-                      setOpenedVibeIds(prev => new Set(prev).add(id));
-                      navigate(`/chat/${id}`);
-                    }}
-                    onVibeProfileOpen={(vibe) => {
-                      setOpenedVibeIds(prev => new Set(prev).add(vibe.id));
-                      const match = matches?.find(m => m.id === vibe.id);
-                      if (match) setViewProfileMatch(match);
-                    }}
-                  />
+                  {/* Who Liked You Gate (free users) or New Vibes Rail (premium) */}
+                  {isPremium ? (
+                    <NewVibesRail
+                      vibes={newVibes}
+                      onVibeClick={(id) => {
+                        setOpenedVibeIds(prev => new Set(prev).add(id));
+                        navigate(`/chat/${id}`);
+                      }}
+                      onVibeProfileOpen={(vibe) => {
+                        setOpenedVibeIds(prev => new Set(prev).add(vibe.id));
+                        const match = matches?.find(m => m.id === vibe.id);
+                        if (match) setViewProfileMatch(match);
+                      }}
+                    />
+                  ) : newVibes.length > 0 ? (
+                    <WhoLikedYouGate count={newVibes.length} />
+                  ) : null}
 
                   {/* Section divider */}
                   {regularMatches.length > 0 && (

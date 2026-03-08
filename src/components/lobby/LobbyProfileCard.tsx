@@ -3,6 +3,7 @@ import { Sparkles, Briefcase, MapPin } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
+import { PremiumBadge } from "@/components/premium/PremiumBadge";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -12,6 +13,20 @@ interface LobbyProfileCardProps {
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
+  const [profileIsPremium, setProfileIsPremium] = useState(false);
+
+  // Fetch premium status for this profile
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", profile.profile_id)
+        .eq("status", "active")
+        .maybeSingle();
+      setProfileIsPremium(!!data);
+    })();
+  }, [profile.profile_id]);
 
   // Fetch vibe tags for this profile
   useEffect(() => {
@@ -61,6 +76,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neon-yellow/20 border border-neon-yellow/50 backdrop-blur-sm">
           <Sparkles className="w-3.5 h-3.5 text-neon-yellow" />
           <span className="text-xs font-semibold text-neon-yellow">Someone wants to meet you!</span>
+        </div>
+      )}
+
+      {/* Premium badge */}
+      {profileIsPremium && (
+        <div className="absolute top-4 right-4 z-10">
+          <PremiumBadge />
         </div>
       )}
 

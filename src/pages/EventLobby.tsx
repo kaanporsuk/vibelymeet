@@ -16,6 +16,7 @@ import { addMinutes, differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
+import { PremiumPill } from "@/components/premium/PremiumPill";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -309,9 +310,12 @@ const EventLobby = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary text-muted-foreground">
-            <Clock className="w-3.5 h-3.5" />
-            <span className="text-xs font-medium font-display tabular-nums">{timeRemaining}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary text-muted-foreground">
+              <Clock className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium font-display tabular-nums">{timeRemaining}</span>
+            </div>
+            <PremiumPill />
           </div>
         </div>
       </header>
