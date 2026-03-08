@@ -238,7 +238,6 @@ export const useEventAttendees = (eventId: string | undefined) => {
               bio: string | null;
               photos: string[] | null;
               photo_verified: boolean | null;
-              video_intro_url: string | null;
             };
             const profileVibes = vibesByProfile[profile.id] || [];
 
