@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { eventCoverThumbUrl } from "@/utils/imageUrl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
