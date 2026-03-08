@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
+import { isEventExpired } from "@/utils/eventUtils";
 
 interface FeaturedEventCardProps {
   id: string;
