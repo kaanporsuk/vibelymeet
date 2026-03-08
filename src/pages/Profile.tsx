@@ -905,7 +905,7 @@ const Profile = () => {
                   "relative w-full rounded-2xl overflow-hidden bg-secondary",
                   hasVibeVideo && "cursor-pointer active:scale-[0.98] transition-transform"
                 )}
-                style={{ aspectRatio: "4/5" }}
+                style={{ aspectRatio: "16/9" }}
                 onClick={() => {}}
               >
                 {/* Thumbnail */}
