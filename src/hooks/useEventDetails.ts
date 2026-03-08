@@ -32,6 +32,7 @@ export interface EventDetails {
   scope: string | null;
   city: string | null;
   country: string | null;
+  visibility: string | null;
 }
 
 export interface EventAttendee {
