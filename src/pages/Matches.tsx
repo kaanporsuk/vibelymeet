@@ -42,6 +42,8 @@ import { toast } from "sonner";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useSubscription } from "@/hooks/useSubscription";
+import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
