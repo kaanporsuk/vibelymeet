@@ -139,7 +139,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           setVibes(loadedVibes);
           
           // Check video
-          loadedHasVideo = !!profile.videoIntroUrl;
+          loadedHasVideo = profile.bunnyVideoStatus === "ready";
           setHasVideo(loadedHasVideo);
         }
 
