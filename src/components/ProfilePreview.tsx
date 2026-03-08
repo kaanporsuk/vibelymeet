@@ -25,7 +25,7 @@ import { LazyImage } from "@/components/LazyImage";
 import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface ProfilePreviewProps {
