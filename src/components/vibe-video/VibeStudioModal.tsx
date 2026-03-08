@@ -362,6 +362,14 @@ export const VibeStudioModal = ({
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
         setStage("preview");
+        // Stop camera tracks so browser tab dot disappears
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
       };
 
       mediaRecorderRef.current = mediaRecorder;
