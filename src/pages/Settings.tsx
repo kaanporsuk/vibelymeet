@@ -127,6 +127,9 @@ const Settings = () => {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-4">
+        {/* Premium Status / Upgrade CTA */}
+        <PremiumSettingsCard />
+
         {/* Notifications Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

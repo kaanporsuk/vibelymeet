@@ -79,6 +79,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         </div>
       )}
 
+      {/* Premium badge */}
+      {profileIsPremium && (
+        <div className="absolute top-4 right-4 z-10">
+          <PremiumBadge />
+        </div>
+      )}
+
       {/* Status badge if in a date */}
       {profile.queue_status && !["browsing", "idle"].includes(profile.queue_status) && (
         <div className="absolute top-4 right-4 z-10 px-2.5 py-1 rounded-full bg-secondary/80 backdrop-blur-sm border border-border">

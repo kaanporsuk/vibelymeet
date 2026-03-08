@@ -350,19 +350,23 @@ const Matches = () => {
                 </div>
               ) : matches.length > 0 ? (
                 <>
-                  {/* New Vibes Rail */}
-                  <NewVibesRail
-                    vibes={newVibes}
-                    onVibeClick={(id) => {
-                      setOpenedVibeIds(prev => new Set(prev).add(id));
-                      navigate(`/chat/${id}`);
-                    }}
-                    onVibeProfileOpen={(vibe) => {
-                      setOpenedVibeIds(prev => new Set(prev).add(vibe.id));
-                      const match = matches?.find(m => m.id === vibe.id);
-                      if (match) setViewProfileMatch(match);
-                    }}
-                  />
+                  {/* Who Liked You Gate (free users) or New Vibes Rail (premium) */}
+                  {isPremium ? (
+                    <NewVibesRail
+                      vibes={newVibes}
+                      onVibeClick={(id) => {
+                        setOpenedVibeIds(prev => new Set(prev).add(id));
+                        navigate(`/chat/${id}`);
+                      }}
+                      onVibeProfileOpen={(vibe) => {
+                        setOpenedVibeIds(prev => new Set(prev).add(vibe.id));
+                        const match = matches?.find(m => m.id === vibe.id);
+                        if (match) setViewProfileMatch(match);
+                      }}
+                    />
+                  ) : newVibes.length > 0 ? (
+                    <WhoLikedYouGate count={newVibes.length} />
+                  ) : null}
 
                   {/* Section divider */}
                   {regularMatches.length > 0 && (
