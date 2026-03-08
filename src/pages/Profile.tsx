@@ -804,21 +804,22 @@ const Profile = () => {
               onClick={() => openDrawer("vibe-video")}
               className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              {profile.bunnyVideoUid ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
+              {(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready") ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          {profile.bunnyVideoUid ? (
+          {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
             <button
               onClick={() => openDrawer("vibe-video")}
               className="w-full flex items-center gap-3 text-left hover:bg-secondary/30 rounded-xl p-2 -m-2 transition-colors"
             >
               <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary shrink-0">
-                <video
-                  src={vibeVideoPlaybackUrl || undefined}
+                <img
+                  src={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg`}
+                  alt="Vibe Video thumbnail"
                   className="w-full h-full object-cover"
-                  muted
-                  playsInline
-                  preload="metadata"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
                 />
                 <div className="absolute inset-0 bg-background/30 flex items-center justify-center">
                   <div className="w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center">
