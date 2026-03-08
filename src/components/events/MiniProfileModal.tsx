@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { swipeCardUrl } from "@/utils/imageUrl";
 
 interface Profile {
   id: string;
