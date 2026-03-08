@@ -51,6 +51,25 @@ Deno.serve(async (req) => {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
         const userId = session.metadata?.supabase_user_id
+
+        // Handle event ticket purchase
+        if (session.metadata?.type === 'event_ticket') {
+          const eventId = session.metadata?.event_id
+
+          if (userId && eventId) {
+            // Register user for event (uses profile_id column)
+            await supabase
+              .from('event_registrations')
+              .upsert({
+                profile_id: userId,
+                event_id: eventId,
+                payment_status: 'paid',
+              }, { onConflict: 'event_id,profile_id' })
+          }
+          break
+        }
+
+        // Handle subscription checkout
         const plan = session.metadata?.plan
 
         if (!userId || session.mode !== 'subscription') break

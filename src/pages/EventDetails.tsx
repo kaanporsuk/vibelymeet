@@ -489,6 +489,7 @@ const EventDetails = () => {
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
         onSuccess={handlePaymentSuccess}
+        eventId={event.id}
         eventTitle={event.title}
         eventDate={formatDate(event.eventDate)}
         userGender={genderLabel}

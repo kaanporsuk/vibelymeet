@@ -83,6 +83,7 @@ const App = () => (
               <Route path="/premium" element={<Premium />} />
               <Route path="/subscription/success" element={<SubscriptionSuccess />} />
               <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
+              <Route path="/event-payment/success" element={<ProtectedRoute><EventPaymentSuccess /></ProtectedRoute>} />
               <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
               {/* Admin Routes */}
               <Route path="/kaan" element={<AdminLogin />} />
