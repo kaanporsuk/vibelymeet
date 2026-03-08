@@ -51,6 +51,7 @@ const Matches = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: matches = [], isLoading, refetch } = useMatches();
+  const { isPremium } = useSubscription();
   const [phoneVerifiedForEmpty, setPhoneVerifiedForEmpty] = useState(true);
 
   // Check phone verification status for empty state nudge
