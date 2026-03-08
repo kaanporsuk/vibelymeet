@@ -103,7 +103,7 @@ const ReadyGate = () => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("name, age, avatar_url, photos, bio, video_intro_url")
+        .select("name, age, avatar_url, photos, bio")
         .eq("id", partnerId)
         .maybeSingle();
 
