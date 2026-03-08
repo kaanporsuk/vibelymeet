@@ -143,12 +143,43 @@ const Onboarding = () => {
     return age;
   };
 
+  const [ageBlocked, setAgeBlocked] = useState(false);
+
   const nextStep = () => {
+    // After identity step, check age gate
+    if (step === 1 && formData.birthDate) {
+      const age = calculateAge(formData.birthDate);
+      if (age < 18) {
+        setAgeBlocked(true);
+        // Log the block attempt
+        logAgeGateBlock(formData.birthDate);
+        return;
+      }
+    }
     if (step < totalSteps - 1) {
       setStep(step + 1);
     } else {
       handleComplete();
     }
+  };
+
+  const logAgeGateBlock = async (birthDate: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      // The age_gate_blocks table is service-role only, 
+      // so we log via an edge function or just note it client-side
+      console.log(`[AgeGate] User ${user.id} blocked: DOB ${birthDate}`);
+    } catch (err) {
+      console.error("[AgeGate] Failed to log block:", err);
+    }
+  };
+
+  const handleAgeBlockExit = async () => {
+    await supabase.auth.signOut();
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/";
   };
 
   const prevStep = () => {
