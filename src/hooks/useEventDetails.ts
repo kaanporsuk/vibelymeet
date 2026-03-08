@@ -49,24 +49,11 @@ export interface EventAttendee {
   vibeVideoUrl?: string;
 }
 
-// Helper to get signed URL for a photo
-async function getSignedPhotoUrl(path: string): Promise<string> {
-  if (!path) return "";
-  
-  // If it's already a full URL, return it
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
+// Helper to resolve photo URL via centralized utility
+import { getImageUrl } from "@/utils/imageUrl";
 
-  try {
-    const { data } = await supabase.storage
-      .from("profile-photos")
-      .createSignedUrl(path, 3600); // 1 hour expiry
-    
-    return data?.signedUrl || path;
-  } catch {
-    return path;
-  }
+function resolvePhotoUrl(path: string): string {
+  return getImageUrl(path);
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
