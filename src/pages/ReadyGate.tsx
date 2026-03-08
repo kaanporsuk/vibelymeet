@@ -128,7 +128,7 @@ const ReadyGate = () => {
           avatarUrl: resolvePhotoUrl(profile.avatar_url) || undefined,
           photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
           tags,
-          videoIntroUrl: profile.video_intro_url || undefined,
+          
         });
       }
     };
