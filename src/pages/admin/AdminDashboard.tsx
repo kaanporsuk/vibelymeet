@@ -105,6 +105,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Engagement Analytics'}
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
+                {activePanel === 'deletions' && 'Account Deletions'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
