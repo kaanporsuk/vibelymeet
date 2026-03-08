@@ -1502,11 +1502,22 @@ const Profile = () => {
       <VibeStudioModal
         open={showVibeStudio}
         onOpenChange={setShowVibeStudio}
-        onSave={async (pathOrUrl, caption) => {
-          await updateMyProfile({ videoIntroUrl: pathOrUrl, vibeCaption: caption || "", vibeVideoStatus: "ready" });
-          setProfile({ ...profile, videoIntroUrl: pathOrUrl, vibeCaption: caption || "" });
+        onSave={async (_pathOrUrl, caption) => {
+          // Bunny upload handles bunny_video_uid/status via edge function + webhook
+          // Just update the caption locally; polling in VibeStudioModal sets bunny fields
+          await updateMyProfile({ vibeCaption: caption || "" });
+          // Re-fetch profile to get updated bunny fields
+          const refreshed = await fetchMyProfile();
+          if (refreshed) {
+            setProfile(prev => ({
+              ...prev,
+              bunnyVideoUid: refreshed.bunnyVideoUid || null,
+              bunnyVideoStatus: refreshed.bunnyVideoStatus || "none",
+              vibeCaption: caption || "",
+            }));
+          }
         }}
-        existingVideoUrl={profile.videoIntroUrl || undefined}
+        existingVideoUrl={vibeVideoPlaybackUrl || undefined}
         existingCaption={profile.vibeCaption}
       />
 
