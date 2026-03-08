@@ -9,7 +9,7 @@ import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useAuth } from "@/contexts/AuthContext";
-import { videoService } from "@/services/vibelyService";
+import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ProfileWizardProps {
