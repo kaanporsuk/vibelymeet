@@ -61,8 +61,6 @@ export const useEvents = () => {
   return useQuery({
     queryKey: ["events"],
     queryFn: async (): Promise<Event[]> => {
-      const now = new Date();
-      
       const { data, error } = await supabase
         .from("events")
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
