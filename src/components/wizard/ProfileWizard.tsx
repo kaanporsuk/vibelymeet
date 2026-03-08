@@ -321,8 +321,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         const file = photoFiles[i];
         
         if (photo && file) {
-          // Local file, upload it
-          const url = await videoService.uploadPhoto(user.id, file, i);
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("Not authenticated");
+          const url = await uploadImageToBunny(file, session.access_token);
           uploadedPhotoUrls.push(url);
         } else if (photo && photo.startsWith('http')) {
           // Already a URL (maybe from previous session)
