@@ -63,8 +63,10 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
-  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
-  const [isResolvingVibeVideo, setIsResolvingVibeVideo] = useState(false);
+  const vibeVideoPlaybackUrl = profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready"
+    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
+    : null;
+  const isResolvingVibeVideo = false;
   const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
   // Resolve all photo URLs from raw storage paths
