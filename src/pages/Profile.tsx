@@ -1625,6 +1625,48 @@ const Profile = () => {
         onClose={() => setShowPhotoViewer(false)}
       />
 
+      {/* Fullscreen Vibe Video Player */}
+      <AnimatePresence>
+        {showVibePlayer && profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+            onClick={() => setShowVibePlayer(false)}
+          >
+            {/* Close button */}
+            <button
+              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}
+              onClick={() => setShowVibePlayer(false)}
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Video */}
+            <video
+              src={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/play_720p.mp4`}
+              className="w-full h-full object-contain"
+              autoPlay
+              playsInline
+              loop
+              onClick={(e) => e.stopPropagation()}
+            />
+
+            {/* Caption at bottom */}
+            {profile.vibeCaption && (
+              <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
+                <p className="text-white text-base font-medium text-center">
+                  {profile.vibeCaption}
+                </p>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <BottomNav />
     </div>
   );
