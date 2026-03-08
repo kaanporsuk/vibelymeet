@@ -963,7 +963,6 @@ export type Database = {
           verified_email: string | null
           vibe_caption: string | null
           vibe_video_status: string | null
-          video_intro_url: string | null
         }
         Insert: {
           about_me?: string | null
@@ -1009,7 +1008,6 @@ export type Database = {
           verified_email?: string | null
           vibe_caption?: string | null
           vibe_video_status?: string | null
-          video_intro_url?: string | null
         }
         Update: {
           about_me?: string | null
@@ -1055,7 +1053,6 @@ export type Database = {
           verified_email?: string | null
           vibe_caption?: string | null
           vibe_video_status?: string | null
-          video_intro_url?: string | null
         }
         Relationships: []
       }
