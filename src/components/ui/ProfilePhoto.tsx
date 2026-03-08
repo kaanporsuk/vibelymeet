@@ -149,6 +149,8 @@ interface EventCoverProps {
   title?: string;
   className?: string;
   aspectRatio?: "video" | "square";
+  /** Hint for CDN resizing: "hero" = 1200w, "card" = 600w, "thumb" = 300w */
+  sizeHint?: "hero" | "card" | "thumb";
 }
 
 export const EventCover = ({
