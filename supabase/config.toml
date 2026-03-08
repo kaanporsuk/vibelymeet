@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.delete-vibe-video]
 verify_jwt = false
+
+[functions.upload-image]
+verify_jwt = false
