@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.upload-event-cover]
 verify_jwt = false
+
+[functions.create-checkout-session]
+verify_jwt = false
