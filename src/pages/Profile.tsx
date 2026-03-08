@@ -864,9 +864,9 @@ const Profile = () => {
                 )}
 
                 {/* Caption overlay at bottom */}
-                {hasVibeVideo && profile.vibeCaption && (
-                  <div className="absolute bottom-0 left-0 right-0 p-4">
-                    <p className="text-white text-sm font-medium">{profile.vibeCaption}</p>
+                {hasVibeVideo && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+                    <p className="text-white text-sm font-medium">{profile.vibeCaption || "Your Vibe Video"}</p>
                     <p className="text-white/60 text-xs mt-0.5">Tap to play</p>
                   </div>
                 )}
