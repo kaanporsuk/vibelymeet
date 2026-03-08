@@ -202,7 +202,7 @@ serve(async (req) => {
           .maybeSingle();
         if (existing) continue;
 
-        const unsubUrl = `${supabaseUrl}/functions/v1/unsubscribe?uid=${u.id}`;
+        const unsubUrl = await createUnsubscribeUrl(u.id);
         const email = firstEventNudgeEmail(u.name || "there", unsubUrl);
         await sendEmail(u.verified_email, email.subject, email.html);
         await supabase.from("email_drip_log").insert({
