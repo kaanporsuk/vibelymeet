@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { getImageUrl, avatarUrl as avatarPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
 
 interface ProfilePhotoProps {
   photos?: string[] | null;
