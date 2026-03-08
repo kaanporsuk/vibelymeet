@@ -44,6 +44,7 @@ const EventDetails = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
+  const { isPremium } = useSubscription();
   
   // Enable realtime updates
   useRealtimeEvents();
