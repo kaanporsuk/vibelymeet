@@ -56,7 +56,7 @@ interface DbProfile {
   prompts: { question: string; answer: string }[] | null;
   photos: string[] | null;
   avatar_url: string | null;
-  video_intro_url: string | null;
+  
   bunny_video_uid: string | null;
   bunny_video_status: string;
   photo_verified: boolean | null;
