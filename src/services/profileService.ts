@@ -1,5 +1,4 @@
 import { supabase } from "@/integrations/supabase/client";
-import { refreshSignedUrls } from "@/services/storageService";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {

@@ -270,9 +270,7 @@ export const useDashboardMatches = () => {
           Date.now() - matchedAt.getTime() < 24 * 60 * 60 * 1000;
 
         const rawImage = profile?.avatar_url || "";
-        const image = rawImage && !rawImage.startsWith("http")
-          ? supabase.storage.from("profile-photos").getPublicUrl(rawImage).data.publicUrl
-          : rawImage;
+        const image = avatarPreset(rawImage);
 
         return {
           id: otherProfileId,
