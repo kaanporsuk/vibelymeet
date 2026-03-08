@@ -24,6 +24,8 @@ export interface ProfileData {
   photos: string[];
   avatarUrl: string | null;
   videoIntroUrl: string | null;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
   vibeCaption: string;
   vibeVideoStatus: string | null;
   photoVerified: boolean;
@@ -56,6 +58,8 @@ interface DbProfile {
   photos: string[] | null;
   avatar_url: string | null;
   video_intro_url: string | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string;
   photo_verified: boolean | null;
   phone_verified: boolean | null;
   events_attended: number | null;
@@ -139,6 +143,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     photos: dbProfile.photos || [],
     avatarUrl: dbProfile.avatar_url,
     videoIntroUrl: dbProfile.video_intro_url,
+    bunnyVideoUid: (dbProfile as any).bunny_video_uid || null,
+    bunnyVideoStatus: (dbProfile as any).bunny_video_status || "none",
     vibeCaption: (dbProfile as any).vibe_caption || "",
     vibeVideoStatus: (dbProfile as any).vibe_video_status || null,
     photoVerified: dbProfile.photo_verified || false,

@@ -56,7 +56,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 import {
   Drawer,
   DrawerClose,
@@ -103,6 +103,8 @@ interface UserProfile {
   verified: boolean;
   photoVerified: boolean;
   videoIntroUrl: string | null;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
   vibeCaption: string;
   stats: {
     events: number;
@@ -133,6 +135,8 @@ const initialProfile: UserProfile = {
   verified: false,
   photoVerified: false,
   videoIntroUrl: null,
+  bunnyVideoUid: null,
+  bunnyVideoStatus: "none",
   vibeCaption: "",
   stats: {
     events: 0,
@@ -257,6 +261,8 @@ const Profile = () => {
             verified: false,
             photoVerified: data.photoVerified || false,
             videoIntroUrl: data.videoIntroUrl,
+            bunnyVideoUid: data.bunnyVideoUid || null,
+            bunnyVideoStatus: data.bunnyVideoStatus || "none",
             vibeCaption: (data as any).vibeCaption || "",
             stats: data.stats,
           });
@@ -271,28 +277,16 @@ const Profile = () => {
     loadProfile();
   }, []);
 
-  // Resolve a playable (signed) URL for the vibe video (bucket is private)
+  // Resolve playable URL for vibe video — prefer Bunny Stream CDN
   useEffect(() => {
-    let cancelled = false;
-
-    const resolve = async () => {
-      if (!profile.videoIntroUrl) {
-        setVibeVideoPlaybackUrl(null);
-        return;
-      }
-
-      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
-      if (cancelled) return;
-
-      setVibeVideoPlaybackUrl(signed);
-    };
-
-    resolve();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profile.videoIntroUrl]);
+    if (profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready") {
+      setVibeVideoPlaybackUrl(
+        `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
+      );
+    } else {
+      setVibeVideoPlaybackUrl(null);
+    }
+  }, [profile.bunnyVideoUid, profile.bunnyVideoStatus]);
 
   const vibeScore = calculateVibeScore(profile);
 
@@ -534,7 +528,7 @@ const Profile = () => {
             </button>
             
             {/* Vibe Video indicator */}
-            {profile.videoIntroUrl && (
+            {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" && (
               <button
                 onClick={() => openDrawer("vibe-video")}
                 className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
@@ -809,10 +803,10 @@ const Profile = () => {
               onClick={() => openDrawer("vibe-video")}
               className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              {profile.videoIntroUrl ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
+              {profile.bunnyVideoUid ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          {profile.videoIntroUrl ? (
+          {profile.bunnyVideoUid ? (
             <button
               onClick={() => openDrawer("vibe-video")}
               className="w-full flex items-center gap-3 text-left hover:bg-secondary/30 rounded-xl p-2 -m-2 transition-colors"
@@ -1398,6 +1392,8 @@ const Profile = () => {
             photoVerified: profile.photoVerified,
             lifestyle: profile.lifestyle,
             videoIntroUrl: profile.videoIntroUrl || undefined,
+            bunnyVideoUid: profile.bunnyVideoUid || undefined,
+            bunnyVideoStatus: profile.bunnyVideoStatus || undefined,
           }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>

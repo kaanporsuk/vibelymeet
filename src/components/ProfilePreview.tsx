@@ -25,7 +25,7 @@ import { LazyImage } from "@/components/LazyImage";
 import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 
 interface ProfilePreviewProps {
@@ -44,6 +44,8 @@ interface ProfilePreviewProps {
     relationshipIntent: string;
     lifestyle?: Record<string, string>;
     videoIntroUrl?: string;
+    bunnyVideoUid?: string;
+    bunnyVideoStatus?: string;
   };
   onClose: () => void;
 }
@@ -61,38 +63,15 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
-  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
-  const [isResolvingVibeVideo, setIsResolvingVibeVideo] = useState(false);
+  const vibeVideoPlaybackUrl = profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready"
+    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
+    : null;
+  const isResolvingVibeVideo = false;
   const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
   // Resolve all photo URLs from raw storage paths
   const resolvedPhotos = profile.photos.map(p => resolvePhotoUrl(p)).filter(Boolean);
   const hasPhotos = resolvedPhotos.length > 0;
-
-  // Resolve a playable URL for vibe videos (bucket is private, so we need a signed URL)
-  useEffect(() => {
-    let cancelled = false;
-
-    const resolve = async () => {
-      if (!profile.videoIntroUrl) {
-        setVibeVideoPlaybackUrl(null);
-        return;
-      }
-
-      setIsResolvingVibeVideo(true);
-      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
-      if (cancelled) return;
-
-      setVibeVideoPlaybackUrl(signed);
-      setIsResolvingVibeVideo(false);
-    };
-
-    resolve();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profile.videoIntroUrl]);
 
   // Hide action hint after a few seconds
   useEffect(() => {

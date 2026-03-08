@@ -39,7 +39,7 @@ import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -217,22 +217,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     refreshPhotos();
   }, [profile?.photos]);
 
-  // Resolve video URL
+  // Resolve Bunny CDN video URL
   useEffect(() => {
-    if (!profile?.video_intro_url) {
+    if (!profile?.bunny_video_uid || (profile as any).bunny_video_status !== "ready") {
       setVideoUrl(null);
+      setIsLoadingVideo(false);
       return;
     }
-
-    const resolveVideo = async () => {
-      setIsLoadingVideo(true);
-      const signed = await resolveVibeVideoUrl(profile.video_intro_url);
-      setVideoUrl(signed);
-      setIsLoadingVideo(false);
-    };
-
-    resolveVideo();
-  }, [profile?.video_intro_url]);
+    setVideoUrl(
+      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunny_video_uid}/playlist.m3u8`
+    );
+    setIsLoadingVideo(false);
+  }, [profile?.bunny_video_uid, (profile as any)?.bunny_video_status]);
 
   const displayPhotos = refreshedPhotos.length > 0 ? refreshedPhotos : profile?.photos || [];
 
