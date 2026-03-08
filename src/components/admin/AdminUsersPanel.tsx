@@ -111,28 +111,15 @@ const AdminUsersPanel = () => {
     },
   });
 
-  // Refresh signed URLs for avatars
+  // Resolve avatar URLs via CDN helper (no async refresh needed)
   useEffect(() => {
-    const refreshAvatars = async () => {
-      if (!users?.length) return;
-
-      const refreshed: Record<string, string> = {};
-      for (const user of users) {
-        const avatarUrl = user.avatar_url || user.photos?.[0];
-        if (avatarUrl && isSignedUrlExpiring(avatarUrl)) {
-          const path = extractPathFromSignedUrl(avatarUrl);
-          if (path) {
-            const newUrl = await getSignedPhotoUrl(path);
-            if (newUrl) refreshed[user.id] = newUrl;
-          }
-        } else if (avatarUrl) {
-          refreshed[user.id] = avatarUrl;
-        }
-      }
-      setRefreshedAvatars(refreshed);
-    };
-
-    refreshAvatars();
+    if (!users?.length) return;
+    const resolved: Record<string, string> = {};
+    for (const user of users) {
+      const raw = user.avatar_url || user.photos?.[0];
+      if (raw) resolved[user.id] = avatarPreset(raw);
+    }
+    setRefreshedAvatars(resolved);
   }, [users]);
 
   // Fetch vibes for all users
