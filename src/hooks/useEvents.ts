@@ -106,7 +106,6 @@ export const useInfiniteEvents = () => {
   return useInfiniteQuery({
     queryKey: ["infinite-events"],
     queryFn: async ({ pageParam = 0 }): Promise<{ events: Event[]; nextCursor: number | null }> => {
-      const now = new Date();
       const from = pageParam * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
