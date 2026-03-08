@@ -168,6 +168,7 @@ const Profile = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
+  const [showVibePlayer, setShowVibePlayer] = useState(false);
   const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
