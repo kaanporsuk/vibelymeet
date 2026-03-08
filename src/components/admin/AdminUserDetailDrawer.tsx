@@ -561,7 +561,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={match.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10 border-2 border-pink-500/30">
-                            <AvatarImage src={resolvePhotoUrl(otherUser?.avatar_url) || resolvePhotoUrl(otherUser?.photos?.[0])} />
+                            <AvatarImage src={avatarPreset(otherUser?.avatar_url) || avatarPreset(otherUser?.photos?.[0])} />
                             <AvatarFallback>{otherUser?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
