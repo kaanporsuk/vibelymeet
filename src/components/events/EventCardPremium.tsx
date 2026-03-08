@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
+import { isEventExpired } from "@/utils/eventUtils";
 
 interface EventCardPremiumProps {
   id: string;
@@ -22,6 +23,8 @@ interface EventCardPremiumProps {
   city?: string | null;
   country?: string | null;
   distanceKm?: number | null;
+  eventDateRaw?: string;
+  durationMinutes?: number;
 }
 
 const tagEmojis: Record<string, string> = {
