@@ -824,7 +824,7 @@ const Profile = () => {
                   hasVibeVideo && "cursor-pointer active:scale-[0.98] transition-transform"
                 )}
                 style={{ aspectRatio: "4/5" }}
-                onClick={() => hasVibeVideo && setShowVibePlayer(true)}
+                onClick={() => {}}
               >
                 {/* Thumbnail */}
                 {hasVibeVideo && thumbnailUrl && (
