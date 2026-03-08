@@ -26,6 +26,9 @@ import HowItWorks from "./pages/HowItWorks";
 import UserProfile from "./pages/UserProfile";
 import ResetPassword from "./pages/ResetPassword";
 import NotFound from "./pages/NotFound";
+import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
+import TermsOfService from "./pages/legal/TermsOfService";
+import DeleteAccountWeb from "./pages/legal/DeleteAccountWeb";
 import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
@@ -82,6 +85,9 @@ const App = () => (
               <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
               <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/delete-account" element={<DeleteAccountWeb />} />
               <Route path="/premium" element={<Premium />} />
               <Route path="/subscription/success" element={<SubscriptionSuccess />} />
               <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
