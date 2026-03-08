@@ -49,24 +49,11 @@ export interface EventAttendee {
   vibeVideoUrl?: string;
 }
 
-// Helper to get signed URL for a photo
-async function getSignedPhotoUrl(path: string): Promise<string> {
-  if (!path) return "";
-  
-  // If it's already a full URL, return it
-  if (path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
+// Helper to resolve photo URL via centralized utility
+import { getImageUrl } from "@/utils/imageUrl";
 
-  try {
-    const { data } = await supabase.storage
-      .from("profile-photos")
-      .createSignedUrl(path, 3600); // 1 hour expiry
-    
-    return data?.signedUrl || path;
-  } catch {
-    return path;
-  }
+function resolvePhotoUrl(path: string): string {
+  return getImageUrl(path);
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
@@ -256,14 +243,11 @@ export const useEventAttendees = (eventId: string | undefined) => {
             };
             const profileVibes = vibesByProfile[profile.id] || [];
 
-            // Get signed URL for avatar
+            // Resolve photo URLs via centralized utility
             const avatarPath = profile.avatar_url || profile.photos?.[0] || "";
-            const signedAvatar = await getSignedPhotoUrl(avatarPath);
+            const resolvedAvatar = resolvePhotoUrl(avatarPath);
 
-            // Get signed URLs for all photos
-            const signedPhotos = await Promise.all(
-              (profile.photos || []).map((p) => getSignedPhotoUrl(p))
-            );
+            const resolvedPhotos = (profile.photos || []).map((p) => resolvePhotoUrl(p));
 
             // Calculate STABLE match percentage
             const matchPercent = user?.id
@@ -274,11 +258,11 @@ export const useEventAttendees = (eventId: string | undefined) => {
               id: profile.id,
               name: profile.name,
               age: profile.age,
-              avatar: signedAvatar,
+              avatar: resolvedAvatar,
               vibeTag: profileVibes[0] || "New Vibe",
               matchPercent,
               bio: profile.bio || "",
-              photos: signedPhotos,
+              photos: resolvedPhotos,
               vibeTags: profileVibes.slice(0, 2),
               photoVerified: profile.photo_verified || false,
               hasVibeVideo: !!profile.video_intro_url,

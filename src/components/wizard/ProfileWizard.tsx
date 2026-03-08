@@ -9,7 +9,7 @@ import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
 import { useAuth } from "@/contexts/AuthContext";
-import { videoService } from "@/services/vibelyService";
+import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ProfileWizardProps {
@@ -321,8 +321,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         const file = photoFiles[i];
         
         if (photo && file) {
-          // Local file, upload it
-          const url = await videoService.uploadPhoto(user.id, file, i);
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("Not authenticated");
+          const url = await uploadImageToBunny(file, session.access_token);
           uploadedPhotoUrls.push(url);
         } else if (photo && photo.startsWith('http')) {
           // Already a URL (maybe from previous session)
@@ -621,9 +622,11 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                 for (let i = 0; i < photos.length; i++) {
                                   const photo = photos[i];
                                   const file = photoFiles[i];
-                                  if (photo && file) {
-                                    const url = await videoService.uploadPhoto(user.id, file, i);
-                                    uploadedPhotoUrls.push(url);
+                                    if (photo && file) {
+                                      const { data: { session: sess } } = await supabase.auth.getSession();
+                                      if (!sess) throw new Error("Not authenticated");
+                                      const url = await uploadImageToBunny(file, sess.access_token);
+                                      uploadedPhotoUrls.push(url);
                                   } else if (photo && photo.startsWith('http')) {
                                     uploadedPhotoUrls.push(photo);
                                   }
