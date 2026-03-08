@@ -65,8 +65,7 @@ const MiniProfileModal = ({
     }
 
     // Use CDN helper — handles full URLs and Bunny paths
-    const { getImageUrl } = require("@/utils/imageUrl");
-    setSignedPhotoUrl(getImageUrl(photoPath, { width: 720 }));
+    setSignedPhotoUrl(swipeCardUrl(photoPath));
   }, [profile, isOpen]);
 
   if (!profile) return null;
