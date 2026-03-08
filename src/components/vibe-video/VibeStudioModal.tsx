@@ -430,8 +430,12 @@ export const VibeStudioModal = ({
         videoToUpload = await blobUrlToFile(recordedVideoUrl!, "vibe-video.webm");
       }
 
-      // Compress video if needed (>10MB)
-      if (shouldCompressVideo(videoToUpload, 10)) {
+      // Skip compression for camera-native formats — Bunny handles these
+      const isNativeFormat =
+        (videoToUpload as File).type === "video/quicktime" ||
+        (videoToUpload as File).type === "video/mp4";
+
+      if (!isNativeFormat && shouldCompressVideo(videoToUpload, 10)) {
         setProcessingStatus("Compressing video...");
         setUploadProgress(0);
         try {
@@ -441,12 +445,17 @@ export const VibeStudioModal = ({
             videoBitrate: 1500000,
             onProgress: (p) => {
               setProcessingStatus("Compressing video...");
-              setUploadProgress(p * 30);
+              setUploadProgress(Math.min(Math.round(p * 0.3), 30));
             },
           });
         } catch (compressError) {
           console.warn("Compression failed, uploading original:", compressError);
         }
+      }
+
+      // Validate blob is non-empty
+      if (videoToUpload.size === 0) {
+        throw new Error("Video file is empty after processing. Please try again.");
       }
 
       setProcessingStatus("Uploading video...");
