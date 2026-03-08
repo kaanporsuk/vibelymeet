@@ -192,7 +192,7 @@ export const EventCover = ({
     <div className={cn(arClass, "relative overflow-hidden", className)}>
       {!isLoaded && <div className="absolute inset-0 shimmer-effect" />}
       <img
-        src={src}
+        src={optimizedSrc}
         alt={title || "Event cover"}
         className={cn(
           "w-full h-full object-cover transition-opacity duration-300",
