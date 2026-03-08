@@ -99,10 +99,19 @@ export const VibeStudioModal = ({
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: facingMode ?? "user",
+            facingMode: { ideal: facingMode ?? "user" },
             width: { ideal: 480 },
           },
           audio: { echoCancellation: true, noiseSuppression: true },
+        }).catch(async () => {
+          console.warn("[VibeVideo] facingMode constraint failed, falling back to default camera");
+          if (facingMode === 'environment') {
+            setFacingMode('user');
+          }
+          return navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 480 } },
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
         });
         streamRef.current = stream;
         setHasPermission(true);
@@ -526,8 +535,20 @@ export const VibeStudioModal = ({
     }
   }, []);
 
-  const toggleCamera = useCallback(() => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  const toggleCamera = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      
+      if (videoDevices.length < 2) {
+        toast.error("No back camera available on this device");
+        return;
+      }
+      
+      setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    } catch {
+      toast.error("Camera switch not supported on this device");
+    }
   }, []);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -601,16 +622,29 @@ export const VibeStudioModal = ({
 
   const toggleVideoPlayback = useCallback(() => {
     const videoEl = stage === "posted" ? finalVideoRef.current : reviewVideoRef.current;
-    if (videoEl) {
-      if (videoEl.paused) {
-        videoEl.play();
-        setIsVideoPlaying(true);
-      } else {
-        videoEl.pause();
-        setIsVideoPlaying(false);
-      }
+    if (!videoEl) {
+      console.warn("[VibeVideo] toggleVideoPlayback: no video element found for stage", stage);
+      return;
+    }
+    if (videoEl.paused) {
+      videoEl.play().catch(err => console.error("[VibeVideo] play failed:", err));
+      setIsVideoPlaying(true);
+    } else {
+      videoEl.pause();
+      setIsVideoPlaying(false);
     }
   }, [stage]);
+
+  // Auto-play preview video when entering preview stage
+  useEffect(() => {
+    if (stage !== "preview") return;
+    const videoEl = reviewVideoRef.current;
+    if (!videoEl || !recordedVideoUrl) return;
+    setTimeout(() => {
+      videoEl.play().catch(err => console.warn("[VibeVideo] auto-play preview failed:", err));
+      setIsVideoPlaying(true);
+    }, 100);
+  }, [stage, recordedVideoUrl]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
@@ -621,8 +655,8 @@ export const VibeStudioModal = ({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-full h-full sm:max-w-md sm:h-[90vh] p-0 border-none bg-background overflow-hidden">
-        <div className="relative w-full h-full flex flex-col">
+      <DialogContent className="p-0 m-0 max-w-none w-full h-full border-none bg-black overflow-hidden rounded-none">
+        <div className="relative w-full flex flex-col overflow-hidden" style={{ height: '100dvh' }}>
           {/* Close Button */}
           <Button
             variant="ghost"
@@ -685,11 +719,15 @@ export const VibeStudioModal = ({
                 <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
-                  className="w-full h-full object-contain"
-                  autoPlay
-                  loop
+                  className={cn("w-full h-full object-cover", facingMode === 'user' && "scale-x-[-1]")}
                   playsInline
-                  preload="metadata"
+                  loop
+                  onLoadedMetadata={(e) => {
+                    const duration = (e.target as HTMLVideoElement).duration;
+                    if (duration > MAX_CLIP_DURATION && !needsTrimming) {
+                      setNeedsTrimming(true);
+                    }
+                  }}
                   onClick={toggleVideoPlayback}
                 />
               ) : /* Uploading state - show the local video */
