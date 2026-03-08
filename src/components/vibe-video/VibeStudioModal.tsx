@@ -291,9 +291,9 @@ export const VibeStudioModal = ({
           reject(error);
         },
         onProgress: (bytesUploaded, bytesTotal) => {
-          const pct = Math.round((bytesUploaded / bytesTotal) * 100);
+          const pct = Math.round(30 + (bytesUploaded / bytesTotal) * 70);
           console.log(`[VibeVideo] upload progress: ${pct}%`);
-          setUploadProgress(pct);
+          setUploadProgress(Math.min(pct, 100));
         },
         onSuccess: () => {
           console.log("[VibeVideo] tus upload complete", { videoId });
