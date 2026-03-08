@@ -1,0 +1,1 @@
+UPDATE profiles SET video_intro_url = NULL WHERE video_intro_url IS NOT NULL;
