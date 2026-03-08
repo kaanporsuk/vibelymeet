@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
 import { isEventExpired } from "@/utils/eventUtils";
+import { eventCoverCardUrl } from "@/utils/imageUrl";
 
 interface EventCardPremiumProps {
   id: string;
