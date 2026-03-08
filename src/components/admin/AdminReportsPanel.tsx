@@ -51,7 +51,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
