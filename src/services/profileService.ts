@@ -24,6 +24,8 @@ export interface ProfileData {
   photos: string[];
   avatarUrl: string | null;
   videoIntroUrl: string | null;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
   vibeCaption: string;
   vibeVideoStatus: string | null;
   photoVerified: boolean;
