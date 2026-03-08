@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   Zap,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -98,8 +99,8 @@ const Settings = () => {
     await handleLogout();
   };
 
-  const handleDeleteAccount = async () => {
-    await deleteAccount();
+  const handleDeleteAccount = async (reason: string | null) => {
+    await deleteAccount(reason);
   };
 
   const updateNotification = (key: keyof NotificationSettings, value: boolean) => {
@@ -253,6 +254,26 @@ const Settings = () => {
           >
             <LogOut className="w-4 h-4" />
             Log Out
+          </Button>
+        </motion.div>
+
+        {/* Danger Zone */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="pt-6 border-t border-destructive/20 space-y-2"
+        >
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-destructive px-1">
+            Danger Zone
+          </h3>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => setShowDeleteDialog(true)}
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete My Account
           </Button>
         </motion.div>
       </main>

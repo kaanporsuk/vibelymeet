@@ -38,9 +38,10 @@ import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
+import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -104,6 +105,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Engagement Analytics'}
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
+                {activePanel === 'deletions' && 'Account Deletions'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -116,6 +118,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
+                {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
               </p>
               </div>
             </div>
@@ -175,6 +178,7 @@ const AdminDashboard = () => {
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
+          {activePanel === 'deletions' && <AdminDeletionsPanel />}
         </main>
       </div>
 

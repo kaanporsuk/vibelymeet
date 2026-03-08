@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.create-portal-session]
 verify_jwt = false
+
+[functions.cancel-deletion]
+verify_jwt = false

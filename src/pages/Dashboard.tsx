@@ -23,11 +23,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { DeletionRecoveryBanner } from "@/components/settings/DeletionRecoveryBanner";
+import { useDeletionRecovery } from "@/hooks/useDeletionRecovery";
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   useRealtimeEvents();
+  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery();
 
   // Active session detection for rejoin banner
   const [activeSession, setActiveSession] = useState<{ sessionId: string; eventId: string } | null>(null);
@@ -158,6 +161,15 @@ const Dashboard = () => {
           />
         )}
       </AnimatePresence>
+
+      {/* Deletion Recovery Banner */}
+      {pendingDeletion && (
+        <DeletionRecoveryBanner
+          scheduledDate={pendingDeletion.scheduled_deletion_at}
+          onCancel={cancelDeletion}
+          isCancelling={isCancelling}
+        />
+      )}
 
       <NotificationPermissionFlow
         open={showNotificationFlow}
