@@ -106,22 +106,18 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
     refreshPhotos();
   }, [profile?.photos]);
 
-  // Resolve video URL
+  // Resolve Bunny CDN video URL
   useEffect(() => {
-    if (!profile?.video_intro_url) {
+    if (!profile?.bunny_video_uid || (profile as any).bunny_video_status !== "ready") {
       setVibeVideoPlaybackUrl(null);
+      setIsResolvingVideo(false);
       return;
     }
-
-    const resolveVideo = async () => {
-      setIsResolvingVideo(true);
-      const signed = await resolveVibeVideoUrl(profile.video_intro_url);
-      setVibeVideoPlaybackUrl(signed);
-      setIsResolvingVideo(false);
-    };
-
-    resolveVideo();
-  }, [profile?.video_intro_url]);
+    setVibeVideoPlaybackUrl(
+      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunny_video_uid}/playlist.m3u8`
+    );
+    setIsResolvingVideo(false);
+  }, [profile?.bunny_video_uid, (profile as any)?.bunny_video_status]);
 
   if (!isOpen) return null;
 

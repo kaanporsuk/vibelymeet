@@ -73,31 +73,6 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const resolvedPhotos = profile.photos.map(p => resolvePhotoUrl(p)).filter(Boolean);
   const hasPhotos = resolvedPhotos.length > 0;
 
-  // Resolve a playable URL for vibe videos (bucket is private, so we need a signed URL)
-  useEffect(() => {
-    let cancelled = false;
-
-    const resolve = async () => {
-      if (!profile.videoIntroUrl) {
-        setVibeVideoPlaybackUrl(null);
-        return;
-      }
-
-      setIsResolvingVibeVideo(true);
-      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
-      if (cancelled) return;
-
-      setVibeVideoPlaybackUrl(signed);
-      setIsResolvingVibeVideo(false);
-    };
-
-    resolve();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profile.videoIntroUrl]);
-
   // Hide action hint after a few seconds
   useEffect(() => {
     const timer = setTimeout(() => setShowActionHint(false), 3000);

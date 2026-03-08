@@ -104,29 +104,19 @@ export const ProfileDetailDrawer = ({
     prompts: match.prompts || [],
   };
   
-  const hasVideoIntro = !!match.videoIntroUrl;
+  const hasVideoIntro = !!match.bunnyVideoUid && match.bunnyVideoStatus === "ready";
   const compatibility = match.compatibility ?? 0;
 
-  // Resolve signed video URL when the drawer opens
+  // Resolve Bunny CDN URL for video playback
   useEffect(() => {
-    if (!open || !match.videoIntroUrl) {
+    if (!open || !match.bunnyVideoUid || match.bunnyVideoStatus !== "ready") {
       setSignedVideoUrl(null);
       return;
     }
-
-    let cancelled = false;
-    const resolveUrl = async () => {
-      const signed = await resolveVibeVideoUrl(match.videoIntroUrl!);
-      if (!cancelled) {
-        setSignedVideoUrl(signed);
-      }
-    };
-    resolveUrl();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, match.videoIntroUrl]);
+    setSignedVideoUrl(
+      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${match.bunnyVideoUid}/playlist.m3u8`
+    );
+  }, [open, match.bunnyVideoUid, match.bunnyVideoStatus]);
 
   // Hide scroll hint after a few seconds
   useEffect(() => {
