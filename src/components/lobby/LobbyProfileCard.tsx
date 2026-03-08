@@ -3,6 +3,7 @@ import { Sparkles, Briefcase, MapPin } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
+import { PremiumBadge } from "@/components/premium/PremiumBadge";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
