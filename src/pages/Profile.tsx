@@ -56,7 +56,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 import {
   Drawer,
   DrawerClose,
