@@ -672,15 +672,33 @@ export const VibeStudioModal = ({
     }
   }, [stage]);
 
-  // Auto-play preview video when entering preview stage
+  // Auto-play preview video and sync play/pause state to real video events
   useEffect(() => {
     if (stage !== "preview") return;
     const videoEl = reviewVideoRef.current;
     if (!videoEl || !recordedVideoUrl) return;
+
+    // Reset state — don't assume playing
+    setIsVideoPlaying(false);
+
+    // Wire to actual video events
+    const onPlay = () => setIsVideoPlaying(true);
+    const onPause = () => setIsVideoPlaying(false);
+
+    videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("pause", onPause);
+
+    // Attempt autoplay — on iOS this may be silently blocked, that is fine
     setTimeout(() => {
-      videoEl.play().catch(err => console.warn("[VibeVideo] auto-play preview failed:", err));
-      setIsVideoPlaying(true);
+      videoEl.play().catch(() => {
+        // Autoplay blocked — user will tap Play manually, state stays false
+      });
     }, 100);
+
+    return () => {
+      videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("pause", onPause);
+    };
   }, [stage, recordedVideoUrl]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;

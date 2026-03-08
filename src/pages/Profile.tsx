@@ -1591,19 +1591,35 @@ const Profile = () => {
               className="w-full"
               variant="destructive"
               onClick={async () => {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) return;
-                await supabase
-                  .from("profiles")
-                  .update({ bunny_video_uid: null, bunny_video_status: "none" })
-                  .eq("id", user.id);
-                setProfile(prev => ({ 
-                  ...prev, 
-                  bunnyVideoUid: null, 
-                  bunnyVideoStatus: "none" 
-                }));
-                setActiveDrawer(null);
-                toast.success("Video deleted");
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (!session) return;
+                  const res = await fetch(
+                    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-vibe-video`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${session.access_token}`,
+                      },
+                    }
+                  );
+                  const result = await res.json();
+                  if (result.success) {
+                    setProfile(prev => ({
+                      ...prev,
+                      bunnyVideoUid: null,
+                      bunnyVideoStatus: "none",
+                    }));
+                    setActiveDrawer(null);
+                    toast.success("Video deleted");
+                  } else {
+                    toast.error("Failed to delete video. Please try again.");
+                  }
+                } catch (err) {
+                  console.error("[Profile] delete-vibe-video error:", err);
+                  toast.error("Failed to delete video. Please try again.");
+                }
               }}
             >
               Delete Video
