@@ -925,6 +925,8 @@ export type Database = {
           avatar_url: string | null
           bio: string | null
           birth_date: string | null
+          bunny_video_status: string
+          bunny_video_uid: string | null
           company: string | null
           country: string | null
           created_at: string
@@ -969,6 +971,8 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           birth_date?: string | null
+          bunny_video_status?: string
+          bunny_video_uid?: string | null
           company?: string | null
           country?: string | null
           created_at?: string
@@ -1013,6 +1017,8 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           birth_date?: string | null
+          bunny_video_status?: string
+          bunny_video_uid?: string | null
           company?: string | null
           country?: string | null
           created_at?: string
