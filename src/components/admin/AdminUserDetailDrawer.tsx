@@ -484,7 +484,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       )}
                     </div>
                   )}
-                  {profile.video_intro_url && (
+                  {profile.bunny_video_uid && profile.bunny_video_status === "ready" && (
                     <div className="mt-4">
                       <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                         <Video className="w-4 h-4" />
