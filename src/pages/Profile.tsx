@@ -528,7 +528,7 @@ const Profile = () => {
             </button>
             
             {/* Vibe Video indicator */}
-            {profile.videoIntroUrl && (
+            {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" && (
               <button
                 onClick={() => openDrawer("vibe-video")}
                 className="absolute -bottom-1 -left-1 w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center shadow-lg"
