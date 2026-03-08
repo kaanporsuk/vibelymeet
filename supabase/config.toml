@@ -32,3 +32,9 @@ verify_jwt = false
 
 [functions.admin-review-verification]
 verify_jwt = false
+
+[functions.create-video-upload]
+verify_jwt = false
+
+[functions.video-webhook]
+verify_jwt = false
