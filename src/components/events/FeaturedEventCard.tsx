@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
+import { isEventExpired } from "@/utils/eventUtils";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -35,6 +36,7 @@ export const FeaturedEventCard = ({
   const { data: eventAttendees = [] } = useEventAttendees(id, 5);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
+  const expired = isEventExpired({ event_date: eventDate.toISOString(), duration_minutes: durationMinutes });
 
   const isRegistered = userRegistrations.includes(id);
 
@@ -93,7 +95,7 @@ export const FeaturedEventCard = ({
         <img
           src={image}
           alt={title}
-          className="w-full h-full object-cover"
+          className={cn("w-full h-full object-cover", expired && "grayscale-[40%] brightness-75")}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
@@ -101,20 +103,28 @@ export const FeaturedEventCard = ({
 
       {/* Content */}
       <div className="relative h-full flex flex-col justify-end p-6 md:p-8">
-        {/* Featured Badge or LIVE Badge */}
-        {isLive ? (
+        {/* Featured Badge, LIVE Badge, or Ended Badge */}
+        {expired ? (
+          <div
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
+            style={{ letterSpacing: '0.04em' }}
+          >
+            <span className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px hsl(var(--accent))' }} />
+            <span className="text-sm font-semibold">Event Ended</span>
+          </div>
+        ) : isLive ? (
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: "spring" }}
-            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/90 backdrop-blur-md"
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/90 backdrop-blur-md"
           >
             <motion.div
               animate={{ scale: [1, 1.3, 1] }}
               transition={{ duration: 1, repeat: Infinity }}
-              className="w-2.5 h-2.5 rounded-full bg-white"
+              className="w-2.5 h-2.5 rounded-full bg-destructive-foreground"
             />
-            <span className="text-sm font-bold text-white uppercase tracking-wider">Live Now</span>
+            <span className="text-sm font-bold text-destructive-foreground uppercase tracking-wider">Live Now</span>
           </motion.div>
         ) : (
           <motion.div
@@ -234,6 +244,23 @@ export const FeaturedEventCard = ({
           </div>
 
           {/* Primary Action Button - Context-aware */}
+          {expired ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-muted-foreground/60 font-medium">
+                This vibe has passed — but more are waiting
+              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate("/events"); }}
+                className="px-6 py-3 rounded-full text-base font-semibold text-primary-foreground transition-all active:scale-95"
+                style={{
+                  background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
+                  boxShadow: '0 0 20px hsl(var(--primary) / 0.4)',
+                }}
+              >
+                ✦ Discover Upcoming Events
+              </button>
+            </div>
+          ) : (
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
             {isRegistered ? (
               <Button
@@ -267,6 +294,7 @@ export const FeaturedEventCard = ({
               </Button>
             )}
           </motion.div>
+          )}
         </motion.div>
       </div>
     </motion.div>

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { isEventVisible } from "@/utils/eventUtils";
 
 export interface Event {
   id: string;
@@ -15,6 +16,8 @@ export interface Event {
   tags: string[];
   status: string;
   eventDate: Date;
+  event_date_raw: string;
+  duration_minutes: number;
 }
 
 const PAGE_SIZE = 12;
@@ -58,8 +61,6 @@ export const useEvents = () => {
   return useQuery({
     queryKey: ["events"],
     queryFn: async (): Promise<Event[]> => {
-      const now = new Date();
-      
       const { data, error } = await supabase
         .from("events")
         .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
@@ -67,20 +68,18 @@ export const useEvents = () => {
 
       if (error) throw error;
 
-      // Filter to include upcoming events AND currently live events (within duration)
+      // Filter using shared visibility helper (includes grace period)
       return (data || [])
-        .filter((event) => {
-          const eventStart = new Date(event.event_date);
-          const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-          const eventEnd = new Date(eventStart.getTime() + durationMs);
-          
-          // Include if event hasn't ended yet (either upcoming or currently live)
-          return now < eventEnd;
-        })
+        .filter((event) => isEventVisible({
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          status: event.status,
+        }))
         .map((event) => {
           const eventDate = new Date(event.event_date);
           const durationMs = (event.duration_minutes || 60) * 60 * 1000;
           const eventEnd = new Date(eventDate.getTime() + durationMs);
+          const now = new Date();
           const isLive = now >= eventDate && now < eventEnd;
           
           return {
@@ -94,6 +93,8 @@ export const useEvents = () => {
             tags: event.tags || [],
             status: isLive ? "live" : (event.status || "upcoming"),
             eventDate,
+            event_date_raw: event.event_date,
+            duration_minutes: event.duration_minutes || 60,
           };
         });
     },
@@ -105,7 +106,6 @@ export const useInfiniteEvents = () => {
   return useInfiniteQuery({
     queryKey: ["infinite-events"],
     queryFn: async ({ pageParam = 0 }): Promise<{ events: Event[]; nextCursor: number | null }> => {
-      const now = new Date();
       const from = pageParam * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
@@ -117,18 +117,18 @@ export const useInfiniteEvents = () => {
 
       if (error) throw error;
 
-      // Filter to include upcoming AND live events
-      const filteredData = (data || []).filter((event) => {
-        const eventStart = new Date(event.event_date);
-        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-        const eventEnd = new Date(eventStart.getTime() + durationMs);
-        return now < eventEnd;
-      });
+      // Filter using shared visibility helper
+      const filteredData = (data || []).filter((event) => isEventVisible({
+        event_date: event.event_date,
+        duration_minutes: event.duration_minutes,
+        status: event.status,
+      }));
 
       const events = filteredData.map((event) => {
         const eventDate = new Date(event.event_date);
         const durationMs = (event.duration_minutes || 60) * 60 * 1000;
         const eventEnd = new Date(eventDate.getTime() + durationMs);
+        const now = new Date();
         const isLive = now >= eventDate && now < eventEnd;
         
         return {
@@ -142,6 +142,8 @@ export const useInfiniteEvents = () => {
           tags: event.tags || [],
           status: isLive ? "live" : (event.status || "upcoming"),
           eventDate,
+          event_date_raw: event.event_date,
+          duration_minutes: event.duration_minutes || 60,
         };
       });
 

@@ -192,6 +192,8 @@ const Events = () => {
       tags: e.tags || [],
       status: e.computed_status,
       eventDate: new Date(e.event_date),
+      event_date_raw: e.event_date,
+      duration_minutes: e.duration_minutes || 60,
       scope: e.scope,
       city: e.city,
       country: e.country,

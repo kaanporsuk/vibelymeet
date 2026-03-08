@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
+import { isEventExpired } from "@/utils/eventUtils";
 
 interface EventCardPremiumProps {
   id: string;
@@ -22,6 +23,8 @@ interface EventCardPremiumProps {
   city?: string | null;
   country?: string | null;
   distanceKm?: number | null;
+  eventDateRaw?: string;
+  durationMinutes?: number;
 }
 
 const tagEmojis: Record<string, string> = {
@@ -52,8 +55,11 @@ export const EventCardPremium = ({
   city,
   country,
   distanceKm,
+  eventDateRaw,
+  durationMinutes,
 }: EventCardPremiumProps) => {
   const isLive = status === "live";
+  const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
@@ -141,9 +147,23 @@ export const EventCardPremium = ({
         <img
           src={image}
           alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className={cn(
+            "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
+            expired && "grayscale-[40%] brightness-75"
+          )}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+        
+        {/* Event Ended badge */}
+        {expired && (
+          <div
+            className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
+            style={{ letterSpacing: '0.04em' }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" style={{ boxShadow: '0 0 6px hsl(var(--accent))' }} />
+            Event Ended
+          </div>
+        )}
         
         {/* LIVE Badge - shown when event is active */}
         {isLive && (
@@ -237,7 +257,24 @@ export const EventCardPremium = ({
           </div>
         </div>
 
-        {/* Register Button */}
+        {/* CTA — expired vs normal */}
+        {expired ? (
+          <div className="space-y-2 text-center">
+            <p className="text-xs font-medium text-muted-foreground/60">
+              This vibe has passed — but more are waiting
+            </p>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate("/events"); }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold text-primary-foreground transition-all active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
+                boxShadow: '0 0 16px hsl(var(--primary) / 0.4)',
+              }}
+            >
+              ✦ Discover Upcoming Events
+            </button>
+          </div>
+        ) : (
         <AnimatePresence mode="wait">
           {isRegistered ? (
             <motion.button
@@ -288,6 +325,7 @@ export const EventCardPremium = ({
             </motion.div>
           )}
         </AnimatePresence>
+        )}
       </div>
     </motion.div>
   );
