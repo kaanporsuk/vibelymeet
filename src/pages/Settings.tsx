@@ -99,8 +99,8 @@ const Settings = () => {
     await handleLogout();
   };
 
-  const handleDeleteAccount = async () => {
-    await deleteAccount();
+  const handleDeleteAccount = async (reason: string | null) => {
+    await deleteAccount(reason);
   };
 
   const updateNotification = (key: keyof NotificationSettings, value: boolean) => {
