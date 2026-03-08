@@ -147,9 +147,23 @@ export const EventCardPremium = ({
         <img
           src={image}
           alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className={cn(
+            "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
+            expired && "grayscale-[40%] brightness-75"
+          )}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+        
+        {/* Event Ended badge */}
+        {expired && (
+          <div
+            className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
+            style={{ letterSpacing: '0.04em' }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" style={{ boxShadow: '0 0 6px hsl(var(--accent))' }} />
+            Event Ended
+          </div>
+        )}
         
         {/* LIVE Badge - shown when event is active */}
         {isLive && (
