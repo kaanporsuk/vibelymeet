@@ -81,13 +81,13 @@ export const KeepTheVibe = ({
         <div className="flex flex-col items-center gap-0.5">
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => window.location.href = '/credits'}
+            onClick={() => window.open('/credits', '_blank')}
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >
             <Sparkles className="w-3 h-3 text-primary" />
             ⚡ Get Credits
           </motion.button>
-          <span className="text-[9px] text-muted-foreground">Opens shop — date stays active</span>
+          <span className="text-[9px] text-muted-foreground">Opens in new tab — date continues</span>
         </div>
       )}
     </motion.div>
