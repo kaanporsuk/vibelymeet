@@ -1045,14 +1045,16 @@ export const VibeStudioModal = ({
                         <MicOff className="w-5 h-5 text-destructive" />
                       )}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={toggleCamera}
-                      className="rounded-full w-12 h-12 bg-secondary"
-                    >
-                      <SwitchCamera className="w-5 h-5" />
-                    </Button>
+                    {hasMultipleCameras && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleCamera}
+                        className="rounded-full w-12 h-12 bg-secondary"
+                      >
+                        <SwitchCamera className="w-5 h-5" />
+                      </Button>
+                    )}
                   </div>
 
                   {/* Record Button */}
