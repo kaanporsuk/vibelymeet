@@ -290,7 +290,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               {/* Profile Header */}
               <div className="flex items-start gap-4">
                 <Avatar className="h-24 w-24 border-4 border-border">
-                  <AvatarImage src={resolvePhotoUrl(profile.avatar_url) || resolvePhotoUrl(profile.photos?.[0])} />
+                  <AvatarImage src={avatarPreset(profile.avatar_url) || avatarPreset(profile.photos?.[0])} />
                   <AvatarFallback className="bg-primary/20 text-primary text-2xl">
                     {profile.name?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
