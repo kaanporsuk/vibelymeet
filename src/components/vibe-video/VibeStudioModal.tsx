@@ -9,16 +9,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadVideo, blobUrlToFile } from "@/services/videoStorageService";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+import { blobUrlToFile } from "@/services/videoStorageService";
 import {
-  generateVideoThumbnail,
   compressVideo,
   shouldCompressVideo,
-  dataUrlToBlob,
 } from "@/utils/videoProcessing";
 import { VideoTrimmer } from "./VideoTrimmer";
 import { UploadProgressBar } from "./UploadProgressBar";
+import * as tus from "tus-js-client";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -60,14 +58,15 @@ export const VibeStudioModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [finalVideoUrl, setFinalVideoUrl] = useState<string | null>(null);
-  const [uploadedPath, setUploadedPath] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [needsTrimming, setNeedsTrimming] = useState(false);
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [bunnyVideoUid, setBunnyVideoUid] = useState<string | null>(null);
+  const [bunnyVideoStatus, setBunnyVideoStatus] = useState<string>("none");
   const videoRef = useRef<HTMLVideoElement>(null);
   const reviewVideoRef = useRef<HTMLVideoElement>(null);
   const finalVideoRef = useRef<HTMLVideoElement>(null);
@@ -127,7 +126,7 @@ export const VibeStudioModal = ({
         source.connect(analyser);
         analyserRef.current = analyser;
       } catch (err) {
-        console.error("Camera permission denied:", err);
+        console.error("[VibeVideo] getUserMedia failed:", err);
         setHasPermission(false);
       }
     };
@@ -205,6 +204,93 @@ export const VibeStudioModal = ({
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [stage]);
+
+  // Polling for Bunny video processing status
+  useEffect(() => {
+    if (stage !== "posted") return;
+    if (bunnyVideoStatus !== "processing" && bunnyVideoStatus !== "uploading") return;
+
+    const interval = setInterval(async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("bunny_video_uid, bunny_video_status")
+        .eq("id", user.id)
+        .single();
+
+      if (data?.bunny_video_status === "ready" || data?.bunny_video_status === "failed") {
+        clearInterval(interval);
+        setBunnyVideoStatus(data.bunny_video_status);
+        if (data.bunny_video_status === "failed") {
+          toast.error("Video processing failed. Please try again.");
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [stage, bunnyVideoStatus]);
+
+  const uploadToBunny = async (blob: Blob): Promise<{ videoId: string }> => {
+    console.log("[VibeVideo] requesting Bunny upload credentials", { size: blob.size, type: blob.type });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("Not authenticated");
+
+    const credResponse = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-video-upload`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const creds = await credResponse.json();
+    if (!creds.success) {
+      throw new Error(creds.error || "Failed to get upload credentials");
+    }
+
+    const { videoId, libraryId, expirationTime, signature } = creds;
+    console.log("[VibeVideo] got credentials, starting tus upload", { videoId });
+
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(blob, {
+        endpoint: "https://video.bunnycdn.com/tusupload",
+        retryDelays: [0, 3000, 5000, 10000],
+        chunkSize: 5 * 1024 * 1024,
+        headers: {
+          AuthorizationSignature: signature,
+          AuthorizationExpire: String(expirationTime),
+          VideoId: videoId,
+          LibraryId: String(libraryId),
+        },
+        metadata: {
+          filetype: blob.type,
+          title: `vibe-video-${Date.now()}`,
+        },
+        onError: (error) => {
+          console.error("[VibeVideo] tus upload error:", error);
+          reject(error);
+        },
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const pct = Math.round((bytesUploaded / bytesTotal) * 100);
+          console.log(`[VibeVideo] upload progress: ${pct}%`);
+          setUploadProgress(pct);
+        },
+        onSuccess: () => {
+          console.log("[VibeVideo] tus upload complete", { videoId });
+          resolve();
+        },
+      });
+      upload.start();
+    });
+
+    return { videoId };
+  };
 
   const startRecording = useCallback(() => {
     if (!streamRef.current) {
@@ -286,16 +372,17 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-    setFinalVideoUrl(null);
-    setUploadedPath(null);
     setNeedsTrimming(false);
     setOriginalVideoDuration(null);
     setUploadProgress(0);
+    setUploadError(null);
+    setBunnyVideoUid(null);
+    setBunnyVideoStatus("none");
     setStage("idle");
     setCountdown(RECORDING_DURATION);
   }, [recordedVideoUrl]);
 
-  // Upload video and move to "posted" stage for final review
+  // Upload video via Bunny Stream tus and move to "posted" stage
   const handleUpload = useCallback(async () => {
     if (!uploadedFile && !recordedBlob && !recordedVideoUrl) {
       toast.error("No video to upload");
@@ -305,6 +392,7 @@ export const VibeStudioModal = ({
     setIsSaving(true);
     setStage("uploading");
     setUploadProgress(0);
+    setUploadError(null);
     
     try {
       // Get current user
@@ -339,7 +427,7 @@ export const VibeStudioModal = ({
             videoBitrate: 1500000,
             onProgress: (p) => {
               setProcessingStatus("Compressing video...");
-              setUploadProgress(p * 0.3);
+              setUploadProgress(p * 30);
             },
           });
         } catch (compressError) {
@@ -347,70 +435,49 @@ export const VibeStudioModal = ({
         }
       }
 
-      // Generate thumbnail (best-effort)
-      setProcessingStatus("Generating thumbnail...");
-      setUploadProgress(35);
-      try {
-        const thumbnailDataUrl = await generateVideoThumbnail(videoToUpload);
-        const thumbnailBlob = dataUrlToBlob(thumbnailDataUrl);
-        const thumbnailFile = new File([thumbnailBlob], `${user.id}_thumb.jpg`, {
-          type: "image/jpeg",
-        });
-
-        const thumbPath = `${user.id}/${Date.now()}_thumb.jpg`;
-        const { error: thumbError } = await supabase.storage
-          .from("vibe-videos")
-          .upload(thumbPath, thumbnailFile, { cacheControl: "3600", upsert: true });
-
-        if (thumbError) {
-          console.warn("Thumbnail upload failed:", thumbError);
-        }
-      } catch (thumbError) {
-        console.warn("Thumbnail generation failed:", thumbError);
-      }
-
-      // Upload video with progress tracking
       setProcessingStatus("Uploading video...");
-      console.log('[VibeVideo] Upload starting');
-      const result = await uploadVideo(videoToUpload, user.id, (progress, status) => {
-        const mappedProgress = 40 + (progress * 0.55);
-        setUploadProgress(mappedProgress);
-        setProcessingStatus(status);
-      });
-      setUploadedPath(result.path);
-      console.log('[VibeVideo] Upload complete for path:', result.path);
 
-      // Get signed URL for playback
-      setProcessingStatus("Preparing preview...");
-      setUploadProgress(98);
-      const signedUrl = await resolveVibeVideoUrl(result.path);
-      if (signedUrl) {
-        setUploadProgress(100);
-        setFinalVideoUrl(signedUrl);
-        setStage("posted");
-        setIsVideoPlaying(true);
-      } else {
-        throw new Error("Failed to get video preview URL");
+      // Upload to Bunny Stream via tus
+      const { videoId } = await uploadToBunny(videoToUpload);
+
+      // Update profile with Bunny video info
+      const { error: dbError } = await supabase
+        .from("profiles")
+        .update({
+          bunny_video_uid: videoId,
+          bunny_video_status: "processing",
+          vibe_caption: vibeCaption,
+        })
+        .eq("id", user.id);
+
+      if (dbError) {
+        throw new Error("Upload succeeded but profile update failed. Please retry.");
       }
 
-    } catch (error) {
-      console.error("Error uploading video:", error);
-      toast.error("Failed to upload video. Please try again.");
+      console.log("[VibeVideo] upload and DB update complete", { videoId });
+      setBunnyVideoUid(videoId);
+      setBunnyVideoStatus("processing");
+      setStage("posted");
+      setIsVideoPlaying(true);
+
+    } catch (err: any) {
+      console.error("[VibeVideo] upload failed:", err);
+      setUploadError(err.message || "Upload failed. Please try again.");
       setStage("preview");
     } finally {
       setIsSaving(false);
       setProcessingStatus(null);
     }
-  }, [recordedVideoUrl, recordedBlob, uploadedFile]);
+  }, [recordedVideoUrl, recordedBlob, uploadedFile, vibeCaption]);
 
   // Confirm and save to profile
   const handleConfirmPost = useCallback(() => {
-    if (!uploadedPath) {
+    if (!bunnyVideoUid) {
       toast.error("No video to save");
       return;
     }
 
-    onSave?.(uploadedPath, vibeCaption);
+    onSave?.(bunnyVideoUid, vibeCaption);
 
     // Clean up
     onOpenChange(false);
@@ -420,13 +487,13 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-    setFinalVideoUrl(null);
-    setUploadedPath(null);
+    setBunnyVideoUid(null);
+    setBunnyVideoStatus("none");
     setProcessingStatus(null);
     setVibeCaption("");
 
     toast.success("Vibe video posted to your profile!");
-  }, [onSave, onOpenChange, recordedVideoUrl, uploadedPath, vibeCaption]);
+  }, [onSave, onOpenChange, recordedVideoUrl, bunnyVideoUid, vibeCaption]);
 
   const handleClose = useCallback(() => {
     if (isSaving) return;
@@ -440,8 +507,8 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-    setFinalVideoUrl(null);
-    setUploadedPath(null);
+    setBunnyVideoUid(null);
+    setBunnyVideoStatus("none");
   }, [onOpenChange, recordedVideoUrl, isSaving]);
 
   const toggleMic = useCallback(() => {
@@ -542,6 +609,11 @@ export const VibeStudioModal = ({
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
+  const isProcessing = bunnyVideoStatus === "processing" || bunnyVideoStatus === "uploading";
+  const finalVideoUrl = bunnyVideoUid
+    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-full h-full sm:max-w-md sm:h-[90vh] p-0 border-none bg-background overflow-hidden">
@@ -582,18 +654,27 @@ export const VibeStudioModal = ({
           {/* Camera Preview (9:16 aspect ratio simulation) */}
           {hasPermission !== false && stage !== "trimming" && (
             <div className="relative flex-1 bg-secondary overflow-hidden">
-              {/* Final uploaded video review */}
-              {stage === "posted" && finalVideoUrl ? (
-                <video
-                  ref={finalVideoRef}
-                  src={finalVideoUrl}
-                  className="w-full h-full object-cover"
-                  autoPlay
-                  loop
-                  playsInline
-                  preload="metadata"
-                  onClick={toggleVideoPlayback}
-                />
+              {/* Final uploaded video review / processing state */}
+              {stage === "posted" ? (
+                isProcessing ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-secondary">
+                    <div className="w-12 h-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                    <p className="text-sm text-muted-foreground text-center px-6">
+                      Your Vibe Video is being processed.<br />This takes about 15 seconds.
+                    </p>
+                  </div>
+                ) : finalVideoUrl ? (
+                  <video
+                    ref={finalVideoRef}
+                    src={finalVideoUrl}
+                    className="w-full h-full object-cover"
+                    autoPlay
+                    loop
+                    playsInline
+                    muted={false}
+                    onClick={toggleVideoPlayback}
+                  />
+                ) : null
               ) : /* Local preview before upload */
               stage === "preview" && recordedVideoUrl ? (
                 <video
@@ -608,15 +689,33 @@ export const VibeStudioModal = ({
                 />
               ) : /* Uploading state - show the local video */
               stage === "uploading" && recordedVideoUrl ? (
-                <video
-                  src={recordedVideoUrl}
-                  className="w-full h-full object-cover opacity-50"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
+                <>
+                  <video
+                    src={recordedVideoUrl}
+                    className="w-full h-full object-cover opacity-50"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                  />
+                  {uploadError && (
+                    <div className="absolute bottom-20 left-4 right-4 bg-destructive/90 text-destructive-foreground rounded-lg p-3 text-sm text-center z-20">
+                      {uploadError}
+                    </div>
+                  )}
+                  {uploadProgress > 0 && uploadProgress < 100 && (
+                    <div className="absolute bottom-4 left-4 right-4 z-20">
+                      <div className="w-full bg-secondary rounded-full h-1.5">
+                        <div
+                          className="bg-primary h-1.5 rounded-full transition-all"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center mt-1">{uploadProgress}%</p>
+                    </div>
+                  )}
+                </>
               ) : (
                 <video
                   ref={videoRef}
@@ -794,7 +893,7 @@ export const VibeStudioModal = ({
               )}
 
               {/* Posted State - Note */}
-              {stage === "posted" && (
+              {stage === "posted" && !isProcessing && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1020,21 +1119,30 @@ export const VibeStudioModal = ({
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
                     onClick={handleConfirmPost}
+                    disabled={isProcessing}
                     className="flex flex-col items-center gap-2"
                   >
                     <motion.div
                       animate={{
-                        boxShadow: [
+                        boxShadow: isProcessing ? "none" : [
                           "0 0 0 0 hsl(142 76% 36% / 0.4)",
                           "0 0 0 10px hsl(142 76% 36% / 0)",
                         ],
                       }}
                       transition={{ duration: 1.5, repeat: Infinity }}
-                      className="w-14 h-14 rounded-full bg-green-500 flex items-center justify-center"
+                      className={cn(
+                        "w-14 h-14 rounded-full flex items-center justify-center",
+                        isProcessing ? "bg-muted" : "bg-green-500"
+                      )}
                     >
                       <Check className="w-7 h-7 text-white" />
                     </motion.div>
-                    <span className="text-xs text-green-400 font-medium">Post Vibe</span>
+                    <span className={cn(
+                      "text-xs font-medium",
+                      isProcessing ? "text-muted-foreground" : "text-green-400"
+                    )}>
+                      {isProcessing ? "Processing..." : "Post Vibe"}
+                    </span>
                   </motion.button>
                 </div>
               )}
