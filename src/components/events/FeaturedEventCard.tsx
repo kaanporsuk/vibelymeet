@@ -103,20 +103,28 @@ export const FeaturedEventCard = ({
 
       {/* Content */}
       <div className="relative h-full flex flex-col justify-end p-6 md:p-8">
-        {/* Featured Badge or LIVE Badge */}
-        {isLive ? (
+        {/* Featured Badge, LIVE Badge, or Ended Badge */}
+        {expired ? (
+          <div
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
+            style={{ letterSpacing: '0.04em' }}
+          >
+            <span className="w-2 h-2 rounded-full bg-accent" style={{ boxShadow: '0 0 8px hsl(var(--accent))' }} />
+            <span className="text-sm font-semibold">Event Ended</span>
+          </div>
+        ) : isLive ? (
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: "spring" }}
-            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-red-500/90 backdrop-blur-md"
+            className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-destructive/90 backdrop-blur-md"
           >
             <motion.div
               animate={{ scale: [1, 1.3, 1] }}
               transition={{ duration: 1, repeat: Infinity }}
-              className="w-2.5 h-2.5 rounded-full bg-white"
+              className="w-2.5 h-2.5 rounded-full bg-destructive-foreground"
             />
-            <span className="text-sm font-bold text-white uppercase tracking-wider">Live Now</span>
+            <span className="text-sm font-bold text-destructive-foreground uppercase tracking-wider">Live Now</span>
           </motion.div>
         ) : (
           <motion.div
