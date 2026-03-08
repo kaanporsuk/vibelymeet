@@ -102,7 +102,6 @@ export const VibeStudioModal = ({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: facingMode ?? "user" },
-            width: { ideal: 480 },
           },
           audio: { echoCancellation: true, noiseSuppression: true },
         }).catch(async () => {
@@ -111,12 +110,17 @@ export const VibeStudioModal = ({
             setFacingMode('user');
           }
           return navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 480 } },
+            video: true,
             audio: { echoCancellation: true, noiseSuppression: true },
           });
         });
         streamRef.current = stream;
         setHasPermission(true);
+
+        // Re-check camera count after permission granted (labels now available)
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
+        setHasMultipleCameras(videoDevices.length >= 2);
 
         // Reset zoom to minimum if the browser supports it (iOS Safari safety net)
         try {
