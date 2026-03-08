@@ -17,7 +17,7 @@ export interface VibeScoreProfile {
   lifestyle?: Record<string, string>;
   verified?: boolean;
   tagline?: string | null;
-  videoIntroUrl?: string | null;
+  hasVibeVideo?: boolean;
 }
 
 /**
