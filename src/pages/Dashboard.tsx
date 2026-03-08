@@ -30,6 +30,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   useRealtimeEvents();
+  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery();
 
   // Active session detection for rejoin banner
   const [activeSession, setActiveSession] = useState<{ sessionId: string; eventId: string } | null>(null);
