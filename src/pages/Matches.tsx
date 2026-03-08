@@ -561,7 +561,7 @@ const Matches = () => {
             location: viewProfileMatch.location || undefined,
             height: viewProfileMatch.height || undefined,
             prompts: viewProfileMatch.prompts,
-            videoIntroUrl: viewProfileMatch.videoIntroUrl,
+            
             lifestyle: viewProfileMatch.lifestyle,
           }}
           open={!!viewProfileMatch}
