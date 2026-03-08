@@ -1494,55 +1494,52 @@ const Profile = () => {
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
             {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
-              <div className="space-y-4">
-                <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
-                  {vibeVideoPlaybackUrl ? (
-                    <VibePlayer
-                      videoUrl={vibeVideoPlaybackUrl}
-                      vibeCaption={profile.vibeCaption}
-                      isOwner
-                      onUpdateClick={() => {
-                        setActiveDrawer(null);
-                        setShowVibeStudio(true);
-                      }}
-                      className="w-full h-full"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-secondary flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={async () => {
-                      await updateMyProfile({ videoIntroUrl: null, vibeVideoStatus: null });
-                      setProfile({ ...profile, videoIntroUrl: null, bunnyVideoUid: null, bunnyVideoStatus: "none" });
-                      setVibeVideoPlaybackUrl(null);
-                      setActiveDrawer(null);
-                      toast.success("Video deleted");
-                    }}
-                  >
-                    Delete Video
-                  </Button>
-                  <Button
-                    variant="gradient"
-                    className="flex-1"
-                    onClick={() => {
-                      setActiveDrawer(null);
-                      setShowVibeStudio(true);
-                    }}
-                  >
-                    Update Video
-                  </Button>
-                </div>
+              <div className="space-y-3">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    setShowVibePlayer(true);
+                  }}
+                >
+                  <Play className="w-5 h-5 text-primary" />
+                  Play Video
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    setShowVibeStudio(true);
+                  }}
+                >
+                  <Video className="w-5 h-5 text-primary" />
+                  Update Video
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12 text-destructive hover:text-destructive"
+                  onClick={async () => {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    await supabase
+                      .from("profiles")
+                      .update({ bunny_video_uid: null, bunny_video_status: "none" })
+                      .eq("id", user.id);
+                    setProfile({ ...profile, bunnyVideoUid: null, bunnyVideoStatus: "none" });
+                    setActiveDrawer(null);
+                    toast.success("Video deleted");
+                  }}
+                >
+                  <X className="w-5 h-5" />
+                  Delete Video
+                </Button>
               </div>
             ) : (
               <div className="text-center py-8 space-y-4">
-                <div className="w-20 h-20 mx-auto rounded-full bg-neon-cyan/20 flex items-center justify-center">
-                  <Video className="w-10 h-10 text-neon-cyan" />
+                <div className="w-20 h-20 mx-auto rounded-full bg-primary/20 flex items-center justify-center">
+                  <Video className="w-10 h-10 text-primary" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">No Vibe Video Yet</h3>
