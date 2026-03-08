@@ -178,32 +178,37 @@ const EventDetails = () => {
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
-    
-    // Actually register for the event
-    const success = await registerForEvent(event.id);
-    
-    if (success) {
-      await refetchRegistration();
-      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-      queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
-      
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ["#a855f7", "#ec4899", "#06b6d4"],
-      });
 
-      toast.success("You're on the list! 🎉", {
-        description: event.isVirtual
-          ? "You'll be able to join when the event goes live"
-          : "Check your email for confirmation",
-      });
-
-      setTimeout(() => setShowTicket(true), 800);
-    } else {
-      toast.error("Failed to register. Please try again.");
+    if (event.isFree) {
+      // Free events: register directly (no Stripe involved)
+      const success = await registerForEvent(event.id);
+      if (!success) {
+        toast.error("Failed to register. Please try again.");
+        return;
+      }
     }
+    // Paid events: webhook already created the registration via Stripe redirect.
+    // The onSuccess callback won't fire for paid events (user is redirected),
+    // but we handle it defensively here anyway.
+
+    await refetchRegistration();
+    queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+    queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
+
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ["#a855f7", "#ec4899", "#06b6d4"],
+    });
+
+    toast.success("You're on the list! 🎉", {
+      description: event.isVirtual
+        ? "You'll be able to join when the event goes live"
+        : "Check your email for confirmation",
+    });
+
+    setTimeout(() => setShowTicket(true), 800);
   };
 
   const handleCancelConfirm = async () => {
