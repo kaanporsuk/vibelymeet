@@ -4,10 +4,12 @@ import { motion } from "framer-motion";
 import { Ticket, ArrowRight, CalendarCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 
 const EventPaymentSuccess = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const eventId = searchParams.get("event_id");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
@@ -22,7 +24,13 @@ const EventPaymentSuccess = () => {
         .maybeSingle();
       if (data) setEventTitle(data.title);
     })();
-  }, [eventId]);
+
+    // Invalidate registration queries so UI updates when user navigates back
+    queryClient.invalidateQueries({ queryKey: ["event-registration-check", eventId] });
+    queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
+    queryClient.invalidateQueries({ queryKey: ["event-attendees", eventId] });
+    queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
+  }, [eventId, queryClient]);
 
   useEffect(() => {
     confetti({

@@ -64,6 +64,31 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Guard: enforce premium-only event visibility
+    const { data: eventData } = await supabase
+      .from('events')
+      .select('visibility')
+      .eq('id', eventId)
+      .maybeSingle()
+
+    if (eventData?.visibility === 'premium' || eventData?.visibility === 'vip') {
+      // Check if user has an active subscription
+      const { data: subStatus } = await supabase
+        .from('subscriptions')
+        .select('status')
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      const isPremium = subStatus?.status === 'active' || subStatus?.status === 'trialing'
+
+      if (!isPremium) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'This event requires a Vibely Premium subscription' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
+
     // Get or create Stripe customer
     const { data: subData } = await supabase
       .from('subscriptions')
