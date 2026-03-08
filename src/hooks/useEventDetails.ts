@@ -258,7 +258,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
               id: profile.id,
               name: profile.name,
               age: profile.age,
-              avatar: signedAvatar,
+              avatar: resolvedAvatar,
               vibeTag: profileVibes[0] || "New Vibe",
               matchPercent,
               bio: profile.bio || "",
