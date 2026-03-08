@@ -43,7 +43,7 @@ interface ProfilePreviewProps {
     prompts: { prompt: string; answer: string }[];
     relationshipIntent: string;
     lifestyle?: Record<string, string>;
-    videoIntroUrl?: string;
+    
     bunnyVideoUid?: string;
     bunnyVideoStatus?: string;
   };
