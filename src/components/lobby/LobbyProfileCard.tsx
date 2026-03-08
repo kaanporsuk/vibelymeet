@@ -42,7 +42,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
             return tag ? `${tag.emoji} ${tag.label}` : null;
           })
           .filter(Boolean) as string[];
-        setVibeLabels(labels.slice(0, 5));
+        setVibeLabels(labels);
       }
     })();
   }, [profile.profile_id]);
@@ -118,7 +118,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
         {vibeLabels.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            {vibeLabels.map((tag) => (
+            {vibeLabels.slice(0, 3).map((tag) => (
               <span
                 key={tag}
                 className="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/90 border border-white/10"
@@ -126,6 +126,11 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
                 {tag}
               </span>
             ))}
+            {vibeLabels.length > 3 && (
+              <span className="shrink-0 px-2 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/60">
+                +{vibeLabels.length - 3}
+              </span>
+            )}
           </div>
         )}
 

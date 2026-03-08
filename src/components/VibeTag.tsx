@@ -10,24 +10,33 @@ interface VibeTagProps {
 }
 
 const vibeEmojis: Record<string, string> = {
-  "Foodie": "🍜",
+  // Energy
+  "Playful": "😄",
+  "Deep Talker": "💬",
+  "Witty": "⚡",
+  "Warm": "🤗",
+  "Bold": "🔥",
+  "Calm": "🌊",
+  "Flirty": "😏",
+  "Curious": "🔍",
+  // Social Style
+  "Spontaneous": "🎲",
+  "Planner": "📅",
+  "One-on-One": "🫂",
+  "Social Butterfly": "🦋",
   "Night Owl": "🦉",
-  "Gamer": "🎮",
-  "Gym Rat": "💪",
+  "Slow Burner": "🕯️",
+  "Voice-Note Person": "🎙️",
+  "Comfortable on Video": "📹",
+  // Shared Scenes
+  "Live Music": "🎵",
+  "Foodie": "🍜",
+  "Artsy": "🎨",
+  "Outdoorsy": "🌿",
+  "Fitness": "💪",
   "Bookworm": "📚",
+  "Film Buff": "🎬",
   "Traveler": "✈️",
-  "Music Lover": "🎵",
-  "Cinephile": "🎬",
-  "Coffee Addict": "☕",
-  "Plant Parent": "🌱",
-  "Dog Person": "🐕",
-  "Cat Person": "🐱",
-  "Techie": "💻",
-  "Creative": "🎨",
-  "Adventurer": "🏔️",
-  "Homebody": "🏠",
-  "Spiritual": "✨",
-  "Fashionista": "👗",
 };
 
 export const VibeTag = ({ 

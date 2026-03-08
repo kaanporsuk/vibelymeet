@@ -1311,9 +1311,9 @@ const Profile = () => {
       <Drawer open={activeDrawer === "vibes"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
-            <DrawerTitle className="font-display">Edit Your Vibes</DrawerTitle>
+            <DrawerTitle className="font-display">Choose Your Vibes</DrawerTitle>
             <DrawerDescription>
-              What makes you, you? Pick wisely.
+              Pick 5 that best describe how you connect.
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">

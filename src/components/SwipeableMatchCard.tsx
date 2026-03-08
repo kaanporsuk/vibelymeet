@@ -183,7 +183,7 @@ export const SwipeableMatchCard = ({
 
           {/* Vibe tags */}
           <div className="flex gap-1.5">
-            {vibes.slice(0, 2).map((vibe) => (
+            {vibes.slice(0, 3).map((vibe) => (
               <span
                 key={vibe}
                 className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20"
@@ -191,6 +191,11 @@ export const SwipeableMatchCard = ({
                 {vibe}
               </span>
             ))}
+            {vibes.length > 3 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary/70">
+                +{vibes.length - 3}
+              </span>
+            )}
           </div>
         </button>
 
