@@ -262,7 +262,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
               vibeTag: profileVibes[0] || "New Vibe",
               matchPercent,
               bio: profile.bio || "",
-              photos: signedPhotos,
+              photos: resolvedPhotos,
               vibeTags: profileVibes.slice(0, 2),
               photoVerified: profile.photo_verified || false,
               hasVibeVideo: !!profile.video_intro_url,
