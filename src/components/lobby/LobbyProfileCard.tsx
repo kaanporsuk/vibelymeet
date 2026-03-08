@@ -42,7 +42,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
             return tag ? `${tag.emoji} ${tag.label}` : null;
           })
           .filter(Boolean) as string[];
-        setVibeLabels(labels.slice(0, 5));
+        setVibeLabels(labels);
       }
     })();
   }, [profile.profile_id]);
