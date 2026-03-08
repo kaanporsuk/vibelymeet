@@ -10,7 +10,8 @@ import {
   Play, 
   MapPin, 
   Loader2,
-  ChevronLeft 
+  ChevronLeft,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,12 +144,43 @@ const Onboarding = () => {
     return age;
   };
 
+  const [ageBlocked, setAgeBlocked] = useState(false);
+
   const nextStep = () => {
+    // After identity step, check age gate
+    if (step === 1 && formData.birthDate) {
+      const age = calculateAge(formData.birthDate);
+      if (age < 18) {
+        setAgeBlocked(true);
+        // Log the block attempt
+        logAgeGateBlock(formData.birthDate);
+        return;
+      }
+    }
     if (step < totalSteps - 1) {
       setStep(step + 1);
     } else {
       handleComplete();
     }
+  };
+
+  const logAgeGateBlock = async (birthDate: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      // The age_gate_blocks table is service-role only, 
+      // so we log via an edge function or just note it client-side
+      console.log(`[AgeGate] User ${user.id} blocked: DOB ${birthDate}`);
+    } catch (err) {
+      console.error("[AgeGate] Failed to log block:", err);
+    }
+  };
+
+  const handleAgeBlockExit = async () => {
+    await supabase.auth.signOut();
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = "/";
   };
 
   const prevStep = () => {
@@ -316,6 +348,40 @@ const Onboarding = () => {
     date.setFullYear(date.getFullYear() - 100);
     return date.toISOString().split("T")[0];
   };
+
+  // Age blocked full-screen gate
+  if (ageBlocked) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 -left-32 w-64 h-64 bg-destructive/10 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/4 -right-32 w-64 h-64 bg-destructive/10 rounded-full blur-3xl" />
+        </div>
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring" }}
+          className="w-24 h-24 mx-auto bg-destructive/20 rounded-3xl flex items-center justify-center mb-8"
+        >
+          <Shield className="w-12 h-12 text-destructive" />
+        </motion.div>
+        <h1 className="text-3xl font-display font-bold text-foreground mb-4">
+          You must be 18 or older
+        </h1>
+        <p className="text-muted-foreground text-lg mb-8 max-w-sm">
+          Vibely is an 18+ platform. You are not eligible to create an account.
+        </p>
+        <Button
+          variant="destructive"
+          size="lg"
+          onClick={handleAgeBlockExit}
+          className="w-full max-w-xs"
+        >
+          Close App
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex flex-col">

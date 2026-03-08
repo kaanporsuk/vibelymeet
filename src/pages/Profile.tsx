@@ -425,7 +425,7 @@ const Profile = () => {
       switch (type) {
         case "basics":
           updates.name = editForm.name;
-          updates.birthDate = editForm.birthDate;
+          // birthDate is read-only after initial setup — not included in updates
           updates.job = editForm.job;
           updates.company = editForm.company;
           updates.heightCm = editForm.heightCm;
@@ -1358,14 +1358,15 @@ const Profile = () => {
               <Input 
                 type="date"
                 value={formatDateForInput(editForm.birthDate)}
-                onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value ? new Date(e.target.value) : null })}
-                className="glass-card border-border"
+                disabled
+                className="glass-card border-border opacity-60 cursor-not-allowed"
               />
               {editForm.birthDate && (
                 <p className="text-xs text-muted-foreground">
                   Age: {calculateAge(editForm.birthDate)} • Zodiac: {getZodiacSign(editForm.birthDate)} {getZodiacEmoji(getZodiacSign(editForm.birthDate))}
                 </p>
               )}
+              <p className="text-xs text-muted-foreground italic">Date of birth cannot be changed after registration</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Job</label>

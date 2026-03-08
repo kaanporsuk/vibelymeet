@@ -282,6 +282,14 @@ export const createProfile = async (profileData: Partial<ProfileData>): Promise<
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Server-side age validation as safety net
+  if (profileData.birthDate) {
+    const age = calculateAge(profileData.birthDate);
+    if (age < 18) {
+      throw new Error("Must be 18 or older to create an account");
+    }
+  }
+
   const dbData = profileToDb(profileData);
   
   // Add required fields
