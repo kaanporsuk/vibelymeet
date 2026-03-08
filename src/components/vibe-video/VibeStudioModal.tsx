@@ -707,6 +707,38 @@ export const VibeStudioModal = ({
     };
   }, [stage, recordedVideoUrl]);
 
+  // Auto-play + sync play/pause state for "posted" stage
+  useEffect(() => {
+    if (stage !== "posted") return;
+    const videoEl = finalVideoRef.current;
+    if (!videoEl) return;
+
+    setIsVideoPlaying(false);
+
+    const onPlay = () => setIsVideoPlaying(true);
+    const onPause = () => setIsVideoPlaying(false);
+
+    videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("pause", onPause);
+
+    setTimeout(() => {
+      videoEl.play().catch(() => {});
+    }, 150);
+
+    return () => {
+      videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("pause", onPause);
+    };
+  }, [stage, bunnyVideoStatus]);
+
+  // Reset caption when opening studio with no existing video
+  useEffect(() => {
+    if (!open) return;
+    if (!bunnyVideoUid || bunnyVideoStatus === "none") {
+      setVibeCaption("");
+    }
+  }, [open]);
+
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
   const isProcessing = bunnyVideoStatus === "processing" || bunnyVideoStatus === "uploading";

@@ -1674,6 +1674,7 @@ const Profile = () => {
                       ...prev,
                       bunnyVideoUid: null,
                       bunnyVideoStatus: "none",
+                      vibeCaption: "",
                     }));
                     setActiveDrawer(null);
                     toast.success("Video deleted");
