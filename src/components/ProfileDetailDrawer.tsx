@@ -26,7 +26,7 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 
 interface ProfileDetailDrawerProps {
   match: {
