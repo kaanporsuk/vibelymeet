@@ -46,23 +46,14 @@ const AdminGrantCreditsModal = ({
       const prevExtended = existing?.extended_vibe_credits || 0;
       const prevSuper = existing?.super_vibe_credits || 0;
 
-      if (existing) {
-        await supabase
-          .from("user_credits")
-          .update({
-            extra_time_credits: prevExtra + extraTime,
-            extended_vibe_credits: prevExtended + extendedVibe,
-            super_vibe_credits: prevSuper + superVibe,
-          })
-          .eq("user_id", userId);
-      } else {
-        await supabase.from("user_credits").insert({
+      await supabase
+        .from("user_credits")
+        .upsert({
           user_id: userId,
-          extra_time_credits: extraTime,
-          extended_vibe_credits: extendedVibe,
-          super_vibe_credits: superVibe,
-        });
-      }
+          extra_time_credits: prevExtra + extraTime,
+          extended_vibe_credits: prevExtended + extendedVibe,
+          super_vibe_credits: prevSuper + superVibe,
+        }, { onConflict: 'user_id' });
 
       // Log each credit adjustment
       const adjustments = [];

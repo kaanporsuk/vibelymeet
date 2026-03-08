@@ -32,6 +32,7 @@ export interface EventDetails {
   scope: string | null;
   city: string | null;
   country: string | null;
+  visibility: string | null;
 }
 
 export interface EventAttendee {
@@ -147,6 +148,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         scope: data.scope ?? null,
         city: data.city ?? null,
         country: data.country ?? null,
+        visibility: data.visibility ?? null,
       };
     },
   });

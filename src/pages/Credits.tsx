@@ -5,6 +5,7 @@ import { ArrowLeft, Clock, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 import { useCredits } from "@/hooks/useCredits";
+import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -44,8 +45,18 @@ const PACKS = [
 
 const Credits = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { credits, isLoading } = useCredits();
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6">
+        <p className="text-muted-foreground">Sign in to purchase credits</p>
+        <Button onClick={() => navigate("/auth")}>Sign In</Button>
+      </div>
+    );
+  }
 
   const handlePurchase = async (packId: string) => {
     setLoadingPack(packId);

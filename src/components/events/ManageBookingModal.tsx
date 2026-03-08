@@ -138,7 +138,7 @@ const ManageBookingModal = ({
               {/* Price Info */}
               <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/30">
                 <span className="text-sm text-muted-foreground">Amount Paid</span>
-                <span className="text-lg font-bold text-foreground">${price.toFixed(2)}</span>
+                <span className="text-lg font-bold text-foreground">€{price.toFixed(2)}</span>
               </div>
 
               {/* Actions */}

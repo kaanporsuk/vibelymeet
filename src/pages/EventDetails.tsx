@@ -36,6 +36,7 @@ import { MutualVibesSection } from "@/components/events/MutualVibesSection";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { useSubscription } from "@/hooks/useSubscription";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -43,6 +44,7 @@ const EventDetails = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
+  const { isPremium } = useSubscription();
   
   // Enable realtime updates
   useRealtimeEvents();
@@ -461,7 +463,18 @@ const EventDetails = () => {
           capacityStatus={capacityInfo.status}
           spotsLeft={capacityInfo.spotsLeft}
           genderLabel={genderLabel}
-          onPurchase={() => setShowPaymentModal(true)}
+          onPurchase={() => {
+            if (event.isFree || userPrice === 0) {
+              handlePaymentSuccess();
+            } else {
+              if ((event.visibility === 'premium' || event.visibility === 'vip') && !isPremium) {
+                toast.error('This event is exclusive to Vibely Premium members ✦');
+                navigate('/premium');
+                return;
+              }
+              setShowPaymentModal(true);
+            }
+          }}
         />
       )}
 
