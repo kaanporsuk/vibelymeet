@@ -979,10 +979,36 @@ const Profile = () => {
                 )}
 
                 {/* Caption overlay at bottom */}
-                {hasVibeVideo && (
+                {hasVibeVideo && profile.vibeCaption && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none"
+                    style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)' }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <div
+                        className="w-1 h-1 rounded-full"
+                        style={{ background: 'linear-gradient(135deg, #8B5CF6, #E84393)' }}
+                      />
+                      <span
+                        className="text-[10px] font-semibold uppercase tracking-widest"
+                        style={{
+                          background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
+                          WebkitBackgroundClip: 'text',
+                          WebkitTextFillColor: 'transparent',
+                        }}
+                      >
+                        Vibing on
+                      </span>
+                    </div>
+                    <p className="text-white text-sm font-bold leading-tight"
+                      style={{ textShadow: '0 2px 8px rgba(0,0,0,0.5)' }}
+                    >
+                      {profile.vibeCaption}
+                    </p>
+                  </div>
+                )}
+                {hasVibeVideo && !profile.vibeCaption && (
                   <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-                    <p className="text-white text-sm font-medium">{profile.vibeCaption || "Your Vibe Video"}</p>
-                    <p className="text-white/60 text-xs mt-0.5">Tap to play</p>
+                    <p className="text-white/60 text-xs">Tap to play</p>
                   </div>
                 )}
 
