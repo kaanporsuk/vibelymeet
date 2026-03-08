@@ -848,31 +848,43 @@ export const VibeStudioModal = ({
 
               {/* Top HUD - Editable Caption */}
               <div className="absolute top-4 left-0 right-0 flex justify-center z-20 px-4">
-                <button
-                  onClick={() => setIsEditingCaption(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-black/40 border border-white/10 transition-all active:scale-95"
-                  style={{ maxWidth: '80%' }}
-                >
-                  {vibeCaption ? (
-                    <span className="text-white text-sm font-medium truncate">
-                      ✨ {vibeCaption}
+                {vibeCaption ? (
+                  <button
+                    onClick={() => setIsEditingCaption(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-black/40 border border-white/10 transition-all active:scale-95"
+                    style={{ maxWidth: '80%' }}
+                  >
+                    <span
+                      className="text-sm font-semibold truncate"
+                      style={{
+                        background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                      }}
+                    >
+                      {vibeCaption}
                     </span>
-                  ) : (
-                    <span className="text-sm">
-                      <span className="text-white/60">What's your vibe? </span>
-                      <span
-                        className="font-semibold"
-                        style={{ background: 'linear-gradient(90deg, #8B5CF6, #E84393)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-                      >
-                        Tap to add
-                      </span>
+                    <span className="text-white/40 text-xs ml-1">· edit</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingCaption(true)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-black/40 border border-white/10 transition-all active:scale-95"
+                    style={{ maxWidth: '80%' }}
+                  >
+                    <span className="text-white/50 text-sm">What's your vibe? </span>
+                    <span
+                      className="text-sm font-semibold"
+                      style={{
+                        background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                      }}
+                    >
+                      Tap to add ✦
                     </span>
-                  )}
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
-                </button>
+                  </button>
+                )}
               </div>
 
               {/* Caption Edit Modal */}
