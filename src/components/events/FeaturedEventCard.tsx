@@ -36,6 +36,7 @@ export const FeaturedEventCard = ({
   const { data: eventAttendees = [] } = useEventAttendees(id, 5);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
+  const expired = isEventExpired({ event_date: eventDate.toISOString(), duration_minutes: durationMinutes });
 
   const isRegistered = userRegistrations.includes(id);
 
