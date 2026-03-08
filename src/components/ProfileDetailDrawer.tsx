@@ -44,6 +44,8 @@ interface ProfileDetailDrawerProps {
     lifestyle?: Record<string, string>;
     prompts?: { question: string; answer: string }[];
     videoIntroUrl?: string | null;
+    bunnyVideoUid?: string | null;
+    bunnyVideoStatus?: string;
     vibeCaption?: string;
     photoVerified?: boolean;
     phoneVerified?: boolean;
