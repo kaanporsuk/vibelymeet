@@ -9,11 +9,10 @@ export const useDeleteAccount = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const deleteAccount = async () => {
+  const deleteAccount = async (reason: string | null = null) => {
     setIsDeleting(true);
 
     try {
-      // Get the current session for authorization
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
@@ -22,11 +21,11 @@ export const useDeleteAccount = () => {
         return false;
       }
 
-      // Call the edge function
       const { data, error } = await supabase.functions.invoke("delete-account", {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
+        body: { reason },
       });
 
       if (error) {
@@ -42,26 +41,17 @@ export const useDeleteAccount = () => {
         return false;
       }
 
-      // Success - clean up everything
-      console.log("Account deleted successfully, cleaning up...");
+      // Success - clean up
+      console.log("Account deletion scheduled, cleaning up...");
 
-      // Sign out to invalidate the JWT
       await supabase.auth.signOut();
-
-      // Clear all caches
       queryClient.clear();
-
-      // Clear all local storage
       localStorage.clear();
       sessionStorage.clear();
 
-      // Show success toast
-      toast.success("Account successfully deleted");
+      toast.success("Account scheduled for deletion");
 
-      // Replace history to prevent back navigation
       window.history.replaceState(null, "", "/");
-      
-      // Navigate to home
       navigate("/", { replace: true });
 
       return true;
