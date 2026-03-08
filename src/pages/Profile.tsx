@@ -806,7 +806,7 @@ const Profile = () => {
               {profile.bunnyVideoUid ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
             </button>
           </div>
-          {profile.videoIntroUrl ? (
+          {profile.bunnyVideoUid ? (
             <button
               onClick={() => openDrawer("vibe-video")}
               className="w-full flex items-center gap-3 text-left hover:bg-secondary/30 rounded-xl p-2 -m-2 transition-colors"
