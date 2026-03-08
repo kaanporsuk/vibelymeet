@@ -257,8 +257,6 @@ const EventDetails = () => {
     bio: a.bio,
     photos: a.photos,
     photoVerified: a.photoVerified,
-    hasVibeVideo: a.hasVibeVideo,
-    vibeVideoUrl: a.vibeVideoUrl,
   }));
 
   return (

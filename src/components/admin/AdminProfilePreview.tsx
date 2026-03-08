@@ -202,7 +202,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               )}
 
               {/* Video Intro */}
-              {profile.video_intro_url && (
+              {profile.bunny_video_uid && (profile as any).bunny_video_status === "ready" && (
                 <div className="glass-card p-4 rounded-xl">
                   <div className="flex items-center gap-2 mb-3">
                     <Video className="w-4 h-4 text-cyan-400" />

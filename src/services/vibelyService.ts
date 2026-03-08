@@ -155,7 +155,6 @@ export const profileService = {
     data: {
       photos?: string[];
       bio?: string;
-      videoIntroUrl?: string;
       vibeLabels?: string[];
     }
   ) {
@@ -163,7 +162,6 @@ export const profileService = {
     const updates: Record<string, unknown> = {};
     if (data.photos) updates.photos = data.photos;
     if (data.bio) updates.bio = data.bio;
-    if (data.videoIntroUrl) updates.video_intro_url = data.videoIntroUrl;
     updates.is_onboarding_complete = true;
 
     const { error: profileError } = await supabase
@@ -646,7 +644,7 @@ function transformProfile(db: Record<string, unknown>) {
     bio: db.bio as string | null,
     avatarUrl: db.avatar_url as string | null,
     photos: (db.photos as string[]) || [],
-    videoIntroUrl: db.video_intro_url as string | null,
+    
     availability: db.availability as Record<string, unknown> | null,
     lastActiveAt: (db.last_active_at || db.updated_at) as string,
     isOnboardingComplete: db.is_onboarding_complete as boolean || false,
@@ -666,7 +664,7 @@ function transformToMatchCandidate(db: Record<string, unknown>, vibes: string[])
     age: db.age as number,
     lastActiveAt: (db.last_active_at || db.updated_at) as string,
     avatarUrl: (db.avatar_url as string) || '',
-    vibeVideoUrl: db.video_intro_url as string | undefined,
+    
     vibeTags: vibes,
     bio: (db.bio as string) || '',
     location: db.location as string | undefined

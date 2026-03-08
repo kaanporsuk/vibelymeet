@@ -25,7 +25,7 @@ export interface Match {
   location?: string | null;
   height?: number | null;
   prompts?: { question: string; answer: string }[];
-  videoIntroUrl?: string | null;
+  
   lifestyle?: Record<string, string>;
   tagline?: string | null;
 }
@@ -115,7 +115,7 @@ export const useMatches = () => {
           supabase
             .from("profiles")
             .select(
-              "id, name, age, avatar_url, photos, photo_verified, bio, job, location, height_cm, looking_for, prompts, video_intro_url, lifestyle, tagline"
+              "id, name, age, avatar_url, photos, photo_verified, bio, job, location, height_cm, looking_for, prompts, lifestyle, tagline"
             )
             .in("id", otherProfileIds),
           supabase
@@ -221,7 +221,7 @@ export const useMatches = () => {
           location: (profile as any)?.location || null,
           height: (profile as any)?.height_cm || null,
           prompts: parsedPrompts as { question: string; answer: string }[],
-          videoIntroUrl: (profile as any)?.video_intro_url || null,
+          
           lifestyle: (profile as any)?.lifestyle as Record<string, string> || undefined,
           tagline: (profile as any)?.tagline || null,
         };

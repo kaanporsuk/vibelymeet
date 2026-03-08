@@ -22,7 +22,7 @@ export interface ProfileData {
   prompts: { question: string; answer: string }[];
   photos: string[];
   avatarUrl: string | null;
-  videoIntroUrl: string | null;
+  
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
@@ -56,7 +56,7 @@ interface DbProfile {
   prompts: { question: string; answer: string }[] | null;
   photos: string[] | null;
   avatar_url: string | null;
-  video_intro_url: string | null;
+  
   bunny_video_uid: string | null;
   bunny_video_status: string;
   photo_verified: boolean | null;
@@ -141,7 +141,7 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     prompts: (dbProfile.prompts as { question: string; answer: string }[]) || [],
     photos: dbProfile.photos || [],
     avatarUrl: dbProfile.avatar_url,
-    videoIntroUrl: dbProfile.video_intro_url,
+    
     bunnyVideoUid: (dbProfile as any).bunny_video_uid || null,
     bunnyVideoStatus: (dbProfile as any).bunny_video_status || "none",
     vibeCaption: (dbProfile as any).vibe_caption || "",
@@ -182,7 +182,7 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.prompts !== undefined) dbData.prompts = profile.prompts;
   if (profile.photos !== undefined) dbData.photos = profile.photos;
   if (profile.avatarUrl !== undefined) dbData.avatar_url = profile.avatarUrl;
-  if (profile.videoIntroUrl !== undefined) dbData.video_intro_url = profile.videoIntroUrl;
+  
   if (profile.vibeCaption !== undefined) dbData.vibe_caption = profile.vibeCaption;
   if (profile.vibeVideoStatus !== undefined) dbData.vibe_video_status = profile.vibeVideoStatus;
 

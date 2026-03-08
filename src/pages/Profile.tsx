@@ -220,7 +220,7 @@ interface UserProfile {
   lifestyle: Record<string, string>;
   verified: boolean;
   photoVerified: boolean;
-  videoIntroUrl: string | null;
+  
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
@@ -252,7 +252,7 @@ const initialProfile: UserProfile = {
   lifestyle: {},
   verified: false,
   photoVerified: false,
-  videoIntroUrl: null,
+  
   bunnyVideoUid: null,
   bunnyVideoStatus: "none",
   vibeCaption: "",
@@ -379,7 +379,7 @@ const Profile = () => {
             lifestyle: data.lifestyle,
             verified: false,
             photoVerified: data.photoVerified || false,
-            videoIntroUrl: data.videoIntroUrl,
+            
             bunnyVideoUid: data.bunnyVideoUid || null,
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
             vibeCaption: (data as any).vibeCaption || "",
@@ -1614,7 +1614,7 @@ const Profile = () => {
             verified: profile.verified,
             photoVerified: profile.photoVerified,
             lifestyle: profile.lifestyle,
-            videoIntroUrl: profile.videoIntroUrl || undefined,
+            
             bunnyVideoUid: profile.bunnyVideoUid || undefined,
             bunnyVideoStatus: profile.bunnyVideoStatus || undefined,
           }} onClose={() => setShowPreview(false)} />

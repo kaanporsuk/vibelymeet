@@ -19,7 +19,7 @@ interface PartnerProfile {
   avatarUrl?: string;
   photos?: string[];
   tags: string[];
-  videoIntroUrl?: string;
+  
 }
 
 const GATE_TIMEOUT = 30; // seconds
@@ -103,7 +103,7 @@ const ReadyGate = () => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("name, age, avatar_url, photos, bio, video_intro_url")
+        .select("name, age, avatar_url, photos, bio")
         .eq("id", partnerId)
         .maybeSingle();
 
@@ -128,7 +128,7 @@ const ReadyGate = () => {
           avatarUrl: resolvePhotoUrl(profile.avatar_url) || undefined,
           photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
           tags,
-          videoIntroUrl: profile.video_intro_url || undefined,
+          
         });
       }
     };
@@ -305,18 +305,6 @@ const ReadyGate = () => {
           </div>
         )}
 
-        {/* Video Intro */}
-        {partner.videoIntroUrl && (
-          <button className="glass-card p-3 rounded-xl flex items-center gap-3 w-full text-left">
-            <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-              <Play className="w-4 h-4 text-primary ml-0.5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Watch intro video</p>
-              <p className="text-xs text-muted-foreground">See their vibe first</p>
-            </div>
-          </button>
-        )}
 
         {/* Community Message */}
         <motion.div

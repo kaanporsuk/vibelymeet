@@ -45,8 +45,6 @@ export interface EventAttendee {
   photos: string[];
   vibeTags?: string[];
   photoVerified?: boolean;
-  hasVibeVideo?: boolean;
-  vibeVideoUrl?: string;
 }
 
 // Helper to resolve photo URL via centralized utility
@@ -176,8 +174,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
             avatar_url,
             bio,
             photos,
-            photo_verified,
-            video_intro_url
+            photo_verified
           )
         `
         )
@@ -239,7 +236,6 @@ export const useEventAttendees = (eventId: string | undefined) => {
               bio: string | null;
               photos: string[] | null;
               photo_verified: boolean | null;
-              video_intro_url: string | null;
             };
             const profileVibes = vibesByProfile[profile.id] || [];
 
@@ -265,8 +261,6 @@ export const useEventAttendees = (eventId: string | undefined) => {
               photos: resolvedPhotos,
               vibeTags: profileVibes.slice(0, 2),
               photoVerified: profile.photo_verified || false,
-              hasVibeVideo: !!profile.video_intro_url,
-              vibeVideoUrl: profile.video_intro_url || undefined,
             };
           })
       );

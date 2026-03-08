@@ -139,7 +139,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           setVibes(loadedVibes);
           
           // Check video
-          loadedHasVideo = !!profile.videoIntroUrl;
+          loadedHasVideo = profile.bunnyVideoStatus === "ready";
           setHasVideo(loadedHasVideo);
         }
 
@@ -214,7 +214,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         photos: photos.filter(p => p !== ""),
         vibes: vibes,
         prompts: prompts.filter(p => p.answer && p.answer.trim()),
-        videoIntroUrl: hasVideo ? profileData.videoIntroUrl || "has-video" : null,
+        hasVibeVideo: hasVideo,
       };
       
       return calculateVibeScore(mergedProfile);
