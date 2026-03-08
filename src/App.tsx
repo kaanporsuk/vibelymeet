@@ -85,6 +85,9 @@ const App = () => (
               <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
               <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
               <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
+              <Route path="/terms" element={<TermsOfService />} />
+              <Route path="/delete-account" element={<DeleteAccountWeb />} />
               <Route path="/premium" element={<Premium />} />
               <Route path="/subscription/success" element={<SubscriptionSuccess />} />
               <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
