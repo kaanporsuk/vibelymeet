@@ -25,6 +25,8 @@ import {
   Mail,
   ShieldCheck,
   Phone,
+  Play,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -166,6 +168,7 @@ const Profile = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
+  const [showVibePlayer, setShowVibePlayer] = useState(false);
   const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
@@ -790,60 +793,126 @@ const Profile = () => {
 
         {/* Vibe Video Section */}
         <motion.div 
-          className="glass-card p-4 space-y-3"
+          className="space-y-0"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.42 }}
         >
-          <div className="flex items-center justify-between">
+          {/* Section Header */}
+          <div className="flex items-center justify-between mb-3 px-1">
             <div className="flex items-center gap-2">
-              <Video className="w-4 h-4 text-neon-cyan" />
-              <h3 className="font-display font-semibold text-foreground">Vibe Video</h3>
+              <Video className="w-4 h-4 text-primary" />
+              <span className="font-display font-semibold text-sm text-foreground">Vibe Video</span>
             </div>
-            <button 
-              onClick={() => openDrawer("vibe-video")}
-              className="text-primary text-sm font-medium flex items-center gap-1"
-            >
-              {(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready") ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
-            </button>
+            {profile.bunnyVideoUid && profile.bunnyVideoStatus === "processing" && (
+              <span className="text-xs text-muted-foreground">Processing...</span>
+            )}
           </div>
-          {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
-            <button
-              onClick={() => openDrawer("vibe-video")}
-              className="w-full flex items-center gap-3 text-left hover:bg-secondary/30 rounded-xl p-2 -m-2 transition-colors"
-            >
-              <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-secondary shrink-0">
-                <img
-                  src={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg`}
-                  alt="Vibe Video thumbnail"
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-                <div className="absolute inset-0 bg-background/30 flex items-center justify-center">
-                  <div className="w-8 h-8 rounded-full bg-neon-cyan/90 flex items-center justify-center">
-                    <Video className="w-4 h-4 text-background" />
+
+          {/* Cinematic Card */}
+          {(() => {
+            const hasVibeVideo = profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready";
+            const isProcessing = profile.bunnyVideoStatus === "processing" || profile.bunnyVideoStatus === "uploading";
+            const thumbnailUrl = profile.bunnyVideoUid
+              ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg`
+              : null;
+
+            return (
+              <div
+                className={cn(
+                  "relative w-full rounded-2xl overflow-hidden bg-secondary",
+                  hasVibeVideo && "cursor-pointer active:scale-[0.98] transition-transform"
+                )}
+                style={{ aspectRatio: "4/5" }}
+                onClick={() => hasVibeVideo && setShowVibePlayer(true)}
+              >
+                {/* Thumbnail */}
+                {hasVibeVideo && thumbnailUrl && (
+                  <img
+                    src={thumbnailUrl}
+                    alt="Vibe Video"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+
+                {/* Empty state background */}
+                {!hasVibeVideo && !isProcessing && (
+                  <div className="w-full h-full flex items-center justify-center bg-secondary">
+                    <Video className="w-12 h-12 text-muted-foreground/30" />
                   </div>
-                </div>
+                )}
+
+                {/* Bottom gradient overlay */}
+                {hasVibeVideo && (
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                )}
+
+                {/* Centered play button */}
+                {hasVibeVideo && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div
+                      className="w-16 h-16 rounded-full flex items-center justify-center"
+                      style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.3)' }}
+                    >
+                      <Play className="w-7 h-7 text-white ml-1" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Caption overlay at bottom */}
+                {hasVibeVideo && profile.vibeCaption && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4">
+                    <p className="text-white text-sm font-medium">{profile.vibeCaption}</p>
+                    <p className="text-white/60 text-xs mt-0.5">Tap to play</p>
+                  </div>
+                )}
+
+                {/* Empty state CTA */}
+                {!hasVibeVideo && !isProcessing && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6">
+                    <p className="text-muted-foreground text-sm text-center">
+                      Record a 15-second video intro to stand out
+                    </p>
+                    <Button
+                      size="sm"
+                      className="bg-gradient-to-r from-violet-600 to-pink-500 text-white"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowVibeStudio(true);
+                      }}
+                    >
+                      Record My Vibe
+                    </Button>
+                  </div>
+                )}
+
+                {/* Processing state */}
+                {isProcessing && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-secondary/90">
+                    <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    <p className="text-sm text-muted-foreground text-center px-6">
+                      Processing your Vibe Video...
+                    </p>
+                  </div>
+                )}
+
+                {/* Manage button top-right */}
+                {hasVibeVideo && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openDrawer("vibe-video");
+                    }}
+                    className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-medium text-white"
+                    style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}
+                  >
+                    Manage
+                  </button>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-foreground font-medium">15s Video Intro</p>
-                <p className="text-xs text-muted-foreground truncate">Tap to view or update</p>
-              </div>
-            </button>
-          ) : (
-            <button
-              onClick={() => openDrawer("vibe-video")}
-              className="w-full py-6 border-2 border-dashed border-border/50 rounded-xl flex flex-col items-center justify-center gap-2 text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
-            >
-              <div className="w-10 h-10 rounded-full bg-neon-cyan/20 flex items-center justify-center">
-                <Video className="w-5 h-5 text-neon-cyan" />
-              </div>
-              <span className="text-sm font-medium">Record your 15s Vibe Video</span>
-              <span className="text-xs text-muted-foreground">What are you vibing on?</span>
-            </button>
-          )}
+            );
+          })()}
         </motion.div>
 
         {/* Photos Gallery */}
@@ -1555,6 +1624,48 @@ const Profile = () => {
         isOpen={showPhotoViewer}
         onClose={() => setShowPhotoViewer(false)}
       />
+
+      {/* Fullscreen Vibe Video Player */}
+      <AnimatePresence>
+        {showVibePlayer && profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+            onClick={() => setShowVibePlayer(false)}
+          >
+            {/* Close button */}
+            <button
+              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}
+              onClick={() => setShowVibePlayer(false)}
+            >
+              <X className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Video */}
+            <video
+              src={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/play_720p.mp4`}
+              className="w-full h-full object-contain"
+              autoPlay
+              playsInline
+              loop
+              onClick={(e) => e.stopPropagation()}
+            />
+
+            {/* Caption at bottom */}
+            {profile.vibeCaption && (
+              <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
+                <p className="text-white text-base font-medium text-center">
+                  {profile.vibeCaption}
+                </p>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <BottomNav />
     </div>
