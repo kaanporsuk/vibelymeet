@@ -68,6 +68,9 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id' })
 
+        // Sync is_premium flag on profile
+        await supabase.from('profiles').update({ is_premium: true }).eq('id', userId)
+
         break
       }
 
