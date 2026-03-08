@@ -542,9 +542,13 @@ export const VibeStudioModal = ({
   const handleClose = useCallback(() => {
     if (isSaving) return;
     onOpenChange(false);
+    stopCameraTracks();
     setStage("idle");
     setCountdown(RECORDING_DURATION);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (mediaRecorderRef.current?.state !== "inactive") {
+      mediaRecorderRef.current?.stop();
+    }
     if (recordedVideoUrl) {
       URL.revokeObjectURL(recordedVideoUrl);
     }
@@ -553,7 +557,7 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setBunnyVideoUid(null);
     setBunnyVideoStatus("none");
-  }, [onOpenChange, recordedVideoUrl, isSaving]);
+  }, [onOpenChange, recordedVideoUrl, isSaving, stopCameraTracks]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
