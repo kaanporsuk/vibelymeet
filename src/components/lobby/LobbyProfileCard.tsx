@@ -19,12 +19,11 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
   useEffect(() => {
     (async () => {
       const { data } = await supabase
-        .from("subscriptions")
-        .select("status")
-        .eq("user_id", profile.profile_id)
-        .eq("status", "active")
+        .from("profiles")
+        .select("is_premium")
+        .eq("id", profile.profile_id)
         .maybeSingle();
-      setProfileIsPremium(!!data);
+      setProfileIsPremium(!!data?.is_premium);
     })();
   }, [profile.profile_id]);
 

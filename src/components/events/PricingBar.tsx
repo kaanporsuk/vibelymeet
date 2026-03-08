@@ -52,7 +52,7 @@ const PricingBar = ({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-2xl font-bold text-foreground">
-                ${price.toFixed(2)}
+                {price === 0 ? "Free" : `€${price.toFixed(2)}`}
               </span>
               <motion.span
                 initial={{ scale: 0 }}

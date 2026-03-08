@@ -44,7 +44,7 @@ export const useSubscription = () => {
 
     if (!user?.id) return
     const channel = supabase
-      .channel('subscription-changes')
+      .channel(`subscription-${user.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
