@@ -195,24 +195,27 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+    supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
+    supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
+    supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
+    supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`).not("last_message_at", "is", null),
+  ]);
 
-  if (error) throw error;
-  if (!profile) return null;
+  if (profileResult.error) throw profileResult.error;
+  if (!profileResult.data) return null;
 
-  // Fetch vibes
-  const { data: vibesData } = await supabase
-    .from("profile_vibes")
-    .select("vibe_tags(label)")
-    .eq("profile_id", user.id);
+  const vibes = vibesResult.data?.map((v: { vibe_tags: { label: string } | null }) => v.vibe_tags?.label).filter(Boolean) as string[] || [];
 
-  const vibes = vibesData?.map((v: { vibe_tags: { label: string } | null }) => v.vibe_tags?.label).filter(Boolean) as string[] || [];
+  const profileData = dbToProfile(profileResult.data as unknown as DbProfile, vibes);
 
-  const profileData = dbToProfile(profile as unknown as DbProfile, vibes);
+  // Override static counters with real counts
+  profileData.stats = {
+    events: eventsCountResult.count ?? 0,
+    matches: matchesCountResult.count ?? 0,
+    conversations: convosCountResult.count ?? 0,
+  };
 
   // Refresh signed URLs if needed
   if (profileData.photos.length > 0) {
