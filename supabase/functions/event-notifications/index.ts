@@ -76,6 +76,21 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
+    // Verify admin role
+    const { data: roleData } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (!roleData) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden: admin role required" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Rate limiting: 5 notification requests per hour
     const rateLimitResult = await checkRateLimit(user.id, {
       functionName: "event-notifications",

@@ -8,6 +8,25 @@ const corsHeaders = {
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+async function generateHmac(secret: string, message: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function createUnsubscribeUrl(uid: string): Promise<string> {
+  const secret = Deno.env.get("UNSUB_HMAC_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const token = await generateHmac(secret, uid);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  return `${supabaseUrl}/functions/v1/unsubscribe?uid=${uid}&token=${token}`;
+}
+
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+
 async function sendEmail(to: string, subject: string, html: string) {
   if (!RESEND_API_KEY) {
     console.log("RESEND_API_KEY not set, skipping email");
@@ -100,6 +119,16 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Authenticate via shared CRON_SECRET
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  const incoming = req.headers.get("Authorization");
+  if (!cronSecret || incoming !== `Bearer ${cronSecret}`) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -137,7 +166,7 @@ serve(async (req) => {
           .maybeSingle();
         if (existing) continue;
 
-        const unsubUrl = `${supabaseUrl}/functions/v1/unsubscribe?uid=${u.id}`;
+        const unsubUrl = await createUnsubscribeUrl(u.id);
         const email = profileCompleteEmail(u.name || "there", unsubUrl);
         await sendEmail(u.verified_email, email.subject, email.html);
         await supabase.from("email_drip_log").insert({
@@ -173,7 +202,7 @@ serve(async (req) => {
           .maybeSingle();
         if (existing) continue;
 
-        const unsubUrl = `${supabaseUrl}/functions/v1/unsubscribe?uid=${u.id}`;
+        const unsubUrl = await createUnsubscribeUrl(u.id);
         const email = firstEventNudgeEmail(u.name || "there", unsubUrl);
         await sendEmail(u.verified_email, email.subject, email.html);
         await supabase.from("email_drip_log").insert({
