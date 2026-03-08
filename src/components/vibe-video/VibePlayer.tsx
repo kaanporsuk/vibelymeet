@@ -187,14 +187,39 @@ export const VibePlayer = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
           className={cn(
-            "absolute bottom-4 left-4 right-4 z-10",
+            "absolute bottom-0 left-0 right-0 z-10 px-6 pb-6",
             overlayClassName
           )}
+          style={{
+            background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)',
+          }}
         >
-          <div className="glass-card px-4 py-2.5 rounded-xl">
-            <p className="text-xs text-muted-foreground">Currently Vibing on...</p>
-            <p className="text-sm font-medium text-foreground">{vibeCaption}</p>
+          <div className="flex items-center gap-1.5 mb-1">
+            <div
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: 'linear-gradient(135deg, #8B5CF6, #E84393)' }}
+            />
+            <span
+              className="text-xs font-semibold uppercase tracking-widest"
+              style={{
+                background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              Vibing on
+            </span>
           </div>
+          <p
+            className="text-white font-bold leading-tight"
+            style={{
+              fontSize: '18px',
+              letterSpacing: '-0.3px',
+              textShadow: '0 2px 12px rgba(0,0,0,0.5)',
+            }}
+          >
+            {vibeCaption}
+          </p>
         </motion.div>
       )}
 
