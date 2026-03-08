@@ -43,6 +43,7 @@ import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDraw
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { toast } from "sonner";
 
 interface NotificationSettings {
