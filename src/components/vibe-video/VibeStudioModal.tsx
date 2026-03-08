@@ -71,6 +71,7 @@ export const VibeStudioModal = ({
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const [bunnyVideoUid, setBunnyVideoUid] = useState<string | null>(null);
   const [bunnyVideoStatus, setBunnyVideoStatus] = useState<string>("none");
   const videoRef = useRef<HTMLVideoElement>(null);
