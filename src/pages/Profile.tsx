@@ -407,6 +407,14 @@ const Profile = () => {
     }
   }, [profile.bunnyVideoUid, profile.bunnyVideoStatus]);
 
+  // Clear stale failed status when studio opens so old errors don't show
+  useEffect(() => {
+    if (!showVibeStudio) return;
+    if (profile.bunnyVideoStatus === "failed") {
+      setProfile(prev => ({ ...prev, bunnyVideoStatus: "none" }));
+    }
+  }, [showVibeStudio]);
+
   const vibeScore = calculateVibeScore(profile);
 
   const handleSave = async (type: DrawerType) => {
