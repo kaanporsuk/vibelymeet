@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { uploadImageToBunny } from "@/services/imageUploadService";
 
 const BUCKET_NAME = "profile-photos";
 
@@ -187,6 +188,9 @@ export const persistPhotos = async (
   files: (File | null)[],
   userId: string
 ): Promise<string[]> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not authenticated");
+
   const persistedUrls: string[] = [];
 
   for (let i = 0; i < photos.length; i++) {
@@ -194,9 +198,9 @@ export const persistPhotos = async (
     const file = files[i];
 
     if (isBlobUrl(photo) && file) {
-      // Upload the file and store raw path (not signed URL)
-      const result = await uploadPhoto(file, userId, i);
-      persistedUrls.push(result.path);
+      // Upload via Bunny edge function
+      const newPath = await uploadImageToBunny(file, session.access_token);
+      persistedUrls.push(newPath);
     } else if (!isBlobUrl(photo)) {
       // Already a storage path or URL, keep it
       persistedUrls.push(photo);
