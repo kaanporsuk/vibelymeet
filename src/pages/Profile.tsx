@@ -252,7 +252,7 @@ const initialProfile: UserProfile = {
   lifestyle: {},
   verified: false,
   photoVerified: false,
-  videoIntroUrl: null,
+  
   bunnyVideoUid: null,
   bunnyVideoStatus: "none",
   vibeCaption: "",
