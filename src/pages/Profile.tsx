@@ -162,6 +162,7 @@ const FullscreenVibePlayer = ({
   );
 };
 
+interface ProfilePromptData {
   question: string;
   answer: string;
 }
