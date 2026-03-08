@@ -36,6 +36,7 @@ const eventThemes = [
 
 const AdminCreateEvent = () => {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Form state
   const [eventTitle, setEventTitle] = useState("");
@@ -46,6 +47,7 @@ const AdminCreateEvent = () => {
   const [isVirtual, setIsVirtual] = useState(true);
   const [venue, setVenue] = useState("");
   const [coverImage, setCoverImage] = useState("");
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
   
   // Capacity
   const [maxMen, setMaxMen] = useState("12");
