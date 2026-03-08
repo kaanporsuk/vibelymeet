@@ -148,6 +148,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         scope: data.scope ?? null,
         city: data.city ?? null,
         country: data.country ?? null,
+        visibility: data.visibility ?? null,
       };
     },
   });
