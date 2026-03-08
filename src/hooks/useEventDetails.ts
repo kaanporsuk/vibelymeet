@@ -263,8 +263,6 @@ export const useEventAttendees = (eventId: string | undefined) => {
               photos: resolvedPhotos,
               vibeTags: profileVibes.slice(0, 2),
               photoVerified: profile.photo_verified || false,
-              hasVibeVideo: !!profile.video_intro_url,
-              vibeVideoUrl: profile.video_intro_url || undefined,
             };
           })
       );

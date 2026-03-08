@@ -379,7 +379,7 @@ const Profile = () => {
             lifestyle: data.lifestyle,
             verified: false,
             photoVerified: data.photoVerified || false,
-            videoIntroUrl: data.videoIntroUrl,
+            
             bunnyVideoUid: data.bunnyVideoUid || null,
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
             vibeCaption: (data as any).vibeCaption || "",

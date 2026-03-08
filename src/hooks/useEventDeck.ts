@@ -15,7 +15,7 @@ export interface DeckProfile {
   height_cm: number | null;
   tagline: string | null;
   looking_for: string | null;
-  video_intro_url: string | null;
+  
   queue_status: string | null;
   has_met_before: boolean;
   is_already_connected: boolean;

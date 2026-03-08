@@ -182,7 +182,7 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.prompts !== undefined) dbData.prompts = profile.prompts;
   if (profile.photos !== undefined) dbData.photos = profile.photos;
   if (profile.avatarUrl !== undefined) dbData.avatar_url = profile.avatarUrl;
-  if (profile.videoIntroUrl !== undefined) dbData.video_intro_url = profile.videoIntroUrl;
+  
   if (profile.vibeCaption !== undefined) dbData.vibe_caption = profile.vibeCaption;
   if (profile.vibeVideoStatus !== undefined) dbData.vibe_video_status = profile.vibeVideoStatus;
 

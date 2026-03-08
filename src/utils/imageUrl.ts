@@ -45,8 +45,7 @@ export function getImageUrl(
   }
 
   // Legacy Supabase storage path (relative path, no domain)
-  const bucket = p.startsWith("profile-photos/") ? "" : "profile-photos/";
-  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}${p}`;
+  return `${SUPABASE_URL}/storage/v1/object/public/${p}`;
 }
 
 // Convenience presets

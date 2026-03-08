@@ -664,7 +664,7 @@ function transformToMatchCandidate(db: Record<string, unknown>, vibes: string[])
     age: db.age as number,
     lastActiveAt: (db.last_active_at || db.updated_at) as string,
     avatarUrl: (db.avatar_url as string) || '',
-    vibeVideoUrl: db.video_intro_url as string | undefined,
+    
     vibeTags: vibes,
     bio: (db.bio as string) || '',
     location: db.location as string | undefined

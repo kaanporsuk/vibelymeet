@@ -74,7 +74,7 @@ const AdminUsersPanel = () => {
           looking_for,
           avatar_url,
           photos,
-          video_intro_url,
+          
           email_verified,
           photo_verified,
           is_suspended,

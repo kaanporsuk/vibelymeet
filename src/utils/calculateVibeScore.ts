@@ -52,7 +52,7 @@ export function calculateVibeScore(profile: VibeScoreProfile): number {
   score += prompts.filter(p => p.answer && p.answer.trim()).length * 7;
 
   // Vibe Video: 10 points
-  if (profile.videoIntroUrl) score += 10;
+  if (profile.hasVibeVideo) score += 10;
 
   return Math.min(score, 100);
 }

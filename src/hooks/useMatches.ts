@@ -25,7 +25,7 @@ export interface Match {
   location?: string | null;
   height?: number | null;
   prompts?: { question: string; answer: string }[];
-  videoIntroUrl?: string | null;
+  
   lifestyle?: Record<string, string>;
   tagline?: string | null;
 }

@@ -143,16 +143,7 @@ export function SimplePhotoVerification({
 
       let selfieUrl = fileName;
       if (uploadError) {
-        console.warn("proof-selfies upload failed, trying profile-photos:", uploadError.message);
-        const fallbackName = `${userId}/verification_${Date.now()}.jpg`;
-        const { error: fallbackError } = await supabase.storage
-          .from("profile-photos")
-          .upload(fallbackName, capturedBlob, {
-            contentType: "image/jpeg",
-            cacheControl: "3600",
-          });
-        if (fallbackError) throw fallbackError;
-        selfieUrl = fallbackName;
+        throw uploadError;
       }
 
       // Get user's first profile photo for comparison reference

@@ -89,7 +89,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   // Create content sections interspersed with photos (Hinge-style)
   const contentSections = [
     // Video intro first if available
-    ...(profile.videoIntroUrl ? [{ type: 'video' as const, data: profile.videoIntroUrl }] : []),
+    ...(vibeVideoPlaybackUrl ? [{ type: 'video' as const, data: vibeVideoPlaybackUrl }] : []),
     // Photo 1 is always hero
     ...(profile.bio ? [{ type: 'bio' as const, data: profile.bio }] : []),
     // Photo 2
