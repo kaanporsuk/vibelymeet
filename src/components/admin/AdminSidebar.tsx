@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Bell,
   X,
+  UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
