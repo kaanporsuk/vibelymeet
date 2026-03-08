@@ -609,13 +609,18 @@ export const VibeStudioModal = ({
       return;
     }
 
+    const url = URL.createObjectURL(file);
+
     // Duration check — no file size limit (tus handles any size)
     try {
       const duration = await getVideoDuration(file);
       if (duration > 20) {
-        toast.error(
-          `Video is ${Math.round(duration)} seconds long. Please trim it to under 20 seconds.`
-        );
+        // Don't reject — show trimmer so user can cut to under 20s
+        setOriginalVideoDuration(duration);
+        setRecordedVideoUrl(url);
+        setUploadedFile(file);
+        setNeedsTrimming(true);
+        setStage("trimming");
         return;
       }
     } catch {
@@ -623,8 +628,7 @@ export const VibeStudioModal = ({
       console.warn("[VibeVideo] Could not read duration of uploaded file");
     }
 
-    const url = URL.createObjectURL(file);
-
+    // Under 20s — go straight to preview, no trimming needed
     setOriginalVideoDuration(null);
     setRecordedVideoUrl(url);
     setUploadedFile(file);

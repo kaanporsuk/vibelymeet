@@ -155,8 +155,38 @@ const FullscreenVibePlayer = ({
           />
 
           {vibeCaption && (
-            <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
-              <p className="text-white text-base font-medium text-center">{vibeCaption}</p>
+            <div
+              className="absolute bottom-0 left-0 right-0 px-6 pb-8 pointer-events-none"
+              style={{
+                background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)',
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: 'linear-gradient(135deg, #8B5CF6, #E84393)' }}
+                />
+                <span
+                  className="text-xs font-semibold uppercase tracking-widest"
+                  style={{
+                    background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                  }}
+                >
+                  Vibing on
+                </span>
+              </div>
+              <p
+                className="text-white font-bold leading-tight"
+                style={{
+                  fontSize: '22px',
+                  letterSpacing: '-0.3px',
+                  textShadow: '0 2px 12px rgba(0,0,0,0.5)',
+                }}
+              >
+                {vibeCaption}
+              </p>
             </div>
           )}
         </motion.div>
