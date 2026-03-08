@@ -561,7 +561,24 @@ export const VibeStudioModal = ({
     }
   }, []);
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      const url = URL.createObjectURL(file);
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve(video.duration);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Could not read video duration"));
+      };
+      video.src = url;
+    });
+  };
+
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -571,45 +588,27 @@ export const VibeStudioModal = ({
       return;
     }
 
-    // Validate file size (50MB max)
-    if (file.size > MAX_UPLOAD_SIZE) {
-      toast.error("Video too large. Please trim it to under 50MB before uploading.");
-      return;
+    // Duration check — no file size limit (tus handles any size)
+    try {
+      const duration = await getVideoDuration(file);
+      if (duration > 20) {
+        toast.error(
+          `Video is ${Math.round(duration)} seconds long. Please trim it to under 20 seconds.`
+        );
+        return;
+      }
+    } catch {
+      // If duration cannot be read, allow the upload — Bunny will handle it
+      console.warn("[VibeVideo] Could not read duration of uploaded file");
     }
 
     const url = URL.createObjectURL(file);
-    
-    // Check video duration
-    const tempVideo = document.createElement("video");
-    tempVideo.preload = "metadata";
-    tempVideo.src = url;
-    tempVideo.onloadedmetadata = () => {
-      const duration = tempVideo.duration;
-      URL.revokeObjectURL(tempVideo.src);
 
-      if (duration > 60) {
-        toast.error("Video must be under 60 seconds. Please trim it first.");
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      setOriginalVideoDuration(duration);
-      setRecordedVideoUrl(url);
-      setUploadedFile(file);
-      
-      if (duration > MAX_CLIP_DURATION) {
-        setNeedsTrimming(true);
-        setStage("trimming");
-      } else {
-        setNeedsTrimming(false);
-        setStage("preview");
-      }
-    };
-    tempVideo.onerror = () => {
-      setRecordedVideoUrl(url);
-      setUploadedFile(file);
-      setStage("preview");
-    };
+    setOriginalVideoDuration(null);
+    setRecordedVideoUrl(url);
+    setUploadedFile(file);
+    setNeedsTrimming(false);
+    setStage("preview");
   }, []);
 
   const handleTrimComplete = useCallback((trimmedBlob: Blob, startTime: number, endTime: number) => {
