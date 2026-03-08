@@ -622,9 +622,11 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                 for (let i = 0; i < photos.length; i++) {
                                   const photo = photos[i];
                                   const file = photoFiles[i];
-                                  if (photo && file) {
-                                    const url = await videoService.uploadPhoto(user.id, file, i);
-                                    uploadedPhotoUrls.push(url);
+                                    if (photo && file) {
+                                      const { data: { session: sess } } = await supabase.auth.getSession();
+                                      if (!sess) throw new Error("Not authenticated");
+                                      const url = await uploadImageToBunny(file, sess.access_token);
+                                      uploadedPhotoUrls.push(url);
                                   } else if (photo && photo.startsWith('http')) {
                                     uploadedPhotoUrls.push(photo);
                                   }
