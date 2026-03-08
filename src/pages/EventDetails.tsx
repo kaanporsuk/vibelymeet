@@ -36,6 +36,7 @@ import { MutualVibesSection } from "@/components/events/MutualVibesSection";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { useSubscription } from "@/hooks/useSubscription";
 
 const EventDetails = () => {
   const { id } = useParams();
