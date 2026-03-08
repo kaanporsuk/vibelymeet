@@ -99,10 +99,19 @@ export const VibeStudioModal = ({
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: facingMode ?? "user",
+            facingMode: { ideal: facingMode ?? "user" },
             width: { ideal: 480 },
           },
           audio: { echoCancellation: true, noiseSuppression: true },
+        }).catch(async () => {
+          console.warn("[VibeVideo] facingMode constraint failed, falling back to default camera");
+          if (facingMode === 'environment') {
+            setFacingMode('user');
+          }
+          return navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 480 } },
+            audio: { echoCancellation: true, noiseSuppression: true },
+          });
         });
         streamRef.current = stream;
         setHasPermission(true);
