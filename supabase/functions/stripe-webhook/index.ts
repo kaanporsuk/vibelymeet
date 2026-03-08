@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
         if (session.metadata?.type === 'event_ticket') {
           const eventId = session.metadata?.event_id
 
-          if (userId && eventId) {
+        if (userId && eventId) {
             // Register user for event (uses profile_id column)
             await supabase
               .from('event_registrations')
@@ -65,6 +65,41 @@ Deno.serve(async (req) => {
                 event_id: eventId,
                 payment_status: 'paid',
               }, { onConflict: 'event_id,profile_id' })
+          }
+          break
+        }
+
+        // Handle credit pack purchase
+        if (session.metadata?.type === 'credits_pack') {
+          const creditUserId = session.metadata?.supabase_user_id
+          const extraTime = parseInt(session.metadata?.extra_time_credits || '0')
+          const extendedVibe = parseInt(session.metadata?.extended_vibe_credits || '0')
+
+          if (creditUserId) {
+            const { data: existing } = await supabase
+              .from('user_credits')
+              .select('extra_time_credits, extended_vibe_credits')
+              .eq('user_id', creditUserId)
+              .maybeSingle()
+
+            if (existing) {
+              await supabase
+                .from('user_credits')
+                .update({
+                  extra_time_credits: existing.extra_time_credits + extraTime,
+                  extended_vibe_credits: existing.extended_vibe_credits + extendedVibe,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('user_id', creditUserId)
+            } else {
+              await supabase
+                .from('user_credits')
+                .insert({
+                  user_id: creditUserId,
+                  extra_time_credits: extraTime,
+                  extended_vibe_credits: extendedVibe,
+                })
+            }
           }
           break
         }

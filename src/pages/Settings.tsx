@@ -15,6 +15,7 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
