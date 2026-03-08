@@ -348,6 +348,40 @@ const Onboarding = () => {
     return date.toISOString().split("T")[0];
   };
 
+  // Age blocked full-screen gate
+  if (ageBlocked) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-1/4 -left-32 w-64 h-64 bg-destructive/10 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/4 -right-32 w-64 h-64 bg-destructive/10 rounded-full blur-3xl" />
+        </div>
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring" }}
+          className="w-24 h-24 mx-auto bg-destructive/20 rounded-3xl flex items-center justify-center mb-8"
+        >
+          <Shield className="w-12 h-12 text-destructive" />
+        </motion.div>
+        <h1 className="text-3xl font-display font-bold text-foreground mb-4">
+          You must be 18 or older
+        </h1>
+        <p className="text-muted-foreground text-lg mb-8 max-w-sm">
+          Vibely is an 18+ platform. You are not eligible to create an account.
+        </p>
+        <Button
+          variant="destructive"
+          size="lg"
+          onClick={handleAgeBlockExit}
+          className="w-full max-w-xs"
+        >
+          Close App
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Ambient Background */}
