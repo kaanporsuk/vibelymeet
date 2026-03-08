@@ -133,7 +133,8 @@ const FullscreenVibePlayer = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+          className="fixed inset-0 bg-black flex items-center justify-center"
+          style={{ zIndex: 9999, height: '100dvh' }}
           onClick={onClose}
         >
           <button

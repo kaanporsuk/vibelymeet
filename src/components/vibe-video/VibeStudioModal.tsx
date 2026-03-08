@@ -655,8 +655,8 @@ export const VibeStudioModal = ({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-full h-full sm:max-w-md sm:h-[90vh] p-0 border-none bg-background overflow-hidden">
-        <div className="relative w-full h-full flex flex-col">
+      <DialogContent className="p-0 m-0 max-w-none w-full h-full border-none bg-black overflow-hidden rounded-none">
+        <div className="relative w-full flex flex-col overflow-hidden" style={{ height: '100dvh' }}>
           {/* Close Button */}
           <Button
             variant="ghost"
