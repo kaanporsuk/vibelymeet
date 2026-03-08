@@ -155,7 +155,6 @@ export const profileService = {
     data: {
       photos?: string[];
       bio?: string;
-      videoIntroUrl?: string;
       vibeLabels?: string[];
     }
   ) {
