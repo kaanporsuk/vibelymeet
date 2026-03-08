@@ -777,18 +777,19 @@ export const VibeStudioModal = ({
                     </div>
                   )}
                 </>
-              ) : (
+              ) : null}
+                {/* Live camera element — hidden when not in camera stages */}
                 <video
                   ref={videoRef}
                   className={cn(
                     "w-full h-full object-cover",
-                    facingMode === 'user' && "scale-x-[-1]"
+                    facingMode === 'user' && "scale-x-[-1]",
+                    (stage === "preview" || stage === "uploading" || stage === "posted") && "hidden"
                   )}
                   autoPlay
                   muted
                   playsInline
                 />
-              )}
 
               {/* Dark overlay for non-preview states */}
               {stage !== "preview" && stage !== "posted" && (
