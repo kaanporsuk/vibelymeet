@@ -159,18 +159,60 @@ const AdminCreateEvent = () => {
 
           {/* Cover Image */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Cover Image URL</label>
+            <label className="text-sm font-medium text-foreground">Cover Image</label>
+            {coverImage && (
+              <div className="relative w-full h-40 rounded-xl overflow-hidden bg-secondary/50">
+                <img src={coverImage} alt="Cover preview" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setCoverImage("")}
+                  className="absolute top-2 right-2 w-6 h-6 rounded-full bg-background/60 backdrop-blur-sm text-foreground text-xs flex items-center justify-center hover:bg-background/80"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
-              <Input
-                value={coverImage}
-                onChange={(e) => setCoverImage(e.target.value)}
-                placeholder="https://..."
-                className="bg-secondary/50"
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 20 * 1024 * 1024) { toast.error("Image must be under 20MB"); return; }
+                  setIsUploadingCover(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session) throw new Error("Not authenticated");
+                    const url = await uploadEventCoverToBunny(file, session.access_token);
+                    setCoverImage(url);
+                    toast.success("Cover uploaded");
+                  } catch (err: any) {
+                    toast.error("Upload failed", { description: err.message });
+                  } finally {
+                    setIsUploadingCover(false);
+                  }
+                }}
               />
-              <Button variant="outline" size="icon">
-                <Image className="w-4 h-4" />
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingCover}
+              >
+                {isUploadingCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {isUploadingCover ? "Uploading..." : coverImage ? "Replace" : "Upload image"}
               </Button>
             </div>
+            <Input
+              value={coverImage}
+              onChange={(e) => setCoverImage(e.target.value)}
+              placeholder="Or paste an image URL..."
+              className="bg-secondary/50"
+            />
           </div>
         </motion.div>
 
