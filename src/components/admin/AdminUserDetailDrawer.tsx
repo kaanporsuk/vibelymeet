@@ -36,8 +36,7 @@ import UserModerationActions from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { getImageUrl, fullScreenUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
 
 
