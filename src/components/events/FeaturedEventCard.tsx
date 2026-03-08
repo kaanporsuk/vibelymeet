@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
 import { isEventExpired } from "@/utils/eventUtils";
+import { eventCoverHeroUrl } from "@/utils/imageUrl";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -93,7 +94,7 @@ export const FeaturedEventCard = ({
       {/* Background Image */}
       <div className="absolute inset-0">
         <img
-          src={`${image}${image?.includes('cdn.vibelymeet.com') ? '?width=1200&quality=85' : ''}`}
+          src={eventCoverHeroUrl(image)}
           alt={title}
           className={cn("w-full h-full object-cover", expired && "grayscale-[40%] brightness-75")}
         />

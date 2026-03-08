@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
 import { isEventExpired } from "@/utils/eventUtils";
+import { eventCoverCardUrl } from "@/utils/imageUrl";
 
 interface EventCardPremiumProps {
   id: string;
@@ -145,7 +146,7 @@ export const EventCardPremium = ({
       {/* Image */}
       <div className="relative aspect-[16/10] overflow-hidden">
         <img
-          src={`${image}${image?.includes('cdn.vibelymeet.com') ? '?width=600&height=338&quality=85' : ''}`}
+          src={eventCoverCardUrl(image)}
           alt={title}
           className={cn(
             "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
