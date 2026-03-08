@@ -95,6 +95,7 @@ const FullscreenVibePlayer = ({
   onClose: () => void;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<any>(null);
 
   useEffect(() => {
     if (!show || !bunnyVideoUid || bunnyVideoStatus !== "ready") return;
@@ -102,7 +103,6 @@ const FullscreenVibePlayer = ({
     if (!videoEl) return;
 
     const src = `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`;
-    let hls: any = null;
 
     if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
       videoEl.src = src;
@@ -110,7 +110,8 @@ const FullscreenVibePlayer = ({
     } else {
       import("hls.js").then(({ default: Hls }) => {
         if (Hls.isSupported()) {
-          hls = new Hls();
+          const hls = new Hls();
+          hlsRef.current = hls;
           hls.loadSource(src);
           hls.attachMedia(videoEl);
           hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
@@ -119,7 +120,8 @@ const FullscreenVibePlayer = ({
     }
 
     return () => {
-      if (hls) hls.destroy();
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      if (videoEl) { videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load(); }
     };
   }, [show, bunnyVideoUid, bunnyVideoStatus]);
 
