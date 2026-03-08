@@ -1,3 +1,4 @@
+// Bunny Stream CDN playback — no Supabase signed URLs for vibe videos
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
