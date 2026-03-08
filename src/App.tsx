@@ -30,6 +30,8 @@ import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
 import EventPaymentSuccess from "./pages/EventPaymentSuccess";
+import Credits from "./pages/Credits";
+import CreditsSuccess from "./pages/CreditsSuccess";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
