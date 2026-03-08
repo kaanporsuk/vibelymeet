@@ -65,7 +65,7 @@ serve(async (req) => {
 
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
-    const storageHostname = "storage.bunnycdn.com";
+    const storageHostname = "de.storage.bunnycdn.com";
 
     // Build storage path: photos/{userId}/{timestamp}.jpg
     const ext = file.type === "image/png" ? "png" : 
