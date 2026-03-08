@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { uploadImageToBunny } from "@/services/imageUploadService";
 
 const BUCKET_NAME = "profile-photos";
 
