@@ -425,6 +425,7 @@ export const VibeStudioModal = ({
 
     setIsSaving(true);
     setStage("uploading");
+    stopCameraTracks();
     setUploadProgress(0);
     setUploadError(null);
     
