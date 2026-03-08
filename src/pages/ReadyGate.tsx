@@ -19,7 +19,7 @@ interface PartnerProfile {
   avatarUrl?: string;
   photos?: string[];
   tags: string[];
-  videoIntroUrl?: string;
+  
 }
 
 const GATE_TIMEOUT = 30; // seconds
