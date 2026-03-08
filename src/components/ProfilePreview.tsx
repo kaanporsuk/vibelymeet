@@ -44,6 +44,8 @@ interface ProfilePreviewProps {
     relationshipIntent: string;
     lifestyle?: Record<string, string>;
     videoIntroUrl?: string;
+    bunnyVideoUid?: string;
+    bunnyVideoStatus?: string;
   };
   onClose: () => void;
 }
