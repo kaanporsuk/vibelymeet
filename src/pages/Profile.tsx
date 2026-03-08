@@ -80,7 +80,88 @@ import {
   type GeoLocation,
 } from "@/services/profileService";
 
-interface ProfilePromptData {
+// Fullscreen HLS video player with hls.js for Chrome/Firefox
+const FullscreenVibePlayer = ({
+  show,
+  bunnyVideoUid,
+  bunnyVideoStatus,
+  vibeCaption,
+  onClose,
+}: {
+  show: boolean;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
+  vibeCaption: string;
+  onClose: () => void;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!show || !bunnyVideoUid || bunnyVideoStatus !== "ready") return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const src = `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`;
+    let hls: any = null;
+
+    if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
+      videoEl.src = src;
+      videoEl.play().catch(() => {});
+    } else {
+      import("hls.js").then(({ default: Hls }) => {
+        if (Hls.isSupported()) {
+          hls = new Hls();
+          hls.loadSource(src);
+          hls.attachMedia(videoEl);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+        }
+      });
+    }
+
+    return () => {
+      if (hls) hls.destroy();
+    };
+  }, [show, bunnyVideoUid, bunnyVideoStatus]);
+
+  return (
+    <AnimatePresence>
+      {show && bunnyVideoUid && bunnyVideoStatus === "ready" && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+          onClick={onClose}
+        >
+          <button
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
+            onClick={onClose}
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
+
+          <video
+            ref={videoRef}
+            className="w-full h-full object-contain"
+            poster={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/thumbnail.jpg`}
+            playsInline
+            loop
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {vibeCaption && (
+            <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
+              <p className="text-white text-base font-medium text-center">{vibeCaption}</p>
+            </div>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
   question: string;
   answer: string;
 }
