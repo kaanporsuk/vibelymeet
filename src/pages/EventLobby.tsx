@@ -16,6 +16,7 @@ import { addMinutes, differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
+import { PremiumPill } from "@/components/premium/PremiumPill";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
