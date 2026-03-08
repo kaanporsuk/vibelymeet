@@ -162,6 +162,15 @@ const Dashboard = () => {
         )}
       </AnimatePresence>
 
+      {/* Deletion Recovery Banner */}
+      {pendingDeletion && (
+        <DeletionRecoveryBanner
+          scheduledDate={pendingDeletion.scheduled_deletion_at}
+          onCancel={cancelDeletion}
+          isCancelling={isCancelling}
+        />
+      )}
+
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
