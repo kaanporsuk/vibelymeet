@@ -135,6 +135,8 @@ const initialProfile: UserProfile = {
   verified: false,
   photoVerified: false,
   videoIntroUrl: null,
+  bunnyVideoUid: null,
+  bunnyVideoStatus: "none",
   vibeCaption: "",
   stats: {
     events: 0,
