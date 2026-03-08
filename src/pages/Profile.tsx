@@ -1392,6 +1392,8 @@ const Profile = () => {
             photoVerified: profile.photoVerified,
             lifestyle: profile.lifestyle,
             videoIntroUrl: profile.videoIntroUrl || undefined,
+            bunnyVideoUid: profile.bunnyVideoUid || undefined,
+            bunnyVideoStatus: profile.bunnyVideoStatus || undefined,
           }} onClose={() => setShowPreview(false)} />
         )}
       </AnimatePresence>
