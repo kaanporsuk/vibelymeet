@@ -243,14 +243,11 @@ export const useEventAttendees = (eventId: string | undefined) => {
             };
             const profileVibes = vibesByProfile[profile.id] || [];
 
-            // Get signed URL for avatar
+            // Resolve photo URLs via centralized utility
             const avatarPath = profile.avatar_url || profile.photos?.[0] || "";
-            const signedAvatar = await getSignedPhotoUrl(avatarPath);
+            const resolvedAvatar = resolvePhotoUrl(avatarPath);
 
-            // Get signed URLs for all photos
-            const signedPhotos = await Promise.all(
-              (profile.photos || []).map((p) => getSignedPhotoUrl(p))
-            );
+            const resolvedPhotos = (profile.photos || []).map((p) => resolvePhotoUrl(p));
 
             // Calculate STABLE match percentage
             const matchPercent = user?.id
