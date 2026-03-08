@@ -78,32 +78,13 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
     enabled: isOpen && !!userId,
   });
 
-  // Refresh signed URLs for photos
+  // Resolve photos via CDN helper (no async refresh needed)
   useEffect(() => {
     if (!profile?.photos?.length) {
       setRefreshedPhotos([]);
       return;
     }
-
-    const refreshPhotos = async () => {
-      const refreshed: string[] = [];
-      for (const url of profile.photos) {
-        if (url && isSignedUrlExpiring(url)) {
-          const path = extractPathFromSignedUrl(url);
-          if (path) {
-            const newUrl = await getSignedPhotoUrl(path);
-            refreshed.push(newUrl || url);
-          } else {
-            refreshed.push(url);
-          }
-        } else {
-          refreshed.push(url);
-        }
-      }
-      setRefreshedPhotos(refreshed);
-    };
-
-    refreshPhotos();
+    setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
   }, [profile?.photos]);
 
   // Resolve Bunny CDN video URL

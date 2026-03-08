@@ -184,36 +184,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     enabled: !!profile,
   });
 
-  // Refresh signed URLs for photos
+  // Resolve photos via CDN helper (no async refresh needed)
   useEffect(() => {
     if (!profile?.photos?.length) {
       setRefreshedPhotos([]);
       return;
     }
-
-    const refreshPhotos = async () => {
-      setIsRefreshingPhotos(true);
-      const refreshed: string[] = [];
-      for (const url of profile.photos) {
-        if (url) {
-          if (isSignedUrlExpiring(url)) {
-            const path = extractPathFromSignedUrl(url);
-            if (path) {
-              const newUrl = await getSignedPhotoUrl(path);
-              refreshed.push(newUrl || url);
-            } else {
-              refreshed.push(url);
-            }
-          } else {
-            refreshed.push(url);
-          }
-        }
-      }
-      setRefreshedPhotos(refreshed);
-      setIsRefreshingPhotos(false);
-    };
-
-    refreshPhotos();
+    setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
+    setIsRefreshingPhotos(false);
   }, [profile?.photos]);
 
   // Resolve Bunny CDN video URL

@@ -322,7 +322,7 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10 border-2 border-border">
-                          <AvatarImage src={refreshedAvatars[user.id] || resolvePhotoUrl(user.avatar_url) || resolvePhotoUrl(user.photos?.[0])} />
+                          <AvatarImage src={refreshedAvatars[user.id] || avatarPreset(user.avatar_url) || avatarPreset(user.photos?.[0])} />
                           <AvatarFallback className="bg-primary/20 text-primary">
                             {user.name?.[0]?.toUpperCase() || 'U'}
                           </AvatarFallback>

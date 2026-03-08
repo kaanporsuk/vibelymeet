@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { fullScreenUrl } from "@/utils/imageUrl";
 
 interface AdminPhotoLightboxProps {
   photos: string[];
@@ -25,28 +25,10 @@ const AdminPhotoLightbox = ({
     setCurrentIndex(initialIndex);
   }, [initialIndex]);
 
-  // Refresh the current photo URL if needed
+  // Resolve photo URL via CDN helper
   useEffect(() => {
     if (!isOpen || !photos[currentIndex]) return;
-
-    const refreshPhoto = async () => {
-      const url = photos[currentIndex];
-      if (url && isSignedUrlExpiring(url)) {
-        setIsLoading(true);
-        const path = extractPathFromSignedUrl(url);
-        if (path) {
-          const newUrl = await getSignedPhotoUrl(path);
-          setRefreshedUrl(newUrl || url);
-        } else {
-          setRefreshedUrl(url);
-        }
-        setIsLoading(false);
-      } else {
-        setRefreshedUrl(url);
-      }
-    };
-
-    refreshPhoto();
+    setRefreshedUrl(fullScreenUrl(photos[currentIndex]));
   }, [isOpen, photos, currentIndex]);
 
   const handlePrev = () => {

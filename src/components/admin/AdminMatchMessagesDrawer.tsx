@@ -81,23 +81,13 @@ const AdminMatchMessagesDrawer = ({
 
       const profileMap: Record<string, any> = {};
       
-      // Refresh signed URLs for each profile
+      // Resolve avatar URLs via CDN helper
       for (const p of data || []) {
-        let avatarUrl = p.avatar_url;
-        if (!avatarUrl && p.photos?.[0]) {
-          avatarUrl = p.photos[0];
+        let avatar = p.avatar_url;
+        if (!avatar && p.photos?.[0]) {
+          avatar = p.photos[0];
         }
-        
-        // Refresh signed URL if needed
-        if (avatarUrl && isSignedUrlExpiring(avatarUrl)) {
-          const path = extractPathFromSignedUrl(avatarUrl);
-          if (path) {
-            const newUrl = await getSignedPhotoUrl(path);
-            avatarUrl = newUrl || avatarUrl;
-          }
-        }
-        
-        profileMap[p.id] = { ...p, avatarUrl };
+        profileMap[p.id] = { ...p, avatarUrl: avatarPreset(avatar) };
       }
       return profileMap;
     },
