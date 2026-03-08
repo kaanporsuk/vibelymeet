@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.video-webhook]
 verify_jwt = false
+
+[functions.delete-vibe-video]
+verify_jwt = false

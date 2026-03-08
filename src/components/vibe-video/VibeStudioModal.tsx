@@ -41,7 +41,8 @@ const COACH_TIPS = [
 
 const RECORDING_DURATION = 15;
 const MAX_CLIP_DURATION = 15;
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
+// No file size limit — tus uploads to Bunny handle any size
+// Enforcing max 20 seconds duration instead
 
 export const VibeStudioModal = ({
   open,
@@ -361,6 +362,14 @@ export const VibeStudioModal = ({
         setRecordedBlob(blob);
         setRecordedVideoUrl(url);
         setStage("preview");
+        // Stop camera tracks so browser tab dot disappears
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -370,6 +379,17 @@ export const VibeStudioModal = ({
     } catch (err) {
       console.error("Failed to start recording:", err);
       toast.error("Recording not supported on this device/browser");
+    }
+  }, []);
+
+  // Stop all camera tracks so browser tab recording dot disappears
+  const stopCameraTracks = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
   }, []);
 
@@ -405,6 +425,7 @@ export const VibeStudioModal = ({
 
     setIsSaving(true);
     setStage("uploading");
+    stopCameraTracks();
     setUploadProgress(0);
     setUploadError(null);
     
@@ -521,9 +542,13 @@ export const VibeStudioModal = ({
   const handleClose = useCallback(() => {
     if (isSaving) return;
     onOpenChange(false);
+    stopCameraTracks();
     setStage("idle");
     setCountdown(RECORDING_DURATION);
     if (intervalRef.current) clearInterval(intervalRef.current);
+    if (mediaRecorderRef.current?.state !== "inactive") {
+      mediaRecorderRef.current?.stop();
+    }
     if (recordedVideoUrl) {
       URL.revokeObjectURL(recordedVideoUrl);
     }
@@ -532,7 +557,7 @@ export const VibeStudioModal = ({
     setUploadedFile(null);
     setBunnyVideoUid(null);
     setBunnyVideoStatus("none");
-  }, [onOpenChange, recordedVideoUrl, isSaving]);
+  }, [onOpenChange, recordedVideoUrl, isSaving, stopCameraTracks]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -560,7 +585,24 @@ export const VibeStudioModal = ({
     }
   }, []);
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      const url = URL.createObjectURL(file);
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(url);
+        resolve(video.duration);
+      };
+      video.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Could not read video duration"));
+      };
+      video.src = url;
+    });
+  };
+
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -570,45 +612,27 @@ export const VibeStudioModal = ({
       return;
     }
 
-    // Validate file size (50MB max)
-    if (file.size > MAX_UPLOAD_SIZE) {
-      toast.error("Video too large. Please trim it to under 50MB before uploading.");
-      return;
+    // Duration check — no file size limit (tus handles any size)
+    try {
+      const duration = await getVideoDuration(file);
+      if (duration > 20) {
+        toast.error(
+          `Video is ${Math.round(duration)} seconds long. Please trim it to under 20 seconds.`
+        );
+        return;
+      }
+    } catch {
+      // If duration cannot be read, allow the upload — Bunny will handle it
+      console.warn("[VibeVideo] Could not read duration of uploaded file");
     }
 
     const url = URL.createObjectURL(file);
-    
-    // Check video duration
-    const tempVideo = document.createElement("video");
-    tempVideo.preload = "metadata";
-    tempVideo.src = url;
-    tempVideo.onloadedmetadata = () => {
-      const duration = tempVideo.duration;
-      URL.revokeObjectURL(tempVideo.src);
 
-      if (duration > 60) {
-        toast.error("Video must be under 60 seconds. Please trim it first.");
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      setOriginalVideoDuration(duration);
-      setRecordedVideoUrl(url);
-      setUploadedFile(file);
-      
-      if (duration > MAX_CLIP_DURATION) {
-        setNeedsTrimming(true);
-        setStage("trimming");
-      } else {
-        setNeedsTrimming(false);
-        setStage("preview");
-      }
-    };
-    tempVideo.onerror = () => {
-      setRecordedVideoUrl(url);
-      setUploadedFile(file);
-      setStage("preview");
-    };
+    setOriginalVideoDuration(null);
+    setRecordedVideoUrl(url);
+    setUploadedFile(file);
+    setNeedsTrimming(false);
+    setStage("preview");
   }, []);
 
   const handleTrimComplete = useCallback((trimmedBlob: Blob, startTime: number, endTime: number) => {
@@ -653,15 +677,33 @@ export const VibeStudioModal = ({
     }
   }, [stage]);
 
-  // Auto-play preview video when entering preview stage
+  // Auto-play preview video and sync play/pause state to real video events
   useEffect(() => {
     if (stage !== "preview") return;
     const videoEl = reviewVideoRef.current;
     if (!videoEl || !recordedVideoUrl) return;
+
+    // Reset state — don't assume playing
+    setIsVideoPlaying(false);
+
+    // Wire to actual video events
+    const onPlay = () => setIsVideoPlaying(true);
+    const onPause = () => setIsVideoPlaying(false);
+
+    videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("pause", onPause);
+
+    // Attempt autoplay — on iOS this may be silently blocked, that is fine
     setTimeout(() => {
-      videoEl.play().catch(err => console.warn("[VibeVideo] auto-play preview failed:", err));
-      setIsVideoPlaying(true);
+      videoEl.play().catch(() => {
+        // Autoplay blocked — user will tap Play manually, state stays false
+      });
     }, 100);
+
+    return () => {
+      videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("pause", onPause);
+    };
   }, [stage, recordedVideoUrl]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
