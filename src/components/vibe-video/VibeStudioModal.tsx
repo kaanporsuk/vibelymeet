@@ -622,16 +622,29 @@ export const VibeStudioModal = ({
 
   const toggleVideoPlayback = useCallback(() => {
     const videoEl = stage === "posted" ? finalVideoRef.current : reviewVideoRef.current;
-    if (videoEl) {
-      if (videoEl.paused) {
-        videoEl.play();
-        setIsVideoPlaying(true);
-      } else {
-        videoEl.pause();
-        setIsVideoPlaying(false);
-      }
+    if (!videoEl) {
+      console.warn("[VibeVideo] toggleVideoPlayback: no video element found for stage", stage);
+      return;
+    }
+    if (videoEl.paused) {
+      videoEl.play().catch(err => console.error("[VibeVideo] play failed:", err));
+      setIsVideoPlaying(true);
+    } else {
+      videoEl.pause();
+      setIsVideoPlaying(false);
     }
   }, [stage]);
+
+  // Auto-play preview video when entering preview stage
+  useEffect(() => {
+    if (stage !== "preview") return;
+    const videoEl = reviewVideoRef.current;
+    if (!videoEl || !recordedVideoUrl) return;
+    setTimeout(() => {
+      videoEl.play().catch(err => console.warn("[VibeVideo] auto-play preview failed:", err));
+      setIsVideoPlaying(true);
+    }, 100);
+  }, [stage, recordedVideoUrl]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
