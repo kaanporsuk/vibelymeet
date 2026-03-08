@@ -162,7 +162,6 @@ export const profileService = {
     const updates: Record<string, unknown> = {};
     if (data.photos) updates.photos = data.photos;
     if (data.bio) updates.bio = data.bio;
-    if (data.videoIntroUrl) updates.video_intro_url = data.videoIntroUrl;
     updates.is_onboarding_complete = true;
 
     const { error: profileError } = await supabase
