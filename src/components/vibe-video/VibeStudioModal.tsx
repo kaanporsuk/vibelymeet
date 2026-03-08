@@ -847,31 +847,33 @@ export const VibeStudioModal = ({
               )}
 
               {/* Top HUD - Editable Caption */}
-              <motion.div
-                initial={{ y: -50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.2 }}
-                className="absolute top-16 left-4 right-4 z-20"
-              >
+              <div className="absolute top-4 left-0 right-0 flex justify-center z-20 px-4">
                 <button
                   onClick={() => setIsEditingCaption(true)}
-                  className="glass-card px-4 py-3 rounded-2xl text-center w-full hover:bg-secondary/50 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-black/40 border border-white/10 transition-all active:scale-95"
+                  style={{ maxWidth: '80%' }}
                 >
-                  <p className="text-sm text-muted-foreground">What are you</p>
                   {vibeCaption ? (
-                    <p className="text-lg font-display font-bold gradient-text truncate">
-                      {vibeCaption}
-                    </p>
+                    <span className="text-white text-sm font-medium truncate">
+                      ✨ {vibeCaption}
+                    </span>
                   ) : (
-                    <p className="text-lg font-display font-bold gradient-text">
-                      Vibing on?
-                    </p>
+                    <span className="text-sm">
+                      <span className="text-white/60">What's your vibe? </span>
+                      <span
+                        className="font-semibold"
+                        style={{ background: 'linear-gradient(90deg, #8B5CF6, #E84393)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+                      >
+                        Tap to add
+                      </span>
+                    </span>
                   )}
-                  {(stage === "idle" || stage === "preview" || stage === "posted") && (
-                    <p className="text-xs text-muted-foreground/60 mt-1">Tap to edit</p>
-                  )}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
                 </button>
-              </motion.div>
+              </div>
 
               {/* Caption Edit Modal */}
               <AnimatePresence>
