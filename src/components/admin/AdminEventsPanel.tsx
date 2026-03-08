@@ -283,7 +283,7 @@ const AdminEventsPanel = () => {
           <TableCell>
             <div className="flex items-center gap-3">
               <div className={`w-14 h-14 rounded-xl overflow-hidden bg-secondary/50 shrink-0 ${isChild ? 'ml-4' : ''}`}>
-                <img src={event.cover_image} alt={event.title} className="w-full h-full object-cover" />
+                <img src={eventCoverThumbUrl(event.cover_image)} alt={event.title} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               </div>
               <div className="space-y-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">

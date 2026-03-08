@@ -94,7 +94,7 @@ export const FeaturedEventCard = ({
       {/* Background Image */}
       <div className="absolute inset-0">
         <img
-          src={`${image}${image?.includes('cdn.vibelymeet.com') ? '?width=1200&quality=85' : ''}`}
+          src={eventCoverHeroUrl(image)}
           alt={title}
           className={cn("w-full h-full object-cover", expired && "grayscale-[40%] brightness-75")}
         />

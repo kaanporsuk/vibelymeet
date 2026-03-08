@@ -60,3 +60,13 @@ export const thumbnailUrl = (path: string | null | undefined) =>
 
 export const fullScreenUrl = (path: string | null | undefined) =>
   getImageUrl(path, { width: 1200 });
+
+// Event cover presets
+export const eventCoverHeroUrl = (path: string | null | undefined): string =>
+  getImageUrl(path, { width: 1200, quality: 85 });
+
+export const eventCoverCardUrl = (path: string | null | undefined): string =>
+  getImageUrl(path, { width: 600, height: 338, quality: 85 });
+
+export const eventCoverThumbUrl = (path: string | null | undefined): string =>
+  getImageUrl(path, { width: 300, quality: 80 });
