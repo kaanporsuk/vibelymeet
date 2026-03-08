@@ -45,8 +45,6 @@ export interface EventAttendee {
   photos: string[];
   vibeTags?: string[];
   photoVerified?: boolean;
-  hasVibeVideo?: boolean;
-  vibeVideoUrl?: string;
 }
 
 // Helper to resolve photo URL via centralized utility
