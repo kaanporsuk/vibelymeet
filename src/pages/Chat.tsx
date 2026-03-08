@@ -270,26 +270,20 @@ const Chat = () => {
     }
 
     try {
-      // Determine file extension from blob MIME type
-      const blobType = audioBlob.type || '';
-      const ext = blobType.includes('mp4') ? 'mp4' : blobType.includes('aac') ? 'aac' : 'webm';
-      const fileName = `${user.id}/${Date.now()}_voice.${ext}`;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("voice-messages")
-        .upload(fileName, audioBlob, { contentType: blobType || "audio/webm", upsert: false });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from("voice-messages")
-        .getPublicUrl(uploadData.path);
+      const audioUrl = await uploadVoiceToBunny(
+        audioBlob,
+        session.access_token,
+        chatData.matchId
+      );
 
       const { error: msgError } = await supabase.from("messages").insert({
         match_id: chatData.matchId,
         sender_id: user.id,
         content: "🎤 Voice message",
-        audio_url: publicUrl,
+        audio_url: audioUrl,
         audio_duration_seconds: Math.round(duration),
       });
 
