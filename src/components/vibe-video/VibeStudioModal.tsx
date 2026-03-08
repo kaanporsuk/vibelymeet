@@ -243,7 +243,7 @@ export const VibeStudioModal = ({
       if (data?.bunny_video_status === "ready" || data?.bunny_video_status === "failed") {
         clearInterval(interval);
         setBunnyVideoStatus(data.bunny_video_status);
-        if (data.bunny_video_status === "failed") {
+        if (data.bunny_video_status === "failed" && stage === "posted") {
           toast.error("Video processing failed. Please try again.");
         }
       }
