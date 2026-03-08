@@ -39,7 +39,7 @@ import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
-import { resolveVibeVideoUrl } from "@/utils/videoUrl";
+
 
 interface AdminUserDetailDrawerProps {
   userId: string;
