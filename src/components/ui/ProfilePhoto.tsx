@@ -62,8 +62,9 @@ export const ProfilePhoto = ({
   const [stage, setStage] = useState<"primary" | "avatar" | "fallback">("primary");
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const primaryUrl = resolvePhotoUrl(photos?.[0]);
-  const fallbackUrl = resolvePhotoUrl(avatarUrl);
+  const sizePreset = size === "sm" || size === "md" ? avatarPreset : thumbPreset;
+  const primaryUrl = sizePreset(photos?.[0]);
+  const fallbackUrl = sizePreset(avatarUrl);
 
   const currentSrc =
     stage === "primary" && primaryUrl
