@@ -221,7 +221,7 @@ export const useMatches = () => {
           location: (profile as any)?.location || null,
           height: (profile as any)?.height_cm || null,
           prompts: parsedPrompts as { question: string; answer: string }[],
-          videoIntroUrl: (profile as any)?.video_intro_url || null,
+          
           lifestyle: (profile as any)?.lifestyle as Record<string, string> || undefined,
           tagline: (profile as any)?.tagline || null,
         };
