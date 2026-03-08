@@ -29,6 +29,7 @@ import NotFound from "./pages/NotFound";
 import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
+import EventPaymentSuccess from "./pages/EventPaymentSuccess";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
