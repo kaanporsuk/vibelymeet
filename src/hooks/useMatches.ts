@@ -178,22 +178,16 @@ export const useMatches = () => {
         const isArchived =
           match.archived_by === userId && match.archived_at !== null;
 
-        // Use first photo or avatar, resolve storage paths
+        // Use first photo or avatar, resolve via Bunny CDN helper
         const photoArr = (profile as any)?.photos as string[] | undefined;
         const rawImage =
           (photoArr && photoArr.length > 0 ? photoArr[0] : null) ||
           profile?.avatar_url ||
           "";
-        const image = rawImage && !rawImage.startsWith("http")
-          ? supabase.storage.from("profile-photos").getPublicUrl(rawImage).data.publicUrl
-          : rawImage;
+        const image = avatarPreset(rawImage);
 
-        // Resolve all photos to public URLs
-        const resolvedPhotos = (photoArr || []).map((p: string) =>
-          p && !p.startsWith("http")
-            ? supabase.storage.from("profile-photos").getPublicUrl(p).data.publicUrl
-            : p
-        );
+        // Resolve all photos via CDN helper
+        const resolvedPhotos = (photoArr || []).map((p: string) => getImageUrl(p));
 
         // Parse prompts from JSON
         const rawPrompts = (profile as any)?.prompts;
