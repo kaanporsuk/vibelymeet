@@ -351,6 +351,7 @@ export type Database = {
           joined_queue_at: string | null
           last_active_at: string | null
           last_matched_at: string | null
+          payment_status: string
           profile_id: string
           queue_status: string | null
           registered_at: string
@@ -368,6 +369,7 @@ export type Database = {
           joined_queue_at?: string | null
           last_active_at?: string | null
           last_matched_at?: string | null
+          payment_status?: string
           profile_id: string
           queue_status?: string | null
           registered_at?: string
@@ -385,6 +387,7 @@ export type Database = {
           joined_queue_at?: string | null
           last_active_at?: string | null
           last_matched_at?: string | null
+          payment_status?: string
           profile_id?: string
           queue_status?: string | null
           registered_at?: string

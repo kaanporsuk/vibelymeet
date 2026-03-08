@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Apple, CreditCard, Shield, Check, Loader2 } from "lucide-react";
+import { X, CreditCard, Shield, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  eventId: string;
   eventTitle: string;
   eventDate: string;
   userGender: "Male" | "Female";
@@ -19,6 +22,7 @@ const PaymentModal = ({
   isOpen,
   onClose,
   onSuccess,
+  eventId,
   eventTitle,
   eventDate,
   userGender,
@@ -27,18 +31,37 @@ const PaymentModal = ({
 }: PaymentModalProps) => {
   const [agreed, setAgreed] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"apple" | "card">("apple");
 
   const price = userGender === "Male" ? priceMale : priceFemale;
 
   const handlePay = async () => {
     if (!agreed) return;
-    
     setIsProcessing(true);
-    // Simulate payment processing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setIsProcessing(false);
-    onSuccess();
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please sign in to continue");
+      setIsProcessing(false);
+      return;
+    }
+
+    const { data, error } = await supabase.functions.invoke("create-event-checkout", {
+      body: {
+        eventId,
+        eventTitle,
+        price,
+        currency: "eur",
+      },
+    });
+
+    if (error || !data?.success) {
+      toast.error(data?.error || "Payment failed. Please try again.");
+      setIsProcessing(false);
+      return;
+    }
+
+    // Redirect to Stripe Checkout
+    window.location.href = data.url;
   };
 
   if (!isOpen) return null;
@@ -106,58 +129,24 @@ const PaymentModal = ({
                     <span className="text-sm text-muted-foreground">Ticket ({userGender})</span>
                   </div>
                   <span className="text-xl font-bold text-foreground">
-                    ${price.toFixed(2)}
+                    €{price.toFixed(2)}
                   </span>
                 </div>
               </div>
 
-              {/* Payment Methods */}
+              {/* Payment Method - Credit Card only */}
               <div className="space-y-3">
                 <p className="text-sm font-medium text-muted-foreground">Payment Method</p>
                 
-                <button
-                  onClick={() => setPaymentMethod("apple")}
-                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${
-                    paymentMethod === "apple"
-                      ? "border-primary bg-primary/5"
-                      : "border-border bg-secondary/30 hover:border-border/80"
-                  }`}
-                >
-                  <div className="w-10 h-10 rounded-xl bg-foreground flex items-center justify-center">
-                    <Apple className="w-6 h-6 text-background" />
-                  </div>
-                  <div className="flex-1 text-left">
-                    <p className="font-semibold text-foreground">Apple Pay</p>
-                    <p className="text-xs text-muted-foreground">Fast & secure</p>
-                  </div>
-                  {paymentMethod === "apple" && (
-                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                      <Check className="w-4 h-4 text-primary-foreground" />
-                    </div>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setPaymentMethod("card")}
-                  className={`w-full p-4 rounded-2xl border-2 transition-all flex items-center gap-4 ${
-                    paymentMethod === "card"
-                      ? "border-primary bg-primary/5"
-                      : "border-border bg-secondary/30 hover:border-border/80"
-                  }`}
-                >
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                    <CreditCard className="w-5 h-5 text-white" />
+                <div className="w-full p-4 rounded-2xl border-2 border-primary bg-primary/5 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                    <CreditCard className="w-5 h-5 text-primary-foreground" />
                   </div>
                   <div className="flex-1 text-left">
                     <p className="font-semibold text-foreground">Credit Card</p>
                     <p className="text-xs text-muted-foreground">Visa, Mastercard, Amex</p>
                   </div>
-                  {paymentMethod === "card" && (
-                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                      <Check className="w-4 h-4 text-primary-foreground" />
-                    </div>
-                  )}
-                </button>
+                </div>
               </div>
 
               {/* Policy Agreement */}
@@ -194,7 +183,7 @@ const PaymentModal = ({
                       className="flex items-center gap-2"
                     >
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Processing...</span>
+                      <span>Redirecting to Stripe...</span>
                     </motion.div>
                   ) : (
                     <motion.span
@@ -203,7 +192,7 @@ const PaymentModal = ({
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                     >
-                      Pay ${price.toFixed(2)} & Join Event
+                      Pay €{price.toFixed(2)} & Join Event
                     </motion.span>
                   )}
                 </AnimatePresence>
