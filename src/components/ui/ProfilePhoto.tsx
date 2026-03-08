@@ -172,7 +172,7 @@ export const EventCover = ({
 
   const arClass = aspectRatio === "video" ? "aspect-video" : "aspect-square";
 
-  if (!src || error) {
+  if (!optimizedSrc || error) {
     return (
       <div
         className={cn(
