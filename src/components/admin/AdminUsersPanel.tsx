@@ -42,8 +42,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
 type SortDirection = 'asc' | 'desc';
