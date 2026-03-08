@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { isEventVisible } from "@/utils/eventUtils";
 
 export interface Event {
   id: string;
@@ -15,6 +16,8 @@ export interface Event {
   tags: string[];
   status: string;
   eventDate: Date;
+  event_date_raw: string;
+  duration_minutes: number;
 }
 
 const PAGE_SIZE = 12;
