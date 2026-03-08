@@ -107,6 +107,27 @@ export type Database = {
         }
         Relationships: []
       }
+      age_gate_blocks: {
+        Row: {
+          blocked_at: string | null
+          date_of_birth: string | null
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          blocked_at?: string | null
+          date_of_birth?: string | null
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          blocked_at?: string | null
+          date_of_birth?: string | null
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       blocked_users: {
         Row: {
           blocked_id: string
