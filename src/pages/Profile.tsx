@@ -425,7 +425,7 @@ const Profile = () => {
       switch (type) {
         case "basics":
           updates.name = editForm.name;
-          updates.birthDate = editForm.birthDate;
+          // birthDate is read-only after initial setup — not included in updates
           updates.job = editForm.job;
           updates.company = editForm.company;
           updates.heightCm = editForm.heightCm;
