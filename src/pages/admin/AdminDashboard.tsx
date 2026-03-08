@@ -38,6 +38,7 @@ import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
+import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
 type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification';
