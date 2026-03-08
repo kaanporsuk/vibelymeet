@@ -809,10 +809,10 @@ export const VibeStudioModal = ({
                 ) : null
               ) : /* Local preview before upload */
               stage === "preview" && recordedVideoUrl ? (
-                <video
+              <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
-                  className={cn("w-full h-full object-cover", facingMode === 'user' && "scale-x-[-1]")}
+                  className="w-full h-full object-cover"
                   playsInline
                   loop
                   onLoadedMetadata={(e) => {
