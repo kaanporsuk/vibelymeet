@@ -644,7 +644,7 @@ function transformProfile(db: Record<string, unknown>) {
     bio: db.bio as string | null,
     avatarUrl: db.avatar_url as string | null,
     photos: (db.photos as string[]) || [],
-    videoIntroUrl: db.video_intro_url as string | null,
+    
     availability: db.availability as Record<string, unknown> | null,
     lastActiveAt: (db.last_active_at || db.updated_at) as string,
     isOnboardingComplete: db.is_onboarding_complete as boolean || false,
