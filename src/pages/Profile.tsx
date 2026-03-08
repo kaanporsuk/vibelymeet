@@ -803,7 +803,7 @@ const Profile = () => {
               onClick={() => openDrawer("vibe-video")}
               className="text-primary text-sm font-medium flex items-center gap-1"
             >
-              {profile.videoIntroUrl ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
+              {profile.bunnyVideoUid ? "Manage" : "Record"} <ChevronRight className="w-3 h-3" />
             </button>
           </div>
           {profile.videoIntroUrl ? (
