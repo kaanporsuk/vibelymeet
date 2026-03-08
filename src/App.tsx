@@ -30,6 +30,8 @@ import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
 import EventPaymentSuccess from "./pages/EventPaymentSuccess";
+import Credits from "./pages/Credits";
+import CreditsSuccess from "./pages/CreditsSuccess";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -84,6 +86,8 @@ const App = () => (
               <Route path="/subscription/success" element={<SubscriptionSuccess />} />
               <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
               <Route path="/event-payment/success" element={<ProtectedRoute><EventPaymentSuccess /></ProtectedRoute>} />
+              <Route path="/credits" element={<ProtectedRoute><Credits /></ProtectedRoute>} />
+              <Route path="/credits/success" element={<ProtectedRoute><CreditsSuccess /></ProtectedRoute>} />
               <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
               {/* Admin Routes */}
               <Route path="/kaan" element={<AdminLogin />} />

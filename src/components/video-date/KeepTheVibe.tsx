@@ -78,9 +78,16 @@ export const KeepTheVibe = ({
           </AnimatePresence>
         </div>
       ) : (
-        <div className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/40 backdrop-blur-md border border-white/5">
-          <Sparkles className="w-3 h-3 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">Get credits to extend</span>
+        <div className="flex flex-col items-center gap-0.5">
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => window.location.href = '/credits'}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
+          >
+            <Sparkles className="w-3 h-3 text-primary" />
+            ⚡ Get Credits
+          </motion.button>
+          <span className="text-[9px] text-muted-foreground">Opens shop — date stays active</span>
         </div>
       )}
     </motion.div>

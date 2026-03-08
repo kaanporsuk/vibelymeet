@@ -15,6 +15,7 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -44,6 +45,7 @@ import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
+import { useCredits } from "@/hooks/useCredits";
 import { toast } from "sonner";
 
 interface NotificationSettings {
@@ -68,6 +70,7 @@ const Settings = () => {
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { isGranted, requestPermission } = usePushNotifications();
+  const { credits } = useCredits();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     matches: true,
@@ -129,6 +132,32 @@ const Settings = () => {
       <main className="max-w-lg mx-auto px-4 py-6 space-y-4">
         {/* Premium Status / Upgrade CTA */}
         <PremiumSettingsCard />
+
+        {/* Credits Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-card p-4"
+        >
+          <button
+            onClick={() => navigate("/credits")}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
+                <p className="text-xs text-muted-foreground">
+                  {credits.extraTime} Extra Time · {credits.extendedVibe} Extended Vibe
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </button>
+        </motion.div>
 
         {/* Notifications Section */}
         <motion.div
