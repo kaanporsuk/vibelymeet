@@ -178,7 +178,14 @@ const Dashboard = () => {
               onClick={handleNotificationClick}
               unreadCount={unreadCount}
             />
-            <img src="/vibely-logomark.png" alt="Vibely" className="w-8 h-8" />
+            <button onClick={() => navigate('/profile')} className="w-8 h-8 shrink-0">
+              <ProfilePhoto
+                photos={user?.avatarUrl ? [user.avatarUrl] : undefined}
+                name={user?.name}
+                size="sm"
+                className="w-8 h-8"
+              />
+            </button>
           </div>
         </div>
       </header>
