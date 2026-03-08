@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { swipeCardUrl } from "@/utils/imageUrl";
 
 interface Profile {
   id: string;
@@ -57,43 +58,14 @@ const MiniProfileModal = ({
       return;
     }
 
-    const loadSignedUrl = async () => {
-      // Determine which photo to use
-      const photoPath = profile.photos?.[0] || profile.avatar;
-      
-      if (!photoPath) {
-        setSignedPhotoUrl(null);
-        return;
-      }
+    const photoPath = profile.photos?.[0] || profile.avatar;
+    if (!photoPath) {
+      setSignedPhotoUrl(null);
+      return;
+    }
 
-      // If it's already a full URL (not a storage path), use it directly
-      if (photoPath.startsWith("http://") || photoPath.startsWith("https://")) {
-        setSignedPhotoUrl(photoPath);
-        return;
-      }
-
-      // Otherwise, generate a signed URL from storage
-      setLoadingPhoto(true);
-      try {
-        const { data } = await supabase.storage
-          .from("profile-photos")
-          .createSignedUrl(photoPath, 3600); // 1 hour expiry
-
-        if (data?.signedUrl) {
-          setSignedPhotoUrl(data.signedUrl);
-        } else {
-          // Fallback to the raw path
-          setSignedPhotoUrl(photoPath);
-        }
-      } catch (err) {
-        console.error("Error creating signed URL:", err);
-        setSignedPhotoUrl(photoPath);
-      } finally {
-        setLoadingPhoto(false);
-      }
-    };
-
-    loadSignedUrl();
+    // Use CDN helper — handles full URLs and Bunny paths
+    setSignedPhotoUrl(swipeCardUrl(photoPath));
   }, [profile, isOpen]);
 
   if (!profile) return null;

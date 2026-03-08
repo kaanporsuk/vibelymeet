@@ -36,8 +36,7 @@ import UserModerationActions from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { getImageUrl, fullScreenUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
 
 
@@ -185,36 +184,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     enabled: !!profile,
   });
 
-  // Refresh signed URLs for photos
+  // Resolve photos via CDN helper (no async refresh needed)
   useEffect(() => {
     if (!profile?.photos?.length) {
       setRefreshedPhotos([]);
       return;
     }
-
-    const refreshPhotos = async () => {
-      setIsRefreshingPhotos(true);
-      const refreshed: string[] = [];
-      for (const url of profile.photos) {
-        if (url) {
-          if (isSignedUrlExpiring(url)) {
-            const path = extractPathFromSignedUrl(url);
-            if (path) {
-              const newUrl = await getSignedPhotoUrl(path);
-              refreshed.push(newUrl || url);
-            } else {
-              refreshed.push(url);
-            }
-          } else {
-            refreshed.push(url);
-          }
-        }
-      }
-      setRefreshedPhotos(refreshed);
-      setIsRefreshingPhotos(false);
-    };
-
-    refreshPhotos();
+    setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
+    setIsRefreshingPhotos(false);
   }, [profile?.photos]);
 
   // Resolve Bunny CDN video URL
@@ -313,7 +290,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               {/* Profile Header */}
               <div className="flex items-start gap-4">
                 <Avatar className="h-24 w-24 border-4 border-border">
-                  <AvatarImage src={resolvePhotoUrl(profile.avatar_url) || resolvePhotoUrl(profile.photos?.[0])} />
+                  <AvatarImage src={avatarPreset(profile.avatar_url) || avatarPreset(profile.photos?.[0])} />
                   <AvatarFallback className="bg-primary/20 text-primary text-2xl">
                     {profile.name?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
@@ -540,7 +517,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={resolvePhotoUrl(candidate?.avatar_url) || resolvePhotoUrl(candidate?.photos?.[0])} />
+                            <AvatarImage src={avatarPreset(candidate?.avatar_url) || avatarPreset(candidate?.photos?.[0])} />
                             <AvatarFallback>{candidate?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
@@ -584,7 +561,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={match.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10 border-2 border-pink-500/30">
-                            <AvatarImage src={resolvePhotoUrl(otherUser?.avatar_url) || resolvePhotoUrl(otherUser?.photos?.[0])} />
+                            <AvatarImage src={avatarPreset(otherUser?.avatar_url) || avatarPreset(otherUser?.photos?.[0])} />
                             <AvatarFallback>{otherUser?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">

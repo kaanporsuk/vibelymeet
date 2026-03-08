@@ -51,7 +51,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -119,15 +119,8 @@ const AdminReportsPanel = () => {
 
       const profileMap: Record<string, any> = {};
       for (const p of data || []) {
-        let avatarUrl = p.avatar_url || p.photos?.[0];
-        if (avatarUrl && isSignedUrlExpiring(avatarUrl)) {
-          const path = extractPathFromSignedUrl(avatarUrl);
-          if (path) {
-            const newUrl = await getSignedPhotoUrl(path);
-            avatarUrl = newUrl || avatarUrl;
-          }
-        }
-        profileMap[p.id] = { ...p, avatarUrl };
+        const resolvedAvatar = avatarPreset(p.avatar_url || p.photos?.[0]);
+        profileMap[p.id] = { ...p, avatarUrl: resolvedAvatar };
       }
       return profileMap;
     },

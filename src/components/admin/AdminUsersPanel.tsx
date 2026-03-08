@@ -42,8 +42,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
 type SortDirection = 'asc' | 'desc';
@@ -112,28 +111,15 @@ const AdminUsersPanel = () => {
     },
   });
 
-  // Refresh signed URLs for avatars
+  // Resolve avatar URLs via CDN helper (no async refresh needed)
   useEffect(() => {
-    const refreshAvatars = async () => {
-      if (!users?.length) return;
-
-      const refreshed: Record<string, string> = {};
-      for (const user of users) {
-        const avatarUrl = user.avatar_url || user.photos?.[0];
-        if (avatarUrl && isSignedUrlExpiring(avatarUrl)) {
-          const path = extractPathFromSignedUrl(avatarUrl);
-          if (path) {
-            const newUrl = await getSignedPhotoUrl(path);
-            if (newUrl) refreshed[user.id] = newUrl;
-          }
-        } else if (avatarUrl) {
-          refreshed[user.id] = avatarUrl;
-        }
-      }
-      setRefreshedAvatars(refreshed);
-    };
-
-    refreshAvatars();
+    if (!users?.length) return;
+    const resolved: Record<string, string> = {};
+    for (const user of users) {
+      const raw = user.avatar_url || user.photos?.[0];
+      if (raw) resolved[user.id] = avatarPreset(raw);
+    }
+    setRefreshedAvatars(resolved);
   }, [users]);
 
   // Fetch vibes for all users
@@ -336,7 +322,7 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10 border-2 border-border">
-                          <AvatarImage src={refreshedAvatars[user.id] || resolvePhotoUrl(user.avatar_url) || resolvePhotoUrl(user.photos?.[0])} />
+                          <AvatarImage src={refreshedAvatars[user.id] || avatarPreset(user.avatar_url) || avatarPreset(user.photos?.[0])} />
                           <AvatarFallback className="bg-primary/20 text-primary">
                             {user.name?.[0]?.toUpperCase() || 'U'}
                           </AvatarFallback>

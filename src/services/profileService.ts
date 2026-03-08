@@ -1,5 +1,4 @@
 import { supabase } from "@/integrations/supabase/client";
-import { refreshSignedUrls } from "@/services/storageService";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -217,10 +216,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
     conversations: convosCountResult.count ?? 0,
   };
 
-  // Refresh signed URLs if needed
-  if (profileData.photos.length > 0) {
-    profileData.photos = await refreshSignedUrls(profileData.photos);
-  }
+  // Photos are now resolved via getImageUrl() at render time — no signed URL refresh needed
 
   return profileData;
 };

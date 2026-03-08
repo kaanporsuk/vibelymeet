@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { getImageUrl, avatarUrl as avatarPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
 
 interface ProfilePhotoProps {
   photos?: string[] | null;
@@ -62,8 +62,9 @@ export const ProfilePhoto = ({
   const [stage, setStage] = useState<"primary" | "avatar" | "fallback">("primary");
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const primaryUrl = resolvePhotoUrl(photos?.[0]);
-  const fallbackUrl = resolvePhotoUrl(avatarUrl);
+  const sizePreset = size === "sm" || size === "md" ? avatarPreset : thumbPreset;
+  const primaryUrl = sizePreset(photos?.[0]);
+  const fallbackUrl = sizePreset(avatarUrl);
 
   const currentSrc =
     stage === "primary" && primaryUrl
