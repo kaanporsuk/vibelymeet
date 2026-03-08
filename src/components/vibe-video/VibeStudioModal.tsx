@@ -41,7 +41,8 @@ const COACH_TIPS = [
 
 const RECORDING_DURATION = 15;
 const MAX_CLIP_DURATION = 15;
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024; // 50MB
+// No file size limit — tus uploads to Bunny handle any size
+// Enforcing max 20 seconds duration instead
 
 export const VibeStudioModal = ({
   open,
