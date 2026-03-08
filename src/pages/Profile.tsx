@@ -1421,7 +1421,7 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
-            {profile.videoIntroUrl ? (
+            {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
               <div className="space-y-4">
                 <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
                   {vibeVideoPlaybackUrl ? (
@@ -1446,8 +1446,8 @@ const Profile = () => {
                     variant="outline"
                     className="flex-1"
                     onClick={async () => {
-                      await updateMyProfile({ videoIntroUrl: null });
-                      setProfile({ ...profile, videoIntroUrl: null });
+                      await updateMyProfile({ videoIntroUrl: null, vibeVideoStatus: null });
+                      setProfile({ ...profile, videoIntroUrl: null, bunnyVideoUid: null, bunnyVideoStatus: "none" });
                       setVibeVideoPlaybackUrl(null);
                       setActiveDrawer(null);
                       toast.success("Video deleted");
