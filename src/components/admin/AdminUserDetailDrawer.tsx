@@ -517,7 +517,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={resolvePhotoUrl(candidate?.avatar_url) || resolvePhotoUrl(candidate?.photos?.[0])} />
+                            <AvatarImage src={avatarPreset(candidate?.avatar_url) || avatarPreset(candidate?.photos?.[0])} />
                             <AvatarFallback>{candidate?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
