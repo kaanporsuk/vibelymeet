@@ -176,8 +176,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
             avatar_url,
             bio,
             photos,
-            photo_verified,
-            video_intro_url
+            photo_verified
           )
         `
         )
