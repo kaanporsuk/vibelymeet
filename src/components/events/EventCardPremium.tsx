@@ -55,8 +55,11 @@ export const EventCardPremium = ({
   city,
   country,
   distanceKm,
+  eventDateRaw,
+  durationMinutes,
 }: EventCardPremiumProps) => {
   const isLive = status === "live";
+  const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
