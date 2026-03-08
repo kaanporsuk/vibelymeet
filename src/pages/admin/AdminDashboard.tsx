@@ -178,6 +178,7 @@ const AdminDashboard = () => {
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
+          {activePanel === 'deletions' && <AdminDeletionsPanel />}
         </main>
       </div>
 

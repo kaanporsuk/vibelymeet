@@ -37,6 +37,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose }
     { id: 'campaigns' as const, label: 'Push Campaigns', icon: Bell },
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
+    { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
     { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },
     { id: 'export' as const, label: 'Export', icon: Download },
   ];
