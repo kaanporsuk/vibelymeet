@@ -199,8 +199,13 @@ export const persistPhotos = async (
 
     if (isBlobUrl(photo) && file) {
       // Upload via Bunny edge function
-      const newPath = await uploadImageToBunny(file, session.access_token);
-      persistedUrls.push(newPath);
+      try {
+        const newPath = await uploadImageToBunny(file, session.access_token);
+        persistedUrls.push(newPath);
+      } catch (err) {
+        console.error("[persistPhotos] Upload failed for slot", i, ":", err);
+        throw err;
+      }
     } else if (!isBlobUrl(photo)) {
       // Already a storage path or URL, keep it
       persistedUrls.push(photo);
