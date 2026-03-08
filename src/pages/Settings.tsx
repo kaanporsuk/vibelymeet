@@ -44,6 +44,7 @@ import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
+import { useCredits } from "@/hooks/useCredits";
 import { toast } from "sonner";
 
 interface NotificationSettings {
