@@ -244,6 +244,23 @@ export const FeaturedEventCard = ({
           </div>
 
           {/* Primary Action Button - Context-aware */}
+          {expired ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-sm text-muted-foreground/60 font-medium">
+                This vibe has passed — but more are waiting
+              </p>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate("/events"); }}
+                className="px-6 py-3 rounded-full text-base font-semibold text-primary-foreground transition-all active:scale-95"
+                style={{
+                  background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
+                  boxShadow: '0 0 20px hsl(var(--primary) / 0.4)',
+                }}
+              >
+                ✦ Discover Upcoming Events
+              </button>
+            </div>
+          ) : (
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
             {isRegistered ? (
               <Button
@@ -277,6 +294,7 @@ export const FeaturedEventCard = ({
               </Button>
             )}
           </motion.div>
+          )}
         </motion.div>
       </div>
     </motion.div>
