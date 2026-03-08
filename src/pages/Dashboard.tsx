@@ -23,6 +23,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
+import { DeletionRecoveryBanner } from "@/components/settings/DeletionRecoveryBanner";
+import { useDeletionRecovery } from "@/hooks/useDeletionRecovery";
 
 const Dashboard = () => {
   const navigate = useNavigate();
