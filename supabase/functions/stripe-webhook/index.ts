@@ -111,6 +111,9 @@ Deno.serve(async (req) => {
           })
           .eq('user_id', userId)
 
+        // Sync is_premium flag on profile
+        await supabase.from('profiles').update({ is_premium: false }).eq('id', userId)
+
         break
       }
 
