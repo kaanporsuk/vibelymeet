@@ -1614,24 +1614,6 @@ const Profile = () => {
               Cancel
             </Button>
           </div>
-                </div>
-                <Button
-                  variant="gradient"
-                  onClick={() => {
-                    setActiveDrawer(null);
-                    setShowVibeStudio(true);
-                  }}
-                >
-                  Record My Vibe
-                </Button>
-              </div>
-            )}
-          </div>
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="ghost">Close</Button>
-            </DrawerClose>
-          </DrawerFooter>
         </DrawerContent>
       </Drawer>
 
