@@ -103,6 +103,8 @@ interface UserProfile {
   verified: boolean;
   photoVerified: boolean;
   videoIntroUrl: string | null;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
   vibeCaption: string;
   stats: {
     events: number;
