@@ -143,6 +143,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     photos: dbProfile.photos || [],
     avatarUrl: dbProfile.avatar_url,
     videoIntroUrl: dbProfile.video_intro_url,
+    bunnyVideoUid: (dbProfile as any).bunny_video_uid || null,
+    bunnyVideoStatus: (dbProfile as any).bunny_video_status || "none",
     vibeCaption: (dbProfile as any).vibe_caption || "",
     vibeVideoStatus: (dbProfile as any).vibe_video_status || null,
     photoVerified: dbProfile.photo_verified || false,

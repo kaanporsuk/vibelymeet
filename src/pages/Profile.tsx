@@ -277,28 +277,16 @@ const Profile = () => {
     loadProfile();
   }, []);
 
-  // Resolve a playable (signed) URL for the vibe video (bucket is private)
+  // Resolve playable URL for vibe video — prefer Bunny Stream CDN
   useEffect(() => {
-    let cancelled = false;
-
-    const resolve = async () => {
-      if (!profile.videoIntroUrl) {
-        setVibeVideoPlaybackUrl(null);
-        return;
-      }
-
-      const signed = await resolveVibeVideoUrl(profile.videoIntroUrl);
-      if (cancelled) return;
-
-      setVibeVideoPlaybackUrl(signed);
-    };
-
-    resolve();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [profile.videoIntroUrl]);
+    if (profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready") {
+      setVibeVideoPlaybackUrl(
+        `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
+      );
+    } else {
+      setVibeVideoPlaybackUrl(null);
+    }
+  }, [profile.bunnyVideoUid, profile.bunnyVideoStatus]);
 
   const vibeScore = calculateVibeScore(profile);
 
