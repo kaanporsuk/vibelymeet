@@ -809,10 +809,10 @@ export const VibeStudioModal = ({
                 ) : null
               ) : /* Local preview before upload */
               stage === "preview" && recordedVideoUrl ? (
-                <video
+              <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
-                  className={cn("w-full h-full object-cover", facingMode === 'user' && "scale-x-[-1]")}
+                  className="w-full h-full object-cover"
                   playsInline
                   loop
                   onLoadedMetadata={(e) => {
@@ -908,7 +908,7 @@ export const VibeStudioModal = ({
                     className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-black/40 border border-white/10 transition-all active:scale-95"
                     style={{ maxWidth: '80%' }}
                   >
-                    <span className="text-white/50 text-sm">What's your vibe? </span>
+                    <span className="text-white/50 text-sm">What are you vibing on? </span>
                     <span
                       className="text-sm font-semibold"
                       style={{
