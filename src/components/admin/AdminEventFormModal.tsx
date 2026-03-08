@@ -208,21 +208,20 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     setGeoResults([]);
   };
 
-  // Image upload
+  // Image upload — Bunny CDN
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { toast.error('Please upload an image file'); return; }
-    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be less than 5MB'); return; }
+    if (file.size > 20 * 1024 * 1024) { toast.error('Image must be less than 20MB'); return; }
     setIsUploading(true);
     try {
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('event-covers').upload(fileName, file, { cacheControl: '3600', upsert: true });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from('event-covers').getPublicUrl(data.path);
-      setCoverImage(urlData.publicUrl);
-      toast.success('Image uploaded successfully');
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+      const { uploadEventCoverToBunny } = await import("@/services/eventCoverUploadService");
+      const url = await uploadEventCoverToBunny(file, session.access_token, event?.id ?? undefined);
+      setCoverImage(url);
+      toast.success('Cover image uploaded');
     } catch (error: any) {
       toast.error('Failed to upload image', { description: error.message });
     } finally {

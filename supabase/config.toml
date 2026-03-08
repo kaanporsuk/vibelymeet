@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.upload-voice]
 verify_jwt = false
+
+[functions.upload-event-cover]
+verify_jwt = false

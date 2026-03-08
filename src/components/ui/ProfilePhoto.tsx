@@ -2,6 +2,13 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { getImageUrl, avatarUrl as avatarPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
 
+const BUNNY_CDN = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
+
+function appendCdnParams(src: string, params: string): string {
+  if (!src || !BUNNY_CDN || !src.includes(BUNNY_CDN)) return src;
+  return src.includes("?") ? src : `${src}?${params}`;
+}
+
 interface ProfilePhotoProps {
   photos?: string[] | null;
   avatarUrl?: string | null;
@@ -142,6 +149,8 @@ interface EventCoverProps {
   title?: string;
   className?: string;
   aspectRatio?: "video" | "square";
+  /** Hint for CDN resizing: "hero" = 1200w, "card" = 600w, "thumb" = 300w */
+  sizeHint?: "hero" | "card" | "thumb";
 }
 
 export const EventCover = ({
@@ -149,13 +158,21 @@ export const EventCover = ({
   title,
   className,
   aspectRatio = "video",
+  sizeHint = "card",
 }: EventCoverProps) => {
   const [error, setError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  const cdnParams: Record<string, string> = {
+    hero: "width=1200&quality=85",
+    card: "width=600&height=338&quality=85",
+    thumb: "width=300&quality=80",
+  };
+  const optimizedSrc = src ? appendCdnParams(src, cdnParams[sizeHint]) : null;
+
   const arClass = aspectRatio === "video" ? "aspect-video" : "aspect-square";
 
-  if (!src || error) {
+  if (!optimizedSrc || error) {
     return (
       <div
         className={cn(
@@ -175,7 +192,7 @@ export const EventCover = ({
     <div className={cn(arClass, "relative overflow-hidden", className)}>
       {!isLoaded && <div className="absolute inset-0 shimmer-effect" />}
       <img
-        src={src}
+        src={optimizedSrc}
         alt={title || "Event cover"}
         className={cn(
           "w-full h-full object-cover transition-opacity duration-300",
