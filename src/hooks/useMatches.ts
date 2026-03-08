@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
+import { getImageUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 export interface Match {
   id: string;
