@@ -2,6 +2,13 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { getImageUrl, avatarUrl as avatarPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
 
+const BUNNY_CDN = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
+
+function appendCdnParams(src: string, params: string): string {
+  if (!src || !BUNNY_CDN || !src.includes(BUNNY_CDN)) return src;
+  return src.includes("?") ? src : `${src}?${params}`;
+}
+
 interface ProfilePhotoProps {
   photos?: string[] | null;
   avatarUrl?: string | null;
