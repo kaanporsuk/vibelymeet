@@ -58,6 +58,8 @@ interface DbProfile {
   photos: string[] | null;
   avatar_url: string | null;
   video_intro_url: string | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string;
   photo_verified: boolean | null;
   phone_verified: boolean | null;
   events_attended: number | null;
