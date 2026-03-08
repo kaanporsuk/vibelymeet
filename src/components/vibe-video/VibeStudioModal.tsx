@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { blobUrlToFile } from "@/services/videoStorageService"; // only blobUrlToFile is used
+/** Convert blob URL to File by fetching it */
+const blobUrlToFile = async (blobUrl: string, filename = "video.webm"): Promise<File> => {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new File([blob], filename, { type: blob.type || "video/webm" });
+};
 import {
   compressVideo,
   shouldCompressVideo,
