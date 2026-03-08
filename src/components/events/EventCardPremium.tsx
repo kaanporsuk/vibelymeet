@@ -243,7 +243,24 @@ export const EventCardPremium = ({
           </div>
         </div>
 
-        {/* Register Button */}
+        {/* CTA — expired vs normal */}
+        {expired ? (
+          <div className="space-y-2 text-center">
+            <p className="text-xs font-medium text-muted-foreground/60">
+              This vibe has passed — but more are waiting
+            </p>
+            <button
+              onClick={(e) => { e.stopPropagation(); navigate("/events"); }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-sm font-semibold text-primary-foreground transition-all active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
+                boxShadow: '0 0 16px hsl(var(--primary) / 0.4)',
+              }}
+            >
+              ✦ Discover Upcoming Events
+            </button>
+          </div>
+        ) : (
         <AnimatePresence mode="wait">
           {isRegistered ? (
             <motion.button
@@ -294,6 +311,7 @@ export const EventCardPremium = ({
             </motion.div>
           )}
         </AnimatePresence>
+        )}
       </div>
     </motion.div>
   );
