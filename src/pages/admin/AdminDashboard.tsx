@@ -118,6 +118,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
+                {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
               </p>
               </div>
             </div>
