@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import {
   Send,
   Plus,
