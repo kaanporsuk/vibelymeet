@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { blobUrlToFile } from "@/services/videoStorageService";
+import { blobUrlToFile } from "@/services/videoStorageService"; // only blobUrlToFile is used
 import {
   compressVideo,
   shouldCompressVideo,
