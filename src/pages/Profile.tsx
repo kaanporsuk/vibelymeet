@@ -1,5 +1,5 @@
 // Bunny Stream CDN playback — no Supabase signed URLs for vibe videos
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   Settings,
@@ -79,6 +79,88 @@ import {
   type ProfileData,
   type GeoLocation,
 } from "@/services/profileService";
+
+// Fullscreen HLS video player with hls.js for Chrome/Firefox
+const FullscreenVibePlayer = ({
+  show,
+  bunnyVideoUid,
+  bunnyVideoStatus,
+  vibeCaption,
+  onClose,
+}: {
+  show: boolean;
+  bunnyVideoUid: string | null;
+  bunnyVideoStatus: string;
+  vibeCaption: string;
+  onClose: () => void;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (!show || !bunnyVideoUid || bunnyVideoStatus !== "ready") return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const src = `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`;
+    let hls: any = null;
+
+    if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
+      videoEl.src = src;
+      videoEl.play().catch(() => {});
+    } else {
+      import("hls.js").then(({ default: Hls }) => {
+        if (Hls.isSupported()) {
+          hls = new Hls();
+          hls.loadSource(src);
+          hls.attachMedia(videoEl);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+        }
+      });
+    }
+
+    return () => {
+      if (hls) hls.destroy();
+    };
+  }, [show, bunnyVideoUid, bunnyVideoStatus]);
+
+  return (
+    <AnimatePresence>
+      {show && bunnyVideoUid && bunnyVideoStatus === "ready" && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-50 bg-black flex items-center justify-center"
+          onClick={onClose}
+        >
+          <button
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
+            onClick={onClose}
+          >
+            <X className="w-5 h-5 text-white" />
+          </button>
+
+          <video
+            ref={videoRef}
+            className="w-full h-full object-contain"
+            poster={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/thumbnail.jpg`}
+            playsInline
+            loop
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {vibeCaption && (
+            <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
+              <p className="text-white text-base font-medium text-center">{vibeCaption}</p>
+            </div>
+          )}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
 
 interface ProfilePromptData {
   question: string;
@@ -824,7 +906,7 @@ const Profile = () => {
                   hasVibeVideo && "cursor-pointer active:scale-[0.98] transition-transform"
                 )}
                 style={{ aspectRatio: "4/5" }}
-                onClick={() => hasVibeVideo && setShowVibePlayer(true)}
+                onClick={() => {}}
               >
                 {/* Thumbnail */}
                 {hasVibeVideo && thumbnailUrl && (
@@ -850,20 +932,23 @@ const Profile = () => {
 
                 {/* Centered play button */}
                 {hasVibeVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    className="absolute inset-0 flex items-center justify-center"
+                    onClick={(e) => { e.stopPropagation(); setShowVibePlayer(true); }}
+                  >
                     <div
                       className="w-16 h-16 rounded-full flex items-center justify-center"
                       style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.3)' }}
                     >
                       <Play className="w-7 h-7 text-white ml-1" />
                     </div>
-                  </div>
+                  </button>
                 )}
 
                 {/* Caption overlay at bottom */}
-                {hasVibeVideo && profile.vibeCaption && (
-                  <div className="absolute bottom-0 left-0 right-0 p-4">
-                    <p className="text-white text-sm font-medium">{profile.vibeCaption}</p>
+                {hasVibeVideo && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+                    <p className="text-white text-sm font-medium">{profile.vibeCaption || "Your Vibe Video"}</p>
                     <p className="text-white/60 text-xs mt-0.5">Tap to play</p>
                   </div>
                 )}
@@ -1491,55 +1576,52 @@ const Profile = () => {
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
             {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
-              <div className="space-y-4">
-                <div className="relative rounded-2xl overflow-hidden aspect-[9/16] max-h-[40vh] mx-auto">
-                  {vibeVideoPlaybackUrl ? (
-                    <VibePlayer
-                      videoUrl={vibeVideoPlaybackUrl}
-                      vibeCaption={profile.vibeCaption}
-                      isOwner
-                      onUpdateClick={() => {
-                        setActiveDrawer(null);
-                        setShowVibeStudio(true);
-                      }}
-                      className="w-full h-full"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-secondary flex items-center justify-center">
-                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={async () => {
-                      await updateMyProfile({ videoIntroUrl: null, vibeVideoStatus: null });
-                      setProfile({ ...profile, videoIntroUrl: null, bunnyVideoUid: null, bunnyVideoStatus: "none" });
-                      setVibeVideoPlaybackUrl(null);
-                      setActiveDrawer(null);
-                      toast.success("Video deleted");
-                    }}
-                  >
-                    Delete Video
-                  </Button>
-                  <Button
-                    variant="gradient"
-                    className="flex-1"
-                    onClick={() => {
-                      setActiveDrawer(null);
-                      setShowVibeStudio(true);
-                    }}
-                  >
-                    Update Video
-                  </Button>
-                </div>
+              <div className="space-y-3">
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    setShowVibePlayer(true);
+                  }}
+                >
+                  <Play className="w-5 h-5 text-primary" />
+                  Play Video
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12"
+                  onClick={() => {
+                    setActiveDrawer(null);
+                    setShowVibeStudio(true);
+                  }}
+                >
+                  <Video className="w-5 h-5 text-primary" />
+                  Update Video
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-start gap-3 h-12 text-destructive hover:text-destructive"
+                  onClick={async () => {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    await supabase
+                      .from("profiles")
+                      .update({ bunny_video_uid: null, bunny_video_status: "none" })
+                      .eq("id", user.id);
+                    setProfile({ ...profile, bunnyVideoUid: null, bunnyVideoStatus: "none" });
+                    setActiveDrawer(null);
+                    toast.success("Video deleted");
+                  }}
+                >
+                  <X className="w-5 h-5" />
+                  Delete Video
+                </Button>
               </div>
             ) : (
               <div className="text-center py-8 space-y-4">
-                <div className="w-20 h-20 mx-auto rounded-full bg-neon-cyan/20 flex items-center justify-center">
-                  <Video className="w-10 h-10 text-neon-cyan" />
+                <div className="w-20 h-20 mx-auto rounded-full bg-primary/20 flex items-center justify-center">
+                  <Video className="w-10 h-10 text-primary" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground mb-1">No Vibe Video Yet</h3>
@@ -1626,46 +1708,13 @@ const Profile = () => {
       />
 
       {/* Fullscreen Vibe Video Player */}
-      <AnimatePresence>
-        {showVibePlayer && profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 bg-black flex items-center justify-center"
-            onClick={() => setShowVibePlayer(false)}
-          >
-            {/* Close button */}
-            <button
-              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)' }}
-              onClick={() => setShowVibePlayer(false)}
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-
-            {/* Video */}
-            <video
-              src={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/play_720p.mp4`}
-              className="w-full h-full object-contain"
-              autoPlay
-              playsInline
-              loop
-              onClick={(e) => e.stopPropagation()}
-            />
-
-            {/* Caption at bottom */}
-            {profile.vibeCaption && (
-              <div className="absolute bottom-8 left-6 right-6 pointer-events-none">
-                <p className="text-white text-base font-medium text-center">
-                  {profile.vibeCaption}
-                </p>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <FullscreenVibePlayer
+        show={showVibePlayer}
+        bunnyVideoUid={profile.bunnyVideoUid}
+        bunnyVideoStatus={profile.bunnyVideoStatus}
+        vibeCaption={profile.vibeCaption}
+        onClose={() => setShowVibePlayer(false)}
+      />
 
       <BottomNav />
     </div>
