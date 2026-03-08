@@ -1633,7 +1633,6 @@ export type Database = {
           profile_id: string
           queue_status: string
           tagline: string
-          video_intro_url: string
         }[]
       }
       get_other_city_events: {
