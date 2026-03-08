@@ -1565,69 +1565,55 @@ const Profile = () => {
       {/* Vibe Video Drawer */}
       <Drawer open={activeDrawer === "vibe-video"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
         <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle className="font-display flex items-center gap-2">
-              <Video className="w-5 h-5 text-neon-cyan" />
-              My Vibe Video
-            </DrawerTitle>
-            <DrawerDescription>
-              Your 15-second video intro. Show your personality!
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 overflow-y-auto">
-            {profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready" ? (
-              <div className="space-y-3">
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start gap-3 h-12"
-                  onClick={() => {
-                    setActiveDrawer(null);
-                    setShowVibePlayer(true);
-                  }}
-                >
-                  <Play className="w-5 h-5 text-primary" />
-                  Play Video
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start gap-3 h-12"
-                  onClick={() => {
-                    setActiveDrawer(null);
-                    setShowVibeStudio(true);
-                  }}
-                >
-                  <Video className="w-5 h-5 text-primary" />
-                  Update Video
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start gap-3 h-12 text-destructive hover:text-destructive"
-                  onClick={async () => {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) return;
-                    await supabase
-                      .from("profiles")
-                      .update({ bunny_video_uid: null, bunny_video_status: "none" })
-                      .eq("id", user.id);
-                    setProfile({ ...profile, bunnyVideoUid: null, bunnyVideoStatus: "none" });
-                    setActiveDrawer(null);
-                    toast.success("Video deleted");
-                  }}
-                >
-                  <X className="w-5 h-5" />
-                  Delete Video
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center py-8 space-y-4">
-                <div className="w-20 h-20 mx-auto rounded-full bg-primary/20 flex items-center justify-center">
-                  <Video className="w-10 h-10 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground mb-1">No Vibe Video Yet</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Record a 15-second intro to stand out from the crowd
-                  </p>
+          <div className="flex flex-col gap-3 p-4">
+            <h3 className="text-lg font-semibold text-center mb-2">Vibe Video</h3>
+            
+            <Button
+              className="w-full"
+              variant="default"
+              onClick={() => { setActiveDrawer(null); setShowVibePlayer(true); }}
+            >
+              ▶ Play Video
+            </Button>
+            
+            <Button
+              className="w-full"
+              variant="outline"
+              onClick={() => { setActiveDrawer(null); setShowVibeStudio(true); }}
+            >
+              Update Video
+            </Button>
+            
+            <Button
+              className="w-full"
+              variant="destructive"
+              onClick={async () => {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+                await supabase
+                  .from("profiles")
+                  .update({ bunny_video_uid: null, bunny_video_status: "none" })
+                  .eq("id", user.id);
+                setProfile(prev => ({ 
+                  ...prev, 
+                  bunnyVideoUid: null, 
+                  bunnyVideoStatus: "none" 
+                }));
+                setActiveDrawer(null);
+                toast.success("Video deleted");
+              }}
+            >
+              Delete Video
+            </Button>
+            
+            <Button
+              className="w-full"
+              variant="ghost"
+              onClick={() => setActiveDrawer(null)}
+            >
+              Cancel
+            </Button>
+          </div>
                 </div>
                 <Button
                   variant="gradient"
