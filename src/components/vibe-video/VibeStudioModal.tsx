@@ -71,6 +71,7 @@ export const VibeStudioModal = ({
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [originalVideoDuration, setOriginalVideoDuration] = useState<number | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
   const [bunnyVideoUid, setBunnyVideoUid] = useState<string | null>(null);
   const [bunnyVideoStatus, setBunnyVideoStatus] = useState<string>("none");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -101,7 +102,6 @@ export const VibeStudioModal = ({
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: { ideal: facingMode ?? "user" },
-            width: { ideal: 480 },
           },
           audio: { echoCancellation: true, noiseSuppression: true },
         }).catch(async () => {
@@ -110,12 +110,17 @@ export const VibeStudioModal = ({
             setFacingMode('user');
           }
           return navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 480 } },
+            video: true,
             audio: { echoCancellation: true, noiseSuppression: true },
           });
         });
         streamRef.current = stream;
         setHasPermission(true);
+
+        // Re-check camera count after permission granted (labels now available)
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = allDevices.filter(d => d.kind === 'videoinput');
+        setHasMultipleCameras(videoDevices.length >= 2);
 
         // Reset zoom to minimum if the browser supports it (iOS Safari safety net)
         try {
@@ -571,14 +576,6 @@ export const VibeStudioModal = ({
 
   const toggleCamera = useCallback(async () => {
     try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(d => d.kind === 'videoinput');
-      
-      if (videoDevices.length < 2) {
-        toast.error("No back camera available on this device");
-        return;
-      }
-      
       setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
     } catch {
       toast.error("Camera switch not supported on this device");
@@ -1048,14 +1045,16 @@ export const VibeStudioModal = ({
                         <MicOff className="w-5 h-5 text-destructive" />
                       )}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={toggleCamera}
-                      className="rounded-full w-12 h-12 bg-secondary"
-                    >
-                      <SwitchCamera className="w-5 h-5" />
-                    </Button>
+                    {hasMultipleCameras && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleCamera}
+                        className="rounded-full w-12 h-12 bg-secondary"
+                      >
+                        <SwitchCamera className="w-5 h-5" />
+                      </Button>
+                    )}
                   </div>
 
                   {/* Record Button */}
