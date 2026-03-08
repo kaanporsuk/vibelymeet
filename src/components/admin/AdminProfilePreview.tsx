@@ -20,7 +20,7 @@ import { VibeTag } from "@/components/VibeTag";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 
-import { getSignedPhotoUrl, extractPathFromSignedUrl, isSignedUrlExpiring } from "@/services/storageService";
+import { getImageUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
