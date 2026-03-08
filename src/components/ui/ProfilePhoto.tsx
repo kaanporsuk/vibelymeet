@@ -158,9 +158,17 @@ export const EventCover = ({
   title,
   className,
   aspectRatio = "video",
+  sizeHint = "card",
 }: EventCoverProps) => {
   const [error, setError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  const cdnParams: Record<string, string> = {
+    hero: "width=1200&quality=85",
+    card: "width=600&height=338&quality=85",
+    thumb: "width=300&quality=80",
+  };
+  const optimizedSrc = src ? appendCdnParams(src, cdnParams[sizeHint]) : null;
 
   const arClass = aspectRatio === "video" ? "aspect-video" : "aspect-square";
 
