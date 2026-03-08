@@ -719,11 +719,15 @@ export const VibeStudioModal = ({
                 <video
                   ref={reviewVideoRef}
                   src={recordedVideoUrl}
-                  className="w-full h-full object-contain"
-                  autoPlay
-                  loop
+                  className={cn("w-full h-full object-cover", facingMode === 'user' && "scale-x-[-1]")}
                   playsInline
-                  preload="metadata"
+                  loop
+                  onLoadedMetadata={(e) => {
+                    const duration = (e.target as HTMLVideoElement).duration;
+                    if (duration > MAX_CLIP_DURATION && !needsTrimming) {
+                      setNeedsTrimming(true);
+                    }
+                  }}
                   onClick={toggleVideoPlayback}
                 />
               ) : /* Uploading state - show the local video */
