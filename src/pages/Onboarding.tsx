@@ -201,6 +201,14 @@ const Onboarding = () => {
       };
 
       await createProfile(profileData);
+
+      // Initialize user_credits row for new user
+      await supabase.from("user_credits").upsert({
+        user_id: user.id,
+        extra_time_credits: 0,
+        extended_vibe_credits: 0,
+        super_vibe_credits: 0,
+      }, { onConflict: 'user_id' });
       
       // Clear saved progress
       localStorage.removeItem(STORAGE_KEY);

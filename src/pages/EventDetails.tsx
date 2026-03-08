@@ -463,7 +463,18 @@ const EventDetails = () => {
           capacityStatus={capacityInfo.status}
           spotsLeft={capacityInfo.spotsLeft}
           genderLabel={genderLabel}
-          onPurchase={() => setShowPaymentModal(true)}
+          onPurchase={() => {
+            if (event.isFree || userPrice === 0) {
+              handlePaymentSuccess();
+            } else {
+              if ((event.visibility === 'premium' || event.visibility === 'vip') && !isPremium) {
+                toast.error('This event is exclusive to Vibely Premium members ✦');
+                navigate('/premium');
+                return;
+              }
+              setShowPaymentModal(true);
+            }
+          }}
         />
       )}
 
