@@ -70,20 +70,18 @@ export const useEvents = () => {
 
       if (error) throw error;
 
-      // Filter to include upcoming events AND currently live events (within duration)
+      // Filter using shared visibility helper (includes grace period)
       return (data || [])
-        .filter((event) => {
-          const eventStart = new Date(event.event_date);
-          const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-          const eventEnd = new Date(eventStart.getTime() + durationMs);
-          
-          // Include if event hasn't ended yet (either upcoming or currently live)
-          return now < eventEnd;
-        })
+        .filter((event) => isEventVisible({
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          status: event.status,
+        }))
         .map((event) => {
           const eventDate = new Date(event.event_date);
           const durationMs = (event.duration_minutes || 60) * 60 * 1000;
           const eventEnd = new Date(eventDate.getTime() + durationMs);
+          const now = new Date();
           const isLive = now >= eventDate && now < eventEnd;
           
           return {
@@ -97,6 +95,8 @@ export const useEvents = () => {
             tags: event.tags || [],
             status: isLive ? "live" : (event.status || "upcoming"),
             eventDate,
+            event_date_raw: event.event_date,
+            duration_minutes: event.duration_minutes || 60,
           };
         });
     },
