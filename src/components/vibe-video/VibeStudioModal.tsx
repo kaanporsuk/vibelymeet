@@ -997,17 +997,14 @@ export const VibeStudioModal = ({
 
               {/* Posted State - Note */}
               {stage === "posted" && !isProcessing && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute bottom-44 left-4 right-4 z-20"
-                >
-                  <div className="glass-card p-3 rounded-xl text-center">
-                    <p className="text-xs text-muted-foreground">
-                      ✨ This is how others will see your Vibe
-                    </p>
-                  </div>
-                </motion.div>
+                <div className="absolute bottom-20 left-0 right-0 flex justify-center pointer-events-none z-10 px-6">
+                  <span
+                    className="text-xs tracking-wide text-center"
+                    style={{ color: 'rgba(255,255,255,0.4)' }}
+                  >
+                    ✦ others see exactly this
+                  </span>
+                </div>
               )}
             </div>
           )}
