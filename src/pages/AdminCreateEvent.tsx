@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -14,12 +14,16 @@ import {
   Save,
   Eye,
   Zap,
+  Upload,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { uploadEventCoverToBunny } from "@/services/eventCoverUploadService";
 
 const eventThemes = [
   { id: "tech", label: "Tech Founders", emoji: "💻", color: "from-cyan-500 to-blue-600" },
