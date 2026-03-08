@@ -22,7 +22,7 @@ export interface ProfileData {
   prompts: { question: string; answer: string }[];
   photos: string[];
   avatarUrl: string | null;
-  videoIntroUrl: string | null;
+  
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
