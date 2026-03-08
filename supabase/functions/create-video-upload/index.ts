@@ -48,7 +48,44 @@ serve(async (req) => {
       );
     }
 
-    // 3. Create a video object in Bunny Stream
+    // 3. Fetch current profile to check for existing video
+    const adminSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const { data: profile } = await adminSupabase
+      .from("profiles")
+      .select("bunny_video_uid")
+      .eq("id", user.id)
+      .single();
+
+    const existingVideoId = profile?.bunny_video_uid;
+
+    // 4. Delete the old Bunny video if one exists
+    if (existingVideoId) {
+      try {
+        const deleteResponse = await fetch(
+          `https://video.bunnycdn.com/library/${libraryId}/videos/${existingVideoId}`,
+          {
+            method: "DELETE",
+            headers: { "AccessKey": apiKey },
+          }
+        );
+        console.log(`[create-video-upload] Deleted old video ${existingVideoId}: ${deleteResponse.status}`);
+
+        // Clear the old UID immediately so stale references don't linger
+        await adminSupabase
+          .from("profiles")
+          .update({ bunny_video_uid: null, bunny_video_status: "none" })
+          .eq("id", user.id);
+      } catch (deleteErr) {
+        // Log but don't block — old video cleanup is best-effort
+        console.error("[create-video-upload] Old video delete failed:", deleteErr);
+      }
+    }
+
+    // 5. Create a new video object in Bunny Stream
     const createResponse = await fetch(
       `https://video.bunnycdn.com/library/${libraryId}/videos`,
       {
@@ -72,9 +109,8 @@ serve(async (req) => {
 
     const { guid: videoId } = await createResponse.json();
 
-    // 4. Compute SHA256 signature for tus upload authentication
-    // Formula: SHA256(libraryId + apiKey + expirationTime + videoId)
-    const expirationTime = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+    // 6. Compute SHA256 signature for tus upload authentication
+    const expirationTime = Math.floor(Date.now() / 1000) + 3600;
     const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
     const encoder = new TextEncoder();
     const data = encoder.encode(signatureInput);
@@ -82,17 +118,13 @@ serve(async (req) => {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const signature = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
 
-    // 5. Mark profile as uploading in DB
-    const adminSupabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // 7. Mark profile as uploading in DB
     await adminSupabase
       .from("profiles")
       .update({ bunny_video_uid: videoId, bunny_video_status: "uploading" })
       .eq("id", user.id);
 
-    // 6. Return tus credentials to client
+    // 8. Return tus credentials to client
     return new Response(
       JSON.stringify({
         success: true,
