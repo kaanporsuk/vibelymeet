@@ -220,7 +220,7 @@ interface UserProfile {
   lifestyle: Record<string, string>;
   verified: boolean;
   photoVerified: boolean;
-  videoIntroUrl: string | null;
+  
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
