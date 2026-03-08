@@ -41,7 +41,7 @@ import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificati
 import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
