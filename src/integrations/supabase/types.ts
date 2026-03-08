@@ -937,6 +937,7 @@ export type Database = {
           height_cm: number | null
           id: string
           interested_in: string[] | null
+          is_premium: boolean
           is_suspended: boolean | null
           job: string | null
           last_seen_at: string | null
@@ -982,6 +983,7 @@ export type Database = {
           height_cm?: number | null
           id: string
           interested_in?: string[] | null
+          is_premium?: boolean
           is_suspended?: boolean | null
           job?: string | null
           last_seen_at?: string | null
@@ -1027,6 +1029,7 @@ export type Database = {
           height_cm?: number | null
           id?: string
           interested_in?: string[] | null
+          is_premium?: boolean
           is_suspended?: boolean | null
           job?: string | null
           last_seen_at?: string | null
