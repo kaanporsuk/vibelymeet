@@ -69,6 +69,7 @@ const Settings = () => {
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { isGranted, requestPermission } = usePushNotifications();
+  const { credits } = useCredits();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     matches: true,
