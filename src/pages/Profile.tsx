@@ -485,8 +485,8 @@ const Profile = () => {
       setEditPhotoFiles([]);
       toast.success("Profile updated!");
     } catch (error) {
-      console.error("Error saving profile:", error);
-      toast.error("Failed to save changes");
+      console.error("[Profile] Failed to save:", error);
+      toast.error(`Failed to save: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsSaving(false);
     }

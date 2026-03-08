@@ -47,10 +47,13 @@ serve(async (req) => {
     }
 
     // Validate file type
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic"];
+    const allowedTypes = [
+      "image/jpeg", "image/jpg", "image/png",
+      "image/webp", "image/heic", "image/heif",
+    ];
     if (!allowedTypes.includes(file.type)) {
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid file type. Use JPEG, PNG, or WebP." }),
+        JSON.stringify({ success: false, error: "Invalid file type. Use JPEG, PNG, WebP, or HEIC." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -67,9 +70,14 @@ serve(async (req) => {
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
     const storageHostname = "de.storage.bunnycdn.com";
 
-    // Build storage path: photos/{userId}/{timestamp}.jpg
-    const ext = file.type === "image/png" ? "png" : 
-                file.type === "image/webp" ? "webp" : "jpg";
+    // Build storage path: photos/{userId}/{timestamp}.{ext}
+    const extMap: Record<string, string> = {
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/heic": "heic",
+      "image/heif": "heic",
+    };
+    const ext = extMap[file.type] ?? "jpg";
     const timestamp = Date.now();
     const storagePath = `photos/${user.id}/${timestamp}.${ext}`;
 
