@@ -850,14 +850,17 @@ const Profile = () => {
 
                 {/* Centered play button */}
                 {hasVibeVideo && (
-                  <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    className="absolute inset-0 flex items-center justify-center"
+                    onClick={(e) => { e.stopPropagation(); setShowVibePlayer(true); }}
+                  >
                     <div
                       className="w-16 h-16 rounded-full flex items-center justify-center"
                       style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.3)' }}
                     >
                       <Play className="w-7 h-7 text-white ml-1" />
                     </div>
-                  </div>
+                  </button>
                 )}
 
                 {/* Caption overlay at bottom */}
