@@ -132,6 +132,32 @@ const Settings = () => {
         {/* Premium Status / Upgrade CTA */}
         <PremiumSettingsCard />
 
+        {/* Credits Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-card p-4"
+        >
+          <button
+            onClick={() => navigate("/credits")}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
+                <p className="text-xs text-muted-foreground">
+                  {credits.extraTime} Extra Time · {credits.extendedVibe} Extended Vibe
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </button>
+        </motion.div>
+
         {/* Notifications Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
