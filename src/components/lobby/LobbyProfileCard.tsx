@@ -13,6 +13,20 @@ interface LobbyProfileCardProps {
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
+  const [profileIsPremium, setProfileIsPremium] = useState(false);
+
+  // Fetch premium status for this profile
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", profile.profile_id)
+        .eq("status", "active")
+        .maybeSingle();
+      setProfileIsPremium(!!data);
+    })();
+  }, [profile.profile_id]);
 
   // Fetch vibe tags for this profile
   useEffect(() => {
