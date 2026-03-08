@@ -644,6 +644,15 @@ export const VibeStudioModal = ({
     }
   }, [stage]);
 
+  // Detach camera stream when entering preview stage
+  useEffect(() => {
+    if (stage !== "preview") return;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.src = "";
+    }
+  }, [stage]);
+
   // Auto-play preview video when entering preview stage
   useEffect(() => {
     if (stage !== "preview") return;
