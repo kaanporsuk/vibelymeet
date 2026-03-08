@@ -526,8 +526,20 @@ export const VibeStudioModal = ({
     }
   }, []);
 
-  const toggleCamera = useCallback(() => {
-    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  const toggleCamera = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      
+      if (videoDevices.length < 2) {
+        toast.error("No back camera available on this device");
+        return;
+      }
+      
+      setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    } catch {
+      toast.error("Camera switch not supported on this device");
+    }
   }, []);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
