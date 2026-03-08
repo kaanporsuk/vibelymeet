@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
 import { isEventExpired } from "@/utils/eventUtils";
+import { eventCoverHeroUrl } from "@/utils/imageUrl";
 
 interface FeaturedEventCardProps {
   id: string;
