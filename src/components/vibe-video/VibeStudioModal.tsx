@@ -40,7 +40,7 @@ const COACH_TIPS = [
 ];
 
 const RECORDING_DURATION = 15;
-const MAX_CLIP_DURATION = 15;
+const MAX_CLIP_DURATION = 20;
 // No file size limit — tus uploads to Bunny handle any size
 // Enforcing max 20 seconds duration instead
 
