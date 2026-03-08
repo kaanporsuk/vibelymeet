@@ -4,8 +4,8 @@
   "description": "Live video speed dating — meet real people face-to-face",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#6C5CE7",
+  "background_color": "#0D0D1A",
+  "theme_color": "#8B5CF6",
   "orientation": "portrait",
   "icons": [
     {
@@ -23,6 +23,11 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
     }
   ]
 }
