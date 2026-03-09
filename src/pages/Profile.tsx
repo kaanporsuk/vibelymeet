@@ -277,6 +277,7 @@ type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | 
 const Profile = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
+  const { isPremium, premiumUntil } = usePremium();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
