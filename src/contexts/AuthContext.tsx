@@ -55,6 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           Sentry.setUser({ id: session.user.id });
           Sentry.addBreadcrumb({ category: "auth", message: "User signed in", level: "info" });
+          identifyUser(session.user.id, {
+            email: session.user.email,
+            created_at: session.user.created_at,
+          });
           setTimeout(() => {
             fetchUserProfile(session.user.id);
             checkAdminRole(session.user.id);
