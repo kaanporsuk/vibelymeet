@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { trackEvent } from "@/lib/analytics";
 
 export const usePremium = () => {
   const [userId, setUserId] = useState<string | null>(null);
@@ -37,6 +38,17 @@ export const usePremium = () => {
     },
     enabled: !!userId,
   });
+
+  const prevPremium = useRef<boolean | null>(null);
+
+  // Track premium activation
+  useEffect(() => {
+    const current = data?.is_premium ?? false;
+    if (prevPremium.current === false && current) {
+      trackEvent('premium_activated');
+    }
+    prevPremium.current = current;
+  }, [data?.is_premium]);
 
   // Realtime subscription for instant updates
   useEffect(() => {

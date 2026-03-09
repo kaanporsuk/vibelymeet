@@ -17,6 +17,7 @@ import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { PremiumPill } from "@/components/premium/PremiumPill";
+import { trackEvent } from "@/lib/analytics";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -112,6 +113,7 @@ const EventLobby = () => {
 
   // Set status to browsing on mount, offline on unmount
   useEffect(() => {
+    if (eventId) trackEvent('lobby_entered', { event_id: eventId });
     setStatus("browsing");
     return () => {
       setStatus("offline");

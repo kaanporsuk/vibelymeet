@@ -5,6 +5,7 @@ import { Camera, RotateCcw, Check, AlertCircle, Loader2, Shield, Clock } from "l
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { trackEvent } from "@/lib/analytics";
 
 interface SimplePhotoVerificationProps {
   open: boolean;
@@ -177,6 +178,7 @@ export function SimplePhotoVerification({
         .eq("id", userId);
 
       // Do NOT set photo_verified = true — admin will do that
+      trackEvent('photo_verification_submitted');
       setScreen("submitted");
       toast.success("Selfie submitted for review!");
 

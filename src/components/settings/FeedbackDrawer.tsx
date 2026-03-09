@@ -14,6 +14,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 const CATEGORIES = [
   { label: "🐛 Bug Report", value: "bug" },
@@ -70,6 +71,7 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
       return;
     }
 
+    trackEvent('feedback_submitted', { category });
     toast.success("Thanks for your feedback! 💜");
     setCategory(null);
     setMessage("");

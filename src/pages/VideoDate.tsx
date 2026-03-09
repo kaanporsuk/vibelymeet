@@ -26,6 +26,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
+import { trackEvent } from "@/lib/analytics";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -285,9 +286,10 @@ const VideoDate = () => {
     };
   }, [id]);
 
-  // Progressive blur: clear over 10s when connected
+  // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
     if (isConnected) {
+      trackEvent('video_date_started', { session_id: id, phase: 'handshake' });
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setBlurAmount(0);
@@ -444,6 +446,7 @@ const VideoDate = () => {
     setShowMutualToast(false);
     setPhase("date");
     setTimeLeft(DATE_TIME);
+    trackEvent('video_date_extended', { session_id: id });
     setShowIceBreaker(true);
     setTimeout(() => setShowIceBreaker(false), 30000);
 
@@ -462,6 +465,7 @@ const VideoDate = () => {
         type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
       if (success) {
         Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
+        trackEvent('credit_used', { type, minutes });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
       }
       return success;
@@ -471,6 +475,12 @@ const VideoDate = () => {
 
   // End call: update session, show survey
   const handleCallEnd = useCallback(async () => {
+    const totalTime = phase === "handshake" ? HANDSHAKE_TIME : HANDSHAKE_TIME + DATE_TIME;
+    trackEvent('video_date_ended', {
+      session_id: id,
+      duration_seconds: totalTime - (timeLeft ?? 0),
+      phase,
+    });
     setPhase("ended");
     setShowFeedback(true);
     setStatus("in_survey");

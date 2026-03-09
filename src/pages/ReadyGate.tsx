@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { trackEvent } from "@/lib/analytics";
 
 interface PartnerProfile {
   name: string;
@@ -370,7 +371,7 @@ const ReadyGate = () => {
               <div className="flex justify-center">
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={markReady}
+                  onClick={() => { trackEvent('ready_gate_ready', { session_id: id }); markReady(); }}
                   className="relative"
                 >
                   {/* Countdown ring */}
@@ -428,6 +429,7 @@ const ReadyGate = () => {
                 <span className="text-muted-foreground/30">·</span>
                 <button
                   onClick={() => {
+                    trackEvent('ready_gate_skipped', { session_id: id });
                     skip();
                   }}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCredits } from "@/hooks/useCredits";
+import { trackEvent } from "@/lib/analytics";
 
 const PACK_LABELS: Record<string, string> = {
   extra_time_3: "+3 Extra Time credits",
@@ -18,9 +19,8 @@ const CreditsSuccess = () => {
   const pack = params.get("pack") || "";
   const label = PACK_LABELS[pack] || "Credits added";
 
-  // Refetch credits on mount and clean up URL
-  // Note: webhook may be delayed up to 30s, so balance might not update immediately
   useEffect(() => {
+    if (pack) trackEvent('credit_purchase_completed', { pack });
     refetch();
     // Clean up URL to prevent re-triggering on refresh
     window.history.replaceState({}, document.title, "/credits/success");

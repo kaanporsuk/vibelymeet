@@ -201,6 +201,7 @@ const EventDetails = () => {
     // The onSuccess callback won't fire for paid events (user is redirected),
     // but we handle it defensively here anyway.
 
+    trackEvent('event_registered', { event_id: event.id, event_title: event.title, is_free: event.isFree });
     await refetchRegistration();
     queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
     queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });

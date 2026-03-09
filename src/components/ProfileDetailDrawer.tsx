@@ -163,7 +163,7 @@ export const ProfileDetailDrawer = ({
           transition={{ delay: 0.1 }}
           className="glass-card p-5 rounded-2xl"
         >
-          <p className="text-lg leading-relaxed text-foreground">{profileData.bio}</p>
+          <p className="ph-no-capture text-lg leading-relaxed text-foreground">{profileData.bio}</p>
         </motion.div>
       );
     }
