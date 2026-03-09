@@ -91,8 +91,12 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
-    onCallEnded: () => {},
-    onPartnerJoined: () => {},
+    onCallEnded: () => {
+      Sentry.addBreadcrumb({ category: "video-date", message: "Call ended", level: "info" });
+    },
+    onPartnerJoined: () => {
+      Sentry.addBreadcrumb({ category: "video-date", message: "Partner connected", level: "info" });
+    },
     onPartnerLeft: () => {
       reconnection.startGraceWindow();
     },
