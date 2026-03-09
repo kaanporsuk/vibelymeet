@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { trackEvent } from "@/lib/analytics";
 
 export const usePremium = () => {
   const [userId, setUserId] = useState<string | null>(null);
