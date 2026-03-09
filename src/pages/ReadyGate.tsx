@@ -371,7 +371,7 @@ const ReadyGate = () => {
               <div className="flex justify-center">
                 <motion.button
                   whileTap={{ scale: 0.95 }}
-                  onClick={markReady}
+                  onClick={() => { trackEvent('ready_gate_ready', { session_id: id }); markReady(); }}
                   className="relative"
                 >
                   {/* Countdown ring */}
