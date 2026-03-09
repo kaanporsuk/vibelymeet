@@ -38,7 +38,8 @@ import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getImageUrl, fullScreenUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
-
+import AdminPremiumModal from "./AdminPremiumModal";
+import { Crown } from "lucide-react";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
