@@ -300,61 +300,10 @@ const Settings = () => {
       </main>
 
       {/* Notifications Drawer */}
-      <Drawer open={activeDrawer === "notifications"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle className="font-display flex items-center gap-2">
-              <Bell className="w-5 h-5 text-primary" />
-              Notification Preferences
-            </DrawerTitle>
-            <DrawerDescription>
-              Choose what you want to be notified about
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4 overflow-y-auto">
-            {!isGranted && (
-              <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 mb-4">
-                <p className="text-sm text-foreground mb-2">
-                  Enable browser notifications to receive alerts
-                </p>
-                <Button variant="gradient" size="sm" onClick={requestPermission}>
-                  Enable Notifications
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {[
-                { key: "matches" as const, icon: Heart, label: "New Matches", description: "When someone likes you back" },
-                { key: "messages" as const, icon: MessageSquare, label: "Messages", description: "New messages from matches" },
-                { key: "events" as const, icon: Calendar, label: "Events", description: "Event reminders and updates" },
-                { key: "dateReminders" as const, icon: Bell, label: "Date Reminders", description: "Upcoming date notifications" },
-                { key: "dailyDrop" as const, icon: Sparkles, label: "Daily Drop", description: "Daily match suggestions" },
-                { key: "sounds" as const, icon: Volume2, label: "Sounds", description: "Play notification sounds" },
-              ].map(({ key, icon: Icon, label, description }) => (
-                <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-secondary/40">
-                  <div className="flex items-center gap-3">
-                    <Icon className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{label}</p>
-                      <p className="text-xs text-muted-foreground">{description}</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={notificationSettings[key]}
-                    onCheckedChange={(checked) => updateNotification(key, checked)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="gradient">Done</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <NotificationsDrawer
+        open={activeDrawer === "notifications"}
+        onOpenChange={(open) => !open && setActiveDrawer(null)}
+      />
 
       {/* Privacy Drawer */}
       <Drawer open={activeDrawer === "privacy"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
