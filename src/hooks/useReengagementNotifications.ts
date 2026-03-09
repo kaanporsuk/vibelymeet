@@ -27,7 +27,7 @@ export function useReengagementNotifications() {
       const { data: drops, error } = await supabase
         .from('daily_drops')
         .select('created_at, status')
-        .eq('user_id', user.id)
+        .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
         .order('created_at', { ascending: false })
         .limit(1);
 

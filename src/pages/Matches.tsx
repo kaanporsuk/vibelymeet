@@ -253,7 +253,7 @@ const Matches = () => {
               </TabsTrigger>
               <TabsTrigger value="drops" className="text-sm relative">
                 <Droplet className="w-4 h-4 mr-1.5" />
-                Daily Drops
+                Daily Drop
                 {pendingDropsCount > 0 && (
                   <motion.span 
                     animate={{ 
