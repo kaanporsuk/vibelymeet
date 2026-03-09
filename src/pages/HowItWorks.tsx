@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Video, Heart, Sparkles, Calendar, MessageCircle, Shield } from "lucide-react";
+import { ArrowLeft, Video, Heart, Sparkles, Calendar, MessageCircle, Shield, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 
