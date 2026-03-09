@@ -25,6 +25,28 @@ const AdminEventControls = ({
   const [reminderSentAt, setReminderSentAt] = useState<number | null>(null);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
 
+  const notifyRegistrants = async (category: string, title: string, body: string) => {
+    const { data: registrations } = await supabase
+      .from("event_registrations")
+      .select("profile_id")
+      .eq("event_id", eventId);
+
+    if (registrations) {
+      await Promise.allSettled(
+        registrations.map((r) =>
+          sendNotification({
+            user_id: r.profile_id,
+            category,
+            title,
+            body,
+            data: { url: `/event/${eventId}/lobby`, event_id: eventId },
+          })
+        )
+      );
+    }
+    return registrations?.length || 0;
+  };
+
   const endEvent = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
@@ -33,7 +55,6 @@ const AdminEventControls = ({
         .eq("id", eventId);
       if (error) throw error;
 
-      // Broadcast event ended via Realtime so all clients see EventEndedModal
       const channel = supabase.channel(`event-status-${eventId}`);
       await channel.send({
         type: "broadcast",
