@@ -175,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     Sentry.addBreadcrumb({ category: "auth", message: "User signed out", level: "info" });
     Sentry.setUser(null);
+    removeExternalUserId();
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

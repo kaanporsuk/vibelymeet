@@ -29,4 +29,6 @@ Sentry.init({
   },
 });
 
+initOneSignal();
+
 createRoot(document.getElementById("root")!).render(<App />);
