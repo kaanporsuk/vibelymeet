@@ -99,13 +99,6 @@ const Settings = () => {
   const handleDeleteAccount = async (reason: string | null) => {
     await deleteAccount(reason);
   };
-
-  const updateNotification = (key: keyof NotificationSettings, value: boolean) => {
-    setNotificationSettings(prev => ({ ...prev, [key]: value }));
-    toast.success(`${key.charAt(0).toUpperCase() + key.slice(1)} notifications ${value ? 'enabled' : 'disabled'}`);
-  };
-
-  const updatePrivacy = (key: keyof PrivacySettings, value: boolean) => {
     setPrivacySettings(prev => ({ ...prev, [key]: value }));
     toast.success("Privacy setting updated");
   };
