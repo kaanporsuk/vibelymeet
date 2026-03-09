@@ -446,6 +446,7 @@ const VideoDate = () => {
     setShowMutualToast(false);
     setPhase("date");
     setTimeLeft(DATE_TIME);
+    trackEvent('video_date_extended', { session_id: id });
     setShowIceBreaker(true);
     setTimeout(() => setShowIceBreaker(false), 30000);
 
