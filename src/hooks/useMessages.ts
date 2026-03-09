@@ -89,6 +89,26 @@ export const useSendMessage = () => {
         captureSupabaseError("send-message", error);
         throw error;
       }
+
+      // Send push notification to recipient
+      if (match) {
+        const recipientId = match.profile_id_1 === user.id ? match.profile_id_2 : match.profile_id_1;
+        const { data: senderProfile } = await supabase
+          .from("profiles")
+          .select("name")
+          .eq("id", user.id)
+          .single();
+        
+        const msgPreview = content.length > 80 ? content.slice(0, 80) + "…" : content;
+        sendNotification({
+          user_id: recipientId,
+          category: "messages",
+          title: senderProfile?.name || "New message",
+          body: msgPreview,
+          data: { url: `/chat/${recipientId}`, match_id: matchId },
+        });
+      }
+
       return data;
     },
     onSuccess: () => {
