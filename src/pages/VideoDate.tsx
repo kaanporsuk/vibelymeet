@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { User } from "lucide-react";
+import * as Sentry from "@sentry/react";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
