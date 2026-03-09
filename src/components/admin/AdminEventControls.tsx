@@ -22,6 +22,8 @@ const AdminEventControls = ({
 }: AdminEventControlsProps) => {
   const queryClient = useQueryClient();
   const [isEnding, setIsEnding] = useState(false);
+  const [reminderSentAt, setReminderSentAt] = useState<number | null>(null);
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
 
   const endEvent = useMutation({
     mutationFn: async () => {
