@@ -286,9 +286,10 @@ const VideoDate = () => {
     };
   }, [id]);
 
-  // Progressive blur: clear over 10s when connected
+  // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
     if (isConnected) {
+      trackEvent('video_date_started', { session_id: id, phase: 'handshake' });
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setBlurAmount(0);
