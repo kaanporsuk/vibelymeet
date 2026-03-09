@@ -127,18 +127,21 @@ export async function getInactiveUsers(daysInactive: number = 3): Promise<Inacti
   if (profilesError) throw profilesError;
 
   // Get latest drop activity for each user
-  const { data: latestDrops, error: dropsError } = await supabase
+  const { data: latestDropsA, error: dropsErrorA } = await supabase
     .from('daily_drops')
-    .select('user_id, created_at')
+    .select('user_a_id, user_b_id, created_at')
     .order('created_at', { ascending: false });
 
-  if (dropsError) throw dropsError;
+  if (dropsErrorA) throw dropsErrorA;
 
   // Create a map of user_id to latest activity
   const activityMap = new Map<string, string>();
-  latestDrops?.forEach(drop => {
-    if (!activityMap.has(drop.user_id)) {
-      activityMap.set(drop.user_id, drop.created_at);
+  latestDropsA?.forEach(drop => {
+    if (!activityMap.has(drop.user_a_id)) {
+      activityMap.set(drop.user_a_id, drop.created_at);
+    }
+    if (!activityMap.has(drop.user_b_id)) {
+      activityMap.set(drop.user_b_id, drop.created_at);
     }
   });
 

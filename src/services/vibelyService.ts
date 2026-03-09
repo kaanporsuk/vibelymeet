@@ -8,7 +8,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { MatchCandidate, DailyDrop, DropHistory } from "@/types/dailyDrop";
+import { DailyDropData, DailyDropPartner, PastDrop } from "@/types/dailyDrop";
 import { GamePayload } from "@/types/games";
 import { TimeBlock, DateProposal } from "@/hooks/useSchedule";
 

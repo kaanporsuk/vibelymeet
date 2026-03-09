@@ -312,7 +312,10 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
         )}
 
         {partner.bunny_video_uid && partner.bunny_video_status === 'ready' && (
-          <VibeVideoThumbnail videoUid={partner.bunny_video_uid} caption={partner.vibe_caption} />
+          <div className="flex items-center gap-2 text-xs text-primary">
+            <Sparkles className="w-3.5 h-3.5" />
+            Has a Vibe Video
+          </div>
         )}
 
         {pickReasons.length > 0 && (

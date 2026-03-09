@@ -526,17 +526,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 <TabsContent value="activity" className="mt-4 space-y-4">
                   <h4 className="font-semibold text-foreground">Daily Drop Activity</h4>
                   <div className="space-y-2">
-                    {dailyDrops?.map((drop) => {
-                      const candidate = dropProfiles?.[drop.candidate_id];
+                    {dailyDrops?.map((drop: any) => {
+                      const partnerId = drop.user_a_id === userId ? drop.user_b_id : drop.user_a_id;
+                      const partner = dropProfiles?.[partnerId];
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={avatarPreset(candidate?.avatar_url) || avatarPreset(candidate?.photos?.[0])} />
-                            <AvatarFallback>{candidate?.name?.[0] || '?'}</AvatarFallback>
+                            <AvatarImage src={avatarPreset(partner?.avatar_url) || avatarPreset(partner?.photos?.[0])} />
+                            <AvatarFallback>{partner?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <p className="text-sm font-medium text-foreground">
-                              {candidate?.name || 'Unknown'}
+                              {partner?.name || 'Unknown'}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {format(new Date(drop.created_at), 'MMM d, yyyy')}
@@ -545,16 +546,16 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                           <Badge 
                             variant="outline"
                             className={
-                              drop.status === 'replied' || drop.status === 'matched'
+                              drop.status === 'matched'
                                 ? 'bg-green-500/10 text-green-400 border-green-500/30'
                                 : drop.status === 'passed'
                                 ? 'bg-red-500/10 text-red-400 border-red-500/30'
                                 : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
                             }
                           >
-                            {drop.status === 'replied' && <ThumbsUp className="w-3 h-3 mr-1" />}
+                            {drop.status === 'matched' && <ThumbsUp className="w-3 h-3 mr-1" />}
                             {drop.status === 'passed' && <ThumbsDown className="w-3 h-3 mr-1" />}
-                            {drop.status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
+                            {drop.status.startsWith('active') && <Clock className="w-3 h-3 mr-1" />}
                             {drop.status}
                           </Badge>
                         </div>
