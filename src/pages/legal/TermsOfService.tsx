@@ -115,6 +115,7 @@ const TermsOfService = () => {
       <p className="mt-3">© {new Date().getFullYear()} Vibely. All rights reserved.</p>
     </footer>
   </div>
-);
+  );
+};
 
 export default TermsOfService;
