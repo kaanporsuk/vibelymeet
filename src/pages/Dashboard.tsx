@@ -109,9 +109,6 @@ const Dashboard = () => {
     setShowNotificationFlow(true);
   };
 
-  useEffect(() => {
-    if (isGranted) scheduleDailyDropNotification();
-  }, [isGranted, scheduleDailyDropNotification]);
 
   useEffect(() => {
     if (isGranted && proposals.length > 0) {
