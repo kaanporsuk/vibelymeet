@@ -6,10 +6,7 @@ import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import {
   Send,
-  Plus,
-  Mic,
   Video,
-  X,
   CalendarDays,
   Gamepad2,
 } from "lucide-react";
@@ -19,6 +16,7 @@ import { VideoDateCard } from "@/components/chat/VideoDateCard";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
+import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -64,7 +62,6 @@ const Chat = () => {
   const { user } = useAuth();
   const currentUserId = user?.id || "";
   
-  // Fetch real messages and other user data
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
   const { mutate: sendMessage } = useSendMessage();
   
@@ -72,8 +69,8 @@ const Chat = () => {
   const [newMessage, setNewMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
-  const [showMediaOptions, setShowMediaOptions] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
   const [proposals, setProposals] = useState<DateProposal[]>([]);
   const [showArcade, setShowArcade] = useState(false);
@@ -82,16 +79,13 @@ const Chat = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Match call hook for voice/video calls
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || "",
     onCallEnded: () => {},
   });
 
-  // Real-time message subscription
   useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
 
-  // Derive chat user info from real data or fallback
   const otherUser = useMemo(() => {
     if (chatData?.otherUser) {
       const ou = chatData.otherUser;
@@ -132,7 +126,6 @@ const Chat = () => {
     };
   }, [chatData?.otherUser, id]);
 
-  // Map real messages to chat format
   const messages: ChatMessage[] = useMemo(() => {
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => ({
       id: m.id,
@@ -147,7 +140,6 @@ const Chat = () => {
     return [...realMsgs, ...localMessages];
   }, [chatData?.messages, localMessages]);
 
-  // Game creation handlers
   const createGameMessage = (payload: GamePayload): GameMessage => ({
     id: `game-${Date.now()}`,
     senderId: "me",
@@ -177,7 +169,6 @@ const Chat = () => {
     );
   };
 
-  // Keywords that trigger date suggestion
   const dateKeywords = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 
   const scrollToBottom = useCallback(() => {
@@ -188,14 +179,12 @@ const Chat = () => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  // Check for date keywords
   useEffect(() => {
     const lowerMessage = newMessage.toLowerCase();
     const hasKeyword = dateKeywords.some((keyword) => lowerMessage.includes(keyword));
     setShowDateSuggestion(hasKeyword && newMessage.length > 3);
   }, [newMessage]);
 
-  // Group messages by sender for proper styling
   const groupedMessages = useMemo(() => {
     return messages.map((message, index) => {
       const prevMessage = messages[index - 1];
@@ -225,7 +214,6 @@ const Chat = () => {
     setShowDateSuggestion(false);
 
     if (chatData?.matchId) {
-      // Send real message via Supabase
       const tempId = `temp-${Date.now()}`;
       const tempMsg: ChatMessage = {
         id: tempId,
@@ -241,7 +229,6 @@ const Chat = () => {
         { matchId: chatData.matchId, content: text },
         {
           onSuccess: () => {
-            // Remove temp message once real data refreshes
             setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
           },
           onError: () => {
@@ -299,6 +286,48 @@ const Chat = () => {
     }
   };
 
+  const handleVideoRecordingComplete = async (videoBlob: Blob, duration: number) => {
+    setIsRecordingVideo(false);
+
+    if (!chatData?.matchId || !user?.id) {
+      toast.error("Cannot send video message right now");
+      return;
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const timestamp = Date.now();
+      const filePath = `${chatData.matchId}/${timestamp}.webm`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("chat-videos")
+        .upload(filePath, videoBlob, {
+          contentType: videoBlob.type || "video/webm",
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from("chat-videos")
+        .getPublicUrl(filePath);
+
+      const { error: msgError } = await supabase.from("messages").insert({
+        match_id: chatData.matchId,
+        sender_id: user.id,
+        content: `📹 Video message (${duration}s)`,
+      });
+
+      if (msgError) throw msgError;
+      toast.success("Video message sent!");
+    } catch (err) {
+      console.error("Video message error:", err);
+      toast.error("Failed to send video message");
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -320,10 +349,8 @@ const Chat = () => {
 
   return (
     <div className="h-[100dvh] bg-background flex flex-col relative overflow-hidden">
-      {/* Subtle background texture */}
       <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent pointer-events-none" />
 
-      {/* Header */}
       <ChatHeader
         user={otherUser}
         isTyping={isTyping}
@@ -339,7 +366,6 @@ const Chat = () => {
         onFocusInput={() => inputRef.current?.focus()}
       />
 
-      {/* Messages */}
       <main className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 relative z-10">
         {isLoadingChat ? (
           <div className="flex items-center justify-center h-full">
@@ -446,7 +472,6 @@ const Chat = () => {
               )
             )}
 
-            {/* Date Proposals */}
             {proposals.map((proposal) => (
               <div key={proposal.id} className="flex justify-end">
                 <DateProposalTicket
@@ -457,7 +482,6 @@ const Chat = () => {
               </div>
             ))}
 
-            {/* Game Messages */}
             {gameMessages.map((gameMsg) => (
               <div
                 key={gameMsg.id}
@@ -476,7 +500,6 @@ const Chat = () => {
               </div>
             ))}
 
-            {/* Typing indicator */}
             <AnimatePresence>
               {isTyping && (
                 <motion.div
@@ -495,65 +518,23 @@ const Chat = () => {
 
       {/* Input Area */}
       <div className="relative z-40 shrink-0">
-        {/* Date suggestion chip */}
         <DateSuggestionChip
           visible={showDateSuggestion}
           onSuggest={handleSendVideoInvite}
           onDismiss={() => setShowDateSuggestion(false)}
         />
 
-        {/* Media options */}
-        <AnimatePresence>
-          {showMediaOptions && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              className="absolute bottom-full left-4 mb-2 glass-card rounded-2xl p-2 border border-border/50"
-            >
-              <div className="flex gap-2">
-                {[
-                  { icon: Video, label: "Video", color: "text-neon-pink" },
-                  { icon: Mic, label: "Voice", color: "text-neon-violet" },
-                ].map(({ icon: Icon, label, color }) => (
-                  <button
-                    key={label}
-                    onClick={() => {
-                      setShowMediaOptions(false);
-                      toast.info(`${label} feature coming soon!`);
-                    }}
-                    className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-secondary transition-colors"
-                  >
-                    <div className={cn("w-10 h-10 rounded-full bg-secondary flex items-center justify-center", color)}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="text-xs text-muted-foreground">{label}</span>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* Input bar */}
         <div className="glass-card border-t border-border/50 p-2 pb-safe">
           <div className="flex items-end gap-1.5 max-w-lg mx-auto">
-            {/* Action buttons — compact row */}
+            {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
                 whileTap={{ scale: 0.9 }}
-                onClick={() => setShowMediaOptions(!showMediaOptions)}
-                className={cn(
-                  "w-9 h-9 rounded-full flex items-center justify-center transition-colors",
-                  showMediaOptions ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground hover:bg-secondary/80"
-                )}
+                onClick={() => setIsRecordingVideo(true)}
+                className="w-9 h-9 rounded-full bg-secondary text-foreground hover:bg-secondary/80 flex items-center justify-center transition-colors"
               >
-                <motion.div
-                  animate={{ rotate: showMediaOptions ? 45 : 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  {showMediaOptions ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                </motion.div>
+                <Video className="w-4 h-4" />
               </motion.button>
 
               <motion.button
@@ -573,7 +554,7 @@ const Chat = () => {
               </motion.button>
             </div>
 
-            {/* Text input — takes all remaining space */}
+            {/* Text input */}
             <div className="flex-1 min-w-0">
               <textarea
                 ref={inputRef}
@@ -615,20 +596,13 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* Voice recording overlay */}
+      {/* Video recording overlay */}
       <AnimatePresence>
-        {isRecording && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center"
-          >
-            <VoiceRecorder
-              onRecordingComplete={handleVoiceRecordingComplete}
-              onCancel={() => setIsRecording(false)}
-            />
-          </motion.div>
+        {isRecordingVideo && (
+          <VideoMessageRecorder
+            onRecordingComplete={handleVideoRecordingComplete}
+            onCancel={() => setIsRecordingVideo(false)}
+          />
         )}
       </AnimatePresence>
 
@@ -681,6 +655,7 @@ const Chat = () => {
         onSubmit={(options, prediction) => handleGameCreated({ gameType: "intuition", step: "active", data: { prediction: options[prediction], options, senderChoice: prediction } })}
         matchName={otherUser.name}
       />
+
       {/* Incoming call overlay */}
       <AnimatePresence>
         {matchCall.incomingCall && (
