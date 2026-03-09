@@ -99,6 +99,8 @@ const Settings = () => {
   const handleDeleteAccount = async (reason: string | null) => {
     await deleteAccount(reason);
   };
+
+  const updatePrivacy = (key: keyof PrivacySettings, value: boolean) => {
     setPrivacySettings(prev => ({ ...prev, [key]: value }));
     toast.success("Privacy setting updated");
   };
