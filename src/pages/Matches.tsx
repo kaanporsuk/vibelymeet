@@ -215,13 +215,6 @@ const Matches = () => {
     if (match) setViewProfileMatch(match);
   };
 
-  const handleOpenDropChat = (dropId: string) => {
-    const drop = drops.find(d => d.id === dropId);
-    if (drop) {
-      navigate(`/chat/${drop.candidate.id}`);
-    }
-  };
-
   const handleViewDropProfile = (dropId: string) => {
     toast.info("Viewing profile...");
   };
