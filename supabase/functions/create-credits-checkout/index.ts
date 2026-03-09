@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
       }],
       mode: 'payment',
       success_url: `${req.headers.get('origin')}/credits/success?pack=${packId}`,
-      cancel_url: `${req.headers.get('origin')}/credits`,
+      cancel_url: `${req.headers.get('origin')}/credits?cancelled=true`,
       metadata: {
         type: 'credits_pack',
         supabase_user_id: user.id,
