@@ -13,6 +13,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
+import { sendNotification } from "@/lib/notifications";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
