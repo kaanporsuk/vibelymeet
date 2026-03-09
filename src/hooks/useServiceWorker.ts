@@ -112,7 +112,6 @@ export function useServiceWorker() {
     sendMessage,
     scheduleNotification,
     showNotification,
-    scheduleDailyDropNotification,
     scheduleDateReminder,
   };
 }

@@ -182,7 +182,6 @@ export function usePushNotifications() {
     sendNotification,
     scheduleNotification,
     cancelScheduledNotification,
-    scheduleDailyDropNotification,
     scheduleDateReminder,
   };
 }
