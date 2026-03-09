@@ -145,6 +145,15 @@ const HowItWorks = () => {
           </p>
         </motion.div>
 
+        {/* Legal Links */}
+        <div className="py-4 text-center">
+          <p className="text-xs text-muted-foreground">
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline transition-colors">Privacy Policy</a>
+            {" · "}
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline transition-colors">Terms of Service</a>
+          </p>
+        </div>
+
         {/* CTA */}
         <div className="text-center space-y-4">
           <Button
