@@ -7,12 +7,8 @@ import {
   Shield,
   User,
   LogOut,
-  Volume2,
   ChevronRight,
-  MessageSquare,
   MessageSquareText,
-  Heart,
-  Calendar,
   Sparkles,
   Eye,
   EyeOff,
@@ -32,6 +28,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { NotificationsDrawer } from "@/components/settings/NotificationsDrawer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,21 +44,11 @@ import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDraw
 import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
 import { usePremium } from "@/hooks/usePremium";
 import { format } from "date-fns";
 import { toast } from "sonner";
-
-interface NotificationSettings {
-  matches: boolean;
-  messages: boolean;
-  events: boolean;
-  dateReminders: boolean;
-  dailyDrop: boolean;
-  sounds: boolean;
-}
 
 interface PrivacySettings {
   showOnlineStatus: boolean;
@@ -75,18 +62,13 @@ const Settings = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
-  const { isGranted, requestPermission } = usePushNotifications();
   const { credits } = useCredits();
   const { isPremium, premiumUntil } = usePremium();
 
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
-    matches: true,
-    messages: true,
-    events: true,
-    dateReminders: true,
-    dailyDrop: true,
-    sounds: true,
-  });
+  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const [privacySettings, setPrivacySettings] = useState<PrivacySettings>({
     showOnlineStatus: true,
@@ -96,11 +78,6 @@ const Settings = () => {
     showAge: true,
   });
 
-  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
-
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
     await handleLogout();
@@ -108,11 +85,6 @@ const Settings = () => {
 
   const handleDeleteAccount = async (reason: string | null) => {
     await deleteAccount(reason);
-  };
-
-  const updateNotification = (key: keyof NotificationSettings, value: boolean) => {
-    setNotificationSettings(prev => ({ ...prev, [key]: value }));
-    toast.success(`${key.charAt(0).toUpperCase() + key.slice(1)} notifications ${value ? 'enabled' : 'disabled'}`);
   };
 
   const updatePrivacy = (key: keyof PrivacySettings, value: boolean) => {
@@ -315,61 +287,10 @@ const Settings = () => {
       </main>
 
       {/* Notifications Drawer */}
-      <Drawer open={activeDrawer === "notifications"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle className="font-display flex items-center gap-2">
-              <Bell className="w-5 h-5 text-primary" />
-              Notification Preferences
-            </DrawerTitle>
-            <DrawerDescription>
-              Choose what you want to be notified about
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4 overflow-y-auto">
-            {!isGranted && (
-              <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 mb-4">
-                <p className="text-sm text-foreground mb-2">
-                  Enable browser notifications to receive alerts
-                </p>
-                <Button variant="gradient" size="sm" onClick={requestPermission}>
-                  Enable Notifications
-                </Button>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {[
-                { key: "matches" as const, icon: Heart, label: "New Matches", description: "When someone likes you back" },
-                { key: "messages" as const, icon: MessageSquare, label: "Messages", description: "New messages from matches" },
-                { key: "events" as const, icon: Calendar, label: "Events", description: "Event reminders and updates" },
-                { key: "dateReminders" as const, icon: Bell, label: "Date Reminders", description: "Upcoming date notifications" },
-                { key: "dailyDrop" as const, icon: Sparkles, label: "Daily Drop", description: "Daily match suggestions" },
-                { key: "sounds" as const, icon: Volume2, label: "Sounds", description: "Play notification sounds" },
-              ].map(({ key, icon: Icon, label, description }) => (
-                <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-secondary/40">
-                  <div className="flex items-center gap-3">
-                    <Icon className="w-4 h-4 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{label}</p>
-                      <p className="text-xs text-muted-foreground">{description}</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={notificationSettings[key]}
-                    onCheckedChange={(checked) => updateNotification(key, checked)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="gradient">Done</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <NotificationsDrawer
+        open={activeDrawer === "notifications"}
+        onOpenChange={(open) => !open && setActiveDrawer(null)}
+      />
 
       {/* Privacy Drawer */}
       <Drawer open={activeDrawer === "privacy"} onOpenChange={(open) => !open && setActiveDrawer(null)}>

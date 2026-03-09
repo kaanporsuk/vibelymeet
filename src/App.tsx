@@ -45,6 +45,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 
 const AppContent = () => {
@@ -88,6 +89,7 @@ const App = () => (
               <AppContent />
               <NotificationContainer />
               <NotificationManager />
+              <PushPermissionPrompt />
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />

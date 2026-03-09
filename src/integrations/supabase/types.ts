@@ -827,6 +827,38 @@ export type Database = {
           },
         ]
       }
+      match_notification_mutes: {
+        Row: {
+          created_at: string | null
+          id: string
+          match_id: string
+          muted_until: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          match_id: string
+          muted_until?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          match_id?: string
+          muted_until?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_notification_mutes_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       matches: {
         Row: {
           archived_at: string | null
@@ -929,6 +961,126 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      notification_log: {
+        Row: {
+          body: string
+          category: string
+          created_at: string | null
+          data: Json | null
+          delivered: boolean | null
+          id: string
+          suppressed_reason: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          category: string
+          created_at?: string | null
+          data?: Json | null
+          delivered?: boolean | null
+          id?: string
+          suppressed_reason?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          category?: string
+          created_at?: string | null
+          data?: Json | null
+          delivered?: boolean | null
+          id?: string
+          suppressed_reason?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notification_preferences: {
+        Row: {
+          created_at: string | null
+          id: string
+          message_bundle_enabled: boolean | null
+          notify_credits_subscription: boolean | null
+          notify_daily_drop: boolean | null
+          notify_date_reminder: boolean | null
+          notify_event_live: boolean | null
+          notify_event_reminder: boolean | null
+          notify_messages: boolean | null
+          notify_new_match: boolean | null
+          notify_product_updates: boolean | null
+          notify_ready_gate: boolean | null
+          notify_recommendations: boolean | null
+          notify_someone_vibed_you: boolean | null
+          onesignal_player_id: string | null
+          onesignal_subscribed: boolean | null
+          paused_until: string | null
+          push_enabled: boolean | null
+          quiet_hours_enabled: boolean | null
+          quiet_hours_end: string | null
+          quiet_hours_start: string | null
+          quiet_hours_timezone: string | null
+          sound_enabled: boolean | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          message_bundle_enabled?: boolean | null
+          notify_credits_subscription?: boolean | null
+          notify_daily_drop?: boolean | null
+          notify_date_reminder?: boolean | null
+          notify_event_live?: boolean | null
+          notify_event_reminder?: boolean | null
+          notify_messages?: boolean | null
+          notify_new_match?: boolean | null
+          notify_product_updates?: boolean | null
+          notify_ready_gate?: boolean | null
+          notify_recommendations?: boolean | null
+          notify_someone_vibed_you?: boolean | null
+          onesignal_player_id?: string | null
+          onesignal_subscribed?: boolean | null
+          paused_until?: string | null
+          push_enabled?: boolean | null
+          quiet_hours_enabled?: boolean | null
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          quiet_hours_timezone?: string | null
+          sound_enabled?: boolean | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          message_bundle_enabled?: boolean | null
+          notify_credits_subscription?: boolean | null
+          notify_daily_drop?: boolean | null
+          notify_date_reminder?: boolean | null
+          notify_event_live?: boolean | null
+          notify_event_reminder?: boolean | null
+          notify_messages?: boolean | null
+          notify_new_match?: boolean | null
+          notify_product_updates?: boolean | null
+          notify_ready_gate?: boolean | null
+          notify_recommendations?: boolean | null
+          notify_someone_vibed_you?: boolean | null
+          onesignal_player_id?: string | null
+          onesignal_subscribed?: boolean | null
+          paused_until?: string | null
+          push_enabled?: boolean | null
+          quiet_hours_enabled?: boolean | null
+          quiet_hours_end?: string | null
+          quiet_hours_start?: string | null
+          quiet_hours_timezone?: string | null
+          sound_enabled?: boolean | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       photo_verifications: {
         Row: {

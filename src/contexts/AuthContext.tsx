@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import * as Sentry from "@sentry/react";
 import { supabase } from '@/integrations/supabase/client';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import { setExternalUserId, removeExternalUserId, getPlayerId, isSubscribed } from '@/lib/onesignal';
 
 interface User {
   id: string;
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setTimeout(() => {
             fetchUserProfile(session.user.id);
             checkAdminRole(session.user.id);
+            syncOneSignal(session.user.id);
           }, 0);
         } else {
           setUser(null);
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         Sentry.setUser({ id: session.user.id });
         fetchUserProfile(session.user.id);
         checkAdminRole(session.user.id);
+        syncOneSignal(session.user.id);
       } else if (!navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
@@ -116,6 +119,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(!!data);
   };
 
+  const syncOneSignal = async (userId: string) => {
+    try {
+      setExternalUserId(userId);
+      const playerId = await getPlayerId();
+      const subscribed = await isSubscribed();
+      if (playerId) {
+        await supabase.from('notification_preferences').upsert({
+          user_id: userId,
+          onesignal_player_id: playerId,
+          onesignal_subscribed: subscribed,
+        }, { onConflict: 'user_id' });
+      }
+    } catch (e) {
+      console.error('OneSignal sync error:', e);
+    }
+  };
+
   const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
     const redirectUrl = `${window.location.origin}/`;
     
@@ -155,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     Sentry.addBreadcrumb({ category: "auth", message: "User signed out", level: "info" });
     Sentry.setUser(null);
+    removeExternalUserId();
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
