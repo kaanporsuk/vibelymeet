@@ -14,10 +14,11 @@ import {
   Bell,
   X,
   UserMinus,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -25,9 +26,10 @@ interface AdminSidebarProps {
   onLogout: () => void;
   isOpen?: boolean;
   onClose?: () => void;
+  feedbackCount?: number;
 }
 
-const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose }: AdminSidebarProps) => {
+const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, feedbackCount = 0 }: AdminSidebarProps) => {
   const menuItems = [
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'users' as const, label: 'Users', icon: Users },
@@ -38,6 +40,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose }
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
     { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
+    { id: 'feedback' as const, label: 'Feedback', icon: MessageSquare, badge: feedbackCount > 0 ? feedbackCount : undefined },
     { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },
     { id: 'export' as const, label: 'Export', icon: Download },
   ];
@@ -83,7 +86,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose }
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {menuItems.map((item) => {
+        {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePanel === item.id;
             
@@ -101,12 +104,19 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose }
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'text-primary' : ''}`} />
                 <span className="font-medium">{item.label}</span>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeIndicator"
-                    className="ml-auto w-2 h-2 rounded-full bg-primary"
-                  />
-                )}
+                <div className="ml-auto flex items-center gap-1.5">
+                  {'badge' in item && item.badge ? (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  ) : null}
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeIndicator"
+                      className="w-2 h-2 rounded-full bg-primary"
+                    />
+                  )}
+                </div>
               </motion.button>
             );
           })}

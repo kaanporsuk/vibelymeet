@@ -2,22 +2,9 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Users,
-  Calendar,
-  TrendingUp,
-  Activity,
   Menu,
-  Heart,
-  MessageSquare,
-  UserCheck,
   LogOut,
-  ChevronRight,
-  Sparkles,
   Bell,
-  AlertTriangle,
-  Download,
-  BarChart3,
-  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,9 +26,10 @@ import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytic
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
 import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
+import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -51,6 +39,7 @@ const AdminDashboard = () => {
 
   // Enable real-time updates
   useAdminRealtime({ enabled: true });
+
   // Fetch unread notifications count
   const { data: unreadCount } = useQuery({
     queryKey: ['admin-unread-notifications'],
@@ -62,6 +51,19 @@ const AdminDashboard = () => {
       return count || 0;
     },
     refetchInterval: 30000,
+  });
+
+  // Fetch new feedback count
+  const { data: feedbackCount = 0 } = useQuery({
+    queryKey: ['admin-new-feedback-count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('feedback')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'new');
+      return count || 0;
+    },
+    refetchInterval: 60000,
   });
 
   const handleLogout = async () => {
@@ -79,6 +81,7 @@ const AdminDashboard = () => {
         onLogout={handleLogout}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        feedbackCount={feedbackCount}
       />
 
       {/* Main Content */}
@@ -106,6 +109,7 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
                 {activePanel === 'deletions' && 'Account Deletions'}
+                {activePanel === 'feedback' && 'Help & Feedback'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -119,6 +123,7 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
                 {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
+                {activePanel === 'feedback' && 'Review bug reports, feature ideas, and questions from users'}
               </p>
               </div>
             </div>
@@ -179,6 +184,7 @@ const AdminDashboard = () => {
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
           {activePanel === 'deletions' && <AdminDeletionsPanel />}
+          {activePanel === 'feedback' && <AdminFeedbackPanel />}
         </main>
       </div>
 

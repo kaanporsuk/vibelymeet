@@ -10,6 +10,7 @@ import {
   Volume2,
   ChevronRight,
   MessageSquare,
+  MessageSquareText,
   Heart,
   Calendar,
   Sparkles,
@@ -17,6 +18,7 @@ import {
   EyeOff,
   Zap,
   Trash2,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
 import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
+import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
@@ -93,6 +96,7 @@ const Settings = () => {
   const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
@@ -248,6 +252,33 @@ const Settings = () => {
           </Button>
 
           <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => setShowFeedback(true)}
+          >
+            <MessageSquareText className="w-4 h-4 text-primary" />
+            Help & Feedback
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => navigate("/privacy")}
+          >
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            Privacy Policy
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => navigate("/terms")}
+          >
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            Terms of Service
+          </Button>
+
+          <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => setShowLogoutDialog(true)}
@@ -393,6 +424,9 @@ const Settings = () => {
           setShowDeleteDialog(true);
         }}
       />
+
+      {/* Help & Feedback Drawer */}
+      <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} />
 
       {/* Logout Confirmation */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
