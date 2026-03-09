@@ -81,6 +81,7 @@ const AdminDashboard = () => {
         onLogout={handleLogout}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        feedbackCount={feedbackCount}
       />
 
       {/* Main Content */}
