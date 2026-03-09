@@ -1,256 +1,397 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Droplet, Check, X, Clock, MessageCircle, Send, Loader2, Sparkles } from 'lucide-react';
+import { Droplet, Clock, X, Check, Send, MessageCircle, Sparkles, ChevronDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { MatchCandidate } from '@/types/dailyDrop';
-import { calculateVibeScore, getVibeScoreColor } from '@/utils/vibeScoreUtils';
-import { PhotoVerifiedMark } from '@/components/PhotoVerifiedMark';
+import { useDailyDrop } from '@/hooks/useDailyDrop';
+import { toast } from 'sonner';
+import { VibeTag } from '@/components/VibeTag';
+import { VibeVideoThumbnail } from '@/components/vibe-video/VibeVideoThumbnail';
 
-export interface DropMatch {
-  id: string;
-  candidate: MatchCandidate & { photoVerified?: boolean };
-  status: 'sent' | 'received' | 'matched' | 'passed' | 'expired';
-  sentAt: string;
-  matchedAt?: string;
-  hasUnreadMessage?: boolean;
-  vibeScore?: number;
+function formatTimeRemaining(seconds: number) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return `${h}h ${m}m`;
 }
 
-interface DropsTabContentProps {
-  drops: DropMatch[];
-  onOpenChat: (matchId: string) => void;
-  onViewProfile: (dropId: string) => void;
+function formatNextDrop() {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(18, 0, 0, 0);
+  if (now >= target) target.setDate(target.getDate() + 1);
+  const diff = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
+  const h = Math.floor(diff / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  return `${h}h ${m}m`;
 }
 
-export function DropsTabContent({ drops, onOpenChat, onViewProfile }: DropsTabContentProps) {
-  const sentDrops = drops.filter(d => d.status === 'sent');
-  const receivedDrops = drops.filter(d => d.status === 'received');
-  const matchedDrops = drops.filter(d => d.status === 'matched');
-  const passedDrops = drops.filter(d => d.status === 'passed' || d.status === 'expired');
+export function DropsTabContent() {
+  const navigate = useNavigate();
+  const {
+    drop, partner, status, iHaveViewed, openerText, openerSentByMe,
+    replyText, chatUnlocked, matchId, pickReasons, timeRemaining,
+    isExpired, hasDrop, isLoading, pastDrops,
+    markViewed, sendOpener, sendReply, passDrop,
+  } = useDailyDrop();
 
-  const getStatusBadge = (status: DropMatch['status']) => {
-    switch (status) {
-      case 'sent':
-        return (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Pending
-          </span>
-        );
-      case 'received':
-        return (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-neon-cyan/20 text-neon-cyan">
-            <Droplet className="w-3 h-3" />
-            New Reply
-          </span>
-        );
-      case 'matched':
-        return (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
-            <Check className="w-3 h-3" />
-            Matched
-          </span>
-        );
-      case 'passed':
-        return (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-            <X className="w-3 h-3" />
-            Passed
-          </span>
-        );
-      case 'expired':
-        return (
-          <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-destructive/20 text-destructive">
-            <Clock className="w-3 h-3" />
-            Expired
-          </span>
-        );
-    }
-  };
+  const [openerInput, setOpenerInput] = useState('');
+  const [replyInput, setReplyInput] = useState('');
+  const [showPastDrops, setShowPastDrops] = useState(false);
 
-  const renderDropCard = (drop: DropMatch, showActions = false) => {
-    // Calculate vibe score if not provided
-    const mockUserTags = ['Creative Soul', 'Night Owl', 'Adventure Seeker'];
-    const vibeScore = drop.vibeScore ?? calculateVibeScore({
-      userTags: mockUserTags,
-      candidateTags: drop.candidate.vibeTags,
-      candidateLastActiveAt: drop.candidate.lastActiveAt,
-      candidateBioLength: drop.candidate.bio?.length || 0
-    });
-    const scoreColor = getVibeScoreColor(vibeScore);
-
+  if (isLoading) {
     return (
-      <motion.div
-        key={drop.id}
-        layout
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className={cn(
-          "p-4 rounded-xl border transition-all",
-          drop.status === 'matched' && "bg-gradient-to-br from-primary/10 to-neon-cyan/10 border-primary/30",
-          drop.status === 'sent' && "bg-gradient-to-br from-amber-500/10 to-orange-500/10 border-amber-500/30",
-          drop.status === 'received' && "bg-gradient-to-br from-neon-cyan/10 to-primary/10 border-neon-cyan/30",
-          (drop.status === 'passed' || drop.status === 'expired') && "bg-muted/50 border-border/50 opacity-60"
-        )}
-      >
-        <div className="flex items-center gap-3">
-          {/* Avatar with Vibe Score ring */}
-          <div className="relative">
-            <img
-              src={drop.candidate.avatarUrl}
-              alt={drop.candidate.name}
-              className={cn(
-                "w-14 h-14 rounded-full object-cover border-2",
-                drop.status === 'matched' && "border-primary",
-                drop.status === 'sent' && "border-amber-500",
-                drop.status === 'received' && "border-neon-cyan",
-                (drop.status === 'passed' || drop.status === 'expired') && "border-border grayscale"
-              )}
-            />
-            {/* Photo Verified badge */}
-            {drop.candidate.photoVerified && (
-              <PhotoVerifiedMark verified className="absolute -top-0.5 -right-0.5" />
-            )}
-            {/* Vibe Score badge */}
-            {drop.status !== 'passed' && drop.status !== 'expired' && (
-              <motion.span 
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className={cn(
-                  "absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-background border-2 border-current flex items-center justify-center text-[10px] font-bold",
-                  scoreColor
-                )}
-              >
-                {vibeScore}
-              </motion.span>
-            )}
-            {drop.hasUnreadMessage && (
-              <motion.span 
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-                className="absolute -top-1 -left-1 w-4 h-4 rounded-full bg-destructive flex items-center justify-center"
-              >
-                <span className="text-[10px] text-destructive-foreground font-bold">!</span>
-              </motion.span>
-            )}
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h4 className="font-semibold text-foreground truncate">
-                {drop.candidate.name}, {drop.candidate.age}
-              </h4>
-              {getStatusBadge(drop.status)}
-            </div>
-            <div className="flex items-center gap-2 mt-0.5">
-              <p className="text-sm text-muted-foreground truncate">
-                {drop.candidate.location}
-              </p>
-              {vibeScore >= 70 && (
-                <span className="flex items-center gap-0.5 text-xs text-primary">
-                  <Sparkles className="w-3 h-3" />
-                  Strong match
-                </span>
-              )}
-            </div>
-            <div className="flex gap-1 mt-1">
-              {drop.candidate.vibeTags.slice(0, 2).map((tag, i) => (
-                <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* Action */}
-          {drop.status === 'matched' && (
-            <motion.button
-              whileTap={{ scale: 0.95 }}
-              onClick={() => onOpenChat(drop.id)}
-              className="p-3 rounded-xl bg-primary/20 text-primary hover:bg-primary/30 transition-colors"
-            >
-              <MessageCircle className="w-5 h-5" />
-            </motion.button>
-          )}
-        </div>
-      </motion.div>
-    );
-  };
-
-  if (drops.length === 0) {
-    return (
-      <div className="py-12 text-center">
-        <Droplet className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-        <h3 className="text-lg font-semibold text-foreground mb-2">No Daily Drops Yet</h3>
-        <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-          Your daily curated matches and replies will appear here
-        </p>
+      <div className="flex items-center justify-center py-16">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
+  // STATE 7 — Passed
+  if (status === 'passed') {
+    const passedByMe = drop?.passed_by_user_id === drop?.user_a_id || drop?.passed_by_user_id === drop?.user_b_id;
+    return (
+      <div className="space-y-6">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12 opacity-60">
+          <X className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            {drop?.passed_by_user_id === undefined ? 'This Daily Drop is no longer available' :
+              'This Daily Drop has ended'}
+          </h3>
+          <p className="text-sm text-muted-foreground">Your next drop arrives at 6 PM</p>
+        </motion.div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 8 — Expired
+  if (status?.startsWith('expired') || (hasDrop && isExpired)) {
+    return (
+      <div className="space-y-6">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12 opacity-60">
+          <Clock className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            {status === 'expired_no_reply' ? 'No reply received before expiry' : 'This Daily Drop expired'}
+          </h3>
+          <p className="text-sm text-muted-foreground">A new drop arrives at 6 PM</p>
+        </motion.div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 1 — No drop today
+  if (!hasDrop) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-12">
+          <Droplet className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">No Daily Drop today</h3>
+          <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-3">
+            We only create a drop when there's a real fit. Your next chance is at 6 PM.
+          </p>
+          <p className="text-xs text-primary font-medium">Next drop in {formatNextDrop()}</p>
+        </div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 6 — Matched / chat unlocked
+  if (chatUnlocked && matchId) {
+    return (
+      <div className="space-y-6">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-8 space-y-4">
+          <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ duration: 0.5, delay: 0.2 }}>
+            <Sparkles className="w-16 h-16 mx-auto text-primary" />
+          </motion.div>
+          <h3 className="text-xl font-display font-bold text-foreground">You're connected! 🎉</h3>
+
+          {/* Mini chat preview */}
+          <div className="max-w-sm mx-auto space-y-2 px-4">
+            {openerText && (
+              <div className={cn("px-4 py-2 rounded-2xl text-sm max-w-[80%]",
+                openerSentByMe ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-secondary text-foreground"
+              )}>
+                {openerText}
+              </div>
+            )}
+            {replyText && (
+              <div className={cn("px-4 py-2 rounded-2xl text-sm max-w-[80%]",
+                !openerSentByMe ? "ml-auto bg-primary text-primary-foreground" : "mr-auto bg-secondary text-foreground"
+              )}>
+                {replyText}
+              </div>
+            )}
+          </div>
+
+          <Button variant="gradient" onClick={() => navigate(`/chat/${matchId}`)} className="gap-2">
+            <MessageCircle className="w-4 h-4" />
+            Start Chatting
+          </Button>
+        </motion.div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 2 — Not yet viewed (teaser)
+  if (!iHaveViewed && (status === 'active_unopened' || status === 'active_viewed')) {
+    return (
+      <div className="space-y-6">
+        <motion.button
+          onClick={() => markViewed()}
+          className="w-full"
+          whileTap={{ scale: 0.98 }}
+        >
+          <motion.div
+            animate={{ boxShadow: ['0 0 0 0 hsl(var(--primary) / 0.3)', '0 0 0 12px hsl(var(--primary) / 0)', '0 0 0 0 hsl(var(--primary) / 0.3)'] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+            className="glass-card p-6 rounded-2xl text-center space-y-4"
+          >
+            <div className="relative w-24 h-24 mx-auto rounded-full overflow-hidden">
+              {partner?.avatar_url && (
+                <img src={partner.avatar_url} alt="" className="w-full h-full object-cover blur-[20px]" />
+              )}
+              {!partner?.avatar_url && <div className="w-full h-full bg-secondary" />}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-primary">💧 Today's Drop</p>
+              <p className="text-xs text-muted-foreground mt-1">Tap to reveal who we picked for you</p>
+            </div>
+          </motion.div>
+        </motion.button>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 5 — Partner sent opener, I can reply
+  if (openerText && !openerSentByMe && !chatUnlocked) {
+    return (
+      <div className="space-y-4">
+        <CountdownBadge seconds={timeRemaining} />
+        <PartnerCard partner={partner} pickReasons={pickReasons} />
+
+        {/* Their opener */}
+        <div className="px-2">
+          <div className="bg-secondary text-foreground rounded-2xl px-4 py-2 text-sm max-w-[80%]">
+            {openerText}
+          </div>
+        </div>
+
+        {/* Reply input */}
+        <div className="flex gap-2">
+          <Input
+            value={replyInput}
+            onChange={e => setReplyInput(e.target.value)}
+            placeholder="Reply to unlock chat..."
+            maxLength={140}
+            className="flex-1"
+          />
+          <Button
+            variant="gradient"
+            disabled={!replyInput.trim()}
+            onClick={() => { sendReply(replyInput); setReplyInput(''); }}
+          >
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground text-right">{replyInput.length}/140</p>
+
+        <button onClick={() => { if (confirm('Pass on this drop?')) passDrop(); }}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto block">
+          Not feeling it?
+        </button>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 4 — I sent opener, waiting
+  if (openerSentByMe && !chatUnlocked) {
+    return (
+      <div className="space-y-4">
+        <CountdownBadge seconds={timeRemaining} />
+        <PartnerCard partner={partner} pickReasons={pickReasons} />
+
+        <div className="px-2 flex justify-end">
+          <div className="bg-primary text-primary-foreground rounded-2xl px-4 py-2 text-sm max-w-[80%]">
+            {openerText}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-2">
+          <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.5 }}
+            className="w-2 h-2 rounded-full bg-primary" />
+          Waiting for their reply...
+        </div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
+      </div>
+    );
+  }
+
+  // STATE 3 — Viewed, no opener yet
   return (
-    <div className="space-y-6">
-      {/* Matched Drops - Priority */}
-      {matchedDrops.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-400" />
-            Matched ({matchedDrops.length})
-          </h3>
-          <div className="space-y-2">
-            <AnimatePresence mode="popLayout">
-              {matchedDrops.map(drop => renderDropCard(drop))}
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
+    <div className="space-y-4">
+      <CountdownBadge seconds={timeRemaining} />
+      <PartnerCard partner={partner} pickReasons={pickReasons} />
 
-      {/* Pending Sent */}
-      {sentDrops.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-            <Send className="w-4 h-4 text-amber-400" />
-            Waiting for Reply ({sentDrops.length})
-          </h3>
-          <div className="space-y-2">
-            <AnimatePresence mode="popLayout">
-              {sentDrops.map(drop => renderDropCard(drop))}
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
+      {/* Opener input */}
+      <div className="flex gap-2">
+        <Input
+          value={openerInput}
+          onChange={e => setOpenerInput(e.target.value)}
+          placeholder="Say something..."
+          maxLength={140}
+          className="flex-1"
+        />
+        <Button
+          variant="gradient"
+          disabled={!openerInput.trim() || openerInput.length > 140}
+          onClick={() => { sendOpener(openerInput); setOpenerInput(''); }}
+        >
+          <Send className="w-4 h-4" />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground text-right">{openerInput.length}/140</p>
 
-      {/* Received Drops */}
-      {receivedDrops.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
-            <Droplet className="w-4 h-4 text-neon-cyan" />
-            New Replies ({receivedDrops.length})
-          </h3>
-          <div className="space-y-2">
-            <AnimatePresence mode="popLayout">
-              {receivedDrops.map(drop => renderDropCard(drop, true))}
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
-
-      {/* Passed/Expired - Collapsed */}
-      {passedDrops.length > 0 && (
-        <details className="group">
-          <summary className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2 cursor-pointer list-none">
-            <Clock className="w-4 h-4" />
-            Past Drops ({passedDrops.length})
-            <span className="ml-auto text-xs">tap to view</span>
-          </summary>
-          <div className="space-y-2 mt-3">
-            <AnimatePresence mode="popLayout">
-              {passedDrops.map(drop => renderDropCard(drop))}
-            </AnimatePresence>
-          </div>
-        </details>
-      )}
+      <button onClick={() => { if (confirm('Pass on this drop? This closes it for both of you.')) passDrop(); }}
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto block">
+        Not feeling it?
+      </button>
+      <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
     </div>
   );
+}
+
+// ── Sub-components ──
+
+function CountdownBadge({ seconds }: { seconds: number }) {
+  if (seconds <= 0) return null;
+  return (
+    <div className="flex items-center justify-center gap-1.5 text-xs text-destructive">
+      <Clock className="w-3.5 h-3.5" />
+      Expires in {formatTimeRemaining(seconds)}
+    </div>
+  );
+}
+
+function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: string[] }) {
+  if (!partner) return null;
+
+  const photo = partner.avatar_url || partner.photos?.[0];
+
+  return (
+    <div className="glass-card overflow-hidden rounded-2xl">
+      {photo && (
+        <div className="relative aspect-[3/4] bg-secondary">
+          <img src={photo} alt={partner.name} className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <h2 className="text-2xl font-display font-bold text-foreground">
+              {partner.name}, {partner.age}
+            </h2>
+          </div>
+        </div>
+      )}
+
+      <div className="p-4 space-y-3">
+        {partner.vibes?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {partner.vibes.slice(0, 5).map((v: string, i: number) => (
+              <VibeTag key={i} label={v} />
+            ))}
+          </div>
+        )}
+
+        {partner.bio && (
+          <p className="text-sm text-muted-foreground line-clamp-3">{partner.bio}</p>
+        )}
+
+        {partner.bunny_video_uid && partner.bunny_video_status === 'ready' && (
+          <VibeVideoThumbnail videoUid={partner.bunny_video_uid} caption={partner.vibe_caption} />
+        )}
+
+        {pickReasons.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-muted-foreground">Why this pick</p>
+            <div className="flex flex-wrap gap-1.5">
+              {pickReasons.map((r, i) => (
+                <span key={i} className="bg-primary/10 border border-primary/20 text-primary text-xs rounded-full px-3 py-1">
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PastDropsSection({ pastDrops, showPastDrops, setShowPastDrops }: {
+  pastDrops: any[];
+  showPastDrops: boolean;
+  setShowPastDrops: (v: boolean) => void;
+}) {
+  const navigate = useNavigate();
+  if (!pastDrops.length) return null;
+
+  return (
+    <div>
+      <button
+        onClick={() => setShowPastDrops(!showPastDrops)}
+        className="flex items-center gap-2 text-sm font-medium text-muted-foreground w-full py-2"
+      >
+        <ChevronDown className={cn("w-4 h-4 transition-transform", showPastDrops && "rotate-180")} />
+        Past Drops ({pastDrops.length})
+      </button>
+
+      <AnimatePresence>
+        {showPastDrops && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden space-y-2">
+            {pastDrops.map(d => (
+              <div
+                key={d.id}
+                className={cn("flex items-center gap-3 p-3 rounded-xl bg-secondary/30", d.match_id && "cursor-pointer hover:bg-secondary/50")}
+                onClick={() => d.match_id && navigate(`/chat/${d.match_id}`)}
+              >
+                <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary shrink-0">
+                  {d.partner_avatar ? (
+                    <img src={d.partner_avatar} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-muted" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{d.partner_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(d.drop_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+                <StatusBadge status={d.status} />
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === 'matched') {
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1"><Check className="w-3 h-3" />Connected</span>;
+  }
+  if (status === 'passed') {
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Passed</span>;
+  }
+  if (status === 'expired_no_reply') {
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">No reply</span>;
+  }
+  return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Expired</span>;
 }
