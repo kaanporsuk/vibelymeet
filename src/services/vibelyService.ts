@@ -8,7 +8,10 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { MatchCandidate, DailyDrop, DropHistory } from "@/types/dailyDrop";
+// Legacy types kept for backward compat in this service
+interface MatchCandidate { id: string; name: string; age: number; lastActiveAt: string; avatarUrl: string; vibeTags: string[]; bio: string; location?: string; }
+interface DailyDrop { id: string; candidate: MatchCandidate; droppedAt: string; expiresAt: string; status: 'ready' | 'viewed' | 'replied' | 'passed' | 'expired'; replySentAt?: string; }
+interface DropHistory { seenUserIds: string[]; lastDropDate: string; }
 import { GamePayload } from "@/types/games";
 import { TimeBlock, DateProposal } from "@/hooks/useSchedule";
 

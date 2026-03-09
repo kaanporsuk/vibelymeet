@@ -8,7 +8,7 @@ import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { MatchAvatar } from "@/components/MatchAvatar";
-import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
+import { DropsTabContent } from "@/components/matches/DropsTabContent";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { UnmatchDialog } from "@/components/UnmatchDialog";
 import { ArchiveMatchDialog } from "@/components/ArchiveMatchDialog";
@@ -67,7 +67,6 @@ const Matches = () => {
     };
     check();
   }, [user?.id]);
-  const { data: drops = [], isLoading: isLoadingDrops, refetch: refetchDrops } = useDropMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [activeTab, setActiveTab] = useState("conversations");
@@ -101,11 +100,10 @@ const Matches = () => {
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
-    await Promise.all([refetch(), refetchDrops()]);
-  }, [refetch, refetchDrops]);
+    await refetch();
+  }, [refetch]);
 
-  const pendingDropsCount = drops.filter(d => d.status === 'received' || d.status === 'sent').length;
-  const matchedDropsCount = drops.filter(d => d.status === 'matched').length;
+  const pendingDropsCount = 0;
 
   // Track which new vibes the user has opened (session-level)
   const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
@@ -217,13 +215,6 @@ const Matches = () => {
     if (match) setViewProfileMatch(match);
   };
 
-  const handleOpenDropChat = (dropId: string) => {
-    const drop = drops.find(d => d.id === dropId);
-    if (drop) {
-      navigate(`/chat/${drop.candidate.id}`);
-    }
-  };
-
   const handleViewDropProfile = (dropId: string) => {
     toast.info("Viewing profile...");
   };
@@ -248,7 +239,7 @@ const Matches = () => {
             </div>
             {matches.length > 0 && (
               <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/15 text-primary text-sm font-medium">
-                {matches.length} vibes
+                {matches.length} matches
               </div>
             )}
           </div>
@@ -258,11 +249,11 @@ const Matches = () => {
             <TabsList className="grid w-full grid-cols-2 mb-3">
               <TabsTrigger value="conversations" className="text-sm">
                 <MessageCircle className="w-4 h-4 mr-1.5" />
-                Chats
+                Chat
               </TabsTrigger>
               <TabsTrigger value="drops" className="text-sm relative">
                 <Droplet className="w-4 h-4 mr-1.5" />
-                Daily Drops
+                Daily Drop
                 {pendingDropsCount > 0 && (
                   <motion.span 
                     animate={{ 
@@ -496,11 +487,7 @@ const Matches = () => {
             transition={{ duration: 0.2 }}
             className="p-4"
           >
-            <DropsTabContent
-              drops={drops}
-              onOpenChat={handleOpenDropChat}
-              onViewProfile={handleViewDropProfile}
-            />
+            <DropsTabContent />
           </motion.div>
         )}
         </AnimatePresence>

@@ -140,32 +140,26 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     queryFn: async () => {
       const { data } = await supabase
         .from('daily_drops')
-        .select(`
-          id,
-          candidate_id,
-          status,
-          drop_date,
-          created_at
-        `)
-        .eq('user_id', userId)
+        .select('id, user_a_id, user_b_id, status, drop_date, created_at')
+        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
         .order('created_at', { ascending: false })
         .limit(50);
       return data || [];
     },
   });
 
-  // Fetch candidate profiles for drops
+  // Fetch partner profiles for drops
   const { data: dropProfiles } = useQuery({
     queryKey: ['admin-drop-profiles', dailyDrops],
     queryFn: async () => {
       if (!dailyDrops?.length) return {};
       
-      const candidateIds = dailyDrops.map(d => d.candidate_id);
+      const partnerIds = dailyDrops.map(d => d.user_a_id === userId ? d.user_b_id : d.user_a_id);
       
       const { data } = await supabase
         .from('profiles')
         .select('id, name, avatar_url, photos')
-        .in('id', candidateIds);
+        .in('id', partnerIds);
       
       const profileMap: Record<string, { name: string; avatar_url: string | null; photos: string[] | null }> = {};
       data?.forEach(p => {
@@ -532,17 +526,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 <TabsContent value="activity" className="mt-4 space-y-4">
                   <h4 className="font-semibold text-foreground">Daily Drop Activity</h4>
                   <div className="space-y-2">
-                    {dailyDrops?.map((drop) => {
-                      const candidate = dropProfiles?.[drop.candidate_id];
+                    {dailyDrops?.map((drop: any) => {
+                      const partnerId = drop.user_a_id === userId ? drop.user_b_id : drop.user_a_id;
+                      const partner = dropProfiles?.[partnerId];
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={avatarPreset(candidate?.avatar_url) || avatarPreset(candidate?.photos?.[0])} />
-                            <AvatarFallback>{candidate?.name?.[0] || '?'}</AvatarFallback>
+                            <AvatarImage src={avatarPreset(partner?.avatar_url) || avatarPreset(partner?.photos?.[0])} />
+                            <AvatarFallback>{partner?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <p className="text-sm font-medium text-foreground">
-                              {candidate?.name || 'Unknown'}
+                              {partner?.name || 'Unknown'}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {format(new Date(drop.created_at), 'MMM d, yyyy')}
@@ -551,16 +546,16 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                           <Badge 
                             variant="outline"
                             className={
-                              drop.status === 'replied' || drop.status === 'matched'
+                              drop.status === 'matched'
                                 ? 'bg-green-500/10 text-green-400 border-green-500/30'
                                 : drop.status === 'passed'
                                 ? 'bg-red-500/10 text-red-400 border-red-500/30'
                                 : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
                             }
                           >
-                            {drop.status === 'replied' && <ThumbsUp className="w-3 h-3 mr-1" />}
+                            {drop.status === 'matched' && <ThumbsUp className="w-3 h-3 mr-1" />}
                             {drop.status === 'passed' && <ThumbsDown className="w-3 h-3 mr-1" />}
-                            {drop.status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
+                            {drop.status.startsWith('active') && <Clock className="w-3 h-3 mr-1" />}
                             {drop.status}
                           </Badge>
                         </div>

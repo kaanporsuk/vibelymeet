@@ -1,60 +1,47 @@
-// Daily Drop Types - Backend Ready
+// Daily Drop Types — V2 Mutual Pair System
 
-export interface MatchCandidate {
+export interface DailyDropPartner {
   id: string;
   name: string;
   age: number;
-  lastActiveAt: string; // ISO Date
-  avatarUrl: string;
-  vibeVideoUrl?: string;
-  vibeTags: string[];
-  bio: string;
-  location?: string;
+  gender: string;
+  bio: string | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string | null;
+  vibe_caption: string | null;
+  vibes: string[]; // vibe tag labels
 }
 
-export interface DailyDrop {
+export interface DailyDropData {
   id: string;
-  candidate: MatchCandidate;
-  droppedAt: string; // ISO Date - when the drop was made available
-  expiresAt: string; // ISO Date - 24h after drop
-  status: 'ready' | 'viewed' | 'replied' | 'passed' | 'expired';
-  replySentAt?: string;
+  user_a_id: string;
+  user_b_id: string;
+  drop_date: string;
+  starts_at: string;
+  expires_at: string;
+  status: string;
+  user_a_viewed: boolean;
+  user_b_viewed: boolean;
+  opener_sender_id: string | null;
+  opener_text: string | null;
+  opener_sent_at: string | null;
+  reply_sender_id: string | null;
+  reply_text: string | null;
+  reply_sent_at: string | null;
+  chat_unlocked: boolean;
+  match_id: string | null;
+  passed_by_user_id: string | null;
+  pick_reasons: string[];
+  affinity_score: number;
 }
 
-export type DropZoneState = 
-  | 'locked'      // Already viewed today's drop
-  | 'ready'       // Drop available, not yet viewed
-  | 'empty'       // No candidates available (High Standards)
-  | 'pending'     // User sent reply, waiting for response
-  | 'reveal';     // Currently viewing the drop
-
-export interface DropHistory {
-  seenUserIds: string[];
-  lastDropDate: string; // ISO Date
-  todayDropId?: string;
-}
-
-// Mock data generator helper
-export const ACTIVITY_THRESHOLD_HOURS = 48;
-export const DROP_HOUR = 18; // 6 PM
-
-export function getDailyDropCandidate(
-  allUsers: MatchCandidate[], 
-  currentUserHistory: string[]
-): MatchCandidate | null {
-  const now = new Date();
-  const fortyEightHoursAgo = new Date(now.getTime() - (ACTIVITY_THRESHOLD_HOURS * 60 * 60 * 1000));
-
-  // 1. FILTER: Must be active recently
-  const activeCandidates = allUsers.filter(user => {
-    return new Date(user.lastActiveAt) > fortyEightHoursAgo;
-  });
-
-  // 2. EXCLUDE: Must not be in user's history (Seen/Passed/Liked)
-  const freshCandidates = activeCandidates.filter(user => {
-    return !currentUserHistory.includes(user.id);
-  });
-
-  // 3. RETURN: The first match or null
-  return freshCandidates.length > 0 ? freshCandidates[0] : null;
+export interface PastDrop {
+  id: string;
+  partner_name: string;
+  partner_avatar: string | null;
+  drop_date: string;
+  status: string;
+  match_id: string | null;
 }
