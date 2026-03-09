@@ -47,11 +47,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     })();
   }, [profile.profile_id]);
 
-  // Count shared vibes
-  const sharedCount = vibeLabels.filter((v) => {
-    const label = v.replace(/^\S+\s/, "");
-    return userVibes.includes(label);
-  }).length;
+  // Use server-side shared_vibe_count, fall back to client-side calculation
+  const sharedCount = profile.shared_vibe_count > 0
+    ? profile.shared_vibe_count
+    : vibeLabels.filter((v) => {
+        const label = v.replace(/^\S+\s/, "");
+        return userVibes.includes(label);
+      }).length;
 
   return (
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
