@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 interface Credits {
   extraTime: number;
