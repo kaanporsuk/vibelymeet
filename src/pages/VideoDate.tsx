@@ -465,6 +465,7 @@ const VideoDate = () => {
         type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
       if (success) {
         Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
+        trackEvent('credit_used', { type, minutes });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
       }
       return success;

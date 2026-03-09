@@ -71,6 +71,7 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
       return;
     }
 
+    trackEvent('feedback_submitted', { category });
     toast.success("Thanks for your feedback! 💜");
     setCategory(null);
     setMessage("");

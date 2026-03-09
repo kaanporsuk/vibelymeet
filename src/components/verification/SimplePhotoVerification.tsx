@@ -178,6 +178,7 @@ export function SimplePhotoVerification({
         .eq("id", userId);
 
       // Do NOT set photo_verified = true — admin will do that
+      trackEvent('photo_verification_submitted');
       setScreen("submitted");
       toast.success("Selfie submitted for review!");
 

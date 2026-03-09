@@ -39,6 +39,17 @@ export const usePremium = () => {
     enabled: !!userId,
   });
 
+  const prevPremium = useRef<boolean | null>(null);
+
+  // Track premium activation
+  useEffect(() => {
+    const current = data?.is_premium ?? false;
+    if (prevPremium.current === false && current) {
+      trackEvent('premium_activated');
+    }
+    prevPremium.current = current;
+  }, [data?.is_premium]);
+
   // Realtime subscription for instant updates
   useEffect(() => {
     if (!userId) return;

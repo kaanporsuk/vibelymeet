@@ -76,6 +76,7 @@ const Credits = () => {
       toast.error("You're offline — purchases need a connection");
       return;
     }
+    trackEvent('credit_purchase_initiated', { pack_id: packId });
     Sentry.addBreadcrumb({ category: "purchase", message: `Initiating checkout for ${packId}`, level: "info" });
     setLoadingPack(packId);
     const { data, error } = await supabase.functions.invoke(

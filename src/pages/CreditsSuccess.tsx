@@ -19,9 +19,8 @@ const CreditsSuccess = () => {
   const pack = params.get("pack") || "";
   const label = PACK_LABELS[pack] || "Credits added";
 
-  // Refetch credits on mount and clean up URL
-  // Note: webhook may be delayed up to 30s, so balance might not update immediately
   useEffect(() => {
+    if (pack) trackEvent('credit_purchase_completed', { pack });
     refetch();
     // Clean up URL to prevent re-triggering on refresh
     window.history.replaceState({}, document.title, "/credits/success");

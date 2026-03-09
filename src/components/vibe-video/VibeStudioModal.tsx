@@ -507,6 +507,8 @@ export const VibeStudioModal = ({
       setBunnyVideoUid(videoId);
       setBunnyVideoStatus("processing");
       setStage("posted");
+      const { trackEvent } = await import("@/lib/analytics");
+      trackEvent('vibe_video_uploaded');
       setIsVideoPlaying(true);
 
     } catch (err: any) {

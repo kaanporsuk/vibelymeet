@@ -129,6 +129,8 @@ export const PostDateSurvey = ({
         if (error) throw error;
         if (feedback) setFeedbackId(feedback.id);
 
+        trackEvent('post_date_survey_completed', { session_id: sessionId, verdict: liked ? 'vibe' : 'pass' });
+
         const { data: result } = await supabase.rpc("check_mutual_vibe_and_match", {
           p_session_id: sessionId,
         });

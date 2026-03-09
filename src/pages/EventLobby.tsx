@@ -113,6 +113,7 @@ const EventLobby = () => {
 
   // Set status to browsing on mount, offline on unmount
   useEffect(() => {
+    if (eventId) trackEvent('lobby_entered', { event_id: eventId });
     setStatus("browsing");
     return () => {
       setStatus("offline");
