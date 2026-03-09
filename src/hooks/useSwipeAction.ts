@@ -22,6 +22,10 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
   const swipe = useCallback(
     async (targetId: string, swipeType: "vibe" | "pass" | "super_vibe"): Promise<SwipeResult | null> => {
       if (!user?.id || !eventId) return null;
+      if (!navigator.onLine) {
+        toast.error("You're offline — swipes need a connection");
+        return null;
+      }
 
       setIsProcessing(true);
       try {

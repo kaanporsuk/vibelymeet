@@ -71,6 +71,11 @@ const Credits = () => {
   }
 
   const handlePurchase = async (packId: string) => {
+    if (!navigator.onLine) {
+      toast.error("You're offline — purchases need a connection");
+      return;
+    }
+    Sentry.addBreadcrumb({ category: "purchase", message: `Initiating checkout for ${packId}`, level: "info" });
     setLoadingPack(packId);
     const { data, error } = await supabase.functions.invoke(
       "create-credits-checkout",

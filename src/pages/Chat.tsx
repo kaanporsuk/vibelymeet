@@ -215,6 +215,10 @@ const Chat = () => {
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
+    if (!navigator.onLine) {
+      toast.error("You're offline — message will send when you reconnect");
+      return;
+    }
     
     const text = newMessage.trim();
     setNewMessage("");

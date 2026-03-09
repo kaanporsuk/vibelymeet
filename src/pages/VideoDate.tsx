@@ -456,7 +456,7 @@ const VideoDate = () => {
       const success =
         type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
       if (success) {
-        // Safely add minutes to the timer (handle null case)
+        Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
       }
       return success;
