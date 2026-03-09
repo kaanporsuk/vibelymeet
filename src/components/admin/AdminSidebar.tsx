@@ -86,7 +86,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {menuItems.map((item) => {
+        {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePanel === item.id;
             
@@ -104,12 +104,19 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
               >
                 <Icon className={`w-5 h-5 ${isActive ? 'text-primary' : ''}`} />
                 <span className="font-medium">{item.label}</span>
-                {isActive && (
-                  <motion.div
-                    layoutId="activeIndicator"
-                    className="ml-auto w-2 h-2 rounded-full bg-primary"
-                  />
-                )}
+                <div className="ml-auto flex items-center gap-1.5">
+                  {'badge' in item && item.badge ? (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  ) : null}
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeIndicator"
+                      className="w-2 h-2 rounded-full bg-primary"
+                    />
+                  )}
+                </div>
               </motion.button>
             );
           })}
