@@ -259,6 +259,6 @@ serve(async (req) => {
     return jsonResponse({ success: false, error: "Invalid action." });
   } catch (err) {
     console.error("💥 Crash:", err);
-    return jsonResponse({ success: false, error: "Server error: " + (err?.message || String(err)) });
+    return jsonResponse({ success: false, error: "An unexpected error occurred. Please try again." });
   }
 });
