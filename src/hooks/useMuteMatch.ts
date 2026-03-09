@@ -102,15 +102,19 @@ export const useMuteMatch = () => {
       }
 
       // Also sync to match_notification_mutes (checked by send-notification edge function)
-      await supabase
-        .from("match_notification_mutes")
-        .upsert({
-          match_id: matchId,
-          user_id: userId,
-          muted_until: mutedUntilIso,
-        }, {
-          onConflict: "match_id,user_id",
-        }).then(() => {}).catch(() => {});
+      try {
+        await supabase
+          .from("match_notification_mutes")
+          .upsert({
+            match_id: matchId,
+            user_id: userId,
+            muted_until: mutedUntilIso,
+          }, {
+            onConflict: "match_id,user_id",
+          });
+      } catch {
+        // Best-effort sync
+      }
 
       return { duration };
     },
