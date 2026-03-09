@@ -265,6 +265,8 @@ const initialProfile: UserProfile = {
 
 // Import shared score calculation
 import { calculateVibeScore as calculateVibeScoreShared } from "@/utils/calculateVibeScore";
+import { usePremium } from "@/hooks/usePremium";
+import { Crown } from "lucide-react";
 
 const calculateVibeScore = (profile: UserProfile): number => {
   return calculateVibeScoreShared(profile);
@@ -275,6 +277,7 @@ type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | 
 const Profile = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
+  const { isPremium, premiumUntil } = usePremium();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
@@ -685,6 +688,11 @@ const Profile = () => {
             <h1 className="text-2xl font-display font-bold text-foreground">
               {profile.name}, {profile.age}
             </h1>
+            {isPremium && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[10px] font-semibold">
+                <Crown className="w-3 h-3" /> Premium
+              </span>
+            )}
             {profile.zodiac && (
               <span className="text-lg" title={profile.zodiac}>
                 {getZodiacEmoji(profile.zodiac)}

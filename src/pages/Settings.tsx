@@ -50,6 +50,8 @@ import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
+import { usePremium } from "@/hooks/usePremium";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
 interface NotificationSettings {
@@ -75,6 +77,7 @@ const Settings = () => {
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { isGranted, requestPermission } = usePushNotifications();
   const { credits } = useCredits();
+  const { isPremium, premiumUntil } = usePremium();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     matches: true,
@@ -156,7 +159,9 @@ const Settings = () => {
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
                 <p className="text-xs text-muted-foreground">
-                  {credits.extraTime} Extra Time · {credits.extendedVibe} Extended Vibe
+                  {isPremium && premiumUntil
+                    ? `Premium · Expires ${format(premiumUntil, "MMM d, yyyy")}`
+                    : `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`}
                 </p>
               </div>
             </div>

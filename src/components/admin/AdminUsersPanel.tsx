@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   ShieldX,
   Download,
+  Crown,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -330,6 +331,9 @@ const AdminUsersPanel = () => {
                         <div>
                           <p className="font-medium text-foreground flex items-center gap-2">
                             {user.name}
+                            {(user as any).is_premium && (
+                              <Crown className="w-4 h-4 text-primary shrink-0" />
+                            )}
                             {user.photo_verified && (
                               <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/30">
                                 <ShieldCheck className="w-3 h-3 mr-1" />

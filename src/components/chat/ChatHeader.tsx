@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Crown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -53,6 +54,7 @@ interface ChatUser {
   isOnline: boolean;
   lastSeen?: string;
   photoVerified?: boolean;
+  is_premium?: boolean;
 }
 
 interface ChatHeaderProps {
@@ -215,6 +217,9 @@ export const ChatHeader = ({
                     <h2 className="font-semibold text-foreground truncate">
                       {user.name}, {user.age}
                     </h2>
+                    {user.is_premium && (
+                      <Crown className="w-3.5 h-3.5 text-primary shrink-0" />
+                    )}
                     {user.photoVerified && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-neon-cyan/20 text-neon-cyan font-medium">
                         Verified

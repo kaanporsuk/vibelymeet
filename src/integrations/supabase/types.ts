@@ -975,6 +975,44 @@ export type Database = {
         }
         Relationships: []
       }
+      premium_history: {
+        Row: {
+          action: string
+          admin_id: string | null
+          created_at: string | null
+          id: string
+          premium_until: string | null
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          admin_id?: string | null
+          created_at?: string | null
+          id?: string
+          premium_until?: string | null
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          admin_id?: string | null
+          created_at?: string | null
+          id?: string
+          premium_until?: string | null
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "premium_history_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profile_vibes: {
         Row: {
           created_at: string
@@ -1046,6 +1084,9 @@ export type Database = {
           photo_verified: boolean | null
           photo_verified_at: string | null
           photos: string[] | null
+          premium_granted_at: string | null
+          premium_granted_by: string | null
+          premium_until: string | null
           prompts: Json | null
           proof_selfie_url: string | null
           referred_by: string | null
@@ -1092,6 +1133,9 @@ export type Database = {
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
+          premium_granted_at?: string | null
+          premium_granted_by?: string | null
+          premium_until?: string | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
@@ -1138,6 +1182,9 @@ export type Database = {
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
+          premium_granted_at?: string | null
+          premium_granted_by?: string | null
+          premium_until?: string | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
@@ -1726,6 +1773,7 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
