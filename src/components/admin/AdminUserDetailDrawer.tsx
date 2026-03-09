@@ -268,6 +268,15 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
             <Button 
               variant="outline" 
               size="sm"
+              onClick={() => setShowPremiumModal(true)}
+              className="gap-2 text-accent border-accent/30 hover:bg-accent/10"
+            >
+              <Crown className="w-4 h-4" />
+              Premium
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
               onClick={() => setShowModeration(true)}
               className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10"
             >
