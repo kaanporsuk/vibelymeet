@@ -17,6 +17,7 @@ import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { PremiumPill } from "@/components/premium/PremiumPill";
+import { trackEvent } from "@/lib/analytics";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
