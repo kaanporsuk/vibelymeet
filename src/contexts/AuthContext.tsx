@@ -68,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
           setIsAdmin(false);
           Sentry.setUser(null);
+          resetAnalytics();
         }
       }
     );
