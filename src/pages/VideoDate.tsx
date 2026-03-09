@@ -26,6 +26,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
+import { trackEvent } from "@/lib/analytics";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
