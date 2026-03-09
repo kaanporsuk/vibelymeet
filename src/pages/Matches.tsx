@@ -487,11 +487,7 @@ const Matches = () => {
             transition={{ duration: 0.2 }}
             className="p-4"
           >
-            <DropsTabContent
-              drops={drops}
-              onOpenChat={handleOpenDropChat}
-              onViewProfile={handleViewDropProfile}
-            />
+            <DropsTabContent />
           </motion.div>
         )}
         </AnimatePresence>
