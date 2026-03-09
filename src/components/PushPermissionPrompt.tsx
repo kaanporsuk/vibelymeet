@@ -15,6 +15,7 @@ import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 const PROMPTED_KEY = "vibely_push_prompted";
 const RE_PROMPT_DAYS = 7;
