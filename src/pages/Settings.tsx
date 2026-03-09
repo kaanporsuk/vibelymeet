@@ -75,18 +75,13 @@ const Settings = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
-  const { isGranted, requestPermission } = usePushNotifications();
   const { credits } = useCredits();
   const { isPremium, premiumUntil } = usePremium();
 
-  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
-    matches: true,
-    messages: true,
-    events: true,
-    dateReminders: true,
-    dailyDrop: true,
-    sounds: true,
-  });
+  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const [privacySettings, setPrivacySettings] = useState<PrivacySettings>({
     showOnlineStatus: true,
@@ -95,11 +90,6 @@ const Settings = () => {
     discoverableByLocation: true,
     showAge: true,
   });
-
-  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showLogoutDialog, setShowLogoutDialog] = useState(false);
-  const [showFeedback, setShowFeedback] = useState(false);
 
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
