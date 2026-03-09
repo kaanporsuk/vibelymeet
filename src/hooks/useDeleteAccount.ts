@@ -31,6 +31,7 @@ export const useDeleteAccount = () => {
 
       if (error) {
         console.error("Delete account error:", error);
+        captureSupabaseError("delete-account", error);
         toast.error("Failed to delete account. Please try again.");
         setIsDeleting(false);
         return false;

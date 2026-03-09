@@ -208,6 +208,7 @@ const VideoDate = () => {
   useEffect(() => {
     if (!callStarted && id) {
       setCallStarted(true);
+      Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
       startCall(id);
     }
   }, [callStarted, startCall, id]);

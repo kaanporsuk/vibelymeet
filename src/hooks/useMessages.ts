@@ -77,7 +77,10 @@ export const useSendMessage = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        captureSupabaseError("send-message", error);
+        throw error;
+      }
       return data;
     },
     onSuccess: () => {

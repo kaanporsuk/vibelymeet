@@ -64,6 +64,7 @@ export const useCredits = () => {
       setCredits((prev) => ({ ...prev, extendedVibe: prev.extendedVibe - 1 }));
       return true;
     }
+    if (error) captureSupabaseError("deduct-extended-vibe", error);
     return false;
   }, [user?.id, credits.extendedVibe]);
 
