@@ -100,11 +100,10 @@ const Matches = () => {
 
   // Pull to refresh handler
   const handleRefresh = useCallback(async () => {
-    await Promise.all([refetch(), refetchDrops()]);
-  }, [refetch, refetchDrops]);
+    await refetch();
+  }, [refetch]);
 
-  const pendingDropsCount = drops.filter(d => d.status === 'received' || d.status === 'sent').length;
-  const matchedDropsCount = drops.filter(d => d.status === 'matched').length;
+  const pendingDropsCount = 0;
 
   // Track which new vibes the user has opened (session-level)
   const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
