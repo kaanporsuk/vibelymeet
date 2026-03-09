@@ -140,14 +140,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     queryFn: async () => {
       const { data } = await supabase
         .from('daily_drops')
-        .select(`
-          id,
-          candidate_id,
-          status,
-          drop_date,
-          created_at
-        `)
-        .eq('user_id', userId)
+        .select('id, user_a_id, user_b_id, status, drop_date, created_at')
+        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
         .order('created_at', { ascending: false })
         .limit(50);
       return data || [];
