@@ -45,9 +45,20 @@ const PACKS = [
 
 const Credits = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { credits, isLoading } = useCredits();
+  const { credits, isLoading, refetch } = useCredits();
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
+
+  // Handle cancel return from Stripe
+  useEffect(() => {
+    const cancelled = searchParams.get("cancelled");
+    if (cancelled === "true") {
+      toast.info("Purchase cancelled — no charges made");
+      // Clean up URL
+      window.history.replaceState({}, document.title, "/credits");
+    }
+  }, [searchParams]);
 
   if (!user) {
     return (
