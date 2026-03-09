@@ -20,6 +20,7 @@ export interface DeckProfile {
   has_met_before: boolean;
   is_already_connected: boolean;
   has_super_vibed: boolean;
+  shared_vibe_count: number;
 }
 
 interface UseEventDeckOptions {

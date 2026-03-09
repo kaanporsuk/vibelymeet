@@ -47,11 +47,13 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     })();
   }, [profile.profile_id]);
 
-  // Count shared vibes
-  const sharedCount = vibeLabels.filter((v) => {
-    const label = v.replace(/^\S+\s/, "");
-    return userVibes.includes(label);
-  }).length;
+  // Use server-side shared_vibe_count, fall back to client-side calculation
+  const sharedCount = profile.shared_vibe_count > 0
+    ? profile.shared_vibe_count
+    : vibeLabels.filter((v) => {
+        const label = v.replace(/^\S+\s/, "");
+        return userVibes.includes(label);
+      }).length;
 
   return (
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
@@ -118,14 +120,22 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
         {vibeLabels.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            {vibeLabels.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/90 border border-white/10"
-              >
-                {tag}
-              </span>
-            ))}
+            {vibeLabels.slice(0, 3).map((tag) => {
+              const label = tag.replace(/^\S+\s/, "");
+              const isShared = userVibes.includes(label);
+              return (
+                <span
+                  key={tag}
+                  className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-sm border ${
+                    isShared
+                      ? "bg-primary/20 border-primary/30 text-primary"
+                      : "bg-white/10 border-white/10 text-white/90"
+                  }`}
+                >
+                  {tag}
+                </span>
+              );
+            })}
             {vibeLabels.length > 3 && (
               <span className="shrink-0 px-2 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/60">
                 +{vibeLabels.length - 3}
@@ -135,8 +145,8 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         )}
 
         {sharedCount > 0 && (
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 backdrop-blur-sm border border-primary/30">
+            <Sparkles className="w-3 h-3 text-primary" />
             <span className="text-xs font-medium text-primary">
               {sharedCount} shared vibe{sharedCount > 1 ? "s" : ""}
             </span>
