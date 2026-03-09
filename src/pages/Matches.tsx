@@ -67,7 +67,6 @@ const Matches = () => {
     };
     check();
   }, [user?.id]);
-  const { data: drops = [], isLoading: isLoadingDrops, refetch: refetchDrops } = useDropMatches();
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [activeTab, setActiveTab] = useState("conversations");
