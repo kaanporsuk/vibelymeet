@@ -454,7 +454,8 @@ const VideoDate = () => {
       const success =
         type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
       if (success) {
-        setTimeLeft((prev) => prev + minutes * 60);
+        // Safely add minutes to the timer (handle null case)
+        setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
       }
       return success;
     },
