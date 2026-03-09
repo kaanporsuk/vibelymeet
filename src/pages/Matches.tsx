@@ -249,7 +249,7 @@ const Matches = () => {
             <TabsList className="grid w-full grid-cols-2 mb-3">
               <TabsTrigger value="conversations" className="text-sm">
                 <MessageCircle className="w-4 h-4 mr-1.5" />
-                Chats
+                Chat
               </TabsTrigger>
               <TabsTrigger value="drops" className="text-sm relative">
                 <Droplet className="w-4 h-4 mr-1.5" />
