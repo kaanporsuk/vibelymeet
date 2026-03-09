@@ -32,6 +32,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { NotificationsDrawer } from "@/components/settings/NotificationsDrawer";
 import {
   AlertDialog,
   AlertDialogAction,
