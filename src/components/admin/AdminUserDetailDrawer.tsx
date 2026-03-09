@@ -51,6 +51,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [showProfilePreview, setShowProfilePreview] = useState(false);
   const [showMatchMessages, setShowMatchMessages] = useState(false);
   const [showGrantCredits, setShowGrantCredits] = useState(false);
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
