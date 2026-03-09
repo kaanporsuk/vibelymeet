@@ -111,6 +111,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { user: supabaseUser } } = await supabase.auth.getUser();
     if (supabaseUser) {
       setUser(transformSupabaseUser(supabaseUser, profile || undefined));
+      setUserProperties({
+        name: profile?.name,
+        age: profile?.age,
+        gender: profile?.gender,
+        location: profile?.location,
+        has_photos: ((profile?.photos as string[] | null)?.length || 0) > 0,
+        is_premium: (profile?.is_premium as boolean) || false,
+        is_verified: (profile?.photo_verified as boolean) || false,
+      });
     }
   };
 
