@@ -185,43 +185,112 @@ export type Database = {
         }
         Relationships: []
       }
-      daily_drops: {
+      daily_drop_cooldowns: {
         Row: {
-          candidate_id: string
-          created_at: string
-          drop_date: string
-          dropped_at: string
-          expires_at: string
+          cooldown_until: string
+          created_at: string | null
           id: string
-          status: string
-          user_id: string
+          reason: string
+          user_a_id: string
+          user_b_id: string
         }
         Insert: {
-          candidate_id: string
-          created_at?: string
-          drop_date?: string
-          dropped_at?: string
-          expires_at?: string
+          cooldown_until: string
+          created_at?: string | null
           id?: string
-          status?: string
-          user_id: string
+          reason: string
+          user_a_id: string
+          user_b_id: string
         }
         Update: {
-          candidate_id?: string
-          created_at?: string
+          cooldown_until?: string
+          created_at?: string | null
+          id?: string
+          reason?: string
+          user_a_id?: string
+          user_b_id?: string
+        }
+        Relationships: []
+      }
+      daily_drops: {
+        Row: {
+          affinity_score: number | null
+          chat_unlocked: boolean | null
+          created_at: string | null
+          drop_date: string
+          expires_at: string
+          id: string
+          match_id: string | null
+          opener_sender_id: string | null
+          opener_sent_at: string | null
+          opener_text: string | null
+          passed_by_user_id: string | null
+          pick_reasons: Json | null
+          reply_sender_id: string | null
+          reply_sent_at: string | null
+          reply_text: string | null
+          starts_at: string
+          status: string
+          updated_at: string | null
+          user_a_id: string
+          user_a_viewed: boolean | null
+          user_b_id: string
+          user_b_viewed: boolean | null
+        }
+        Insert: {
+          affinity_score?: number | null
+          chat_unlocked?: boolean | null
+          created_at?: string | null
+          drop_date: string
+          expires_at: string
+          id?: string
+          match_id?: string | null
+          opener_sender_id?: string | null
+          opener_sent_at?: string | null
+          opener_text?: string | null
+          passed_by_user_id?: string | null
+          pick_reasons?: Json | null
+          reply_sender_id?: string | null
+          reply_sent_at?: string | null
+          reply_text?: string | null
+          starts_at: string
+          status?: string
+          updated_at?: string | null
+          user_a_id: string
+          user_a_viewed?: boolean | null
+          user_b_id: string
+          user_b_viewed?: boolean | null
+        }
+        Update: {
+          affinity_score?: number | null
+          chat_unlocked?: boolean | null
+          created_at?: string | null
           drop_date?: string
-          dropped_at?: string
           expires_at?: string
           id?: string
+          match_id?: string | null
+          opener_sender_id?: string | null
+          opener_sent_at?: string | null
+          opener_text?: string | null
+          passed_by_user_id?: string | null
+          pick_reasons?: Json | null
+          reply_sender_id?: string | null
+          reply_sent_at?: string | null
+          reply_text?: string | null
+          starts_at?: string
           status?: string
-          user_id?: string
+          updated_at?: string | null
+          user_a_id?: string
+          user_a_viewed?: boolean | null
+          user_b_id?: string
+          user_b_viewed?: boolean | null
         }
         Relationships: [
           {
-            foreignKeyName: "daily_drops_candidate_id_fkey"
-            columns: ["candidate_id"]
+            foreignKeyName: "daily_drops_match_id_fkey"
+            columns: ["match_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "matches"
             referencedColumns: ["id"]
           },
         ]
@@ -1945,33 +2014,6 @@ export type Database = {
       generate_recurring_events: {
         Args: { p_count?: number; p_parent_id: string }
         Returns: number
-      }
-      get_daily_drop_candidates: {
-        Args: { p_limit?: number; p_user_id: string }
-        Returns: {
-          about_me: string
-          age: number
-          avatar_url: string
-          bio: string
-          bunny_video_status: string
-          company: string
-          gender: string
-          height_cm: number
-          id: string
-          interested_in: string[]
-          job: string
-          lifestyle: Json
-          location: string
-          looking_for: string
-          name: string
-          phone_verified: boolean
-          photo_verified: boolean
-          photos: string[]
-          prompts: Json
-          tagline: string
-          vibe_caption: string
-          vibe_video_status: string
-        }[]
       }
       get_event_deck: {
         Args: { p_event_id: string; p_limit?: number; p_user_id: string }
