@@ -83,27 +83,6 @@ export function useServiceWorker() {
     });
   }, [sendMessage]);
 
-  // Schedule daily drop notification for 6 PM
-  const scheduleDailyDropNotification = useCallback(() => {
-    const now = new Date();
-    const dropTime = new Date(now);
-    dropTime.setHours(18, 0, 0, 0);
-
-    // If it's past 6 PM, schedule for tomorrow
-    if (now >= dropTime) {
-      dropTime.setDate(dropTime.getDate() + 1);
-    }
-
-    scheduleNotification(
-      'daily-drop-' + dropTime.toDateString(),
-      '💧 Your Daily Drop is Here!',
-      'A new curated match is waiting for you. Open Vibely to see who it is!',
-      dropTime,
-      '/matches'
-    );
-
-    console.log('[useServiceWorker] Daily drop scheduled for:', dropTime);
-  }, [scheduleNotification]);
 
   // Schedule date reminder notification
   const scheduleDateReminder = useCallback((
@@ -133,7 +112,6 @@ export function useServiceWorker() {
     sendMessage,
     scheduleNotification,
     showNotification,
-    scheduleDailyDropNotification,
     scheduleDateReminder,
   };
 }

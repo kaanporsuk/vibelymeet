@@ -89,7 +89,7 @@ const Dashboard = () => {
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders, requestNotificationPermission } = useDateReminders(proposals);
-  const { isGranted, requestPermission, scheduleDailyDropNotification, scheduleDateReminder } = usePushNotifications();
+  const { isGranted, requestPermission, scheduleDateReminder } = usePushNotifications();
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
 
@@ -109,9 +109,6 @@ const Dashboard = () => {
     setShowNotificationFlow(true);
   };
 
-  useEffect(() => {
-    if (isGranted) scheduleDailyDropNotification();
-  }, [isGranted, scheduleDailyDropNotification]);
 
   useEffect(() => {
     if (isGranted && proposals.length > 0) {

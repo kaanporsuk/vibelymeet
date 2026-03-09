@@ -18,7 +18,6 @@ export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false);
   const { 
     isReady: swReady, 
-    scheduleDailyDropNotification: swScheduleDailyDrop,
     scheduleDateReminder: swScheduleDateReminder,
     showNotification: swShowNotification,
   } = useServiceWorker();
@@ -137,32 +136,6 @@ export function usePushNotifications() {
     }
   }, [permission, sendNotification]);
 
-  // Schedule daily drop notification for 6 PM (uses service worker if ready)
-  const scheduleDailyDropNotification = useCallback(() => {
-    // Prefer service worker for background support
-    if (swReady) {
-      swScheduleDailyDrop();
-      return 'sw-daily-drop';
-    }
-
-    // Fallback to localStorage-based scheduling
-    const now = new Date();
-    const dropTime = new Date(now);
-    dropTime.setHours(18, 0, 0, 0);
-
-    // If it's past 6 PM, schedule for tomorrow
-    if (now >= dropTime) {
-      dropTime.setDate(dropTime.getDate() + 1);
-    }
-
-    return scheduleNotification({
-      title: '💧 Your Daily Drop is Here!',
-      body: 'A new curated match is waiting for you. Open Vibely to see who it is!',
-      scheduledAt: dropTime.toISOString(),
-      type: 'daily_drop',
-    });
-  }, [scheduleNotification, swReady, swScheduleDailyDrop]);
-
   // Schedule date reminder notification (uses service worker if ready)
   const scheduleDateReminder = useCallback((
     matchName: string,
@@ -209,7 +182,6 @@ export function usePushNotifications() {
     sendNotification,
     scheduleNotification,
     cancelScheduledNotification,
-    scheduleDailyDropNotification,
     scheduleDateReminder,
   };
 }

@@ -27,6 +27,7 @@ import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel"
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
 import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
+import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
 type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback';
@@ -169,6 +170,9 @@ const AdminDashboard = () => {
                 onNavigateToEvents={() => setActivePanel('events')}
               />
               
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <AdminDailyDropCard />
+              </div>
               <AdminStatsCards />
               <AdminAnalyticsCharts />
             </motion.div>
