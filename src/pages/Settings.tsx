@@ -96,6 +96,7 @@ const Settings = () => {
   const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
