@@ -128,9 +128,10 @@ const Auth = () => {
         if (error.message.includes("already registered")) {
           setError("This email is already registered. Try signing in.");
         } else {
-          setError(error.message || "Sign up failed");
+        setError(error.message || "Sign up failed");
         }
       } else {
+        trackEvent('signup_completed', { method: 'email' });
         toast.success("Account created! Check your email to confirm.");
         setMode("signin");
       }
