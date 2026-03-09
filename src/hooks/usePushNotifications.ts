@@ -18,7 +18,6 @@ export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false);
   const { 
     isReady: swReady, 
-    scheduleDailyDropNotification: swScheduleDailyDrop,
     scheduleDateReminder: swScheduleDateReminder,
     showNotification: swShowNotification,
   } = useServiceWorker();
