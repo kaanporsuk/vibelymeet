@@ -39,6 +39,7 @@ const AdminDashboard = () => {
 
   // Enable real-time updates
   useAdminRealtime({ enabled: true });
+
   // Fetch unread notifications count
   const { data: unreadCount } = useQuery({
     queryKey: ['admin-unread-notifications'],
@@ -50,6 +51,19 @@ const AdminDashboard = () => {
       return count || 0;
     },
     refetchInterval: 30000,
+  });
+
+  // Fetch new feedback count
+  const { data: feedbackCount = 0 } = useQuery({
+    queryKey: ['admin-new-feedback-count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('feedback')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'new');
+      return count || 0;
+    },
+    refetchInterval: 60000,
   });
 
   const handleLogout = async () => {
