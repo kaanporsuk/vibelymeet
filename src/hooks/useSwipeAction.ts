@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { sendNotification } from "@/lib/notifications";
+import { trackEvent } from "@/lib/analytics";
 
 interface SwipeResult {
   result: string;
@@ -46,7 +47,11 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
 
         const result = data as unknown as SwipeResult;
 
-        // Handle results
+        trackEvent('swipe', {
+          event_id: eventId,
+          swipe_type: swipeType,
+          result: result.result,
+        });
         switch (result.result) {
           case "match":
             Sentry.addBreadcrumb({ category: "matching", message: "Mutual match created", level: "info" });

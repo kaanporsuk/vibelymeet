@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, Loader2, Sparkles, Mail, Lock, User, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 type AuthMode = "signin" | "signup" | "success";
 
@@ -96,6 +97,7 @@ const Auth = () => {
       if (error) {
         setError(error.message || "Invalid email or password");
       } else {
+        trackEvent('login', { method: 'email' });
         setMode("success");
         setTimeout(() => navigate("/dashboard"), 1500);
       }
@@ -126,9 +128,10 @@ const Auth = () => {
         if (error.message.includes("already registered")) {
           setError("This email is already registered. Try signing in.");
         } else {
-          setError(error.message || "Sign up failed");
+        setError(error.message || "Sign up failed");
         }
       } else {
+        trackEvent('signup_completed', { method: 'email' });
         toast.success("Account created! Check your email to confirm.");
         setMode("signin");
       }

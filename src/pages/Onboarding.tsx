@@ -30,6 +30,7 @@ import {
   type ProfileData 
 } from "@/services/profileService";
 import { persistPhotos } from "@/services/storageService";
+import { trackEvent } from "@/lib/analytics";
 
 const genderOptions = [
   { label: "Woman", value: "woman" },
@@ -244,6 +245,13 @@ const Onboarding = () => {
       
       // Clear saved progress
       localStorage.removeItem(STORAGE_KEY);
+      
+      trackEvent('onboarding_completed', {
+        has_photo: uploadedPhotos.length > 0,
+        has_bio: !!formData.aboutMe,
+        has_vibes: formData.vibes.length > 0,
+        vibe_count: formData.vibes.length,
+      });
       
       toast.success("Welcome to Vibely! 🎉");
       navigate("/dashboard");

@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react";
 import { supabase } from '@/integrations/supabase/client';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { setExternalUserId, removeExternalUserId, getPlayerId, isSubscribed } from '@/lib/onesignal';
+import { identifyUser, resetAnalytics, setUserProperties } from '@/lib/analytics';
 
 interface User {
   id: string;
@@ -54,6 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session?.user) {
           Sentry.setUser({ id: session.user.id });
           Sentry.addBreadcrumb({ category: "auth", message: "User signed in", level: "info" });
+          identifyUser(session.user.id, {
+            email: session.user.email,
+            created_at: session.user.created_at,
+          });
           setTimeout(() => {
             fetchUserProfile(session.user.id);
             checkAdminRole(session.user.id);
@@ -63,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
           setIsAdmin(false);
           Sentry.setUser(null);
+          resetAnalytics();
         }
       }
     );
@@ -98,13 +104,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUserProfile = async (userId: string) => {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at')
+      .select('id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified')
       .eq('id', userId)
       .maybeSingle();
 
     const { data: { user: supabaseUser } } = await supabase.auth.getUser();
     if (supabaseUser) {
       setUser(transformSupabaseUser(supabaseUser, profile || undefined));
+      setUserProperties({
+        name: profile?.name,
+        age: profile?.age,
+        gender: profile?.gender,
+        location: profile?.location,
+        has_photos: ((profile?.photos as string[] | null)?.length || 0) > 0,
+        is_premium: (profile?.is_premium as boolean) || false,
+        is_verified: (profile?.photo_verified as boolean) || false,
+      });
     }
   };
 
@@ -175,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     Sentry.addBreadcrumb({ category: "auth", message: "User signed out", level: "info" });
     Sentry.setUser(null);
+    resetAnalytics();
     removeExternalUserId();
     await supabase.auth.signOut();
     setUser(null);
