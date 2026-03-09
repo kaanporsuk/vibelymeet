@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { trackEvent } from "@/lib/analytics";
 
 interface PartnerProfile {
   name: string;
