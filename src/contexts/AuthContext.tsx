@@ -119,6 +119,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(!!data);
   };
 
+  const syncOneSignal = async (userId: string) => {
+    try {
+      setExternalUserId(userId);
+      const playerId = await getPlayerId();
+      const subscribed = await isSubscribed();
+      if (playerId) {
+        await supabase.from('notification_preferences').upsert({
+          user_id: userId,
+          onesignal_player_id: playerId,
+          onesignal_subscribed: subscribed,
+        }, { onConflict: 'user_id' });
+      }
+    } catch (e) {
+      console.error('OneSignal sync error:', e);
+    }
+  };
+
   const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
     const redirectUrl = `${window.location.origin}/`;
     
