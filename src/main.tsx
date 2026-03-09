@@ -40,7 +40,6 @@ posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
   disable_session_recording: false,
   session_recording: {
     maskAllInputs: true,
-    maskTextContent: true,
     blockClass: 'ph-no-capture',
   },
   loaded: (posthog) => {
