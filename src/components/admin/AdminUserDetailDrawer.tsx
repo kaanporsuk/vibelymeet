@@ -148,18 +148,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     },
   });
 
-  // Fetch candidate profiles for drops
+  // Fetch partner profiles for drops
   const { data: dropProfiles } = useQuery({
     queryKey: ['admin-drop-profiles', dailyDrops],
     queryFn: async () => {
       if (!dailyDrops?.length) return {};
       
-      const candidateIds = dailyDrops.map(d => d.candidate_id);
+      const partnerIds = dailyDrops.map(d => d.user_a_id === userId ? d.user_b_id : d.user_a_id);
       
       const { data } = await supabase
         .from('profiles')
         .select('id, name, avatar_url, photos')
-        .in('id', candidateIds);
+        .in('id', partnerIds);
       
       const profileMap: Record<string, { name: string; avatar_url: string | null; photos: string[] | null }> = {};
       data?.forEach(p => {
