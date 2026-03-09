@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
 import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
+import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
