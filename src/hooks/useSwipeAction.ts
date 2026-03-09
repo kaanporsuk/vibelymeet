@@ -48,6 +48,7 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
         // Handle results
         switch (result.result) {
           case "match":
+            Sentry.addBreadcrumb({ category: "matching", message: "Mutual match created", level: "info" });
             if (result.immediate && result.match_id) {
               onMatch?.(result.match_id);
             }
