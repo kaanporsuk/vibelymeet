@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { sendNotification } from "@/lib/notifications";
+import { trackEvent } from "@/lib/analytics";
 
 interface SwipeResult {
   result: string;
