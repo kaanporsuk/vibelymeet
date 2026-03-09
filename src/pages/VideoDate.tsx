@@ -474,6 +474,12 @@ const VideoDate = () => {
 
   // End call: update session, show survey
   const handleCallEnd = useCallback(async () => {
+    const totalTime = phase === "handshake" ? HANDSHAKE_TIME : HANDSHAKE_TIME + DATE_TIME;
+    trackEvent('video_date_ended', {
+      session_id: id,
+      duration_seconds: totalTime - (timeLeft ?? 0),
+      phase,
+    });
     setPhase("ended");
     setShowFeedback(true);
     setStatus("in_survey");
