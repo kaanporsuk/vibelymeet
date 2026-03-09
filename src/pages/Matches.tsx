@@ -239,7 +239,7 @@ const Matches = () => {
             </div>
             {matches.length > 0 && (
               <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/15 text-primary text-sm font-medium">
-                {matches.length} vibes
+                {matches.length} matches
               </div>
             )}
           </div>
