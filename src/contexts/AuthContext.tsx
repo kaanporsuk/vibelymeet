@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import * as Sentry from "@sentry/react";
 import { supabase } from '@/integrations/supabase/client';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import { setExternalUserId, removeExternalUserId, getPlayerId, isSubscribed } from '@/lib/onesignal';
 
 interface User {
   id: string;
