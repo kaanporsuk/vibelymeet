@@ -24,7 +24,7 @@ const getMutedUntilDate = (duration: MuteDuration): Date => {
     case "1week":
       return addWeeks(now, 1);
     case "forever":
-      return addWeeks(now, 520);
+      return new Date(9999, 11, 31, 23, 59, 59);
     default:
       return addDays(now, 1);
   }
@@ -70,13 +70,15 @@ export const useMuteMatch = () => {
     mutationFn: async ({ matchId, duration }: { matchId: string; duration: MuteDuration }) => {
       if (!userId) throw new Error("Not authenticated");
       const mutedUntil = getMutedUntilDate(duration);
+      const mutedUntilIso = mutedUntil.toISOString();
 
+      // Write to match_mutes (primary table)
       const { error } = await supabase
         .from("match_mutes")
         .upsert({
           match_id: matchId,
           user_id: userId,
-          muted_until: mutedUntil.toISOString(),
+          muted_until: mutedUntilIso,
         }, {
           onConflict: "match_id,user_id",
         });
@@ -93,10 +95,25 @@ export const useMuteMatch = () => {
           .insert({
             match_id: matchId,
             user_id: userId,
-            muted_until: mutedUntil.toISOString(),
+            muted_until: mutedUntilIso,
           });
 
         if (insertError) throw insertError;
+      }
+
+      // Also sync to match_notification_mutes (checked by send-notification edge function)
+      try {
+        await supabase
+          .from("match_notification_mutes")
+          .upsert({
+            match_id: matchId,
+            user_id: userId,
+            muted_until: mutedUntilIso,
+          }, {
+            onConflict: "match_id,user_id",
+          });
+      } catch {
+        // Best-effort sync
       }
 
       return { duration };
@@ -109,6 +126,7 @@ export const useMuteMatch = () => {
   const unmuteMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error("Not authenticated");
+      // Delete from both tables
       const { error } = await supabase
         .from("match_mutes")
         .delete()
@@ -116,6 +134,17 @@ export const useMuteMatch = () => {
         .eq("user_id", userId);
 
       if (error) throw error;
+
+      // Also clean from match_notification_mutes
+      try {
+        await supabase
+          .from("match_notification_mutes")
+          .delete()
+          .eq("match_id", matchId)
+          .eq("user_id", userId);
+      } catch {
+        // Best-effort sync
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
