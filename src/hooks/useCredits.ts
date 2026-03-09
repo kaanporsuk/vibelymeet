@@ -48,6 +48,7 @@ export const useCredits = () => {
       setCredits((prev) => ({ ...prev, extraTime: prev.extraTime - 1 }));
       return true;
     }
+    if (error) captureSupabaseError("deduct-extra-time", error);
     return false;
   }, [user?.id, credits.extraTime]);
 
