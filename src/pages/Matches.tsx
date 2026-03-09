@@ -8,7 +8,7 @@ import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { MatchAvatar } from "@/components/MatchAvatar";
-import { DropsTabContent, DropMatch } from "@/components/matches/DropsTabContent";
+import { DropsTabContent } from "@/components/matches/DropsTabContent";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { UnmatchDialog } from "@/components/UnmatchDialog";
 import { ArchiveMatchDialog } from "@/components/ArchiveMatchDialog";
