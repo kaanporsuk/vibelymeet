@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCredits } from "@/hooks/useCredits";
 
 const PACK_LABELS: Record<string, string> = {
   extra_time_3: "+3 Extra Time credits",
@@ -12,8 +14,17 @@ const PACK_LABELS: Record<string, string> = {
 const CreditsSuccess = () => {
   const navigate = useNavigate();
   const [params] = useSearchParams();
+  const { refetch } = useCredits();
   const pack = params.get("pack") || "";
   const label = PACK_LABELS[pack] || "Credits added";
+
+  // Refetch credits on mount and clean up URL
+  // Note: webhook may be delayed up to 30s, so balance might not update immediately
+  useEffect(() => {
+    refetch();
+    // Clean up URL to prevent re-triggering on refresh
+    window.history.replaceState({}, document.title, "/credits/success");
+  }, [refetch]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">

@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
         // Handle credit pack purchase
         if (session.metadata?.type === 'credits_pack') {
           const creditUserId = session.metadata?.supabase_user_id
+          const packId = session.metadata?.pack_id || 'unknown'
           const extraTime = parseInt(session.metadata?.extra_time_credits || '0')
           const extendedVibe = parseInt(session.metadata?.extended_vibe_credits || '0')
 
@@ -82,12 +83,17 @@ Deno.serve(async (req) => {
               .eq('user_id', creditUserId)
               .maybeSingle()
 
+            const prevExtra = existing?.extra_time_credits ?? 0
+            const prevExtended = existing?.extended_vibe_credits ?? 0
+            const newExtra = prevExtra + extraTime
+            const newExtended = prevExtended + extendedVibe
+
             if (existing) {
               await supabase
                 .from('user_credits')
                 .update({
-                  extra_time_credits: existing.extra_time_credits + extraTime,
-                  extended_vibe_credits: existing.extended_vibe_credits + extendedVibe,
+                  extra_time_credits: newExtra,
+                  extended_vibe_credits: newExtended,
                   updated_at: new Date().toISOString(),
                 })
                 .eq('user_id', creditUserId)
@@ -100,6 +106,11 @@ Deno.serve(async (req) => {
                   extended_vibe_credits: extendedVibe,
                 })
             }
+
+            // Log the purchase to credit_adjustments (note: webhook has no admin_id)
+            // We use a placeholder system ID or skip admin_id since this is a purchase
+            // The credit_adjustments table requires admin_id, so we log separately
+            console.log(`Credits granted: user=${creditUserId}, pack=${packId}, extra_time=+${extraTime}, extended_vibe=+${extendedVibe}`)
           }
           break
         }
