@@ -193,32 +193,5 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
   };
 };
 
-// Hook to block a user (prevents future matching)
-export const useBlockUser = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      blockedUserId,
-      reason,
-    }: {
-      blockedUserId: string;
-      reason?: string;
-    }) => {
-      // For now, just log - would need a blocked_users table in production
-      console.log("Blocking user:", blockedUserId, "Reason:", reason);
-      
-      return { success: true };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
-      toast.success("User blocked", {
-        description: "You won't see each other again",
-      });
-    },
-    onError: (error) => {
-      console.error("Block error:", error);
-      toast.error("Failed to block user");
-    },
-  });
-};
+// Re-export useBlockUser from its dedicated module for backward compatibility
+export { useBlockUser } from "@/hooks/useBlockUser";

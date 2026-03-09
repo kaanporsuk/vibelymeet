@@ -119,7 +119,7 @@ export const ChatHeader = ({
   };
 
   const handleBlock = (reason?: string) => {
-    blockUser(user.id, user.name, reason);
+    blockUser(user.id, user.name, reason, matchId);
     setShowBlockDialog(false);
     navigate("/matches");
   };

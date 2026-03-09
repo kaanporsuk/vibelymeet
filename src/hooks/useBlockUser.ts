@@ -32,9 +32,11 @@ export const useBlockUser = () => {
   });
 
   const blockMutation = useMutation({
-    mutationFn: async ({ blockedId, reason }: { blockedId: string; reason?: string }) => {
+    mutationFn: async ({ blockedId, matchId, reason }: { blockedId: string; matchId?: string; reason?: string }) => {
       if (!userId) throw new Error("Not authenticated");
-      const { error } = await supabase
+
+      // 1. Insert into blocked_users
+      const { error: blockError } = await supabase
         .from("blocked_users")
         .insert({
           blocker_id: userId,
@@ -42,12 +44,33 @@ export const useBlockUser = () => {
           reason: reason || null,
         });
 
-      if (error) throw error;
+      if (blockError) {
+        // Ignore duplicate (already blocked)
+        if (!blockError.message.includes("duplicate") && !blockError.message.includes("unique")) {
+          throw blockError;
+        }
+      }
+
+      // 2. Remove match + messages if matchId provided
+      if (matchId) {
+        // Delete messages first (FK constraint)
+        await supabase.from("messages").delete().eq("match_id", matchId);
+        // Delete date proposals
+        await supabase.from("date_proposals").delete().eq("match_id", matchId);
+        // Delete mutes
+        await supabase.from("match_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
+        await supabase.from("match_notification_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
+        // Delete match
+        await supabase.from("matches").delete().eq("id", matchId);
+      }
+
       return { blockedId };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["blocked-users"] });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
     },
   });
 
@@ -67,8 +90,8 @@ export const useBlockUser = () => {
     },
   });
 
-  const blockUser = (blockedId: string, userName: string, reason?: string) => {
-    blockMutation.mutate({ blockedId, reason }, {
+  const blockUser = (blockedId: string, userName: string, reason?: string, matchId?: string) => {
+    blockMutation.mutate({ blockedId, reason, matchId }, {
       onSuccess: () => {
         toast.success(`${userName} blocked`, {
           description: "They won't be able to contact you or see your profile",
