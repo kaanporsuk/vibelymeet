@@ -54,6 +54,7 @@ interface ChatUser {
   isOnline: boolean;
   lastSeen?: string;
   photoVerified?: boolean;
+  is_premium?: boolean;
 }
 
 interface ChatHeaderProps {
