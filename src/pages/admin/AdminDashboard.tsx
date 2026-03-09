@@ -184,6 +184,7 @@ const AdminDashboard = () => {
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
           {activePanel === 'deletions' && <AdminDeletionsPanel />}
+          {activePanel === 'feedback' && <AdminFeedbackPanel />}
         </main>
       </div>
 
