@@ -97,6 +97,7 @@ const Auth = () => {
       if (error) {
         setError(error.message || "Invalid email or password");
       } else {
+        trackEvent('login', { method: 'email' });
         setMode("success");
         setTimeout(() => navigate("/dashboard"), 1500);
       }
