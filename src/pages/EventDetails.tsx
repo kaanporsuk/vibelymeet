@@ -122,6 +122,13 @@ const EventDetails = () => {
     check();
   }, [user?.id]);
 
+  // Track event view
+  useEffect(() => {
+    if (event && id) {
+      trackEvent('event_viewed', { event_id: id, event_title: event.title });
+    }
+  }, [event?.id]);
+
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener("scroll", handleScroll);

@@ -100,6 +100,7 @@ export function PushPermissionPrompt() {
 
   const handleLater = () => {
     localStorage.setItem(PROMPTED_KEY, String(Date.now()));
+    trackEvent('push_permission_deferred');
     setOpen(false);
   };
 
