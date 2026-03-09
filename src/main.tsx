@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/react";
 import { createRoot } from "react-dom/client";
 import { initOneSignal } from "./lib/onesignal";
+import posthog from 'posthog-js';
 import App from "./App.tsx";
 import "./index.css";
 
