@@ -100,6 +100,7 @@ const App = () => (
             }}
           >
             <BrowserRouter>
+              <PostHogPageTracker />
               <AppContent />
               <NotificationContainer />
               <NotificationManager />

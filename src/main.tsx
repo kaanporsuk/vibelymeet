@@ -30,6 +30,26 @@ Sentry.init({
   },
 });
 
+posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
+  api_host: 'https://eu.i.posthog.com',
+  person_profiles: 'identified_only',
+  capture_pageview: true,
+  capture_pageleave: true,
+  autocapture: true,
+  persistence: 'localStorage+cookie',
+  disable_session_recording: false,
+  session_recording: {
+    maskAllInputs: true,
+    maskTextContent: true,
+    blockClass: 'ph-no-capture',
+  },
+  loaded: (posthog) => {
+    if (window.location.hostname === 'localhost') {
+      posthog.opt_out_capturing();
+    }
+  },
+});
+
 initOneSignal();
 
 createRoot(document.getElementById("root")!).render(<App />);
