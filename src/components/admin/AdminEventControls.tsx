@@ -92,6 +92,43 @@ const AdminEventControls = ({
 
   const isLive = eventStatus === "live" || eventStatus === "upcoming";
   const isEnded = eventStatus === "ended" || eventStatus === "completed";
+  const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
+
+  const handleGoLive = async () => {
+    const { error } = await supabase
+      .from("events")
+      .update({ status: "live" })
+      .eq("id", eventId);
+    if (error) {
+      toast.error("Failed to set event live");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+    queryClient.invalidateQueries({ queryKey: ["events"] });
+    const count = await notifyRegistrants(
+      "event_live",
+      `${eventTitle} is live! 🎉`,
+      "Join now and start meeting people"
+    );
+    toast.success(`"${eventTitle}" is live — ${count} users notified`);
+  };
+
+  const handleSendReminder = async () => {
+    setIsSendingReminder(true);
+    try {
+      const count = await notifyRegistrants(
+        "event_reminder",
+        `${eventTitle} starts soon! ⏰`,
+        "Get ready — starting in 15 minutes"
+      );
+      setReminderSentAt(Date.now());
+      toast.success(`Reminder sent to ${count} users`);
+    } catch {
+      toast.error("Failed to send reminder");
+    } finally {
+      setIsSendingReminder(false);
+    }
+  };
 
   if (isEnded) return null;
 
