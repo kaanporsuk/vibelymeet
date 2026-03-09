@@ -13,6 +13,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
+import { sendNotification } from "@/lib/notifications";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -136,6 +137,14 @@ export const PostDateSurvey = ({
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
+          // Notify partner about mutual match
+          sendNotification({
+            user_id: partnerId,
+            category: "new_match",
+            title: "It's a match! 🎉",
+            body: `You and ${partnerName} both vibed!`,
+            data: { url: "/matches" },
+          });
         } else {
           setStep("highlights");
         }

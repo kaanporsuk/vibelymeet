@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { StopCircle, Clock, Plus } from "lucide-react";
+import { StopCircle, Clock, Plus, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { sendNotification } from "@/lib/notifications";
 
 interface AdminEventControlsProps {
   eventId: string;
@@ -21,6 +22,30 @@ const AdminEventControls = ({
 }: AdminEventControlsProps) => {
   const queryClient = useQueryClient();
   const [isEnding, setIsEnding] = useState(false);
+  const [reminderSentAt, setReminderSentAt] = useState<number | null>(null);
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
+
+  const notifyRegistrants = async (category: string, title: string, body: string) => {
+    const { data: registrations } = await supabase
+      .from("event_registrations")
+      .select("profile_id")
+      .eq("event_id", eventId);
+
+    if (registrations) {
+      await Promise.allSettled(
+        registrations.map((r) =>
+          sendNotification({
+            user_id: r.profile_id,
+            category,
+            title,
+            body,
+            data: { url: `/event/${eventId}/lobby`, event_id: eventId },
+          })
+        )
+      );
+    }
+    return registrations?.length || 0;
+  };
 
   const endEvent = useMutation({
     mutationFn: async () => {
@@ -30,7 +55,6 @@ const AdminEventControls = ({
         .eq("id", eventId);
       if (error) throw error;
 
-      // Broadcast event ended via Realtime so all clients see EventEndedModal
       const channel = supabase.channel(`event-status-${eventId}`);
       await channel.send({
         type: "broadcast",
@@ -68,6 +92,43 @@ const AdminEventControls = ({
 
   const isLive = eventStatus === "live" || eventStatus === "upcoming";
   const isEnded = eventStatus === "ended" || eventStatus === "completed";
+  const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
+
+  const handleGoLive = async () => {
+    const { error } = await supabase
+      .from("events")
+      .update({ status: "live" })
+      .eq("id", eventId);
+    if (error) {
+      toast.error("Failed to set event live");
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+    queryClient.invalidateQueries({ queryKey: ["events"] });
+    const count = await notifyRegistrants(
+      "event_live",
+      `${eventTitle} is live! 🎉`,
+      "Join now and start meeting people"
+    );
+    toast.success(`"${eventTitle}" is live — ${count} users notified`);
+  };
+
+  const handleSendReminder = async () => {
+    setIsSendingReminder(true);
+    try {
+      const count = await notifyRegistrants(
+        "event_reminder",
+        `${eventTitle} starts soon! ⏰`,
+        "Get ready — starting in 15 minutes"
+      );
+      setReminderSentAt(Date.now());
+      toast.success(`Reminder sent to ${count} users`);
+    } catch {
+      toast.error("Failed to send reminder");
+    } finally {
+      setIsSendingReminder(false);
+    }
+  };
 
   if (isEnded) return null;
 
@@ -94,6 +155,16 @@ const AdminEventControls = ({
         </div>
       ) : (
         <>
+          {eventStatus === "upcoming" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-1.5"
+              onClick={handleGoLive}
+            >
+              Go Live
+            </Button>
+          )}
           <Button
             size="sm"
             variant="destructive"
@@ -122,6 +193,16 @@ const AdminEventControls = ({
           >
             <Plus className="w-3.5 h-3.5" />
             +30 min
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleSendReminder}
+            disabled={isSendingReminder || !!reminderCooldown}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {reminderCooldown ? "Sent" : "Send Reminder"}
           </Button>
         </>
       )}
