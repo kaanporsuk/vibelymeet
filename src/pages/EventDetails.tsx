@@ -37,6 +37,7 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { useSubscription } from "@/hooks/useSubscription";
+import { trackEvent } from "@/lib/analytics";
 
 const EventDetails = () => {
   const { id } = useParams();
