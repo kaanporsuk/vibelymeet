@@ -81,6 +81,7 @@ export function PushPermissionPrompt() {
       }
       localStorage.setItem(PROMPTED_KEY, String(Date.now()));
       setOpen(false);
+      trackEvent('push_permission_granted');
       toast.success("Notifications enabled! 🔔");
 
       // Send welcome notification
