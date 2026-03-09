@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         Sentry.setUser({ id: session.user.id });
         fetchUserProfile(session.user.id);
         checkAdminRole(session.user.id);
+        syncOneSignal(session.user.id);
       } else if (!navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
