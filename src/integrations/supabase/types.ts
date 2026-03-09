@@ -692,6 +692,42 @@ export type Database = {
           },
         ]
       }
+      feedback: {
+        Row: {
+          admin_notes: string | null
+          category: string
+          created_at: string | null
+          device_info: Json | null
+          id: string
+          message: string
+          page_url: string | null
+          status: string | null
+          user_id: string | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          category: string
+          created_at?: string | null
+          device_info?: Json | null
+          id?: string
+          message: string
+          page_url?: string | null
+          status?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          admin_notes?: string | null
+          category?: string
+          created_at?: string | null
+          device_info?: Json | null
+          id?: string
+          message?: string
+          page_url?: string | null
+          status?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       match_calls: {
         Row: {
           call_type: string
