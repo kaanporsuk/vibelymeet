@@ -70,13 +70,15 @@ export const useMuteMatch = () => {
     mutationFn: async ({ matchId, duration }: { matchId: string; duration: MuteDuration }) => {
       if (!userId) throw new Error("Not authenticated");
       const mutedUntil = getMutedUntilDate(duration);
+      const mutedUntilIso = mutedUntil.toISOString();
 
+      // Write to match_mutes (primary table)
       const { error } = await supabase
         .from("match_mutes")
         .upsert({
           match_id: matchId,
           user_id: userId,
-          muted_until: mutedUntil.toISOString(),
+          muted_until: mutedUntilIso,
         }, {
           onConflict: "match_id,user_id",
         });
@@ -93,11 +95,22 @@ export const useMuteMatch = () => {
           .insert({
             match_id: matchId,
             user_id: userId,
-            muted_until: mutedUntil.toISOString(),
+            muted_until: mutedUntilIso,
           });
 
         if (insertError) throw insertError;
       }
+
+      // Also sync to match_notification_mutes (checked by send-notification edge function)
+      await supabase
+        .from("match_notification_mutes")
+        .upsert({
+          match_id: matchId,
+          user_id: userId,
+          muted_until: mutedUntilIso,
+        }, {
+          onConflict: "match_id,user_id",
+        }).then(() => {}).catch(() => {});
 
       return { duration };
     },
