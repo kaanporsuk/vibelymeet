@@ -53,6 +53,14 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             if (result.immediate && result.match_id) {
               onMatch?.(result.match_id);
             }
+            // Notify both users about the match
+            sendNotification({
+              user_id: targetId,
+              category: "new_match",
+              title: "It's a match! 🎉",
+              body: "You have a new match! Start chatting now.",
+              data: { url: "/matches" },
+            });
             return result;
 
           case "match_queued":
@@ -60,10 +68,26 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
               duration: 3000,
             });
             if (result.match_id) onMatchQueued?.(result.match_id);
+            // Notify partner about the queued match
+            sendNotification({
+              user_id: targetId,
+              category: "ready_gate",
+              title: "Video date ready! 📹",
+              body: "Someone is waiting — tap to join your video date",
+              data: { url: `/matches` },
+            });
             return result;
 
           case "super_vibe_sent":
             toast("Super Vibe sent! ✨", { duration: 2000 });
+            // Notify target that someone vibed them (don't reveal who)
+            sendNotification({
+              user_id: targetId,
+              category: "someone_vibed_you",
+              title: "Someone vibed you! 💜",
+              body: "Join the event to find out who",
+              data: { url: "/events" },
+            });
             return result;
 
           case "no_credits":
