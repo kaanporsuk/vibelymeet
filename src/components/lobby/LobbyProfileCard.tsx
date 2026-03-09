@@ -120,14 +120,22 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
 
         {vibeLabels.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            {vibeLabels.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                className="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/90 border border-white/10"
-              >
-                {tag}
-              </span>
-            ))}
+            {vibeLabels.slice(0, 3).map((tag) => {
+              const label = tag.replace(/^\S+\s/, "");
+              const isShared = userVibes.includes(label);
+              return (
+                <span
+                  key={tag}
+                  className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-sm border ${
+                    isShared
+                      ? "bg-primary/20 border-primary/30 text-primary"
+                      : "bg-white/10 border-white/10 text-white/90"
+                  }`}
+                >
+                  {tag}
+                </span>
+              );
+            })}
             {vibeLabels.length > 3 && (
               <span className="shrink-0 px-2 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/60">
                 +{vibeLabels.length - 3}
