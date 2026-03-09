@@ -93,6 +93,21 @@ export function ProtectedRoute({
   // Show loading state while checking auth, profile, or admin status
   const isCheckingAdmin = requireAdmin && isAdminCheckLoading;
   if (isLoading || (requireOnboarding && profileStatus === 'loading' && isAuthenticated) || isCheckingAdmin) {
+    // Show offline landing if app booted without connectivity
+    if (isOfflineAtBoot) {
+      return (
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-6">
+            <WifiOff className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <h1 className="text-2xl font-display font-bold text-foreground mb-2">No Internet Connection</h1>
+          <p className="text-muted-foreground mb-6 max-w-sm">
+            Vibely needs an internet connection to work. Please check your Wi-Fi or mobile data and try again.
+          </p>
+          <Button onClick={() => window.location.reload()}>Try Again</Button>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
