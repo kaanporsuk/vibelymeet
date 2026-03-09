@@ -141,7 +141,10 @@ const Index = () => {
         className="py-6 text-center relative z-10"
       >
         <p className="text-xs text-muted-foreground">
-          By continuing, you agree to our Terms & Privacy Policy
+          By continuing, you agree to our{" "}
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">Terms</a>
+          {" & "}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground transition-colors">Privacy Policy</a>
         </p>
       </motion.div>
     </div>
