@@ -150,24 +150,45 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 7. Check per-match mute (messages only)
-    if (category === 'messages' && data?.match_id) {
-      const { data: mute } = await supabase
-        .from('match_notification_mutes')
-        .select('*')
+    // 7. Check per-match mute (messages and new_match categories)
+    if ((category === 'messages' || category === 'new_match') && data?.match_id) {
+      // Check match_mutes table (written by useMuteMatch on the client)
+      const { data: matchMute } = await supabase
+        .from('match_mutes')
+        .select('id, muted_until')
         .eq('user_id', user_id)
         .eq('match_id', data.match_id)
         .maybeSingle()
 
-      if (mute) {
-        if (!mute.muted_until || new Date(mute.muted_until) > new Date()) {
+      if (matchMute) {
+        if (new Date(matchMute.muted_until) > new Date()) {
           await logNotification(user_id, category, title, body, data, false, 'match_muted')
           return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           })
         } else {
           // Expired mute — clean up
-          await supabase.from('match_notification_mutes').delete().eq('id', mute.id)
+          await supabase.from('match_mutes').delete().eq('id', matchMute.id)
+        }
+      }
+
+      // Also check match_notification_mutes table (legacy)
+      const { data: notifMute } = await supabase
+        .from('match_notification_mutes')
+        .select('id, muted_until')
+        .eq('user_id', user_id)
+        .eq('match_id', data.match_id)
+        .maybeSingle()
+
+      if (notifMute) {
+        if (!notifMute.muted_until || new Date(notifMute.muted_until) > new Date()) {
+          await logNotification(user_id, category, title, body, data, false, 'match_muted')
+          return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        } else {
+          // Expired mute — clean up
+          await supabase.from('match_notification_mutes').delete().eq('id', notifMute.id)
         }
       }
     }

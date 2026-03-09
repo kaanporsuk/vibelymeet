@@ -24,7 +24,7 @@ const getMutedUntilDate = (duration: MuteDuration): Date => {
     case "1week":
       return addWeeks(now, 1);
     case "forever":
-      return addWeeks(now, 520);
+      return new Date(9999, 11, 31, 23, 59, 59);
     default:
       return addDays(now, 1);
   }
