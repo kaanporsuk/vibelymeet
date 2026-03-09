@@ -122,6 +122,7 @@ export const useMuteMatch = () => {
   const unmuteMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error("Not authenticated");
+      // Delete from both tables
       const { error } = await supabase
         .from("match_mutes")
         .delete()
@@ -129,6 +130,14 @@ export const useMuteMatch = () => {
         .eq("user_id", userId);
 
       if (error) throw error;
+
+      // Also clean from match_notification_mutes
+      await supabase
+        .from("match_notification_mutes")
+        .delete()
+        .eq("match_id", matchId)
+        .eq("user_id", userId)
+        .then(() => {}).catch(() => {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
