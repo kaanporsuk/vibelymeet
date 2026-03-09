@@ -17,7 +17,7 @@ export function ProtectedRoute({
   requireAdmin = false,
   requireOnboarding = true 
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, session } = useAuth();
+  const { isAuthenticated, isLoading, session, isOfflineAtBoot } = useAuth();
   const location = useLocation();
   const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete'>('loading');
 
