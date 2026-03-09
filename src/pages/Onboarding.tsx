@@ -30,6 +30,7 @@ import {
   type ProfileData 
 } from "@/services/profileService";
 import { persistPhotos } from "@/services/storageService";
+import { trackEvent } from "@/lib/analytics";
 
 const genderOptions = [
   { label: "Woman", value: "woman" },
