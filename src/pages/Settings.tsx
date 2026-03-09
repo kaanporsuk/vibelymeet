@@ -50,6 +50,8 @@ import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
+import { usePremium } from "@/hooks/usePremium";
+import { format } from "date-fns";
 import { toast } from "sonner";
 
 interface NotificationSettings {
