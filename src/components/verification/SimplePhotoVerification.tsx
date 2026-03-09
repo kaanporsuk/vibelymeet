@@ -5,6 +5,7 @@ import { Camera, RotateCcw, Check, AlertCircle, Loader2, Shield, Clock } from "l
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { trackEvent } from "@/lib/analytics";
 
 interface SimplePhotoVerificationProps {
   open: boolean;
