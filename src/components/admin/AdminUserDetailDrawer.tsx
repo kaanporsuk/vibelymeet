@@ -310,6 +310,15 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="text-2xl font-bold text-foreground">{profile.name}</h3>
                     <span className="text-lg text-muted-foreground">{profile.age}</span>
+                    {profile.is_premium && (
+                      <Badge className="bg-primary/20 text-primary border-primary/30">
+                        <Crown className="w-3 h-3 mr-1" />
+                        Premium {profile.premium_until ? `until ${format(new Date(profile.premium_until), 'MMM d, yyyy')}` : '(forever)'}
+                      </Badge>
+                    )}
+                    {!profile.is_premium && (
+                      <span className="text-xs text-muted-foreground">Free account</span>
+                    )}
                     {profile.photo_verified && (
                       <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
                         <Check className="w-3 h-3 mr-1" />
