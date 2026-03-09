@@ -137,6 +137,14 @@ export const PostDateSurvey = ({
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
+          // Notify partner about mutual match
+          sendNotification({
+            user_id: partnerId,
+            category: "new_match",
+            title: "It's a match! 🎉",
+            body: `You and ${partnerName} both vibed!`,
+            data: { url: "/matches" },
+          });
         } else {
           setStep("highlights");
         }

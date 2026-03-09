@@ -155,6 +155,16 @@ const AdminEventControls = ({
         </div>
       ) : (
         <>
+          {eventStatus === "upcoming" && (
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-1.5"
+              onClick={handleGoLive}
+            >
+              Go Live
+            </Button>
+          )}
           <Button
             size="sm"
             variant="destructive"
@@ -183,6 +193,16 @@ const AdminEventControls = ({
           >
             <Plus className="w-3.5 h-3.5" />
             +30 min
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            onClick={handleSendReminder}
+            disabled={isSendingReminder || !!reminderCooldown}
+          >
+            <Bell className="w-3.5 h-3.5" />
+            {reminderCooldown ? "Sent" : "Send Reminder"}
           </Button>
         </>
       )}

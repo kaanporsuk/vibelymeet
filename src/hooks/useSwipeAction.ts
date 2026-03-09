@@ -111,6 +111,17 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             toast("This person is not available for matching.", { duration: 2000 });
             return result;
 
+          case "vibe_recorded":
+            // Non-mutual vibe — notify target without revealing who
+            sendNotification({
+              user_id: targetId,
+              category: "someone_vibed_you",
+              title: "Someone vibed you! 💜",
+              body: "Join the event to find out who",
+              data: { url: "/events" },
+            });
+            return result;
+
           default:
             return result;
         }
