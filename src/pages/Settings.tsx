@@ -252,6 +252,33 @@ const Settings = () => {
           </Button>
 
           <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => setShowFeedback(true)}
+          >
+            <MessageSquareText className="w-4 h-4 text-primary" />
+            Help & Feedback
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => navigate("/privacy")}
+          >
+            <Shield className="w-4 h-4 text-muted-foreground" />
+            Privacy Policy
+          </Button>
+
+          <Button
+            variant="outline"
+            className="w-full justify-start gap-3 text-foreground"
+            onClick={() => navigate("/terms")}
+          >
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            Terms of Service
+          </Button>
+
+          <Button
             variant="ghost"
             className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => setShowLogoutDialog(true)}
