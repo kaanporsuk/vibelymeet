@@ -1,0 +1,61 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useState } from "react";
+
+export const usePremium = () => {
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserId(data.user?.id ?? null);
+    });
+  }, []);
+
+  // Auto-expire check on mount
+  useQuery({
+    queryKey: ["premium-check", userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      const { data } = await supabase.rpc("check_premium_status", { p_user_id: userId });
+      return data;
+    },
+    enabled: !!userId,
+    staleTime: Infinity,
+  });
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["premium-status", userId],
+    queryFn: async () => {
+      if (!userId) return { is_premium: false, premium_until: null };
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_premium, premium_until")
+        .eq("id", userId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!userId,
+  });
+
+  // Realtime subscription for instant updates
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`premium-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${userId}` },
+        () => { refetch(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, refetch]);
+
+  return {
+    isPremium: data?.is_premium ?? false,
+    premiumUntil: data?.premium_until ? new Date(data.premium_until) : null,
+    isLoading,
+    refetch,
+  };
+};
