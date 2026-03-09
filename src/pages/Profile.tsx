@@ -265,6 +265,8 @@ const initialProfile: UserProfile = {
 
 // Import shared score calculation
 import { calculateVibeScore as calculateVibeScoreShared } from "@/utils/calculateVibeScore";
+import { usePremium } from "@/hooks/usePremium";
+import { Crown } from "lucide-react";
 
 const calculateVibeScore = (profile: UserProfile): number => {
   return calculateVibeScoreShared(profile);
