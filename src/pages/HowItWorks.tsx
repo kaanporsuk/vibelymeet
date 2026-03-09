@@ -146,12 +146,25 @@ const HowItWorks = () => {
         </motion.div>
 
         {/* Legal Links */}
-        <div className="py-4 text-center">
-          <p className="text-xs text-muted-foreground">
-            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline transition-colors">Privacy Policy</a>
-            {" · "}
-            <a href="/terms" target="_blank" rel="noopener noreferrer" className="hover:text-foreground hover:underline transition-colors">Terms of Service</a>
-          </p>
+        <div className="grid grid-cols-2 gap-3">
+          <a
+            href="/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium bg-secondary/40 border border-border/50 text-muted-foreground hover:bg-secondary/60 hover:text-foreground hover:border-border transition-all"
+          >
+            <FileText className="w-4 h-4" />
+            Privacy Policy
+          </a>
+          <a
+            href="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-medium bg-secondary/40 border border-border/50 text-muted-foreground hover:bg-secondary/60 hover:text-foreground hover:border-border transition-all"
+          >
+            <FileText className="w-4 h-4" />
+            Terms of Service
+          </a>
         </div>
 
         {/* CTA */}
