@@ -136,12 +136,15 @@ export const useMuteMatch = () => {
       if (error) throw error;
 
       // Also clean from match_notification_mutes
-      await supabase
-        .from("match_notification_mutes")
-        .delete()
-        .eq("match_id", matchId)
-        .eq("user_id", userId)
-        .then(() => {}).catch(() => {});
+      try {
+        await supabase
+          .from("match_notification_mutes")
+          .delete()
+          .eq("match_id", matchId)
+          .eq("user_id", userId);
+      } catch {
+        // Best-effort sync
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
