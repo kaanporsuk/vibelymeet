@@ -89,6 +89,7 @@ const App = () => (
               <AppContent />
               <NotificationContainer />
               <NotificationManager />
+              <PushPermissionPrompt />
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />

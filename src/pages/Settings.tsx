@@ -50,16 +50,13 @@ import { usePremium } from "@/hooks/usePremium";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
-interface NotificationSettings {
-  matches: boolean;
-  messages: boolean;
-  events: boolean;
-  dateReminders: boolean;
-  dailyDrop: boolean;
-  sounds: boolean;
-}
-
 interface PrivacySettings {
+  showOnlineStatus: boolean;
+  showLastSeen: boolean;
+  showReadReceipts: boolean;
+  discoverableByLocation: boolean;
+  showAge: boolean;
+}
   showOnlineStatus: boolean;
   showLastSeen: boolean;
   showReadReceipts: boolean;
