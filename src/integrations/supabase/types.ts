@@ -1991,6 +1991,7 @@ export type Database = {
           photos: string[]
           profile_id: string
           queue_status: string
+          shared_vibe_count: number
           tagline: string
         }[]
       }
