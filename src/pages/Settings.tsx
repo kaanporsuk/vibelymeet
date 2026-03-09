@@ -159,7 +159,9 @@ const Settings = () => {
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
                 <p className="text-xs text-muted-foreground">
-                  {credits.extraTime} Extra Time · {credits.extendedVibe} Extended Vibe
+                  {isPremium && premiumUntil
+                    ? `Premium · Expires ${format(premiumUntil, "MMM d, yyyy")}`
+                    : `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`}
                 </p>
               </div>
             </div>

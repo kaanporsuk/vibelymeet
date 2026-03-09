@@ -688,6 +688,11 @@ const Profile = () => {
             <h1 className="text-2xl font-display font-bold text-foreground">
               {profile.name}, {profile.age}
             </h1>
+            {isPremium && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[10px] font-semibold">
+                <Crown className="w-3 h-3" /> Premium
+              </span>
+            )}
             {profile.zodiac && (
               <span className="text-lg" title={profile.zodiac}>
                 {getZodiacEmoji(profile.zodiac)}
