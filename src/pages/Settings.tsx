@@ -57,12 +57,6 @@ interface PrivacySettings {
   discoverableByLocation: boolean;
   showAge: boolean;
 }
-  showOnlineStatus: boolean;
-  showLastSeen: boolean;
-  showReadReceipts: boolean;
-  discoverableByLocation: boolean;
-  showAge: boolean;
-}
 
 const Settings = () => {
   const navigate = useNavigate();

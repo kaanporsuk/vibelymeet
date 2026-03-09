@@ -111,6 +111,27 @@ Deno.serve(async (req) => {
             // We use a placeholder system ID or skip admin_id since this is a purchase
             // The credit_adjustments table requires admin_id, so we log separately
             console.log(`Credits granted: user=${creditUserId}, pack=${packId}, extra_time=+${extraTime}, extended_vibe=+${extendedVibe}`)
+
+            // Send purchase confirmation notification
+            try {
+              const notifResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                },
+                body: JSON.stringify({
+                  user_id: creditUserId,
+                  category: 'credits_subscription',
+                  title: 'Credits added! ⚡',
+                  body: `${packId} pack purchased`,
+                  data: { url: '/settings' },
+                }),
+              })
+              await notifResponse.text()
+            } catch (e) {
+              console.error('Notification send failed:', e)
+            }
           }
           break
         }
