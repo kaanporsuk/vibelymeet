@@ -655,6 +655,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           onClose={() => setShowGrantCredits(false)}
         />
       )}
+
+      {/* Premium Modal */}
+      {profile && (
+        <AdminPremiumModal
+          userId={userId}
+          userName={profile.name || 'User'}
+          currentIsPremium={profile.is_premium || false}
+          currentPremiumUntil={profile.premium_until || null}
+          isOpen={showPremiumModal}
+          onClose={() => setShowPremiumModal(false)}
+        />
+      )}
     </>
   );
 };
