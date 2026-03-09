@@ -50,6 +50,18 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 
+const PostHogPageTracker = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    posthog.capture('$pageview', {
+      $current_url: window.location.href,
+    });
+  }, [location.pathname]);
+
+  return null;
+};
+
 const AppContent = () => {
   useActivityHeartbeat();
   return null;
