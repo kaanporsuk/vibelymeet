@@ -10,6 +10,7 @@ import {
   Volume2,
   ChevronRight,
   MessageSquare,
+  MessageSquareText,
   Heart,
   Calendar,
   Sparkles,
@@ -17,6 +18,7 @@ import {
   EyeOff,
   Zap,
   Trash2,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
