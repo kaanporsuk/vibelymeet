@@ -68,6 +68,13 @@ export const useSendMessage = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      // Get match to find recipient
+      const { data: match } = await supabase
+        .from("matches")
+        .select("profile_id_1, profile_id_2")
+        .eq("id", matchId)
+        .single();
+
       const { data, error } = await supabase
         .from("messages")
         .insert({
