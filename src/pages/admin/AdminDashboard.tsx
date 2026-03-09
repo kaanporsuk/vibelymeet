@@ -2,22 +2,9 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  Users,
-  Calendar,
-  TrendingUp,
-  Activity,
   Menu,
-  Heart,
-  MessageSquare,
-  UserCheck,
   LogOut,
-  ChevronRight,
-  Sparkles,
   Bell,
-  AlertTriangle,
-  Download,
-  BarChart3,
-  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,9 +26,10 @@ import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytic
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
 import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
+import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();

@@ -425,6 +425,9 @@ const Settings = () => {
         }}
       />
 
+      {/* Help & Feedback Drawer */}
+      <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} />
+
       {/* Logout Confirmation */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
