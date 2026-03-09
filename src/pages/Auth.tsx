@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, Loader2, Sparkles, Mail, Lock, User, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 type AuthMode = "signin" | "signup" | "success";
 
