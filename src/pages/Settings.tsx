@@ -77,6 +77,7 @@ const Settings = () => {
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { isGranted, requestPermission } = usePushNotifications();
   const { credits } = useCredits();
+  const { isPremium, premiumUntil } = usePremium();
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     matches: true,
