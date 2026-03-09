@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 export interface Message {
   id: string;
@@ -76,7 +77,10 @@ export const useSendMessage = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        captureSupabaseError("send-message", error);
+        throw error;
+      }
       return data;
     },
     onSuccess: () => {

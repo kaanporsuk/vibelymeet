@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 export const useDeleteAccount = () => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -30,6 +31,7 @@ export const useDeleteAccount = () => {
 
       if (error) {
         console.error("Delete account error:", error);
+        captureSupabaseError("delete-account", error);
         toast.error("Failed to delete account. Please try again.");
         setIsDeleting(false);
         return false;

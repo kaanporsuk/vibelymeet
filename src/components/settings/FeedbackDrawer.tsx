@@ -40,6 +40,10 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
 
   const handleSubmit = async () => {
     if (!isValid || !user) return;
+    if (!navigator.onLine) {
+      toast.error("You're offline — we'll need a connection to send this");
+      return;
+    }
     setIsSubmitting(true);
 
     const deviceInfo = includeDeviceInfo

@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { User } from "lucide-react";
+import * as Sentry from "@sentry/react";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
 import { IceBreakerCard } from "@/components/video-date/IceBreakerCard";
@@ -89,8 +91,12 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
-    onCallEnded: () => {},
-    onPartnerJoined: () => {},
+    onCallEnded: () => {
+      Sentry.addBreadcrumb({ category: "video-date", message: "Call ended", level: "info" });
+    },
+    onPartnerJoined: () => {
+      Sentry.addBreadcrumb({ category: "video-date", message: "Partner connected", level: "info" });
+    },
     onPartnerLeft: () => {
       reconnection.startGraceWindow();
     },
@@ -202,6 +208,7 @@ const VideoDate = () => {
   useEffect(() => {
     if (!callStarted && id) {
       setCallStarted(true);
+      Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
       startCall(id);
     }
   }, [callStarted, startCall, id]);
@@ -454,7 +461,7 @@ const VideoDate = () => {
       const success =
         type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
       if (success) {
-        // Safely add minutes to the timer (handle null case)
+        Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
       }
       return success;

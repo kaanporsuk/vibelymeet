@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { captureSupabaseError } from "@/lib/errorTracking";
 
 interface Credits {
   extraTime: number;
@@ -47,6 +48,7 @@ export const useCredits = () => {
       setCredits((prev) => ({ ...prev, extraTime: prev.extraTime - 1 }));
       return true;
     }
+    if (error) captureSupabaseError("deduct-extra-time", error);
     return false;
   }, [user?.id, credits.extraTime]);
 
@@ -62,6 +64,7 @@ export const useCredits = () => {
       setCredits((prev) => ({ ...prev, extendedVibe: prev.extendedVibe - 1 }));
       return true;
     }
+    if (error) captureSupabaseError("deduct-extended-vibe", error);
     return false;
   }, [user?.id, credits.extendedVibe]);
 

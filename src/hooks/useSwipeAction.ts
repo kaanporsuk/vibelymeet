@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 
 interface SwipeResult {
   result: string;
@@ -22,6 +23,10 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
   const swipe = useCallback(
     async (targetId: string, swipeType: "vibe" | "pass" | "super_vibe"): Promise<SwipeResult | null> => {
       if (!user?.id || !eventId) return null;
+      if (!navigator.onLine) {
+        toast.error("You're offline — swipes need a connection");
+        return null;
+      }
 
       setIsProcessing(true);
       try {
@@ -43,6 +48,7 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
         // Handle results
         switch (result.result) {
           case "match":
+            Sentry.addBreadcrumb({ category: "matching", message: "Mutual match created", level: "info" });
             if (result.immediate && result.match_id) {
               onMatch?.(result.match_id);
             }

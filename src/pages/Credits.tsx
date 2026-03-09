@@ -8,6 +8,7 @@ import { useCredits } from "@/hooks/useCredits";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 
 const PACKS = [
   {
@@ -70,6 +71,11 @@ const Credits = () => {
   }
 
   const handlePurchase = async (packId: string) => {
+    if (!navigator.onLine) {
+      toast.error("You're offline — purchases need a connection");
+      return;
+    }
+    Sentry.addBreadcrumb({ category: "purchase", message: `Initiating checkout for ${packId}`, level: "info" });
     setLoadingPack(packId);
     const { data, error } = await supabase.functions.invoke(
       "create-credits-checkout",
