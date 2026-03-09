@@ -90,8 +90,8 @@ export const useBlockUser = () => {
     },
   });
 
-  const blockUser = (blockedId: string, userName: string, reason?: string) => {
-    blockMutation.mutate({ blockedId, reason }, {
+  const blockUser = (blockedId: string, userName: string, reason?: string, matchId?: string) => {
+    blockMutation.mutate({ blockedId, reason, matchId }, {
       onSuccess: () => {
         toast.success(`${userName} blocked`, {
           description: "They won't be able to contact you or see your profile",
