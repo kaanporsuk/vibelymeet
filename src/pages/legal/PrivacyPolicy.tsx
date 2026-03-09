@@ -1,15 +1,22 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 
-const PrivacyPolicy = () => (
+const PrivacyPolicy = () => {
+  const navigate = useNavigate();
+
+  return (
   <div className="min-h-screen bg-background text-foreground">
-    {/* Header */}
-    <header className="border-b border-border/40 px-6 py-5">
-      <Link to="/" className="flex items-center gap-2">
-        <img src="/vibely-logomark.png" alt="Vibely" className="h-8 w-8" />
-        <span className="text-xl font-bold bg-gradient-to-r from-neon-violet to-neon-pink bg-clip-text text-transparent">
-          Vibely
-        </span>
-      </Link>
+    {/* Sticky Nav Header */}
+    <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
+      <div className="flex items-center gap-3 max-w-3xl mx-auto">
+        <button
+          onClick={() => navigate(-1)}
+          className="p-2 -ml-2 rounded-xl hover:bg-secondary transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5 text-foreground" />
+        </button>
+        <h1 className="text-xl font-display font-bold text-foreground">Privacy Policy</h1>
+      </div>
     </header>
 
     {/* Content */}
@@ -124,6 +131,7 @@ const PrivacyPolicy = () => (
       <p className="mt-3">© {new Date().getFullYear()} Vibely. All rights reserved.</p>
     </footer>
   </div>
-);
+  );
+};
 
 export default PrivacyPolicy;
