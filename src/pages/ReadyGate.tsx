@@ -429,6 +429,7 @@ const ReadyGate = () => {
                 <span className="text-muted-foreground/30">·</span>
                 <button
                   onClick={() => {
+                    trackEvent('ready_gate_skipped', { session_id: id });
                     skip();
                   }}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
