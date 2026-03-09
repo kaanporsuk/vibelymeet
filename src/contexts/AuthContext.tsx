@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import * as Sentry from "@sentry/react";
 import { supabase } from '@/integrations/supabase/client';
 import { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -17,6 +18,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isAdmin: boolean;
+  isOfflineAtBoot: boolean;
   signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
@@ -42,14 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOfflineAtBoot, setIsOfflineAtBoot] = useState(false);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
         if (session?.user) {
-          // Defer profile fetch to avoid deadlock
+          Sentry.setUser({ id: session.user.id });
+          Sentry.addBreadcrumb({ category: "auth", message: "User signed in", level: "info" });
           setTimeout(() => {
             fetchUserProfile(session.user.id);
             checkAdminRole(session.user.id);
@@ -57,21 +60,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setUser(null);
           setIsAdmin(false);
+          Sentry.setUser(null);
         }
       }
     );
 
-    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) {
+        Sentry.setUser({ id: session.user.id });
         fetchUserProfile(session.user.id);
         checkAdminRole(session.user.id);
+      } else if (!navigator.onLine) {
+        setIsOfflineAtBoot(true);
+      }
+      setIsLoading(false);
+    }).catch(() => {
+      if (!navigator.onLine) {
+        setIsOfflineAtBoot(true);
       }
       setIsLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    // Clear offline-at-boot flag when connectivity returns
+    const handleOnline = () => setIsOfflineAtBoot(false);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("online", handleOnline);
+    };
   }, []);
 
   const fetchUserProfile = async (userId: string) => {
@@ -112,9 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) return { error };
 
-    // Create profile if user was created
     if (data.user) {
-      // Check for referral
       const refId = localStorage.getItem("vibely_referrer_id");
       
       await supabase.from('profiles').insert({
@@ -125,7 +141,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ...(refId ? { referred_by: refId } : {}),
       });
 
-      // Clean up referral
       if (refId) localStorage.removeItem("vibely_referrer_id");
     }
 
@@ -138,6 +153,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    Sentry.addBreadcrumb({ category: "auth", message: "User signed out", level: "info" });
+    Sentry.setUser(null);
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
@@ -178,6 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!session,
         isLoading,
         isAdmin,
+        isOfflineAtBoot,
         signUp,
         signIn,
         logout,
