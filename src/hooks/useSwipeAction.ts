@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
+import { sendNotification } from "@/lib/notifications";
 
 interface SwipeResult {
   result: string;
