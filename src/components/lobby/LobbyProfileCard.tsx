@@ -145,8 +145,8 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         )}
 
         {sharedCount > 0 && (
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 backdrop-blur-sm border border-primary/30">
+            <Sparkles className="w-3 h-3 text-primary" />
             <span className="text-xs font-medium text-primary">
               {sharedCount} shared vibe{sharedCount > 1 ? "s" : ""}
             </span>
