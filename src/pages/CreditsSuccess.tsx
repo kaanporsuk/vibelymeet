@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCredits } from "@/hooks/useCredits";
+import { trackEvent } from "@/lib/analytics";
 
 const PACK_LABELS: Record<string, string> = {
   extra_time_3: "+3 Extra Time credits",
