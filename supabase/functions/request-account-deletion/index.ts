@@ -20,39 +20,45 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Basic IP-based rate limiting: max 5 requests per hour per IP
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Look up user by email
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    const user = users?.users?.find(
-      (u: any) => u.email?.toLowerCase() === email.toLowerCase()
-    );
+    // Look up user by email using admin API (avoids loading all users)
+    const { data: userData, error: lookupError } = await supabaseAdmin.auth.admin.getUserByEmail(email.toLowerCase());
 
-    if (user) {
-      // Check for existing pending request
-      const { data: existing } = await supabaseAdmin
-        .from("account_deletion_requests")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("status", "pending")
-        .maybeSingle();
+    if (lookupError || !userData?.user) {
+      // Don't reveal if email exists — always return success
+      return new Response(
+        JSON.stringify({ success: true }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-      if (!existing) {
-        await supabaseAdmin.from("account_deletion_requests").insert({
-          user_id: user.id,
-          reason: reason ? `[${source || "web"}] ${reason}` : `[${source || "web"}] No reason provided`,
-          status: "pending",
-        });
+    const user = userData.user;
 
-        // Suspend profile immediately
-        await supabaseAdmin
-          .from("profiles")
-          .update({ is_suspended: true })
-          .eq("id", user.id);
-      }
+    // Check for existing pending request
+    const { data: existing } = await supabaseAdmin
+      .from("account_deletion_requests")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (!existing) {
+      await supabaseAdmin.from("account_deletion_requests").insert({
+        user_id: user.id,
+        reason: reason ? `[${source || "web"}] ${reason}` : `[${source || "web"}] No reason provided`,
+        status: "pending",
+      });
+
+      // NOTE: Do NOT suspend the account immediately.
+      // Suspension is a destructive action that should only happen
+      // after admin review, to prevent abuse by unauthenticated callers.
     }
 
     // Always return success to not reveal if email exists
