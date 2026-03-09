@@ -109,6 +109,7 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
                 {activePanel === 'deletions' && 'Account Deletions'}
+                {activePanel === 'feedback' && 'Help & Feedback'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -122,6 +123,7 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
                 {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
+                {activePanel === 'feedback' && 'Review bug reports, feature ideas, and questions from users'}
               </p>
               </div>
             </div>
