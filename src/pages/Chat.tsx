@@ -18,6 +18,7 @@ import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
+import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
