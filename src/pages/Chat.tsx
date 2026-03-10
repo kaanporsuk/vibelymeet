@@ -135,9 +135,11 @@ const Chat = () => {
       text: m.text,
       sender: m.sender,
       time: m.time,
-      type: (m.audioUrl ? "voice" : "text") as ChatMessage["type"],
+      type: (m.videoUrl ? "video" : m.audioUrl ? "voice" : "text") as ChatMessage["type"],
       audioUrl: m.audioUrl,
       audioDuration: m.audioDuration,
+      videoUrl: m.videoUrl,
+      videoDuration: m.videoDuration,
       status: "delivered" as MessageStatusType,
     }));
     return [...realMsgs, ...localMessages];
