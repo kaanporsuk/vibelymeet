@@ -34,6 +34,7 @@ import NotFound from "./pages/NotFound";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DeleteAccountWeb from "./pages/legal/DeleteAccountWeb";
+import CommunityGuidelines from "./pages/legal/CommunityGuidelines";
 import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
@@ -130,6 +131,7 @@ const App = () => (
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<TermsOfService />} />
                 <Route path="/delete-account" element={<DeleteAccountWeb />} />
+                <Route path="/community-guidelines" element={<CommunityGuidelines />} />
                 <Route path="/premium" element={<Premium />} />
                 <Route path="/subscription/success" element={<SubscriptionSuccess />} />
                 <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
