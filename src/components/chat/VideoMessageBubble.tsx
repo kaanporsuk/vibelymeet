@@ -22,6 +22,7 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
   const [isMuted, setIsMuted] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
