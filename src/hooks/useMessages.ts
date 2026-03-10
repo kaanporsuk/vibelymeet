@@ -33,7 +33,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: messages, error: msgError } = await supabase
         .from("messages")
-        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds")
+        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds")
         .eq("match_id", match.id)
         .order("created_at", { ascending: true });
 
