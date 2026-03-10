@@ -77,6 +77,7 @@ const Matches = () => {
   const [blockTarget, setBlockTarget] = useState<Match | null>(null);
   const [muteTarget, setMuteTarget] = useState<Match | null>(null);
   const [showReportSheet, setShowReportSheet] = useState(false);
+  const [reportTarget, setReportTarget] = useState<Match | null>(null);
   const [pendingUnmatchIds, setPendingUnmatchIds] = useState<Set<string>>(new Set());
   
   const { initiateUnmatch } = useUndoableUnmatch({
@@ -197,6 +198,7 @@ const Matches = () => {
   };
 
   const handleOpenReport = () => {
+    setReportTarget(unmatchTarget);
     setUnmatchTarget(null);
     setShowReportSheet(true);
   };
@@ -576,6 +578,13 @@ const Matches = () => {
           <ReportWizard
             onBack={() => setShowReportSheet(false)}
             onComplete={handleReportComplete}
+            preSelectedUser={reportTarget ? {
+              id: reportTarget.id,
+              name: reportTarget.name,
+              avatar_url: reportTarget.image,
+              interactionType: "Match",
+              interactionDate: reportTarget.time || "Recent",
+            } : undefined}
           />
         </SheetContent>
       </Sheet>

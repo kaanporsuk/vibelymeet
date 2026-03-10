@@ -419,6 +419,13 @@ export const ChatHeader = ({
           <ReportWizard
             onBack={() => setShowReportSheet(false)}
             onComplete={handleReportComplete}
+            preSelectedUser={{
+              id: user.id,
+              name: user.name,
+              avatar_url: user.avatar_url,
+              interactionType: "Match",
+              interactionDate: "Recent",
+            }}
           />
         </SheetContent>
       </Sheet>

@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, 
   Search, 
   UserX, 
-  AlertTriangle, 
   Camera,
   MessageCircleWarning,
   Frown,
@@ -16,52 +15,36 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useQuery } from "@tanstack/react-query";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
+import { formatDistanceToNow } from "date-fns";
+
+export interface ReportPreSelectedUser {
+  id: string;
+  name: string;
+  avatar_url?: string;
+  interactionType: string;
+  interactionDate: string;
+}
 
 interface ReportWizardProps {
   onBack: () => void;
   onComplete: () => void;
+  preSelectedUser?: ReportPreSelectedUser;
 }
 
 type ReportStep = "identify" | "reason" | "details" | "action" | "success";
 
-interface RecentUser {
+interface ReportableUser {
   id: string;
   name: string;
-  avatar: string;
-  type: "match" | "video";
-  date: string;
+  avatar_url?: string;
+  interactionType: string;
+  interactionDate: string;
 }
-
-const mockRecentUsers: RecentUser[] = [
-  {
-    id: "1",
-    name: "Jordan M.",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100",
-    type: "video",
-    date: "Today",
-  },
-  {
-    id: "2",
-    name: "Casey R.",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100",
-    type: "match",
-    date: "Yesterday",
-  },
-  {
-    id: "3",
-    name: "Taylor S.",
-    avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100",
-    type: "video",
-    date: "2 days ago",
-  },
-  {
-    id: "4",
-    name: "Morgan K.",
-    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100",
-    type: "match",
-    date: "3 days ago",
-  },
-];
 
 const reportReasons = [
   {
@@ -94,25 +77,110 @@ const reportReasons = [
   },
 ];
 
-const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
-  const [step, setStep] = useState<ReportStep>("identify");
+const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps) => {
+  const { user } = useAuth();
+  const [step, setStep] = useState<ReportStep>(preSelectedUser ? "reason" : "identify");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedUser, setSelectedUser] = useState<RecentUser | null>(null);
+  const [selectedUser, setSelectedUser] = useState<ReportableUser | null>(
+    preSelectedUser ? {
+      id: preSelectedUser.id,
+      name: preSelectedUser.name,
+      avatar_url: preSelectedUser.avatar_url,
+      interactionType: preSelectedUser.interactionType,
+      interactionDate: preSelectedUser.interactionDate,
+    } : null
+  );
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [details, setDetails] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const filteredUsers = mockRecentUsers.filter((user) =>
-    user.name.toLowerCase().includes(searchQuery.toLowerCase())
+  // Fetch real matches for user selection (only when no preSelectedUser)
+  const { data: recentUsers = [], isLoading: isLoadingUsers } = useQuery({
+    queryKey: ["recent-matches-for-report", user?.id],
+    queryFn: async (): Promise<ReportableUser[]> => {
+      if (!user?.id) return [];
+
+      const { data: matches } = await supabase
+        .from("matches")
+        .select("id, profile_id_1, profile_id_2, matched_at")
+        .or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`)
+        .order("matched_at", { ascending: false })
+        .limit(20);
+
+      if (!matches?.length) return [];
+
+      const otherIds = matches.map(m =>
+        m.profile_id_1 === user.id ? m.profile_id_2 : m.profile_id_1
+      );
+
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, name, avatar_url")
+        .in("id", otherIds);
+
+      const profileMap = new Map((profiles || []).map(p => [p.id, p]));
+
+      return matches.map(m => {
+        const otherId = m.profile_id_1 === user.id ? m.profile_id_2 : m.profile_id_1;
+        const profile = profileMap.get(otherId);
+        return {
+          id: otherId,
+          name: profile?.name || "Unknown",
+          avatar_url: profile?.avatar_url || undefined,
+          interactionType: "Match",
+          interactionDate: formatDistanceToNow(new Date(m.matched_at), { addSuffix: true }),
+        };
+      });
+    },
+    enabled: !preSelectedUser && !!user?.id,
+  });
+
+  const filteredUsers = recentUsers.filter((u) =>
+    u.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
-    // Mock API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setStep("success");
-    setIsSubmitting(false);
+    try {
+      if (!user?.id || !selectedUser || !selectedReason) {
+        throw new Error("Missing required data");
+      }
+
+      const { error: reportError } = await supabase
+        .from("user_reports")
+        .insert({
+          reporter_id: user.id,
+          reported_id: selectedUser.id,
+          reason: selectedReason,
+          details: details || null,
+          also_blocked: alsoBlock,
+        });
+
+      if (reportError) throw reportError;
+
+      // If "Also block" is checked, insert into blocked_users
+      if (alsoBlock) {
+        const { error: blockError } = await supabase
+          .from("blocked_users")
+          .insert({
+            blocker_id: user.id,
+            blocked_id: selectedUser.id,
+            reason: `Reported: ${selectedReason}`,
+          });
+        // Ignore duplicate key errors
+        if (blockError && !blockError.message.includes("duplicate")) {
+          console.error("Block error:", blockError);
+        }
+      }
+
+      setStep("success");
+    } catch (error) {
+      console.error("Report submission error:", error);
+      toast.error("Failed to submit report. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const stepVariants = {
@@ -120,6 +188,12 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
     animate: { opacity: 1, x: 0 },
     exit: { opacity: 0, x: -20 },
   };
+
+  const allSteps: ReportStep[] = preSelectedUser
+    ? ["reason", "details", "action"]
+    : ["identify", "reason", "details", "action"];
+
+  const currentStepIndex = allSteps.indexOf(step);
 
   return (
     <motion.div
@@ -133,10 +207,8 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
         <div className="flex items-center gap-3">
           {step !== "success" && (
             <button
-              onClick={step === "identify" ? onBack : () => {
-                const steps: ReportStep[] = ["identify", "reason", "details", "action"];
-                const currentIndex = steps.indexOf(step);
-                if (currentIndex > 0) setStep(steps[currentIndex - 1]);
+              onClick={step === allSteps[0] ? onBack : () => {
+                if (currentStepIndex > 0) setStep(allSteps[currentStepIndex - 1]);
               }}
               className="w-10 h-10 rounded-full bg-secondary/50 flex items-center justify-center hover:bg-secondary transition-colors"
             >
@@ -149,7 +221,7 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
             </h2>
             {step !== "success" && (
               <p className="text-sm text-muted-foreground">
-                Step {["identify", "reason", "details", "action"].indexOf(step) + 1} of 4
+                Step {currentStepIndex + 1} of {allSteps.length}
               </p>
             )}
           </div>
@@ -158,11 +230,11 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
         {/* Progress bar */}
         {step !== "success" && (
           <div className="flex gap-1 mt-4">
-            {["identify", "reason", "details", "action"].map((s, i) => (
+            {allSteps.map((s, i) => (
               <div
                 key={s}
                 className={`h-1 flex-1 rounded-full transition-colors ${
-                  i <= ["identify", "reason", "details", "action"].indexOf(step)
+                  i <= currentStepIndex
                     ? "bg-gradient-to-r from-red-500 to-orange-500"
                     : "bg-secondary"
                 }`}
@@ -196,36 +268,43 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
               </div>
             </div>
 
-            <div className="space-y-2">
-              {filteredUsers.map((user) => (
-                <motion.button
-                  key={user.id}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  onClick={() => {
-                    setSelectedUser(user);
-                    setStep("reason");
-                  }}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
-                    selectedUser?.id === user.id
-                      ? "bg-primary/20 border border-primary"
-                      : "bg-secondary/30 border border-transparent hover:border-border"
-                  }`}
-                >
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-12 h-12 rounded-full object-cover"
-                  />
-                  <div className="flex-1 text-left">
-                    <p className="font-medium text-foreground">{user.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {user.type === "video" ? "Video Date" : "Match"} • {user.date}
-                    </p>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
+            {isLoadingUsers ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredUsers.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">
+                No recent matches found
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {filteredUsers.map((u) => (
+                  <motion.button
+                    key={u.id}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.99 }}
+                    onClick={() => {
+                      setSelectedUser(u);
+                      setStep("reason");
+                    }}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl transition-all bg-secondary/30 border border-transparent hover:border-border"
+                  >
+                    <ProfilePhoto
+                      avatarUrl={u.avatar_url}
+                      name={u.name}
+                      size="md"
+                      rounded="full"
+                    />
+                    <div className="flex-1 text-left">
+                      <p className="font-medium text-foreground">{u.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {u.interactionType} • {u.interactionDate}
+                      </p>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -239,10 +318,11 @@ const ReportWizard = ({ onBack, onComplete }: ReportWizardProps) => {
             className="p-6 space-y-4"
           >
             <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/30 mb-6">
-              <img
-                src={selectedUser?.avatar}
-                alt={selectedUser?.name}
-                className="w-10 h-10 rounded-full object-cover"
+              <ProfilePhoto
+                avatarUrl={selectedUser?.avatar_url}
+                name={selectedUser?.name || ""}
+                size="sm"
+                rounded="full"
               />
               <p className="font-medium text-foreground">{selectedUser?.name}</p>
             </div>
