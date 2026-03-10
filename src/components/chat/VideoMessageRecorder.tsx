@@ -82,12 +82,21 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
     const stream = streamRef.current;
     if (!stream) return;
 
-    const supportedTypes = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
-      'video/mp4',
-    ];
+    // Safari supports MP4 recording natively and plays it back correctly.
+    // Chrome/Firefox support WebM. Prioritize each browser's native format.
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const supportedTypes = isSafari
+      ? [
+          'video/mp4',
+          'video/webm;codecs=h264',
+          'video/webm',
+        ]
+      : [
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm',
+          'video/mp4',
+        ];
     let mimeType = '';
     for (const type of supportedTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
