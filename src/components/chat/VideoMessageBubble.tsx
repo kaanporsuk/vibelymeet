@@ -68,6 +68,21 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  if (loadError) {
+    return (
+      <div className="w-56 rounded-2xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-8 px-4 gap-2">
+        <AlertCircle className="w-6 h-6 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground text-center">Video unavailable</span>
+        <button
+          onClick={() => { setLoadError(false); }}
+          className="text-xs text-primary hover:underline"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="w-56 rounded-2xl overflow-hidden relative group cursor-pointer" onClick={togglePlay}>
       <AspectRatio ratio={9 / 16}>
