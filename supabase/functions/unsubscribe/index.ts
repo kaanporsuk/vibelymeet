@@ -1,13 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
+import { checkRateLimit } from "../_shared/rate-limiter.ts";
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -26,17 +19,15 @@ async function generateHmac(secret: string, message: string): Promise<string> {
   return bytesToHex(new Uint8Array(signature));
 }
 
-export async function createUnsubscribeUrl(uid: string): Promise<string> {
-  const secret = Deno.env.get("UNSUB_HMAC_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const token = await generateHmac(secret, uid);
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  return `${supabaseUrl}/functions/v1/unsubscribe?uid=${uid}&token=${token}`;
-}
+const UNSUB_RATE_LIMIT_REQUESTS = 10;
+const UNSUB_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 serve(async (req) => {
   const url = new URL(req.url);
   const uid = url.searchParams.get("uid");
   const token = url.searchParams.get("token");
+
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
 
   if (!uid || !token) {
     return new Response(
@@ -46,9 +37,28 @@ serve(async (req) => {
   }
 
   try {
-    // Verify HMAC token
-    const secret = Deno.env.get("UNSUB_HMAC_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const expectedToken = await generateHmac(secret, uid);
+    const unsubSecret = Deno.env.get("UNSUB_HMAC_SECRET");
+    if (!unsubSecret || unsubSecret.trim() === "") {
+      console.error("UNSUB_HMAC_SECRET is not set");
+      return new Response(
+        "<html><body style='font-family:sans-serif;text-align:center;padding:60px'><h2>Service unavailable</h2></body></html>",
+        { status: 503, headers: { "Content-Type": "text/html" } }
+      );
+    }
+
+    const rateResult = await checkRateLimit(clientIp, {
+      maxRequests: UNSUB_RATE_LIMIT_REQUESTS,
+      windowMs: UNSUB_RATE_LIMIT_WINDOW_MS,
+      functionName: "unsubscribe",
+    });
+    if (!rateResult.allowed) {
+      return new Response(
+        "<html><body style='font-family:sans-serif;text-align:center;padding:60px'><h2>Too many requests. Try again later.</h2></body></html>",
+        { status: 429, headers: { "Content-Type": "text/html" } }
+      );
+    }
+
+    const expectedToken = await generateHmac(unsubSecret, uid);
 
     if (token !== expectedToken) {
       return new Response(
@@ -57,8 +67,9 @@ serve(async (req) => {
       );
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
+      supabaseUrl,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 

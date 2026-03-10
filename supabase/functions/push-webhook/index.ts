@@ -45,9 +45,17 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const webhookSecret = Deno.env.get("PUSH_WEBHOOK_SECRET");
 
-    // Verify webhook secret if configured
+    // Require PUSH_WEBHOOK_SECRET (fail closed)
+    if (!webhookSecret || webhookSecret.trim() === "") {
+      console.error("PUSH_WEBHOOK_SECRET is not set");
+      return new Response(
+        JSON.stringify({ error: "Service unavailable" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const providedSecret = req.headers.get("x-webhook-secret");
-    if (webhookSecret && providedSecret !== webhookSecret) {
+    if (providedSecret !== webhookSecret) {
       console.error("Invalid webhook secret");
       return new Response(
         JSON.stringify({ error: "Unauthorized" }),

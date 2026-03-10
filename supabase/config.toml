@@ -77,3 +77,9 @@ verify_jwt = false
 
 [functions.send-notification]
 verify_jwt = false
+
+[functions.push-webhook]
+verify_jwt = false
+
+[functions.forward-geocode]
+verify_jwt = true

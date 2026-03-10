@@ -19,7 +19,10 @@ async function generateHmac(secret: string, message: string): Promise<string> {
 }
 
 async function createUnsubscribeUrl(uid: string): Promise<string> {
-  const secret = Deno.env.get("UNSUB_HMAC_SECRET") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const secret = Deno.env.get("UNSUB_HMAC_SECRET");
+  if (!secret || secret.trim() === "") {
+    throw new Error("UNSUB_HMAC_SECRET is required for unsubscribe URL generation");
+  }
   const token = await generateHmac(secret, uid);
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   return `${supabaseUrl}/functions/v1/unsubscribe?uid=${uid}&token=${token}`;
