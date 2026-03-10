@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, Volume2, VolumeX, Maximize } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 
