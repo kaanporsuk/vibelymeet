@@ -93,6 +93,7 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
           muted={isMuted}
           preload="metadata"
           onLoadedData={() => setLoaded(true)}
+          onError={() => setLoadError(true)}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           className="w-full h-full object-cover bg-black"
