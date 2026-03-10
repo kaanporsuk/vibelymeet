@@ -198,6 +198,7 @@ const Matches = () => {
   };
 
   const handleOpenReport = () => {
+    setReportTarget(unmatchTarget);
     setUnmatchTarget(null);
     setShowReportSheet(true);
   };
