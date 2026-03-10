@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Play, Pause, Volume2, VolumeX, Maximize } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Maximize, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 
@@ -22,6 +22,7 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
   const [isMuted, setIsMuted] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -67,6 +68,21 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  if (loadError) {
+    return (
+      <div className="w-56 rounded-2xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-8 px-4 gap-2">
+        <AlertCircle className="w-6 h-6 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground text-center">Video unavailable</span>
+        <button
+          onClick={() => { setLoadError(false); }}
+          className="text-xs text-primary hover:underline"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="w-56 rounded-2xl overflow-hidden relative group cursor-pointer" onClick={togglePlay}>
       <AspectRatio ratio={9 / 16}>
@@ -77,6 +93,7 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
           muted={isMuted}
           preload="metadata"
           onLoadedData={() => setLoaded(true)}
+          onError={() => setLoadError(true)}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
           className="w-full h-full object-cover bg-black"

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Pause } from 'lucide-react';
+import { Play, Pause, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface VoiceMessagePlayerProps {
@@ -35,6 +35,7 @@ const VoiceMessagePlayer = ({
   const [duration, setDuration] = useState(initialDuration);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
   const [isDragging, setIsDragging] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const waveformRef = useRef<HTMLDivElement>(null);
@@ -56,7 +57,9 @@ const VoiceMessagePlayer = ({
         URL.revokeObjectURL(url);
       };
     } else if (audioUrl) {
-      audioRef.current = new Audio(audioUrl);
+      const audio = new Audio(audioUrl);
+      audio.onerror = () => setLoadError(true);
+      audioRef.current = audio;
     }
   }, [audioBlob, audioUrl]);
 
@@ -168,6 +171,19 @@ const VoiceMessagePlayer = ({
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   const isMine = sender === 'me';
+
+  if (loadError) {
+    return (
+      <div className={cn(
+        "flex items-center gap-2 px-3 py-2.5 rounded-2xl min-w-[200px]",
+        isMine ? "bg-primary/30" : "bg-secondary/50",
+        className
+      )}>
+        <AlertCircle className="w-4 h-4 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Voice message unavailable</span>
+      </div>
+    );
+  }
 
   return (
     <div
