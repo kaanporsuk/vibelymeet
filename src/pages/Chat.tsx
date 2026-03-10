@@ -437,6 +437,33 @@ const Chat = () => {
                     onDecline={() => toast.info("Maybe next time!")}
                   />
                 </div>
+              ) : message.videoUrl ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex items-end gap-2",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                  )}
+                >
+                  {message.sender !== "me" && (
+                    <div className="w-7 shrink-0">
+                      {message.showAvatar && (
+                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <VideoMessageBubble
+                      videoUrl={message.videoUrl}
+                      duration={message.videoDuration || 0}
+                      isMine={message.sender === "me"}
+                    />
+                    {message.isLastInGroup && (
+                      <p className={cn("text-[10px] mt-1", message.sender === "me" ? "text-right text-muted-foreground" : "text-muted-foreground")}>{message.time}</p>
+                    )}
+                  </div>
+                </div>
               ) : message.audioUrl ? (
                 <div
                   key={message.id}
