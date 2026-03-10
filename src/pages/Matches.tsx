@@ -77,6 +77,7 @@ const Matches = () => {
   const [blockTarget, setBlockTarget] = useState<Match | null>(null);
   const [muteTarget, setMuteTarget] = useState<Match | null>(null);
   const [showReportSheet, setShowReportSheet] = useState(false);
+  const [reportTarget, setReportTarget] = useState<Match | null>(null);
   const [pendingUnmatchIds, setPendingUnmatchIds] = useState<Set<string>>(new Set());
   
   const { initiateUnmatch } = useUndoableUnmatch({
