@@ -172,6 +172,19 @@ const VoiceMessagePlayer = ({
 
   const isMine = sender === 'me';
 
+  if (loadError) {
+    return (
+      <div className={cn(
+        "flex items-center gap-2 px-3 py-2.5 rounded-2xl min-w-[200px]",
+        isMine ? "bg-primary/30" : "bg-secondary/50",
+        className
+      )}>
+        <AlertCircle className="w-4 h-4 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Voice message unavailable</span>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
