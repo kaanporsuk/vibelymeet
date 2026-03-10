@@ -57,7 +57,9 @@ const VoiceMessagePlayer = ({
         URL.revokeObjectURL(url);
       };
     } else if (audioUrl) {
-      audioRef.current = new Audio(audioUrl);
+      const audio = new Audio(audioUrl);
+      audio.onerror = () => setLoadError(true);
+      audioRef.current = audio;
     }
   }, [audioBlob, audioUrl]);
 
