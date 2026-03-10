@@ -10,6 +10,8 @@ export interface Message {
   time: string;
   audioUrl?: string;
   audioDuration?: number;
+  videoUrl?: string;
+  videoDuration?: number;
 }
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
