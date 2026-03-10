@@ -2052,6 +2052,14 @@ export type Database = {
           sample_cover: string
         }[]
       }
+      get_own_pii: {
+        Args: { p_user_id: string }
+        Returns: {
+          phone_number: string
+          phone_verified: boolean
+          verified_email: string
+        }[]
+      }
       get_user_subscription_status: {
         Args: { p_user_id: string }
         Returns: string
