@@ -55,6 +55,8 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
           time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           audioUrl: msg.audio_url || undefined,
           audioDuration: msg.audio_duration_seconds || undefined,
+          videoUrl: msg.video_url || undefined,
+          videoDuration: msg.video_duration_seconds || undefined,
         })),
       };
     },

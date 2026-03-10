@@ -319,10 +319,15 @@ const Chat = () => {
         .from("chat-videos")
         .getPublicUrl(filePath);
 
+      const videoUrl = urlData?.publicUrl;
+      if (!videoUrl) throw new Error("Failed to get video URL");
+
       const { error: msgError } = await supabase.from("messages").insert({
         match_id: chatData.matchId,
         sender_id: user.id,
-        content: `📹 Video message (${duration}s)`,
+        content: "📹 Video message",
+        video_url: videoUrl,
+        video_duration_seconds: Math.round(duration),
       });
 
       if (msgError) throw msgError;
