@@ -993,6 +993,8 @@ export type Database = {
           match_id: string
           read_at: string | null
           sender_id: string
+          video_duration_seconds: number | null
+          video_url: string | null
         }
         Insert: {
           audio_duration_seconds?: number | null
@@ -1003,6 +1005,8 @@ export type Database = {
           match_id: string
           read_at?: string | null
           sender_id: string
+          video_duration_seconds?: number | null
+          video_url?: string | null
         }
         Update: {
           audio_duration_seconds?: number | null
@@ -1013,6 +1017,8 @@ export type Database = {
           match_id?: string
           read_at?: string | null
           sender_id?: string
+          video_duration_seconds?: number | null
+          video_url?: string | null
         }
         Relationships: [
           {
