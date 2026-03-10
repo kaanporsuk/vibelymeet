@@ -48,11 +48,13 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice";
+  type: "text" | "video-invite" | "voice" | "video";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
   audioDuration?: number;
+  videoUrl?: string;
+  videoDuration?: number;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
 }
