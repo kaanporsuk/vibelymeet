@@ -1,25 +1,25 @@
 project_id = "schdyxcunwcvddlcshwd"
 
 [functions.daily-room]
-verify_jwt = false
+verify_jwt = true
 
 [functions.delete-account]
-verify_jwt = false
+verify_jwt = true
 
 [functions.email-verification]
-verify_jwt = false
+verify_jwt = true
 
 [functions.event-notifications]
-verify_jwt = false
+verify_jwt = true
 
 [functions.vibe-notification]
-verify_jwt = false
+verify_jwt = true
 
 [functions.verify-admin]
-verify_jwt = false
+verify_jwt = true
 
 [functions.geocode]
-verify_jwt = false
+verify_jwt = true
 
 [functions.phone-verify]
 verify_jwt = true
@@ -31,43 +31,43 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.admin-review-verification]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-video-upload]
-verify_jwt = false
+verify_jwt = true
 
 [functions.video-webhook]
 verify_jwt = false
 
 [functions.delete-vibe-video]
-verify_jwt = false
+verify_jwt = true
 
 [functions.upload-image]
-verify_jwt = false
+verify_jwt = true
 
 [functions.upload-voice]
-verify_jwt = false
+verify_jwt = true
 
 [functions.upload-event-cover]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-checkout-session]
-verify_jwt = false
+verify_jwt = true
 
 [functions.stripe-webhook]
 verify_jwt = false
 
 [functions.create-event-checkout]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-credits-checkout]
-verify_jwt = false
+verify_jwt = true
 
 [functions.create-portal-session]
-verify_jwt = false
+verify_jwt = true
 
 [functions.cancel-deletion]
-verify_jwt = false
+verify_jwt = true
 
 [functions.request-account-deletion]
 verify_jwt = false
@@ -76,7 +76,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-notification]
-verify_jwt = false
+verify_jwt = true
 
 [functions.push-webhook]
 verify_jwt = false

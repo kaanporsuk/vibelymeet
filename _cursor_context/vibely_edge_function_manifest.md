@@ -1,0 +1,508 @@
+# VIBELY — EDGE FUNCTION MANIFEST
+
+**Date:** 2026-03-11  
+**Baseline:** post-hardening (frozen golden: `vibelymeet-pre-native-hardening-golden-2026-03-10.zip`)  
+**Primary sources:**
+- `supabase/functions/*`
+- `supabase/config.toml`
+- frontend call sites under `src/`
+
+---
+
+## 1. Purpose
+
+This document is the operational manifest for the Supabase Edge Function layer after the auth-hardening campaign. It reflects the current post-hardening state.
+
+It answers:
+- which deployable functions exist
+- which ones are listed in `supabase/config.toml`
+- their intended auth posture
+- the env vars each function depends on
+- the main tables/services each one touches
+- where the frontend invokes them, if applicable
+
+This is a rebuild and hardening artifact, not a substitute for reading function code.
+
+---
+
+## 2. Inventory summary
+
+### Deployable directories
+
+There are **28 deployable Edge Functions** plus one shared helper directory:
+
+- deployable functions: **28**
+- shared helper directory: `_shared`
+
+### Config coverage
+
+`supabase/config.toml` explicitly configures **all 28** functions. No config gaps remain.
+
+### Gateway JWT posture from config (post-hardening)
+
+**JWT-at-gateway (`verify_jwt = true`):**  
+phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
+
+**Public-but-protected (`verify_jwt = false`):**  
+stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
+
+---
+
+## 3. Critical auth caveat
+
+For this codebase, **Supabase gateway JWT verification** and **application-level authentication inside the function** are not the same thing.
+
+In practice:
+- many functions are deployed with `verify_jwt = false`
+- but still require an `Authorization: Bearer ...` header inside the code
+- then create a user-scoped Supabase client from that bearer token
+
+So the correct interpretation is:
+- `verify_jwt = false` often means **publicly reachable endpoint with manual auth logic**, not “anonymous business action allowed”
+- rebuild operators must preserve both layers of behavior
+
+---
+
+## 4. Auth posture classes used in this manifest
+
+### Class A — Public endpoint with manual bearer-token auth in code
+The function is callable at the gateway without JWT enforcement, but the code still expects a bearer token and resolves the user manually.
+
+### Class B — Public endpoint intentionally callable without user auth
+The function is meant for webhooks, geocoding, cron-style jobs, or public/legal flows.
+
+### Class C — Gateway-enforced JWT
+The function is configured with `verify_jwt = true` and also handles authenticated behavior in code.
+
+### Class D — Config gap / operator must decide explicitly
+The function exists in source but is not represented in `supabase/config.toml`.
+
+---
+
+## 5. Deployable function catalog
+
+## A. Admin / moderation / trust
+
+### `admin-review-verification`
+- **Purpose:** approve or reject photo-verification submissions and update profile verification state
+- **Auth posture:** Class C — `verify_jwt = true`; code confirms admin role in `user_roles`
+- **Frontend call sites:** `src/components/admin/AdminPhotoVerificationPanel.tsx`
+- **Primary tables touched:** `photo_verifications`, `profiles`, `user_roles`, `admin_activity_logs`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** admin-only; logs moderation actions to `admin_activity_logs`
+
+### `verify-admin`
+- **Purpose:** checks whether the current user has admin rights
+- **Auth posture:** Class C — `verify_jwt = true`; code checks `user_roles`
+- **Frontend call sites:** `src/components/ProtectedRoute.tsx`
+- **Primary tables touched:** `user_roles`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** critical for admin route protection; keep role semantics aligned with `app_role` / `user_roles`
+
+---
+
+## B. Account lifecycle / deletion / legal
+
+### `request-account-deletion`
+- **Purpose:** receives deletion requests from the public delete-account flow and creates a pending request if the email maps to a real user
+- **Auth posture:** Class B — intentionally callable without logged-in user auth
+- **Frontend call sites:** `src/pages/legal/DeleteAccountWeb.tsx`
+- **Primary tables touched:** `account_deletion_requests`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** returns generic success even for invalid/nonexistent emails to avoid account enumeration; does not immediately suspend the account
+
+### `cancel-deletion`
+- **Purpose:** cancels a pending account-deletion request for the authenticated user
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/hooks/useDeletionRecovery.ts`
+- **Primary tables touched:** `account_deletion_requests`, `profiles`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`
+
+### `delete-account`
+- **Purpose:** executes account deletion flow, including profile/subscription cleanup and Stripe-linked cleanup logic
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/hooks/useDeleteAccount.ts`
+- **Primary tables touched:** `account_deletion_requests`, `profiles`, `subscriptions`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
+- **Rebuild notes:** uses shared rate-limiter helper; deletion behavior is destructive and should be replay-tested carefully in non-production first
+
+---
+
+## C. Payments / premium / credits
+
+### `create-checkout-session`
+- **Purpose:** creates Stripe Checkout sessions for premium subscriptions
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/hooks/useSubscription.ts`
+- **Primary tables touched:** `subscriptions`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_MONTHLY_PRICE_ID`, `STRIPE_ANNUAL_PRICE_ID`
+- **Rebuild notes:** one of the most deployment-sensitive functions because bad price IDs silently misroute monetization
+
+### `create-credits-checkout`
+- **Purpose:** creates Stripe Checkout sessions for one-off credit packs
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/pages/Credits.tsx`
+- **Primary tables touched:** `subscriptions`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
+- **Rebuild notes:** credit packs are defined in function code; if commercial packaging changes, this function must be updated, not just dashboard settings
+
+### `create-event-checkout`
+- **Purpose:** creates Stripe Checkout sessions for paid event registration
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/components/events/PaymentModal.tsx`
+- **Primary tables touched:** `events`, `event_registrations`, `subscriptions`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
+- **Rebuild notes:** ties event payment completion back into registration state; validate against `event-payment/success` route
+
+### `create-portal-session`
+- **Purpose:** creates Stripe customer-portal sessions
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/components/premium/PremiumSettingsCard.tsx`
+- **Primary tables touched:** `subscriptions`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
+- **Rebuild notes:** depends on stable Stripe customer IDs in `subscriptions`
+
+### `stripe-webhook`
+- **Purpose:** processes Stripe webhook events and updates subscription / registration / credit state
+- **Auth posture:** Class B — public webhook endpoint; verifies incoming Stripe signature itself
+- **Frontend call sites:** none; provider webhook target
+- **Primary tables touched:** `subscriptions`, `profiles`, `event_registrations`, `user_credits`
+- **External services:** Stripe
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_ANNUAL_PRICE_ID`
+- **Rebuild notes:** webhook endpoint registration outside the repo must match the deployed function URL; signature secret must align exactly
+
+---
+
+## D. Media / uploads / video
+
+### `create-video-upload`
+- **Purpose:** creates Bunny Stream upload metadata / authorization for user vibe-video uploads
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/components/vibe-video/VibeStudioModal.tsx`
+- **Primary tables touched:** `profiles`
+- **External services:** Bunny Stream
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`, `BUNNY_STREAM_CDN_HOSTNAME`
+- **Rebuild notes:** frontend then uploads directly to Bunny’s TUS endpoint; function is only one part of the upload chain
+
+### `video-webhook`
+- **Purpose:** receives Bunny video-status callbacks and updates profile video readiness state
+- **Auth posture:** Class B — public webhook; protected by URL token. Requires `BUNNY_VIDEO_WEBHOOK_TOKEN` (query param); fail-closed if secret missing.
+- **Frontend call sites:** none; provider webhook target
+- **Primary tables touched:** `profiles`
+- **External services:** Bunny Stream
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_VIDEO_WEBHOOK_TOKEN`
+- **Rebuild notes:** Bunny dashboard must send callback URL with `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`; webhook registration must be restored outside the repo
+
+### `delete-vibe-video`
+- **Purpose:** deletes the current user’s Bunny vibe video and clears profile metadata
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/pages/Profile.tsx`
+- **Primary tables touched:** `profiles`
+- **External services:** Bunny Stream
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`
+- **Rebuild notes:** intentionally clears DB state even if Bunny deletion fails, so operators should monitor for orphaned remote media
+
+### `upload-image`
+- **Purpose:** uploads user images to Bunny Storage
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/services/imageUploadService.ts`
+- **Primary tables touched:** none directly in the function body
+- **External services:** Bunny Storage
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`
+- **Rebuild notes:** media path conventions matter even though the function itself is storage-oriented rather than table-oriented
+
+### `upload-event-cover`
+- **Purpose:** uploads event cover assets for admins and returns CDN-backed URLs
+- **Auth posture:** Class C — `verify_jwt = true`; code checks admin role
+- **Frontend call sites:** `src/services/eventCoverUploadService.ts`
+- **Primary tables touched:** `user_roles`
+- **External services:** Bunny Storage / Bunny CDN
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`, `BUNNY_CDN_HOSTNAME`
+- **Rebuild notes:** admin-only upload path; CDN hostname must match actual production delivery path
+
+### `upload-voice`
+- **Purpose:** uploads voice-message media and returns CDN-backed paths for chat usage
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/services/voiceUploadService.ts`
+- **Primary tables touched:** none directly in the function body
+- **External services:** Bunny Storage / Bunny CDN
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`, `BUNNY_CDN_HOSTNAME`
+- **Rebuild notes:** chat audio behavior depends on this function plus storage bucket / message schema alignment
+
+---
+
+## E. Events / matching / live sessions
+
+### `daily-room`
+- **Purpose:** creates or resumes Daily rooms and meeting tokens for event/video-date call flows
+- **Auth posture:** Class C — `verify_jwt = true`. Frontend unload cleanup uses `fetch(..., { keepalive: true })` with `Authorization: Bearer <session access_token>` (no sendBeacon).
+- **Frontend call sites:** `src/hooks/useMatchCall.ts`, `src/hooks/useVideoCall.ts`, `src/pages/VideoDate.tsx`
+- **Primary tables touched:** `video_sessions`, `matches`, `match_calls`
+- **External services:** Daily.co
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DAILY_API_KEY`, `DAILY_DOMAIN`
+- **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive
+
+### `vibe-notification`
+- **Purpose:** records and dispatches vibe-related notification events between users in event contexts
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/hooks/useEventVibes.ts`
+- **Primary tables touched:** `events`, `profiles`, `push_notification_events`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** uses shared rate limiting; this function is part of the social signal layer, not just passive notification logging
+
+### `generate-daily-drops`
+- **Purpose:** expires stale daily drops, applies cooldowns, scores eligible pairs, and inserts the next set of drops
+- **Auth posture:** Class B — `verify_jwt = false`. Dual auth: `Authorization: Bearer <CRON_SECRET>` OR valid admin JWT. Fail-closed if CRON_SECRET missing and no valid admin.
+- **Frontend call sites:** `src/components/admin/AdminDailyDropCard.tsx`
+- **Primary tables touched:** `daily_drops`, `daily_drop_cooldowns`, `matches`, `blocked_users`, `profiles`, `profile_vibes`, `vibe_tags`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`
+- **Rebuild notes:** cron uses Bearer CRON_SECRET; admin UI uses logged-in admin JWT. Do not expose CRON_SECRET to frontend.
+
+---
+
+## F. Email / verification / contact flows
+
+### `email-verification`
+- **Purpose:** supports both email OTP send and verify flows
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:**
+  - `src/hooks/useEmailVerification.ts` invoking `/email-verification/send`
+  - `src/hooks/useEmailVerification.ts` invoking `/email-verification/verify`
+- **Primary tables touched:** `email_verifications`, `profiles`, `verification_attempts`
+- **External services:** Resend
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`
+- **Rebuild notes:** route suffixes matter; this is one function serving multiple logical actions based on the trailing path segment
+
+### `event-notifications`
+- **Purpose:** sends event-related emails such as launches/capacity-driven updates to registered users
+- **Auth posture:** Class C — `verify_jwt = true`; code checks admin role
+- **Frontend call sites:** `src/components/admin/AdminEventFormModal.tsx`
+- **Primary tables touched:** `events`, `event_registrations`, `profiles`, `user_roles`
+- **External services:** Resend
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`
+- **Rebuild notes:** embeds production-domain URLs in outbound email content; domain drift will break links even if email sends succeed
+
+### `email-drip`
+- **Purpose:** scheduled/re-engagement email sender with send-log tracking
+- **Auth posture:** Class B — `verify_jwt = false`; guarded by `Authorization: Bearer <CRON_SECRET>`. Unsubscribe URL generation requires `UNSUB_HMAC_SECRET` only (no fallback).
+- **Frontend call sites:** none directly from normal user UI
+- **Primary tables touched:** `profiles`, `event_registrations`, `email_drip_log`
+- **External services:** Resend
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `CRON_SECRET`, `UNSUB_HMAC_SECRET`
+- **Rebuild notes:** operationally behaves like a cron target; external scheduler configuration is not stored in the repo
+
+### `unsubscribe`
+- **Purpose:** processes unsubscribe links and updates profile email opt-out state
+- **Auth posture:** Class B — `verify_jwt = false`; HMAC token only via `UNSUB_HMAC_SECRET` (no fallback); rate-limited
+- **Frontend call sites:** none directly; linked from email templates
+- **Primary tables touched:** `profiles`
+- **External services:** none beyond email-origin links
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `UNSUB_HMAC_SECRET`
+- **Rebuild notes:** unsubscribe URLs are part of the email ecosystem and include hardcoded production-domain assumptions elsewhere in the stack
+
+---
+
+## G. Geocoding / location
+
+### `geocode`
+- **Purpose:** reverse-geocodes lat/lng coordinates into human-readable place data for authenticated app flows
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/pages/Events.tsx`, `src/services/profileService.ts`
+- **Primary tables touched:** none directly
+- **External services:** OpenStreetMap Nominatim (reverse geocoding)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`
+- **Rebuild notes:** preserve provider usage policy and user-agent behavior if refactored
+
+### `forward-geocode`
+- **Purpose:** forward-geocodes place queries for event creation/admin location search
+- **Auth posture:** Class C — `verify_jwt = true`; JWT + admin role check + rate limiting
+- **Frontend call sites:** `src/components/admin/AdminEventFormModal.tsx`
+- **Primary tables touched:** none
+- **External services:** OpenStreetMap Nominatim (search endpoint)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** admin-only; uses shared rate-limiter; listed in config.toml
+
+---
+
+## H. Phone / SMS verification
+
+### `phone-verify`
+- **Purpose:** sends phone verification OTPs and verifies submitted OTP codes
+- **Auth posture:** Class C — `verify_jwt = true` in config and also expects authenticated user context in code
+- **Frontend call sites:** `src/components/PhoneVerification.tsx`
+- **Primary tables touched:** `profiles`, `verification_attempts`
+- **External services:** Twilio Verify, Twilio Lookup
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`
+- **Rebuild notes:** the only function explicitly gateway-protected by JWT in the checked-in config; do not accidentally normalize it to the looser posture used elsewhere
+
+---
+
+## I. Push / notification delivery
+
+### `send-notification`
+- **Purpose:** sends application push notifications, respects user preferences/mutes, and logs notification state
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/lib/notifications.ts`
+- **Primary tables touched:** `notification_preferences`, `notification_log`, `match_mutes`, `match_notification_mutes`
+- **External services:** OneSignal
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ONESIGNAL_APP_ID`, `ONESIGNAL_REST_API_KEY`, `APP_URL`
+- **Rebuild notes:** depends on the OneSignal app existing and the app/user identity model matching what the frontend sets up
+
+### `push-webhook`
+- **Purpose:** ingests delivery/open/click/failure events from push providers and normalizes them into `push_notification_events`
+- **Auth posture:** Class B — `verify_jwt = false`; `PUSH_WEBHOOK_SECRET` required (header `x-webhook-secret`); fail-closed if secret missing
+- **Frontend call sites:** `src/components/admin/LiveNotificationMonitor.tsx`
+- **Primary tables touched:** `push_notification_events`
+- **External services:** webhook payloads for FCM/APNs/web push style events
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUSH_WEBHOOK_SECRET`
+- **Rebuild notes:** listed in config.toml; external webhook source(s) must send `x-webhook-secret` matching `PUSH_WEBHOOK_SECRET`
+
+---
+
+## 6. Shared helper directory
+
+### `_shared`
+- **Purpose:** reusable helper code for multiple functions
+- **Observed shared module usage:** rate limiting helper used by at least `delete-account` and `vibe-notification`
+- **Rebuild notes:** not deployed as its own function, but required for successful compilation of dependent functions
+
+---
+
+## 7. Frontend-invoked functions map
+
+These functions are directly invoked from the frontend codebase:
+
+- `admin-review-verification`
+- `cancel-deletion`
+- `create-checkout-session`
+- `create-credits-checkout`
+- `create-event-checkout`
+- `create-portal-session`
+- `create-video-upload`
+- `daily-room`
+- `delete-account`
+- `delete-vibe-video`
+- `email-verification` (via `/send` and `/verify` suffixes)
+- `event-notifications`
+- `forward-geocode`
+- `generate-daily-drops`
+- `geocode`
+- `phone-verify`
+- `push-webhook`
+- `request-account-deletion`
+- `send-notification`
+- `upload-event-cover`
+- `upload-image`
+- `upload-voice`
+- `verify-admin`
+- `vibe-notification`
+
+Functions not directly invoked from the normal frontend but still operationally required:
+- `email-drip`
+- `stripe-webhook`
+- `unsubscribe`
+- `video-webhook`
+
+---
+
+## 8. External-service dependency map
+
+### Stripe
+- `create-checkout-session`
+- `create-credits-checkout`
+- `create-event-checkout`
+- `create-portal-session`
+- `stripe-webhook`
+- `delete-account` (cleanup path)
+
+### Bunny Stream / Bunny Storage / Bunny CDN
+- `create-video-upload`
+- `video-webhook`
+- `delete-vibe-video`
+- `upload-image`
+- `upload-event-cover`
+- `upload-voice`
+
+### Daily.co
+- `daily-room`
+
+### Resend
+- `email-verification`
+- `event-notifications`
+- `email-drip`
+
+### Twilio
+- `phone-verify`
+
+### OneSignal / push delivery
+- `send-notification`
+- `push-webhook`
+- `vibe-notification` (notification event involvement)
+
+### OpenStreetMap Nominatim
+- `geocode`
+- `forward-geocode`
+
+---
+
+## 9. Highest-risk rebuild points (post-hardening)
+
+### 1. Provider-side webhooks live outside the repo
+These flows will not recover automatically from code alone:
+- `stripe-webhook`
+- `video-webhook` (Bunny must send URL with `?token=BUNNY_VIDEO_WEBHOOK_TOKEN`)
+- `push-webhook` (caller must send `x-webhook-secret`)
+- `email-drip` scheduler / cron trigger
+
+### 2. Required secrets (hardening)
+These must be set for hardened behavior; missing = fail-closed or degraded:
+- `PUSH_WEBHOOK_SECRET`
+- `UNSUB_HMAC_SECRET`
+- `CRON_SECRET`
+- `BUNNY_VIDEO_WEBHOOK_TOKEN`
+
+### 3. Hardcoded production-domain coupling
+Several email/notification flows depend on `vibelymeet.com` assumptions beyond simple env replacement.
+
+### 4. Shared-secret drift
+These functions fail operationally if secrets mismatch provider setup:
+- `stripe-webhook`
+- `push-webhook`
+- `unsubscribe`
+- `email-drip`
+- `video-webhook`
+- `phone-verify` (Twilio)
+
+---
+
+## 10. Operator deployment guidance
+
+For rebuild fidelity (post-hardening):
+
+1. Deploy all 28 functions (config.toml covers all; no gaps).  
+2. Set required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN`, plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal vars.  
+3. JWT-at-gateway functions (21) will reject unauthenticated requests; public-but-protected (7) use secret/token in code.  
+4. Re-register provider webhooks: Stripe signature; Bunny video callback URL with `?token=...`; push webhook with `x-webhook-secret`; email-drip cron with Bearer CRON_SECRET.  
+5. Smoke-test frontend call paths and provider callback paths separately.
+
+---
+
+## 11. Bottom line
+
+The Vibely Edge Function layer is not a thin helper tier. It is a major part of product behavior:
+- payments
+- media ingestion
+- live video session orchestration
+- trust and verification
+- notifications
+- scheduled engagement flows
+- admin operations
+
+A successful rebuild requires preserving not only the function files, but also their auth posture, secrets, external registrations, and function-to-frontend call contracts.
+

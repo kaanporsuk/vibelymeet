@@ -1,0 +1,499 @@
+# VIBELY — MIGRATION MANIFEST
+
+**Date:** 2026-03-10  
+**Baseline:** `vibelymeet-pre-native-hardening-golden-2026-03-10.zip`  
+**Primary source:** `supabase/migrations/*.sql`
+
+---
+
+## 1. Purpose
+
+This document is the migration-side companion to the audited golden snapshot, rebuild runbook, schema appendix, and Edge Function manifest.
+
+It answers:
+- what the frozen migration history actually contains
+- which phases of product evolution it reflects
+- which migrations are structural versus data-mutating
+- which migrations are dangerous to replay blindly
+- where the migration history appears incomplete relative to the generated Supabase types
+
+This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
+
+---
+
+## 2. Migration summary
+
+### Counts
+- **101 SQL migration files**
+- **Date range:** `20251218002545` → `20260310124838`
+- **Distinct public tables created in migration history:** **39**
+- **Distinct public views created in migration history:** **1** (`push_notification_events_admin`)
+- **Distinct enums created in migration history:** **3**
+- **Distinct SQL functions created or replaced in migration history:** **36**
+- **Distinct storage buckets referenced in migration history:** **6**
+
+### Storage buckets introduced through migrations
+- `profile-photos`
+- `proof-selfies`
+- `vibe-videos`
+- `event-covers`
+- `voice-messages`
+- `chat-videos`
+
+### Important discrepancy vs current generated types
+The generated Supabase types expose two public tables that are **not created anywhere in the 101-file frozen migration chain**:
+- `feedback`
+- `premium_history`
+
+That means at least one of the following is true:
+- the migration history is incomplete relative to the linked Supabase project
+- those objects were created outside the preserved migration chain
+- they were present before this repo’s earliest frozen migration and never backfilled into versioned SQL
+
+For rebuild fidelity, this is a real gap and should be treated as such.
+
+---
+
+## 3. The single most important migration finding
+
+The frozen migration history is **not safe to describe as “schema only.”**
+
+It contains at least four risky classes of migration:
+
+### A. Destructive data-reset migrations
+Example:
+- `20251227005244_73d18021-43bd-4b86-b7df-c49f7d22bd64.sql` deletes rows from `event_registrations`, `messages`, `matches`, `profile_vibes`, `video_sessions`, `events`, and `profiles`
+
+### B. Data backfills / data rewrites
+Examples:
+- attendee count reconciliation
+- signed-URL-to-raw-path migration for profile photos
+- nulling out legacy `video_intro_url`
+
+### C. Environment-specific test-data migrations
+Examples:
+- migrations that create “Video Call Test Event” and “Sunday Vibe Check ☀️”
+- migrations that insert or update registrations for specific hardcoded user UUIDs
+- migrations that simulate queue joins and test session creation
+
+### D. Security/policy hotfix migrations
+There are many RLS/policy corrections that narrow previously too-broad access. These are structurally important and must be preserved.
+
+### Why this matters
+A naive replay can:
+- fail on a blank database because referenced users do not exist
+- mutate or wipe data in a live environment
+- create test artifacts in a supposedly clean rebuild
+- produce different security behavior if policy-fix migrations are skipped or reordered
+
+---
+
+## 4. Replay risk classification
+
+## Safe-ish classes
+These are generally expected in a normal migration chain:
+- create table / enum / function / view
+- add column / constraint / index
+- create or drop RLS policies
+- add storage bucket and policies
+- function rewrites for bug fixes
+
+## Replay-sensitive classes
+These need operator attention before cold rebuild or cross-environment replay:
+- destructive `DELETE` / `DROP TABLE ... CASCADE` against business data
+- `INSERT` statements that seed test events or test sessions
+- `UPDATE` statements tied to concrete UUIDs
+- migrations that assume specific existing users or rows
+- migrations that fix production state rather than only physical schema
+
+---
+
+## 5. Risky non-structural migrations that deserve special handling
+
+### Destructive reset
+- `20251227005244_73d18021-43bd-4b86-b7df-c49f7d22bd64.sql`  
+  Deletes core rows from events/profiles/registrations/matches/messages/video_sessions/profile_vibes.
+
+### Data correction / backfill
+- `20260128001207_d087e5f7-cdd5-439c-8cfd-a77bb4f2eb60.sql`  
+  Recomputes `events.current_attendees` from `event_registrations`.
+- `20260216044426_f60a05b9-638d-4799-a0c4-ad8ba11cb104.sql`  
+  Migrates expired signed photo URLs into raw storage paths.
+- `20260308111830_7a8e3618-ec6f-4338-999a-499c94ef4312.sql`  
+  Nulls legacy `profiles.video_intro_url` values before Bunny-native video fields take over.
+
+### Test / manual QA state migrations with hardcoded identities
+- `20260206050534_64a3c48f-fabe-42c8-8faa-63c333cc77b6.sql`
+- `20260206050705_61b47f53-e360-487a-b059-31a706534cc1.sql`
+- `20260208224222_553d3be9-fc52-4758-bd3e-0129cbc6d7d9.sql`
+- `20260209192940_c129ce86-f1a9-49b8-ab5e-fc7cbcac695b.sql`
+- `20260209193216_294b70b7-f9a0-46fd-aeec-23346b330859.sql`
+- `20260209193336_eda17c83-ee27-4079-881f-007eae5fa189.sql`
+- `20260209200028_38de6643-0bf6-4d2c-8854-ee7241ad1b9f.sql`
+
+These manipulate concrete event rows and specific user UUIDs. They are the clearest evidence that the chain was used as both migration history and operational test harness.
+
+---
+
+## 6. Operator guidance for rebuilds
+
+### If you are restoring against the original linked Supabase project
+The preserved migration order matters. Keep the history intact and validate what is already applied before pushing anything.
+
+### If you are rehearsing on a truly blank new database
+Do **not** assume `supabase db reset` or `supabase db push` will succeed cleanly without intervention.
+
+You must inspect at least:
+- destructive reset migration(s)
+- hardcoded test-data migrations
+- any migration that assumes real auth users or preexisting profile rows
+
+### If you are rebuilding for long-term maintainability
+The long-term fix is to split history into:
+- canonical schema migrations
+- seed data (if any)
+- one-off operational corrections
+- QA/test fixtures
+
+That split has **not** been done in the frozen baseline.
+
+---
+
+## 7. Major evolution phases in the migration chain
+
+## Phase 1 — Core product bootstrap and initial RLS (2025-12-18 to 2025-12-31)
+This phase creates the original spine of the app:
+- `profiles`
+- `events`
+- `event_registrations`
+- `matches`
+- `messages`
+- `video_sessions`
+- `vibe_tags`
+- `profile_vibes`
+
+It also introduces early demo-mode/public-read policies, initial vibe-video storage, role support, richer profile fields, profile photos, daily drops/date proposals, photo verification primitives, and schedules.
+
+## Phase 2 — Safety, admin, moderation, and event-control hardening (2026-01-06 to 2026-01-27)
+This phase adds:
+- blocking and muting
+- verification attempts
+- admin notifications
+- suspensions and warnings
+- user reports
+- admin activity logs
+- event cover storage
+- push campaign and push event telemetry enums/tables
+- multiple profile/privacy policy tightenings
+
+It is also the phase where the schema starts to show real moderation/admin maturity.
+
+## Phase 3 — Live queueing, event decking, video matching, and QA-heavy evolution (2026-01-31 to 2026-02-20)
+This is the most operationally turbulent period.
+
+It adds or rewrites:
+- queue status fields on `event_registrations`
+- matching/session functions such as `find_video_date_match`, `join_matching_queue`, `leave_matching_queue`
+- `event_vibes`
+- secure push admin view
+- `user_credits`
+- `date_feedback`
+- `event_swipes`
+- `credit_adjustments`
+- mystery-match and swipe functions
+- queue state expansions
+- recurring-event and geo-targeting functions
+
+It also includes the clearly noncanonical test-event/test-session migrations.
+
+## Phase 4 — Media, monetization, verification, notifications, and late hardening (2026-02-21 to 2026-03-10)
+This phase introduces:
+- `voice-messages` storage
+- `match_calls`
+- phone verification profile fields
+- referral tracking
+- `email_drip_log`
+- `photo_verifications`
+- Bunny-native vibe-video identity fields
+- `subscriptions`
+- `is_premium`
+- event `payment_status`
+- account deletion requests
+- age gate blocks
+- notification preferences / logs / mutes
+- rebuilt daily-drops model and cooldowns
+- `chat-videos` storage
+- message video fields
+- protection for admin-managed profile fields
+- `get_own_pii`
+
+This is the final pre-native-hardening shape of the system.
+
+---
+
+## 8. Chronological ledger
+
+Each entry below records the migration file and its main observed purpose.
+
+### 2025-12-18
+- `20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql` — bootstrap core schema: `vibe_tags`, `profiles`, `profile_vibes`, `events`, `event_registrations`, `matches`, `messages`, `video_sessions`; enables RLS; adds update/message/event-attendee triggers and functions.
+- `20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql` — demo-mode/public-read policy expansion for matches and messages.
+
+### 2025-12-24
+- `20251224173423_eb996d9b-303c-48e3-a50a-a9a69770826a.sql` — creates `vibe-videos` storage bucket and policies.
+- `20251224180727_028b6b04-5827-4b12-be42-62519912f183.sql` — adds `app_role`, `user_roles`, and `has_role()` for admin/moderator role checks.
+
+### 2025-12-26
+- `20251226160948_a55c9710-fd6f-44cf-b89c-447d97a9c5ca.sql` — drops an overly permissive public policy.
+
+### 2025-12-27
+- `20251227005244_73d18021-43bd-4b86-b7df-c49f7d22bd64.sql` — destructive data reset of core business tables.
+- `20251227010039_421d6f54-df51-4071-a774-706459484397.sql` — adds missing INSERT policy for `video_sessions`.
+- `20251227011125_a767d943-0e04-4a06-95e5-3ee652415a9a.sql` — security hardening: makes `vibe-videos` private; introduces `rate_limits` and message-rate-limiting trigger/function.
+- `20251227012106_b28f04de-470b-434d-b31a-00931a538f09.sql` — drops another overly permissive policy.
+
+### 2025-12-28
+- `20251228015626_8e73a470-1845-4f79-ab42-3de8c0559150.sql` — major `profiles` expansion: `birth_date`, `tagline`, `interested_in`, `company`, `about_me`, `looking_for`, `lifestyle`, `prompts`, `location_data`, `video_intro_url`.
+- `20251228020729_f7163dec-ca6b-44aa-98f7-0d1d89d8bd37.sql` — creates `profile-photos` bucket and `email_verifications` table.
+- `20251228022019_184acae1-ce11-4e1a-be8e-6a031d1d887b.sql` — message edit/delete support plus creation of early `daily_drops` and `date_proposals` tables.
+
+### 2025-12-29
+- `20251229003354_00812dea-4711-4487-bc86-f845cae730ba.sql` — adds `profiles.photo_verified`, `proof-selfies` bucket, and related policies.
+- `20251229004756_88f6cd10-26e6-4ad9-8024-2db3f6d66ef8.sql` — makes `profile-photos` private and adds `can_view_profile_photo()` helper.
+
+### 2025-12-31
+- `20251231001331_0d9fe89a-9ace-48ad-aca1-a41281c247ff.sql` — creates `user_schedules` table for availability persistence.
+
+### 2026-01-06
+- `20260106014442_17770f5c-3d0c-4b2c-bc33-7415231f0a10.sql` — adds archived matches support plus `blocked_users` and `match_mutes`.
+- `20260106020103_88ea4113-1308-408f-930d-c3363be8707a.sql` — revisits `vibe-videos` bucket policies.
+
+### 2026-01-15
+- `20260115235308_110b0dfa-7788-4ff2-9a1d-ffded64c3617.sql` — creates `verification_attempts` and cleanup trigger/function.
+
+### 2026-01-16
+- `20260116001552_9617ea07-ce16-4492-a909-9b6ed6e1aca7.sql` — locks down `vibe-videos` access and introduces `is_blocked()`.
+- `20260116235941_4f178270-40d1-42cf-a996-96a900a593ba.sql` — admin RLS policies for broad profile/data visibility.
+
+### 2026-01-17
+- `20260117213531_78588c84-22f2-4a74-a2e1-f61b5bd43512.sql` — creates `admin_notifications`, `user_suspensions`, `user_warnings`, and admin-notification trigger functions.
+- `20260117213540_6334de97-b847-4295-8d82-6667ed298ef7.sql` — removes overly permissive insert policy on `admin_notifications`; relies on SECURITY DEFINER triggers instead.
+
+### 2026-01-18
+- `20260118071417_c8b1264d-f97f-4280-899d-649d6137b0c1.sql` — creates `user_reports` and admin report notification trigger.
+- `20260118074329_b2d606c5-65fc-4661-978c-0f55db05d39d.sql` — fixes public exposure of `profile_vibes`.
+
+### 2026-01-19
+- `20260119220544_c5d2ce37-6c21-4b8b-8170-337fabb3b608.sql` — expands `events` with vibes, gender caps, location-specific fields, visibility, pricing, and attendance markers.
+
+### 2026-01-20
+- `20260120205733_6f220346-9a7e-48a0-a509-f92bd3b3f466.sql` — creates `admin_activity_logs`.
+
+### 2026-01-21
+- `20260121071919_de94db86-098f-41d1-9503-cf80d3499832.sql` — removes public profile-vibe exposure.
+- `20260121081429_9f7afe26-166c-4364-a95e-27d0e999e73e.sql` — adds event-capacity alert function/trigger for admin notifications.
+
+### 2026-01-23
+- `20260123001944_15682c3a-5b6e-4a4c-84d4-01ed82fd3a90.sql` — creates `event-covers` bucket and policies.
+
+### 2026-01-24
+- `20260124003754_422db6ed-1234-4cf9-807e-0d9c1e7f4690.sql` — requires authentication for profile reads, narrowing prior exposure.
+
+### 2026-01-26
+- `20260126185213_7351f30b-804b-4ef1-90f6-afb30bc339eb.sql` — creates `notification_platform`, `notification_status`, `push_campaigns`, and `push_notification_events`.
+- `20260126193631_47279744-15e3-46c0-a38d-58002348105e.sql` — adds `is_registered_for_event()` helper to avoid RLS recursion.
+
+### 2026-01-27
+- `20260127231851_c0705953-7186-403e-bcf1-80ab03f2ff11.sql` — critical profiles RLS security fix for Daily Drop visibility.
+- `20260127233140_d195af58-4538-410b-987d-b383ead4d7de.sql` — rewrites profile visibility logic using `check_gender_compatibility()` to avoid recursion.
+
+### 2026-01-28
+- `20260128001207_d087e5f7-cdd5-439c-8cfd-a77bb4f2eb60.sql` — backfills `events.current_attendees` from registrations.
+
+### 2026-01-31
+- `20260131235453_08b0ef6c-39b0-4fe8-9191-59dbe16c00a9.sql` — introduces queueing on `event_registrations` and first-generation `find_video_date_match`, `join_matching_queue`, `leave_matching_queue`.
+
+### 2026-02-01
+- `20260201102603_1efdd0c3-aaa1-43d4-b67b-494804bedfb9.sql` — rewrites `find_video_date_match` so `current_room_id` tracks `video_sessions.id`.
+
+### 2026-02-02
+- `20260202115108_484eac10-9445-4459-a4b4-279bd515f9bd.sql` — fixes singular/plural gender matching in `find_video_date_match` and related logic.
+- `20260202115643_6e013e4b-4c78-4d2d-a939-6be217bf7c95.sql` — creates `event_vibes` for pre-event interest expressions.
+
+### 2026-02-04
+- `20260204233635_45842883-27c6-4b82-92dd-3ca3e6576109.sql` — creates admin-safe `push_notification_events_admin` view with token masking.
+
+### 2026-02-05
+- `20260205004148_4094ebad-15af-44e1-9297-3eadbda53c8b.sql` — drops and recreates the push admin view.
+
+### 2026-02-06
+- `20260206050534_64a3c48f-fabe-42c8-8faa-63c333cc77b6.sql` — inserts live QA test event plus hardcoded registrations for specific users.
+- `20260206050705_61b47f53-e360-487a-b059-31a706534cc1.sql` — sets a hardcoded test user to `searching` queue state.
+
+### 2026-02-08
+- `20260208224222_553d3be9-fc52-4758-bd3e-0129cbc6d7d9.sql` — resets hardcoded test registrations and ends active sessions for those users.
+
+### 2026-02-09
+- `20260209192940_c129ce86-f1a9-49b8-ab5e-fc7cbcac695b.sql` — creates another QA test event (“Sunday Vibe Check ☀️”) and registers two hardcoded users.
+- `20260209193216_294b70b7-f9a0-46fd-aeec-23346b330859.sql` — simulates queue join and session creation for test users.
+- `20260209193336_eda17c83-ee27-4079-881f-007eae5fa189.sql` — resets those users back to idle and closes the test session.
+- `20260209195435_5ba979a8-8cdc-40d3-be88-78cb19eb49b5.sql` — changes `find_video_date_match` to exclude only active/non-ended sessions.
+- `20260209195922_abd03d88-7cfd-4085-9c79-f425ae7e52bb.sql` — fixes UUID/text mismatch around `current_room_id`.
+- `20260209200028_38de6643-0bf6-4d2c-8854-ee7241ad1b9f.sql` — cleans up test session state and extends the test event duration.
+
+### 2026-02-11
+- `20260211150718_adf98e65-9ffd-4eaa-9b0d-4b6b932a52ea.sql` — creates `user_credits` with update trigger and policies.
+
+### 2026-02-12
+- `20260212001353_1855c6d3-05a3-4bf3-bbed-6c18a9730a12.sql` — adds `vibe_questions` to `video_sessions`, creates `date_feedback`, and adds `check_mutual_vibe_and_match()`.
+- `20260212083221_9e3b1510-2776-435a-8fd6-f121b10ef97e.sql` — introduces first `get_event_deck()` deck builder.
+- `20260212180837_ca99dbd7-13dc-4701-a70b-6227456017fe.sql` — adds `event_swipes`, `last_active_at`, `drain_match_queue()`, `handle_swipe()`, and `update_participant_status()`.
+- `20260212181239_38a33705-1e97-4860-b29a-4128671946fa.sql` — race-condition protection: `deduct_credit()`, date-feedback idempotency, and `find_mystery_match()`.
+- `20260212181754_5ccc735a-15f3-4d1b-9e4c-7c43157f6e7f.sql` — creates `credit_adjustments` and additional idempotency constraints.
+
+### 2026-02-15
+- `20260215160918_dda5e61b-5ebc-43f5-ba8e-f408ac5647c2.sql` — unique pair index on `matches` using normalized ordering.
+- `20260215161008_c34db7ed-530d-4ebb-9e52-4e49559cdf05.sql` — aligns `check_mutual_vibe_and_match()` with normalized match ordering.
+
+### 2026-02-16
+- `20260216043319_2c1af590-ba93-419a-8f59-18bd3fda80dc.sql` — drops old queue-status constraint and rebuilds it for expanded statuses.
+- `20260216043517_81a09c23-617b-495c-96e7-1a57e6af24ab.sql` — expands `queue_status` again to include `browsing`, `in_ready_gate`, `in_handshake`, `in_survey`, `offline`.
+- `20260216044426_f60a05b9-638d-4799-a0c4-ad8ba11cb104.sql` — migrates signed profile photo URLs to raw storage paths and adds `extract_storage_path()`.
+- `20260216044723_8d3710b8-9855-4b49-8454-24af6c4febe0.sql` — further normalizes `check_mutual_vibe_and_match()` logic.
+
+### 2026-02-17
+- `20260217070547_4e834470-ffa6-41da-8ba0-cb1d2e72ffd9.sql` — makes `profile-photos` public again so `getPublicUrl()` works reliably.
+
+### 2026-02-18
+- `20260218034339_dbbf5a04-4457-499a-a6c5-1be9e624f866.sql` — recreates `push_notification_events_admin` with explicit `SECURITY INVOKER` behavior.
+- `20260218132914_4c1f8ab9-725a-4874-9d3b-5c7b8a0b1960.sql` — adds `ended` to `events.status` constraint.
+- `20260218135136_1bc2e313-da2a-42f3-a590-6c5c12db6aae.sql` — adds core live/event/chat tables to `supabase_realtime` publication.
+
+### 2026-02-19
+- `20260219033734_038f8c45-c285-4a8b-8afc-cd488ceefc6f.sql` — queue constraint refresh plus cleanup of stale foreign keys/policies around queue/video feedback surfaces.
+- `20260219035638_7b4e72a8-5b1b-4c08-9481-30b22d1ceed4.sql` — cleans duplicate `video_sessions` state and strengthens uniqueness assumptions used by swiping/matching.
+
+### 2026-02-20
+- `20260220040047_ece0f1ad-2803-42a8-bb87-a322cb85f856.sql` — major geo-targeting/recurrence package: event lat/lng/radius/scope/city/country/recurrence fields plus `generate_recurring_events()`, `get_other_city_events()`, `get_visible_events()`, `haversine_distance()`.
+- `20260220094344_cfd94d22-cf68-4c84-a943-f9884e3559e2.sql` — fixes interval arithmetic in `get_visible_events()` and adds `profiles.country`.
+
+### 2026-02-21
+- `20260221001701_d5bdfa71-57e3-4e79-b976-636e0f6b52c2.sql` — adds `profiles.last_seen_at` and `voice-messages` storage bucket.
+
+### 2026-02-25
+- `20260225005439_95fb24d3-70de-4f1c-8fdb-f01a759633cb.sql` — creates `match_calls` and Daily room tracking fields.
+
+### 2026-02-27
+- `20260227000205_ad0f5696-2016-4bd4-aca1-4c9691c95735.sql` — adds phone verification columns to `profiles`.
+- `20260227044110_ad1f69ae-6d15-4e01-8df7-a027994190a6.sql` — adds `profiles.referred_by`.
+
+### 2026-02-28
+- `20260228004543_88b1a174-6832-43c7-9987-c880f0018127.sql` — creates `email_drip_log`.
+
+### 2026-03-01
+- `20260301001911_6f1cff72-1925-4e1f-9638-dd67406151ec.sql` — adds `handshake_started_at`, `date_started_at`, and `phase` to `video_sessions`.
+
+### 2026-03-03
+- `20260303001003_48c59a0d-da5c-44eb-9405-ad7167aaa499.sql` — creates `photo_verifications` for admin review pipeline.
+
+### 2026-03-04
+- `20260304070841_939aa319-682b-4497-b46f-2b7b166898d0.sql` — allows authenticated users to view vibe-video intros.
+
+### 2026-03-07
+- `20260307235953_5a5e6851-a915-45c0-9c5a-3f3a608b5322.sql` — adds Bunny-native video identity fields: `bunny_video_uid`, `bunny_video_status`.
+
+### 2026-03-08
+- `20260308111830_7a8e3618-ec6f-4338-999a-499c94ef4312.sql` — clears legacy `video_intro_url` data before migration to Bunny-native fields.
+- `20260308145056_7ba2db3e-f952-4e18-b75a-00c8f8d42463.sql` — drops `profiles.video_intro_url`.
+- `20260308151948_54ae49cd-efca-47d2-ab08-b2ba3237e6e9.sql` — rewrites `get_event_deck()` signature and deck contents.
+- `20260308153207_a3bb071b-1f69-481b-be52-34ac0bd26a4d.sql` — search_path/security-linter fixes on core helper functions.
+- `20260308201324_7d16b6a9-0a63-4059-a738-a25c5a2af2ea.sql` — creates `subscriptions` and `get_user_subscription_status()`.
+- `20260308202948_9bf8ddc2-663c-4cf0-9f1b-d0c8eeb3b6c0.sql` — adds `profiles.is_premium`.
+- `20260308203622_5325e3cf-3b4d-4784-a8e2-61d332f0a28d.sql` — adds `event_registrations.payment_status`.
+- `20260308214251_e2a9367c-5fcb-48c0-a16c-a9e23268d8f3.sql` — loosens/repairs `vibe_tags.category` constraint handling.
+- `20260308221259_43805edf-157f-4157-b86a-ab09e8787745.sql` — creates `account_deletion_requests`.
+- `20260308221841_a41e28c2-3d0d-43a4-9168-687cbabb0534.sql` — creates `age_gate_blocks` plus age-enforcement trigger.
+- `20260308221853_4734cdb3-6032-4ce7-824e-c445fee37cdd.sql` — rewrites `check_age_requirement()` trigger function.
+- `20260308223451_5cb15e92-a308-4e01-9dd8-f80a727bc382.sql` — locks `get_event_deck()` to `auth.uid() = p_user_id` and introduces Daily Drop candidate logic.
+
+### 2026-03-09
+- `20260309025904_e67e0f18-d092-4863-947e-f859aac7a978.sql` — creates `notification_preferences`, `notification_log`, `match_notification_mutes`, and auto-create preferences trigger.
+- `20260309025913_4a26eafe-cba5-4764-875c-edd250a2ec04.sql` — fixes `create_notification_preferences()` search_path and tightens `notification_log` insertion policy.
+- `20260309034333_6812c46a-0ce5-46f6-a3ae-0afea31710f6.sql` — removes overly broad Daily Drop profile-read policy that exposed sensitive columns.
+- `20260309034647_9dff2a13-f846-4b46-9114-1297fa01cce5.sql` — expands `get_event_deck()` to include shared vibe counts.
+- `20260309042852_52c78e2a-8131-44eb-8319-560227e5157e.sql` — drops old Daily Drop model and replaces it with new `daily_drops` + `daily_drop_cooldowns` schema.
+- `20260309043602_8a55f497-4d7f-44ff-bf60-2b83f094d71f.sql` — adds `daily_drops` to `supabase_realtime` publication.
+- `20260309050102_0e98bf2b-3b08-4fa1-bd9c-b833a37f63e9.sql` — creates `chat-videos` storage bucket and policies.
+
+### 2026-03-10
+- `20260310003534_7dccf499-0724-4dae-a6e4-6b170816431e.sql` — adds `video_url` and `video_duration_seconds` to `messages`.
+- `20260310124808_84e1cfb5-c367-4e34-a610-b555e7907d5b.sql` — creates trigger protection for admin-managed/sensitive profile columns.
+- `20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql` — adds `get_own_pii()` and rebalances profile PII visibility after an overly broad revoke.
+
+---
+
+## 9. What the migration history says about the product
+
+The migration chain shows a clear product progression:
+
+1. **Basic dating/event app core**  
+   Profiles, events, registrations, matches, messages, vibe tags, video sessions.
+
+2. **Trust and moderation maturity**  
+   Verification attempts, blocking, reports, suspensions, warnings, admin notifications, admin activity logs.
+
+3. **Live event/video date orchestration**  
+   Queue states, ready-gate/session phases, matching functions, swipe logic, deck logic, Daily room tracking.
+
+4. **Notification and re-engagement sophistication**  
+   Push campaigns, push telemetry view, notification preferences/logs, email drip log.
+
+5. **Monetization and account lifecycle**  
+   Credits, subscriptions, payment status, account deletion requests, premium flags.
+
+6. **Media surface expansion**  
+   Profile photos, proof selfies, vibe videos, event covers, voice messages, chat videos.
+
+The codebase was already substantially beyond MVP by the end of this chain.
+
+---
+
+## 10. Practical rebuild implications
+
+### Implication 1 — cold replay is not guaranteed clean
+Because test-data and environment-specific migrations exist, a brand-new empty project can fail or diverge during migration replay.
+
+### Implication 2 — migration history is part schema, part operations log
+Some files are not general-purpose migrations; they are snapshots of things the team did during debugging or live QA.
+
+### Implication 3 — policies are first-class infrastructure
+A large share of the migration history is about RLS correction and security repair. For Vibely, replaying schema without policies is not a real rebuild.
+
+### Implication 4 — the frozen migration chain is not a perfect superset of the current typed schema
+Because `feedback` and `premium_history` exist in generated types but not as CREATE TABLE migrations here, the repo snapshot alone does not fully explain the linked project’s full historical object graph.
+
+---
+
+## 11. Recommended next hardening step after this manifest
+
+For long-term rebuildability, the migration chain should eventually be classified into four buckets:
+- canonical structural migrations
+- security/policy migrations
+- data backfills/repairs
+- test/QA-only operational migrations
+
+That refactor has **not** been done yet in the frozen baseline, but this manifest identifies the places where it will matter most.
+
+---
+
+## 12. Bottom line
+
+The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:
+- strong schema coverage
+- strong policy/version history
+- multiple late-stage product subsystems
+- several noncanonical data/testing migrations mixed into the chain
+- at least two schema objects visible in types but not created anywhere in the frozen SQL set
+
+That means this migration manifest is not just an inventory. It is a warning label for rebuild strategy: **preserve the history, but do not replay it blindly.**
+

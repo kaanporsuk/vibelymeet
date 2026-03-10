@@ -6,9 +6,51 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function authError(status: number, body: { error: string }, cronSecretMissing: boolean): Response {
+  const code = cronSecretMissing ? 503 : status;
+  const msg = cronSecretMissing ? "Service unavailable" : body.error;
+  return new Response(JSON.stringify({ error: msg }), {
+    status: code,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  const cronSecretMissing = !cronSecret || cronSecret.trim() === "";
+  const incoming = req.headers.get("Authorization");
+
+  if (incoming && !cronSecretMissing && incoming === `Bearer ${cronSecret}`) {
+    // Cron path: allow
+  } else {
+    // JWT path: require valid admin
+    if (!incoming) {
+      return authError(401, { error: "Unauthorized" }, cronSecretMissing);
+    }
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: incoming } },
+    });
+    const { data: { user }, error: authErr } = await supabaseUser.auth.getUser();
+    if (authErr || !user) {
+      return authError(401, { error: "Unauthorized" }, cronSecretMissing);
+    }
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    const { data: roleRow } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (!roleRow) {
+      return authError(403, { error: "Forbidden" }, cronSecretMissing);
+    }
   }
 
   try {

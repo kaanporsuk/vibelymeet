@@ -49,7 +49,7 @@ type CallPhase = "handshake" | "date" | "ended";
 const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
@@ -73,6 +73,7 @@ const VideoDate = () => {
   const remoteContainerRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
   const sessionIdRef = useRef(id);
+  const accessTokenRef = useRef<string | null>(null);
 
   const { credits, useExtraTime, useExtendedVibe } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
@@ -344,6 +345,10 @@ const VideoDate = () => {
     };
   }, []);
 
+  useEffect(() => {
+    accessTokenRef.current = session?.access_token ?? null;
+  }, [session?.access_token]);
+
   // Beforeunload — warn user and cleanup session via sendBeacon
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -379,15 +384,20 @@ const VideoDate = () => {
         );
       }
 
-      // Best-effort Daily room cleanup via sendBeacon
-      const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
-      navigator.sendBeacon(
-        dailyRoomUrl,
-        new Blob(
-          [JSON.stringify({ action: "delete_room", roomName: `date-${id?.replace(/-/g, "")}` })],
-          { type: "application/json" }
-        )
-      );
+      // Best-effort Daily room cleanup (requires JWT when daily-room has verify_jwt = true)
+      const token = accessTokenRef.current;
+      if (token) {
+        const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
+        fetch(dailyRoomUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action: "delete_room", roomName: `date-${id?.replace(/-/g, "")}` }),
+          keepalive: true,
+        });
+      }
 
       // Stop media tracks
       if (localVideoRef.current?.srcObject) {

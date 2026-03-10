@@ -1,0 +1,1006 @@
+{
+  "generated_at": "2026-03-11",
+  "artifact_type": "machine_readable_inventory",
+  "project": {
+    "name": "Vibely",
+    "baseline_label": "post-hardening",
+    "baseline_zip": "vibelymeet-pre-native-hardening-golden-2026-03-10.zip",
+    "supabase_project_id": "schdyxcunwcvddlcshwd"
+  },
+  "repo": {
+    "root_dir": "vibelymeet-pre-native-hardening-golden-2026-03-10",
+    "package_manager_recommended": "npm",
+    "package_name": "vite_react_shadcn_ts",
+    "package_version": "0.0.0",
+    "scripts": {
+      "dev": "vite",
+      "build": "vite build",
+      "build:dev": "vite build --mode development",
+      "lint": "eslint .",
+      "preview": "vite preview"
+    },
+    "top_level_files": [
+      ".env",
+      ".gitignore",
+      "README.md",
+      "bun.lock",
+      "bun.lockb",
+      "components.json",
+      "eslint.config.js",
+      "index.html",
+      "package-lock.json",
+      "package.json",
+      "postcss.config.js",
+      "tailwind.config.ts",
+      "tsconfig.app.json",
+      "tsconfig.json",
+      "tsconfig.node.json",
+      "vite.config.ts"
+    ],
+    "lockfiles": [
+      "package-lock.json",
+      "bun.lock",
+      "bun.lockb"
+    ],
+    "inventory_counts": {
+      "pages": 34,
+      "components": 259,
+      "hooks": 53,
+      "services": 6,
+      "edge_functions_deployable": 28,
+      "edge_function_shared_dirs": 1,
+      "migrations": 101,
+      "public_tables": 41,
+      "public_views": 1,
+      "public_functions": 22,
+      "public_enums": 3,
+      "public_assets": 23
+    }
+  },
+  "stack": {
+    "frontend": {
+      "framework": "React",
+      "build_tool": "Vite",
+      "language": "TypeScript",
+      "router": "react-router-dom",
+      "data_cache": "@tanstack/react-query",
+      "styling": [
+        "Tailwind CSS",
+        "shadcn/ui",
+        "Radix UI"
+      ]
+    },
+    "backend": {
+      "platform": "Supabase",
+      "video": [
+        "Daily.co",
+        "Bunny Stream"
+      ],
+      "media_storage_delivery": [
+        "Bunny Storage",
+        "Bunny CDN"
+      ],
+      "payments": [
+        "Stripe"
+      ],
+      "email": [
+        "Resend"
+      ],
+      "phone_verification": [
+        "Twilio Verify",
+        "Twilio Lookup"
+      ],
+      "push": [
+        "OneSignal",
+        "browser notifications"
+      ],
+      "analytics": [
+        "PostHog"
+      ],
+      "error_tracking": [
+        "Sentry"
+      ],
+      "geocoding": [
+        "OpenStreetMap Nominatim"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "path": "/",
+      "page": "Index",
+      "access": "public"
+    },
+    {
+      "path": "/auth",
+      "page": "Auth",
+      "access": "public"
+    },
+    {
+      "path": "/reset-password",
+      "page": "ResetPassword",
+      "access": "public"
+    },
+    {
+      "path": "/onboarding",
+      "page": "Onboarding",
+      "access": "protected"
+    },
+    {
+      "path": "/dashboard",
+      "page": "Dashboard",
+      "access": "protected"
+    },
+    {
+      "path": "/home",
+      "page": "Dashboard",
+      "access": "protected"
+    },
+    {
+      "path": "/events",
+      "page": "Events",
+      "access": "protected"
+    },
+    {
+      "path": "/events/:id",
+      "page": "EventDetails",
+      "access": "protected"
+    },
+    {
+      "path": "/event/:eventId/lobby",
+      "page": "EventLobby",
+      "access": "protected"
+    },
+    {
+      "path": "/matches",
+      "page": "Matches",
+      "access": "protected"
+    },
+    {
+      "path": "/chat/:id",
+      "page": "Chat",
+      "access": "protected"
+    },
+    {
+      "path": "/profile",
+      "page": "Profile",
+      "access": "protected"
+    },
+    {
+      "path": "/settings",
+      "page": "Settings",
+      "access": "protected"
+    },
+    {
+      "path": "/date/:id",
+      "page": "VideoDate",
+      "access": "protected"
+    },
+    {
+      "path": "/ready/:id",
+      "page": "ReadyGate",
+      "access": "protected"
+    },
+    {
+      "path": "/admin/create-event",
+      "page": "AdminCreateEvent",
+      "access": "admin"
+    },
+    {
+      "path": "/match-celebration",
+      "page": "MatchCelebration",
+      "access": "protected"
+    },
+    {
+      "path": "/vibe-studio",
+      "page": "VibeStudio",
+      "access": "protected"
+    },
+    {
+      "path": "/vibe-feed",
+      "page": "VibeFeed",
+      "access": "protected"
+    },
+    {
+      "path": "/schedule",
+      "page": "Schedule",
+      "access": "protected"
+    },
+    {
+      "path": "/how-it-works",
+      "page": "HowItWorks",
+      "access": "public"
+    },
+    {
+      "path": "/privacy",
+      "page": "PrivacyPolicy",
+      "access": "public"
+    },
+    {
+      "path": "/terms",
+      "page": "TermsOfService",
+      "access": "public"
+    },
+    {
+      "path": "/delete-account",
+      "page": "DeleteAccountWeb",
+      "access": "public"
+    },
+    {
+      "path": "/premium",
+      "page": "Premium",
+      "access": "public"
+    },
+    {
+      "path": "/subscription/success",
+      "page": "SubscriptionSuccess",
+      "access": "public"
+    },
+    {
+      "path": "/subscription/cancel",
+      "page": "SubscriptionCancel",
+      "access": "public"
+    },
+    {
+      "path": "/event-payment/success",
+      "page": "EventPaymentSuccess",
+      "access": "protected"
+    },
+    {
+      "path": "/credits",
+      "page": "Credits",
+      "access": "protected"
+    },
+    {
+      "path": "/credits/success",
+      "page": "CreditsSuccess",
+      "access": "protected"
+    },
+    {
+      "path": "/user/:userId",
+      "page": "UserProfile",
+      "access": "protected"
+    },
+    {
+      "path": "/kaan",
+      "page": "AdminLogin",
+      "access": "public"
+    },
+    {
+      "path": "/kaan/dashboard",
+      "page": "AdminDashboard",
+      "access": "admin"
+    },
+    {
+      "path": "*",
+      "page": "NotFound",
+      "access": "public"
+    }
+  ],
+  "page_files": [
+    "AdminCreateEvent.tsx",
+    "Auth.tsx",
+    "Chat.tsx",
+    "Credits.tsx",
+    "CreditsSuccess.tsx",
+    "Dashboard.tsx",
+    "EventDetails.tsx",
+    "EventLobby.tsx",
+    "EventPaymentSuccess.tsx",
+    "Events.tsx",
+    "HowItWorks.tsx",
+    "Index.tsx",
+    "MatchCelebration.tsx",
+    "Matches.tsx",
+    "NotFound.tsx",
+    "Onboarding.tsx",
+    "Premium.tsx",
+    "Profile.tsx",
+    "ReadyGate.tsx",
+    "ResetPassword.tsx",
+    "Schedule.tsx",
+    "Settings.tsx",
+    "SubscriptionCancel.tsx",
+    "SubscriptionSuccess.tsx",
+    "UserProfile.tsx",
+    "VibeFeed.tsx",
+    "VibeStudio.tsx",
+    "VideoDate.tsx",
+    "VideoLobby.tsx",
+    "admin/AdminDashboard.tsx",
+    "admin/AdminLogin.tsx",
+    "legal/DeleteAccountWeb.tsx",
+    "legal/PrivacyPolicy.tsx",
+    "legal/TermsOfService.tsx"
+  ],
+  "page_anomalies": {
+    "unrouted_pages": [
+      "VideoLobby.tsx"
+    ],
+    "redirect_pages": [
+      {
+        "page": "VibeStudio.tsx",
+        "redirects_to": "/profile"
+      }
+    ],
+    "mock_or_noncanonical_pages": [
+      "VibeFeed.tsx"
+    ]
+  },
+  "schema": {
+    "public_tables": [
+      "account_deletion_requests",
+      "admin_activity_logs",
+      "admin_notifications",
+      "age_gate_blocks",
+      "blocked_users",
+      "credit_adjustments",
+      "daily_drop_cooldowns",
+      "daily_drops",
+      "date_feedback",
+      "date_proposals",
+      "email_drip_log",
+      "email_verifications",
+      "event_registrations",
+      "event_swipes",
+      "event_vibes",
+      "events",
+      "feedback",
+      "match_calls",
+      "match_mutes",
+      "match_notification_mutes",
+      "matches",
+      "messages",
+      "notification_log",
+      "notification_preferences",
+      "photo_verifications",
+      "premium_history",
+      "profile_vibes",
+      "profiles",
+      "push_campaigns",
+      "push_notification_events",
+      "rate_limits",
+      "subscriptions",
+      "user_credits",
+      "user_reports",
+      "user_roles",
+      "user_schedules",
+      "user_suspensions",
+      "user_warnings",
+      "verification_attempts",
+      "vibe_tags",
+      "video_sessions"
+    ],
+    "public_views": [
+      "push_notification_events_admin"
+    ],
+    "public_functions": [
+      "can_view_profile_photo",
+      "check_gender_compatibility",
+      "check_mutual_vibe_and_match",
+      "check_premium_status",
+      "deduct_credit",
+      "drain_match_queue",
+      "find_mystery_match",
+      "find_video_date_match",
+      "generate_recurring_events",
+      "get_event_deck",
+      "get_other_city_events",
+      "get_own_pii",
+      "get_user_subscription_status",
+      "get_visible_events",
+      "handle_swipe",
+      "has_role",
+      "haversine_distance",
+      "is_blocked",
+      "is_registered_for_event",
+      "join_matching_queue",
+      "leave_matching_queue",
+      "update_participant_status"
+    ],
+    "public_enums": [
+      "app_role",
+      "notification_platform",
+      "notification_status"
+    ],
+    "storage_buckets": [
+      "chat-videos",
+      "proof-selfies"
+    ],
+    "storage_buckets_legacy_or_bunny_migrated": [
+      "event-covers",
+      "profile-photos",
+      "vibe-videos",
+      "voice-messages"
+    ],
+    "types_only_missing_from_migrations": [
+      "feedback",
+      "premium_history"
+    ]
+  },
+  "env": {
+    "frontend_vite_vars": [
+      "VITE_BUNNY_CDN_HOSTNAME",
+      "VITE_BUNNY_STREAM_CDN_HOSTNAME",
+      "VITE_POSTHOG_API_KEY",
+      "VITE_SUPABASE_PUBLISHABLE_KEY",
+      "VITE_SUPABASE_URL"
+    ],
+    "backend_function_vars": [
+      "APP_URL",
+      "BUNNY_CDN_HOSTNAME",
+      "BUNNY_STORAGE_API_KEY",
+      "BUNNY_STORAGE_ZONE",
+      "BUNNY_STREAM_API_KEY",
+      "BUNNY_STREAM_CDN_HOSTNAME",
+      "BUNNY_STREAM_LIBRARY_ID",
+      "CRON_SECRET",
+      "DAILY_API_KEY",
+      "DAILY_DOMAIN",
+      "ONESIGNAL_APP_ID",
+      "ONESIGNAL_REST_API_KEY",
+      "PUSH_WEBHOOK_SECRET",
+      "RESEND_API_KEY",
+      "STRIPE_ANNUAL_PRICE_ID",
+      "STRIPE_MONTHLY_PRICE_ID",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "SUPABASE_URL",
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_VERIFY_SERVICE_SID",
+      "UNSUB_HMAC_SECRET",
+      "BUNNY_VIDEO_WEBHOOK_TOKEN"
+    ],
+    "notes": [
+      "The checked-in root .env is partial and includes malformed/non-standard lines.",
+      "The true backend env surface must be derived from Edge Function source."
+    ]
+  },
+  "edge_functions": [
+    {
+      "name": "admin-review-verification",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminPhotoVerificationPanel.tsx"
+      ]
+    },
+    {
+      "name": "cancel-deletion",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDeletionRecovery.ts"
+      ]
+    },
+    {
+      "name": "create-checkout-session",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "STRIPE_ANNUAL_PRICE_ID",
+        "STRIPE_MONTHLY_PRICE_ID",
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useSubscription.ts"
+      ]
+    },
+    {
+      "name": "create-credits-checkout",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/pages/Credits.tsx"
+      ]
+    },
+    {
+      "name": "create-event-checkout",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/events/PaymentModal.tsx"
+      ]
+    },
+    {
+      "name": "create-portal-session",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/premium/PremiumSettingsCard.tsx"
+      ]
+    },
+    {
+      "name": "create-video-upload",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_STREAM_API_KEY",
+        "BUNNY_STREAM_CDN_HOSTNAME",
+        "BUNNY_STREAM_LIBRARY_ID",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/vibe-video/VibeStudioModal.tsx"
+      ]
+    },
+    {
+      "name": "daily-room",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "DAILY_API_KEY",
+        "DAILY_DOMAIN",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useMatchCall.ts",
+        "src/hooks/useVideoCall.ts",
+        "src/pages/VideoDate.tsx"
+      ]
+    },
+    {
+      "name": "delete-account",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "STRIPE_SECRET_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDeleteAccount.ts"
+      ]
+    },
+    {
+      "name": "delete-vibe-video",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_STREAM_API_KEY",
+        "BUNNY_STREAM_LIBRARY_ID",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/pages/Profile.tsx"
+      ]
+    },
+    {
+      "name": "email-drip",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "RESEND_API_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL",
+        "UNSUB_HMAC_SECRET"
+      ],
+      "frontend_references": []
+    },
+    {
+      "name": "email-verification",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "RESEND_API_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useEmailVerification.ts"
+      ]
+    },
+    {
+      "name": "event-notifications",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "RESEND_API_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminEventFormModal.tsx"
+      ]
+    },
+    {
+      "name": "forward-geocode",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminEventFormModal.tsx"
+      ]
+    },
+    {
+      "name": "generate-daily-drops",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminDailyDropCard.tsx"
+      ]
+    },
+    {
+      "name": "geocode",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/pages/Events.tsx",
+        "src/services/profileService.ts"
+      ]
+    },
+    {
+      "name": "phone-verify",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL",
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_VERIFY_SERVICE_SID"
+      ],
+      "frontend_references": [
+        "src/components/PhoneVerification.tsx"
+      ]
+    },
+    {
+      "name": "push-webhook",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "PUSH_WEBHOOK_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/LiveNotificationMonitor.tsx"
+      ]
+    },
+    {
+      "name": "request-account-deletion",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/pages/legal/DeleteAccountWeb.tsx"
+      ]
+    },
+    {
+      "name": "send-notification",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "APP_URL",
+        "ONESIGNAL_APP_ID",
+        "ONESIGNAL_REST_API_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/lib/notifications.ts"
+      ]
+    },
+    {
+      "name": "stripe-webhook",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "STRIPE_ANNUAL_PRICE_ID",
+        "STRIPE_SECRET_KEY",
+        "STRIPE_WEBHOOK_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
+    },
+    {
+      "name": "unsubscribe",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL",
+        "UNSUB_HMAC_SECRET"
+      ],
+      "frontend_references": []
+    },
+    {
+      "name": "upload-event-cover",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_CDN_HOSTNAME",
+        "BUNNY_STORAGE_API_KEY",
+        "BUNNY_STORAGE_ZONE",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/services/eventCoverUploadService.ts"
+      ]
+    },
+    {
+      "name": "upload-image",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_STORAGE_API_KEY",
+        "BUNNY_STORAGE_ZONE",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/services/imageUploadService.ts"
+      ]
+    },
+    {
+      "name": "upload-voice",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_CDN_HOSTNAME",
+        "BUNNY_STORAGE_API_KEY",
+        "BUNNY_STORAGE_ZONE",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/services/voiceUploadService.ts"
+      ]
+    },
+    {
+      "name": "verify-admin",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/ProtectedRoute.tsx"
+      ]
+    },
+    {
+      "name": "vibe-notification",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useEventVibes.ts"
+      ]
+    },
+    {
+      "name": "video-webhook",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "BUNNY_VIDEO_WEBHOOK_TOKEN",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
+    }
+  ],
+  "function_config_gaps": [],
+  "migrations": {
+    "count": 101,
+    "first": "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
+    "last": "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
+    "files": [
+      "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
+      "20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql",
+      "20251224173423_eb996d9b-303c-48e3-a50a-a9a69770826a.sql",
+      "20251224180727_028b6b04-5827-4b12-be42-62519912f183.sql",
+      "20251226160948_a55c9710-fd6f-44cf-b89c-447d97a9c5ca.sql",
+      "20251227005244_73d18021-43bd-4b86-b7df-c49f7d22bd64.sql",
+      "20251227010039_421d6f54-df51-4071-a774-706459484397.sql",
+      "20251227011125_a767d943-0e04-4a06-95e5-3ee652415a9a.sql",
+      "20251227012106_b28f04de-470b-434d-b31a-00931a538f09.sql",
+      "20251228015626_8e73a470-1845-4f79-ab42-3de8c0559150.sql",
+      "20251228020729_f7163dec-ca6b-44aa-98f7-0d1d89d8bd37.sql",
+      "20251228022019_184acae1-ce11-4e1a-be8e-6a031d1d887b.sql",
+      "20251229003354_00812dea-4711-4487-bc86-f845cae730ba.sql",
+      "20251229004756_88f6cd10-26e6-4ad9-8024-2db3f6d66ef8.sql",
+      "20251231001331_0d9fe89a-9ace-48ad-aca1-a41281c247ff.sql",
+      "20260106014442_17770f5c-3d0c-4b2c-bc33-7415231f0a10.sql",
+      "20260106020103_88ea4113-1308-408f-930d-c3363be8707a.sql",
+      "20260115235308_110b0dfa-7788-4ff2-9a1d-ffded64c3617.sql",
+      "20260116001552_9617ea07-ce16-4492-a909-9b6ed6e1aca7.sql",
+      "20260116235941_4f178270-40d1-42cf-a996-96a900a593ba.sql",
+      "20260117213531_78588c84-22f2-4a74-a2e1-f61b5bd43512.sql",
+      "20260117213540_6334de97-b847-4295-8d82-6667ed298ef7.sql",
+      "20260118071417_c8b1264d-f97f-4280-899d-649d6137b0c1.sql",
+      "20260118074329_b2d606c5-65fc-4661-978c-0f55db05d39d.sql",
+      "20260119220544_c5d2ce37-6c21-4b8b-8170-337fabb3b608.sql",
+      "20260120205733_6f220346-9a7e-48a0-a509-f92bd3b3f466.sql",
+      "20260121071919_de94db86-098f-41d1-9503-cf80d3499832.sql",
+      "20260121081429_9f7afe26-166c-4364-a95e-27d0e999e73e.sql",
+      "20260123001944_15682c3a-5b6e-4a4c-84d4-01ed82fd3a90.sql",
+      "20260124003754_422db6ed-1234-4cf9-807e-0d9c1e7f4690.sql",
+      "20260126185213_7351f30b-804b-4ef1-90f6-afb30bc339eb.sql",
+      "20260126193631_47279744-15e3-46c0-a38d-58002348105e.sql",
+      "20260127231851_c0705953-7186-403e-bcf1-80ab03f2ff11.sql",
+      "20260127233140_d195af58-4538-410b-987d-b383ead4d7de.sql",
+      "20260128001207_d087e5f7-cdd5-439c-8cfd-a77bb4f2eb60.sql",
+      "20260131235453_08b0ef6c-39b0-4fe8-9191-59dbe16c00a9.sql",
+      "20260201102603_1efdd0c3-aaa1-43d4-b67b-494804bedfb9.sql",
+      "20260202115108_484eac10-9445-4459-a4b4-279bd515f9bd.sql",
+      "20260202115643_6e013e4b-4c78-4d2d-a939-6be217bf7c95.sql",
+      "20260204233635_45842883-27c6-4b82-92dd-3ca3e6576109.sql",
+      "20260205004148_4094ebad-15af-44e1-9297-3eadbda53c8b.sql",
+      "20260206050534_64a3c48f-fabe-42c8-8faa-63c333cc77b6.sql",
+      "20260206050705_61b47f53-e360-487a-b059-31a706534cc1.sql",
+      "20260208224222_553d3be9-fc52-4758-bd3e-0129cbc6d7d9.sql",
+      "20260209192940_c129ce86-f1a9-49b8-ab5e-fc7cbcac695b.sql",
+      "20260209193216_294b70b7-f9a0-46fd-aeec-23346b330859.sql",
+      "20260209193336_eda17c83-ee27-4079-881f-007eae5fa189.sql",
+      "20260209195435_5ba979a8-8cdc-40d3-be88-78cb19eb49b5.sql",
+      "20260209195922_abd03d88-7cfd-4085-9c79-f425ae7e52bb.sql",
+      "20260209200028_38de6643-0bf6-4d2c-8854-ee7241ad1b9f.sql",
+      "20260211150718_adf98e65-9ffd-4eaa-9b0d-4b6b932a52ea.sql",
+      "20260212001353_1855c6d3-05a3-4bf3-bbed-6c18a9730a12.sql",
+      "20260212083221_9e3b1510-2776-435a-8fd6-f121b10ef97e.sql",
+      "20260212180837_ca99dbd7-13dc-4701-a70b-6227456017fe.sql",
+      "20260212181239_38a33705-1e97-4860-b29a-4128671946fa.sql",
+      "20260212181754_5ccc735a-15f3-4d1b-9e4c-7c43157f6e7f.sql",
+      "20260215160918_dda5e61b-5ebc-43f5-ba8e-f408ac5647c2.sql",
+      "20260215161008_c34db7ed-530d-4ebb-9e52-4e49559cdf05.sql",
+      "20260216043319_2c1af590-ba93-419a-8f59-18bd3fda80dc.sql",
+      "20260216043517_81a09c23-617b-495c-96e7-1a57e6af24ab.sql",
+      "20260216044426_f60a05b9-638d-4799-a0c4-ad8ba11cb104.sql",
+      "20260216044723_8d3710b8-9855-4b49-8454-24af6c4febe0.sql",
+      "20260217070547_4e834470-ffa6-41da-8ba0-cb1d2e72ffd9.sql",
+      "20260218034339_dbbf5a04-4457-499a-a6c5-1be9e624f866.sql",
+      "20260218132914_4c1f8ab9-725a-4874-9d3b-5c7b8a0b1960.sql",
+      "20260218135136_1bc2e313-da2a-42f3-a590-6c5c12db6aae.sql",
+      "20260219033734_038f8c45-c285-4a8b-8afc-cd488ceefc6f.sql",
+      "20260219035638_7b4e72a8-5b1b-4c08-9481-30b22d1ceed4.sql",
+      "20260220040047_ece0f1ad-2803-42a8-bb87-a322cb85f856.sql",
+      "20260220094344_cfd94d22-cf68-4c84-a943-f9884e3559e2.sql",
+      "20260221001701_d5bdfa71-57e3-4e79-b976-636e0f6b52c2.sql",
+      "20260225005439_95fb24d3-70de-4f1c-8fdb-f01a759633cb.sql",
+      "20260227000205_ad0f5696-2016-4bd4-aca1-4c9691c95735.sql",
+      "20260227044110_ad1f69ae-6d15-4e01-8df7-a027994190a6.sql",
+      "20260228004543_88b1a174-6832-43c7-9987-c880f0018127.sql",
+      "20260301001911_6f1cff72-1925-4e1f-9638-dd67406151ec.sql",
+      "20260303001003_48c59a0d-da5c-44eb-9405-ad7167aaa499.sql",
+      "20260304070841_939aa319-682b-4497-b46f-2b7b166898d0.sql",
+      "20260307235953_5a5e6851-a915-45c0-9c5a-3f3a608b5322.sql",
+      "20260308111830_7a8e3618-ec6f-4338-999a-499c94ef4312.sql",
+      "20260308145056_7ba2db3e-f952-4e18-b75a-00c8f8d42463.sql",
+      "20260308151948_54ae49cd-efca-47d2-ab08-b2ba3237e6e9.sql",
+      "20260308153207_a3bb071b-1f69-481b-be52-34ac0bd26a4d.sql",
+      "20260308201324_7d16b6a9-0a63-4059-a738-a25c5a2af2ea.sql",
+      "20260308202948_9bf8ddc2-663c-4cf0-9f1b-d0c8eeb3b6c0.sql",
+      "20260308203622_5325e3cf-3b4d-4784-a8e2-61d332f0a28d.sql",
+      "20260308214251_e2a9367c-5fcb-48c0-a16c-a9e23268d8f3.sql",
+      "20260308221259_43805edf-157f-4157-b86a-ab09e8787745.sql",
+      "20260308221841_a41e28c2-3d0d-43a4-9168-687cbabb0534.sql",
+      "20260308221853_4734cdb3-6032-4ce7-824e-c445fee37cdd.sql",
+      "20260308223451_5cb15e92-a308-4e01-9dd8-f80a727bc382.sql",
+      "20260309025904_e67e0f18-d092-4863-947e-f859aac7a978.sql",
+      "20260309025913_4a26eafe-cba5-4764-875c-edd250a2ec04.sql",
+      "20260309034333_6812c46a-0ce5-46f6-a3ae-0afea31710f6.sql",
+      "20260309034647_9dff2a13-f846-4b46-9114-1297fa01cce5.sql",
+      "20260309042852_52c78e2a-8131-44eb-8319-560227e5157e.sql",
+      "20260309043602_8a55f497-4d7f-44ff-bf60-2b83f094d71f.sql",
+      "20260309050102_0e98bf2b-3b08-4fa1-bd9c-b833a37f63e9.sql",
+      "20260310003534_7dccf499-0724-4dae-a6e4-6b170816431e.sql",
+      "20260310124808_84e1cfb5-c367-4e34-a610-b555e7907d5b.sql",
+      "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql"
+    ],
+    "risk_flags": {
+      "contains_destructive_resets": true,
+      "contains_test_data_migrations": true,
+      "contains_hardcoded_user_uuid_operations": true,
+      "contains_security_policy_hotfixes": true,
+      "cold_replay_safe_without_review": false
+    }
+  },
+  "hardcoded_runtime_dependencies": [
+    {
+      "surface": "src/lib/onesignal.ts",
+      "type": "hardcoded_value",
+      "key": "OneSignal App ID"
+    },
+    {
+      "surface": "src/main.tsx",
+      "type": "hardcoded_value",
+      "key": "Sentry DSN"
+    },
+    {
+      "surface": "src/main.tsx",
+      "type": "hardcoded_value",
+      "key": "PostHog host"
+    },
+    {
+      "surface": "supabase/functions/daily-room/index.ts",
+      "type": "hardcoded_fallback",
+      "key": "DAILY_DOMAIN",
+      "value": "vibelyapp.daily.co"
+    },
+    {
+      "surface": "src/components/vibe-video/VibeStudioModal.tsx",
+      "type": "hardcoded_url",
+      "key": "Bunny TUS upload endpoint",
+      "value": "https://video.bunnycdn.com/tusupload"
+    }
+  ],
+  "hardcoded_domains": [
+    "vibelymeet.com",
+    "cdn.vibelymeet.com"
+  ],
+  "documentation_precedence": [
+    "frozen repo ZIP",
+    "audited golden snapshot",
+    "rebuild runbook",
+    "schema appendix",
+    "edge function manifest",
+    "migration manifest",
+    "machine-readable inventory JSON",
+    "Claude snapshot as historical reference only"
+  ]
+}
