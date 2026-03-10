@@ -34,6 +34,7 @@ import NotFound from "./pages/NotFound";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
 import DeleteAccountWeb from "./pages/legal/DeleteAccountWeb";
+import CommunityGuidelines from "./pages/legal/CommunityGuidelines";
 import Premium from "./pages/Premium";
 import SubscriptionSuccess from "./pages/SubscriptionSuccess";
 import SubscriptionCancel from "./pages/SubscriptionCancel";
