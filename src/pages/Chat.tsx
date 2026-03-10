@@ -18,6 +18,7 @@ import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
+import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -47,11 +48,13 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice";
+  type: "text" | "video-invite" | "voice" | "video";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
   audioDuration?: number;
+  videoUrl?: string;
+  videoDuration?: number;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
 }
@@ -132,9 +135,11 @@ const Chat = () => {
       text: m.text,
       sender: m.sender,
       time: m.time,
-      type: (m.audioUrl ? "voice" : "text") as ChatMessage["type"],
+      type: (m.videoUrl ? "video" : m.audioUrl ? "voice" : "text") as ChatMessage["type"],
       audioUrl: m.audioUrl,
       audioDuration: m.audioDuration,
+      videoUrl: m.videoUrl,
+      videoDuration: m.videoDuration,
       status: "delivered" as MessageStatusType,
     }));
     return [...realMsgs, ...localMessages];
@@ -314,10 +319,15 @@ const Chat = () => {
         .from("chat-videos")
         .getPublicUrl(filePath);
 
+      const videoUrl = urlData?.publicUrl;
+      if (!videoUrl) throw new Error("Failed to get video URL");
+
       const { error: msgError } = await supabase.from("messages").insert({
         match_id: chatData.matchId,
         sender_id: user.id,
-        content: `📹 Video message (${duration}s)`,
+        content: "📹 Video message",
+        video_url: videoUrl,
+        video_duration_seconds: Math.round(duration),
       });
 
       if (msgError) throw msgError;
@@ -426,6 +436,33 @@ const Chat = () => {
                     }}
                     onDecline={() => toast.info("Maybe next time!")}
                   />
+                </div>
+              ) : message.videoUrl ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex items-end gap-2",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                  )}
+                >
+                  {message.sender !== "me" && (
+                    <div className="w-7 shrink-0">
+                      {message.showAvatar && (
+                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <VideoMessageBubble
+                      videoUrl={message.videoUrl}
+                      duration={message.videoDuration || 0}
+                      isMine={message.sender === "me"}
+                    />
+                    {message.isLastInGroup && (
+                      <p className={cn("text-[10px] mt-1", message.sender === "me" ? "text-right text-muted-foreground" : "text-muted-foreground")}>{message.time}</p>
+                    )}
+                  </div>
                 </div>
               ) : message.audioUrl ? (
                 <div

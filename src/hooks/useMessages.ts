@@ -10,6 +10,8 @@ export interface Message {
   time: string;
   audioUrl?: string;
   audioDuration?: number;
+  videoUrl?: string;
+  videoDuration?: number;
 }
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
@@ -31,7 +33,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: messages, error: msgError } = await supabase
         .from("messages")
-        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds")
+        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds")
         .eq("match_id", match.id)
         .order("created_at", { ascending: true });
 
@@ -53,6 +55,8 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
           time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           audioUrl: msg.audio_url || undefined,
           audioDuration: msg.audio_duration_seconds || undefined,
+          videoUrl: msg.video_url || undefined,
+          videoDuration: msg.video_duration_seconds || undefined,
         })),
       };
     },
