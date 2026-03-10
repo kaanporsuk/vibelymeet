@@ -578,6 +578,13 @@ const Matches = () => {
           <ReportWizard
             onBack={() => setShowReportSheet(false)}
             onComplete={handleReportComplete}
+            preSelectedUser={reportTarget ? {
+              id: reportTarget.id,
+              name: reportTarget.name,
+              avatar_url: reportTarget.image,
+              interactionType: "Match",
+              interactionDate: reportTarget.time || "Recent",
+            } : undefined}
           />
         </SheetContent>
       </Sheet>
