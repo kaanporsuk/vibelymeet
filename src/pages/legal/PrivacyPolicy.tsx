@@ -126,6 +126,7 @@ const PrivacyPolicy = () => {
     <footer className="border-t border-border/40 px-6 py-6 text-center text-xs text-muted-foreground">
       <div className="flex justify-center gap-6">
         <Link to="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+        <Link to="/community-guidelines" className="hover:text-foreground transition-colors">Community Guidelines</Link>
         <Link to="/delete-account" className="hover:text-foreground transition-colors">Delete Account</Link>
       </div>
       <p className="mt-3">© {new Date().getFullYear()} Vibely. All rights reserved.</p>

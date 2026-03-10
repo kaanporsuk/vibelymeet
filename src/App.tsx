@@ -131,6 +131,7 @@ const App = () => (
                 <Route path="/privacy" element={<PrivacyPolicy />} />
                 <Route path="/terms" element={<TermsOfService />} />
                 <Route path="/delete-account" element={<DeleteAccountWeb />} />
+                <Route path="/community-guidelines" element={<CommunityGuidelines />} />
                 <Route path="/premium" element={<Premium />} />
                 <Route path="/subscription/success" element={<SubscriptionSuccess />} />
                 <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
