@@ -1296,8 +1296,12 @@ export type Database = {
           id: string
           interested_in: string[] | null
           is_premium: boolean
+          is_paused: boolean
           is_suspended: boolean | null
           job: string | null
+          pause_reason: string | null
+          paused_at: string | null
+          paused_until: string | null
           last_seen_at: string | null
           lifestyle: Json | null
           location: string | null
@@ -1345,6 +1349,7 @@ export type Database = {
           id: string
           interested_in?: string[] | null
           is_premium?: boolean
+          is_paused?: boolean
           is_suspended?: boolean | null
           job?: string | null
           last_seen_at?: string | null
@@ -1353,6 +1358,9 @@ export type Database = {
           location_data?: Json | null
           looking_for?: string | null
           name: string
+          pause_reason?: string | null
+          paused_at?: string | null
+          paused_until?: string | null
           phone_number?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -1394,8 +1402,12 @@ export type Database = {
           id?: string
           interested_in?: string[] | null
           is_premium?: boolean
+          is_paused?: boolean
           is_suspended?: boolean | null
           job?: string | null
+          pause_reason?: string | null
+          paused_at?: string | null
+          paused_until?: string | null
           last_seen_at?: string | null
           lifestyle?: Json | null
           location?: string | null
