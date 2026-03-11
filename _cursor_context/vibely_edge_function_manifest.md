@@ -29,9 +29,9 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Deployable directories
 
-There are **30 deployable Edge Functions** plus one shared helper directory:
+There are **31 deployable Edge Functions** plus one shared helper directory:
 
-- deployable functions: **30**
+- deployable functions: **31**
 - shared helper directory: `_shared`
 
 ### Config coverage
@@ -41,7 +41,7 @@ There are **30 deployable Edge Functions** plus one shared helper directory:
 ### Gateway JWT posture from config (post-hardening)
 
 **JWT-at-gateway (`verify_jwt = true`):**  
-account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
+account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification, daily-drop-actions.
 
 **Public-but-protected (`verify_jwt = false`):**  
 stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
@@ -370,6 +370,15 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ONESIGNAL_APP_ID`, `ONESIGNAL_REST_API_KEY`, `APP_URL`
 - **Rebuild notes:** depends on the OneSignal app existing and the app/user identity model matching what the frontend sets up
 
+### `daily-drop-actions` (Stream 2C)
+- **Purpose:** wraps `daily_drop_transition` for opener/reply flows and couples them with server-owned push notifications
+- **Auth posture:** Class C — `verify_jwt = true`; uses the caller’s JWT to ensure `auth.uid()` inside `daily_drop_transition` is the actor
+- **Frontend call sites:** `src/hooks/useDailyDrop.ts` (for `sendOpener` / `sendReply`)
+- **Primary tables touched:** `daily_drops`, `matches`, `messages`, `profiles` (for partner name lookup), plus `notification_log` indirectly via `send-notification`
+- **External services:** OneSignal (indirectly via `send-notification`)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** keep `daily_drop_transition` and this wrapper in sync; notifications are only sent for non-terminal, non-idempotent transitions to avoid duplicate sends on retry/race
+
 ### `push-webhook`
 - **Purpose:** ingests delivery/open/click/failure events from push providers and normalizes them into `push_notification_events`
 - **Auth posture:** Class B — `verify_jwt = false`; `PUSH_WEBHOOK_SECRET` required (header `x-webhook-secret`); fail-closed if secret missing
@@ -413,6 +422,7 @@ These functions are directly invoked from the frontend codebase:
 - `push-webhook`
 - `request-account-deletion`
 - `send-notification`
+- `daily-drop-actions`
 - `upload-event-cover`
 - `upload-image`
 - `upload-voice`
