@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
+import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
 import {
   Send,
   Video,
@@ -303,24 +304,11 @@ const Chat = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const timestamp = Date.now();
-      const filePath = `${chatData.matchId}/${timestamp}.webm`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("chat-videos")
-        .upload(filePath, videoBlob, {
-          contentType: videoBlob.type || "video/webm",
-          upsert: false,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("chat-videos")
-        .getPublicUrl(filePath);
-
-      const videoUrl = urlData?.publicUrl;
-      if (!videoUrl) throw new Error("Failed to get video URL");
+      const videoUrl = await uploadChatVideoToBunny(
+        videoBlob,
+        session.access_token,
+        chatData.matchId
+      );
 
       const { error: msgError } = await supabase.from("messages").insert({
         match_id: chatData.matchId,
