@@ -29,19 +29,19 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Deployable directories
 
-There are **31 deployable Edge Functions** plus one shared helper directory:
+There are **33 deployable Edge Functions** plus one shared helper directory:
 
-- deployable functions: **31**
+- deployable functions: **33**
 - shared helper directory: `_shared`
 
 ### Config coverage
 
-`supabase/config.toml` explicitly configures **all 30** functions. No config gaps remain.
+`supabase/config.toml` explicitly configures **all 33** functions. No config gaps remain.
 
 ### Gateway JWT posture from config (post-hardening)
 
 **JWT-at-gateway (`verify_jwt = true`):**  
-account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification, daily-drop-actions.
+account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification, daily-drop-actions, send-message, swipe-actions.
 
 **Public-but-protected (`verify_jwt = false`):**  
 stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
@@ -379,6 +379,24 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Rebuild notes:** keep `daily_drop_transition` and this wrapper in sync; notifications are only sent for non-terminal, non-idempotent transitions to avoid duplicate sends on retry/race
 
+### `send-message` (Stream 2E)
+- **Purpose:** inserts chat messages on behalf of the authenticated user and couples the write with server-owned `"messages"` notifications
+- **Auth posture:** Class C — `verify_jwt = true`; determines sender from JWT and validates membership in the match
+- **Frontend call sites:** `src/hooks/useMessages.ts` (`useSendMessage`)
+- **Primary tables touched:** `matches`, `messages`, plus `notification_log` indirectly via `send-notification`
+- **External services:** OneSignal (indirectly via `send-notification`)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** performs a short-window idempotency check (same sender, match, content within 5s) to avoid duplicate sends on retries
+
+### `swipe-actions` (Stream 2E)
+- **Purpose:** wraps the `handle_swipe` RPC and couples core swipe/match outcomes with server-owned notifications
+- **Auth posture:** Class C — `verify_jwt = true`; uses the caller’s JWT to supply `p_actor_id`
+- **Frontend call sites:** `src/hooks/useSwipeAction.ts`
+- **Primary tables touched:** `event_swipes`, `event_registrations`, `video_sessions`, plus `notification_log` indirectly via `send-notification`
+- **External services:** OneSignal (indirectly via `send-notification`)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** relies on `handle_swipe` for idempotency (e.g. `already_matched`, `already_super_vibed_recently`) and only emits notifications for the canonical results `match`, `match_queued`, `super_vibe_sent`, and `vibe_recorded`
+
 ### `push-webhook`
 - **Purpose:** ingests delivery/open/click/failure events from push providers and normalizes them into `push_notification_events`
 - **Auth posture:** Class B — `verify_jwt = false`; `PUSH_WEBHOOK_SECRET` required (header `x-webhook-secret`); fail-closed if secret missing
@@ -423,6 +441,8 @@ These functions are directly invoked from the frontend codebase:
 - `request-account-deletion`
 - `send-notification`
 - `daily-drop-actions`
+- `send-message`
+- `swipe-actions`
 - `upload-event-cover`
 - `upload-image`
 - `upload-voice`
