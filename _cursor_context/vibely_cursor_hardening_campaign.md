@@ -433,8 +433,8 @@ The operator must produce:
 The following were completed and documented in the rebuild pack:
 
 ### Done — Function auth posture
-- All 28 functions in `config.toml`; no config gaps.
-- 21 functions: `verify_jwt = true` (JWT-at-gateway).
+- All 29 functions in `config.toml`; no config gaps.
+- 22 functions: `verify_jwt = true` (JWT-at-gateway).
 - 7 functions: `verify_jwt = false` (public-but-protected): stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
 - Hardened: push-webhook (PUSH_WEBHOOK_SECRET required), forward-geocode (JWT + admin + rate limit), unsubscribe (UNSUB_HMAC_SECRET only, rate limit), email-drip (UNSUB_HMAC_SECRET for unsubscribe URLs), generate-daily-drops (CRON_SECRET or admin JWT), video-webhook (BUNNY_VIDEO_WEBHOOK_TOKEN URL token), daily-room (verify_jwt true; frontend unload uses fetch keepalive + JWT).
 
