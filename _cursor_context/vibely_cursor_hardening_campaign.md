@@ -468,6 +468,8 @@ This campaign can be considered complete when:
 - at least one clean rehearsal rebuild has been completed and logged
 - the team can begin native-specific hardening without losing web baseline recoverability
 
+Latest committed rehearsal log: `_cursor_context/rebuild_rehearsals/2026-03-11_current-controlled-baseline.md`
+
 ---
 
 ## 18. Bottom line
