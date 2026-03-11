@@ -61,6 +61,7 @@ After the dedicated migration-repair workstream (2026-03-11), the **current hard
   - `20260309005543_legacy_remote_artifact.sql` — **no-op placeholder** representing a second legacy remote-only version that must not be replayed
   - `20260311120000_profiles_pause_columns.sql` — **Stream 1B:** add `profiles.is_paused`, `paused_at`, `paused_until`, `pause_reason` for backend-authoritative account pause/resume
   - `20260311120001_get_event_deck_exclude_paused.sql` — **Stream 1B:** update `get_event_deck` to exclude effectively paused profiles from discoverability
+  - `20260311141500_get_event_deck_auth_guard.sql` — **Stream 1B follow-up:** add `auth.uid()` = `p_user_id` guard to `get_event_deck` via an additive, production-safe function redefinition
   - `20260311133000_video_date_state_machine.sql` — **Stream 2A:** introduce server-owned video-date state machine (`video_date_state`, `video_date_transition`) and move timing/phase ownership out of fragile client writes
 
 The parity repair was performed **via metadata-only history reconciliation** using `supabase migration repair`:
