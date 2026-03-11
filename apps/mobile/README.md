@@ -63,6 +63,7 @@ cd apps/mobile && npm start
 - `docs/native-launch-readiness.md` — completion status, what’s in repo, external setup, device testing, TestFlight/Production validation.
 - `docs/native-external-setup-checklist.md` — Supabase migrations/functions/secrets, RevenueCat, OneSignal, Daily, Expo/EAS, App Store Connect, Play Console, env vars.
 - `docs/native-manual-test-matrix.md` — manual test matrix for all domains and cross-platform (web ↔ iOS/Android).
+- `docs/native-deployment-validation-sequence.md` — ordered merge, backend rollout, external dashboards, dev-build validation, release gates.
 
 ## Checks
 
