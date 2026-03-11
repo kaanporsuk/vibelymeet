@@ -223,7 +223,7 @@ const VideoDate = () => {
     const fetchTiming = async () => {
       const { data } = await supabase
         .from("video_sessions")
-        .select("handshake_started_at, date_started_at, phase")
+        .select("handshake_started_at, date_started_at, phase, state, ended_at")
         .eq("id", id)
         .single();
 
@@ -236,7 +236,14 @@ const VideoDate = () => {
 
       const now = Date.now();
 
-      if (data.phase === "date" && data.date_started_at) {
+      if (data.ended_at || (data.state as any) === "ended" || data.phase === "ended") {
+        setPhase("ended");
+        setTimeLeft(0);
+        setServerTimeLoaded(true);
+        return;
+      }
+
+      if (((data.state as any) === "date" || data.phase === "date") && data.date_started_at) {
         const elapsed = (now - new Date(data.date_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
         setPhase("date");
@@ -244,12 +251,8 @@ const VideoDate = () => {
         const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed)));
       } else {
-        // No server timestamp yet — set it now and start
-        await supabase
-          .from("video_sessions")
-          .update({ handshake_started_at: new Date().toISOString() })
-          .eq("id", id)
-          .is("handshake_started_at", null);
+        // No server timestamp yet — set it via server-owned transition
+        await supabase.rpc("video_date_transition", { p_session_id: id, p_action: "enter_handshake" });
         setTimeLeft(HANDSHAKE_TIME);
       }
       setServerTimeLoaded(true);
@@ -273,11 +276,26 @@ const VideoDate = () => {
           filter: `id=eq.${id}`,
         },
         (payload) => {
-          const newPhase = (payload.new as any).phase;
-          if (newPhase === "date" && (payload.new as any).date_started_at) {
-            const elapsed = (Date.now() - new Date((payload.new as any).date_started_at).getTime()) / 1000;
+          const row = payload.new as any;
+          const newState = row.state || row.phase;
+
+          if (row.ended_at || newState === "ended") {
+            setPhase("ended");
+            setTimeLeft(0);
+            return;
+          }
+
+          if (newState === "date" && row.date_started_at) {
+            const elapsed = (Date.now() - new Date(row.date_started_at).getTime()) / 1000;
             setTimeLeft(Math.ceil(Math.max(0, DATE_TIME - elapsed)));
             setPhase("date");
+            return;
+          }
+
+          if (row.handshake_started_at) {
+            const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
+            setTimeLeft(Math.ceil(Math.max(0, HANDSHAKE_TIME - elapsed)));
+            setPhase("handshake");
           }
         }
       )
@@ -350,7 +368,7 @@ const VideoDate = () => {
     accessTokenRef.current = session?.access_token ?? null;
   }, [session?.access_token]);
 
-  // Beforeunload — warn user and cleanup session via sendBeacon
+  // Beforeunload — warn user and cleanup via keepalive fetch
   useEffect(() => {
     if (!id || !user?.id) return;
 
@@ -360,33 +378,37 @@ const VideoDate = () => {
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
 
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
       const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const token = accessTokenRef.current;
 
-      // Update video_sessions.ended_at
-      const updateUrl = `${baseUrl}/rest/v1/video_sessions?id=eq.${id}&apikey=${anonKey}`;
-      navigator.sendBeacon(
-        updateUrl,
-        new Blob(
-          [JSON.stringify({ ended_at: new Date().toISOString() })],
-          { type: "application/json" }
-        )
-      );
+      // Server-owned transition + status update (keepalive fetch with JWT)
+      if (token && baseUrl) {
+        fetch(`${baseUrl}/rest/v1/rpc/video_date_transition`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: JSON.stringify({ p_session_id: id, p_action: "end", p_reason: "beforeunload" }),
+          keepalive: true,
+        }).catch(() => {});
 
-      // Set status to offline
-      if (eventId) {
-        const statusUrl = `${baseUrl}/rest/v1/rpc/update_participant_status?apikey=${anonKey}`;
-        navigator.sendBeacon(
-          statusUrl,
-          new Blob(
-            [JSON.stringify({ p_event_id: eventId, p_user_id: user.id, p_status: "offline" })],
-            { type: "application/json" }
-          )
-        );
+        if (eventId) {
+          fetch(`${baseUrl}/rest/v1/rpc/update_participant_status`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            },
+            body: JSON.stringify({ p_event_id: eventId, p_user_id: user.id, p_status: "offline" }),
+            keepalive: true,
+          }).catch(() => {});
+        }
       }
 
       // Best-effort Daily room cleanup (requires JWT when daily-room has verify_jwt = true)
-      const token = accessTokenRef.current;
       if (token) {
         const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
         fetch(dailyRoomUrl, {
@@ -416,11 +438,7 @@ const VideoDate = () => {
   const handleUserVibe = useCallback(async () => {
     if (!id || !user?.id) return;
     try {
-      const field = isParticipant1 ? "participant_1_liked" : "participant_2_liked";
-      await supabase
-        .from("video_sessions")
-        .update({ [field]: true })
-        .eq("id", id);
+      await supabase.rpc("video_date_transition", { p_session_id: id, p_action: "vibe" });
     } catch (err) {
       console.error("Error recording vibe:", err);
     }
@@ -433,13 +451,12 @@ const VideoDate = () => {
       return;
     }
     try {
-      const { data: session } = await supabase
-        .from("video_sessions")
-        .select("participant_1_liked, participant_2_liked")
-        .eq("id", id)
-        .maybeSingle();
+      const { data: result } = await supabase.rpc("video_date_transition", {
+        p_session_id: id,
+        p_action: "complete_handshake",
+      });
 
-      if (session?.participant_1_liked && session?.participant_2_liked) {
+      if ((result as any)?.state === "date") {
         setShowMutualToast(true);
         setStatus("in_date");
       } else {
@@ -461,13 +478,7 @@ const VideoDate = () => {
     setShowIceBreaker(true);
     setTimeout(() => setShowIceBreaker(false), 30000);
 
-    // Set server-side date phase timestamp
-    if (id) {
-      await supabase
-        .from("video_sessions")
-        .update({ phase: "date", date_started_at: new Date().toISOString() })
-        .eq("id", id);
-    }
+    // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
   }, [id]);
 
   const handleExtend = useCallback(
@@ -496,19 +507,14 @@ const VideoDate = () => {
     setShowFeedback(true);
     setStatus("in_survey");
 
-    // Update video_sessions ended_at
+    // Server-owned end (idempotent)
     if (id) {
       try {
-        await supabase
-          .from("video_sessions")
-          .update({
-            ended_at: new Date().toISOString(),
-            duration_seconds: phase === "handshake"
-              ? HANDSHAKE_TIME - (timeLeft ?? 0)
-              : HANDSHAKE_TIME + DATE_TIME - (timeLeft ?? 0),
-          })
-          .eq("id", id)
-          .is("ended_at", null); // Only update if not already ended
+        await supabase.rpc("video_date_transition", {
+          p_session_id: id,
+          p_action: "end",
+          p_reason: "ended_from_client",
+        });
       } catch {}
     }
   }, [id, setStatus, phase, timeLeft]);

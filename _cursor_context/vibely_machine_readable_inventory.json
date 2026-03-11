@@ -52,8 +52,8 @@
       "migrations": 107,
       "public_tables": 41,
       "public_views": 1,
-      "public_functions": 22,
-      "public_enums": 3,
+      "public_functions": 23,
+      "public_enums": 4,
       "public_assets": 23
     },
     "static_assets": {
@@ -408,12 +408,14 @@
       "is_registered_for_event",
       "join_matching_queue",
       "leave_matching_queue",
-      "update_participant_status"
+      "update_participant_status",
+      "video_date_transition"
     ],
     "public_enums": [
       "app_role",
       "notification_platform",
-      "notification_status"
+      "notification_status",
+      "video_date_state"
     ],
     "storage_buckets": [
       "chat-videos",

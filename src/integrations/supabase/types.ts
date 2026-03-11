@@ -1839,6 +1839,7 @@ export type Database = {
           daily_room_url: string | null
           date_started_at: string | null
           duration_seconds: number | null
+          ended_reason: string | null
           ended_at: string | null
           event_id: string
           handshake_started_at: string | null
@@ -1855,6 +1856,8 @@ export type Database = {
           snooze_expires_at: string | null
           snoozed_by: string | null
           started_at: string
+          state: Database["public"]["Enums"]["video_date_state"]
+          state_updated_at: string
           vibe_questions: Json | null
         }
         Insert: {
@@ -1862,6 +1865,7 @@ export type Database = {
           daily_room_url?: string | null
           date_started_at?: string | null
           duration_seconds?: number | null
+          ended_reason?: string | null
           ended_at?: string | null
           event_id: string
           handshake_started_at?: string | null
@@ -1878,6 +1882,8 @@ export type Database = {
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
+          state?: Database["public"]["Enums"]["video_date_state"]
+          state_updated_at?: string
           vibe_questions?: Json | null
         }
         Update: {
@@ -1885,6 +1891,7 @@ export type Database = {
           daily_room_url?: string | null
           date_started_at?: string | null
           duration_seconds?: number | null
+          ended_reason?: string | null
           ended_at?: string | null
           event_id?: string
           handshake_started_at?: string | null
@@ -1901,6 +1908,8 @@ export type Database = {
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
+          state?: Database["public"]["Enums"]["video_date_state"]
+          state_updated_at?: string
           vibe_questions?: Json | null
         }
         Relationships: [
@@ -2150,6 +2159,10 @@ export type Database = {
         Args: { p_event_id: string; p_status: string; p_user_id: string }
         Returns: undefined
       }
+      video_date_transition: {
+        Args: { p_action: string; p_reason?: string | null; p_session_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
@@ -2163,6 +2176,7 @@ export type Database = {
         | "clicked"
         | "failed"
         | "bounced"
+      video_date_state: "ready_gate" | "handshake" | "date" | "post_date" | "ended"
     }
     CompositeTypes: {
       [_ in never]: never
