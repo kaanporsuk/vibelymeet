@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { isSubscribed as checkSubscribed } from "@/lib/onesignal";
 
 export interface NotificationPreferences {
@@ -52,7 +52,7 @@ const DEFAULTS: NotificationPreferences = {
 };
 
 export function useNotificationPreferences() {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [prefs, setPrefs] = useState<NotificationPreferences>(DEFAULTS);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);

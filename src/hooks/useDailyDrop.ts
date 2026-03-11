@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from '@/integrations/supabase/client';
 import { sendNotification } from '@/lib/notifications';
 import { DailyDropData, DailyDropPartner, PastDrop } from '@/types/dailyDrop';
 
 export function useDailyDrop() {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [drop, setDrop] = useState<DailyDropData | null>(null);
   const [partner, setPartner] = useState<DailyDropPartner | null>(null);
   const [pastDrops, setPastDrops] = useState<PastDrop[]>([]);
@@ -38,9 +38,19 @@ export function useDailyDrop() {
       .from('profile_vibes')
       .select('vibe_tags(label)')
       .eq('profile_id', id);
-
-    type VibeRow = { vibe_tags: { label: string } | null };
-    const vibes = (vibeData as VibeRow[])?.map(v => v.vibe_tags?.label).filter(Boolean) as string[] || [];
+    
+    type VibeRow = { vibe_tags: any };
+    const vibes =
+      ((vibeData as VibeRow[]) || [])
+        .map((v) => {
+          const vt = v.vibe_tags;
+          if (!vt) return undefined;
+          if (Array.isArray(vt)) {
+            return vt[0]?.label as string | undefined;
+          }
+          return (vt as { label: string }).label;
+        })
+        .filter(Boolean) as string[];
 
     setPartner({
       id: profile.id,

@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export const useActivityHeartbeat = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   useEffect(() => {
     if (!user?.id) return;

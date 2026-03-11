@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export interface EventDetails {
   id: string;
@@ -56,7 +56,7 @@ function resolvePhotoUrl(path: string): string {
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["event-details", eventId],
@@ -101,11 +101,20 @@ export const useEventDetails = (eventId: string | undefined) => {
           .from("profile_vibes")
           .select("vibe_tags(label)")
           .eq("profile_id", user.id);
-        
+
         if (userVibesData) {
-          userVibes = userVibesData
-            .map((v) => (v.vibe_tags as { label: string } | null)?.label)
-            .filter(Boolean) as string[];
+          type VibeRow = { vibe_tags: any };
+          userVibes =
+            (userVibesData as VibeRow[])
+              .map((v) => {
+                const vt = v.vibe_tags;
+                if (!vt) return undefined;
+                if (Array.isArray(vt)) {
+                  return vt[0]?.label as string | undefined;
+                }
+                return (vt as { label: string }).label;
+              })
+              .filter(Boolean) as string[];
         }
       }
 
@@ -155,7 +164,7 @@ export const useEventDetails = (eventId: string | undefined) => {
 };
 
 export const useEventAttendees = (eventId: string | undefined) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["event-attendees", eventId],
@@ -199,8 +208,18 @@ export const useEventAttendees = (eventId: string | undefined) => {
       // Group vibes by profile
       const vibesByProfile: Record<string, string[]> = {};
       if (vibesData) {
-        for (const v of vibesData) {
-          const label = (v.vibe_tags as { label: string } | null)?.label;
+        type VibeRow = { profile_id: string; vibe_tags: any };
+        for (const v of vibesData as VibeRow[]) {
+          const vt = v.vibe_tags;
+          let label: string | undefined;
+          if (!vt) {
+            label = undefined;
+          } else if (Array.isArray(vt)) {
+            label = vt[0]?.label as string | undefined;
+          } else {
+            label = (vt as { label: string }).label;
+          }
+
           if (label) {
             if (!vibesByProfile[v.profile_id]) {
               vibesByProfile[v.profile_id] = [];
@@ -219,9 +238,18 @@ export const useEventAttendees = (eventId: string | undefined) => {
           .eq("profile_id", user.id);
 
         if (userVibesData) {
-          userVibes = userVibesData
-            .map((v) => (v.vibe_tags as { label: string } | null)?.label)
-            .filter(Boolean) as string[];
+          type VibeRow = { vibe_tags: any };
+          userVibes =
+            (userVibesData as VibeRow[])
+              .map((v) => {
+                const vt = v.vibe_tags;
+                if (!vt) return undefined;
+                if (Array.isArray(vt)) {
+                  return vt[0]?.label as string | undefined;
+                }
+                return (vt as { label: string }).label;
+              })
+              .filter(Boolean) as string[];
         }
       }
 
@@ -230,7 +258,10 @@ export const useEventAttendees = (eventId: string | undefined) => {
         registrations
           .filter((r) => r.profiles)
           .map(async (r) => {
-            const profile = r.profiles as {
+            const rawProfile = Array.isArray(r.profiles)
+              ? r.profiles[0]
+              : r.profiles;
+            const profile = rawProfile as {
               id: string;
               name: string;
               age: number;

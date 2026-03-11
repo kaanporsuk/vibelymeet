@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import DailyIframe, { DailyCall, DailyParticipant } from "@daily-co/daily-js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 interface UseMatchCallOptions {
   matchId: string;
@@ -17,7 +17,7 @@ export interface IncomingCallData {
 }
 
 export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [isInCall, setIsInCall] = useState(false);
   const [isRinging, setIsRinging] = useState(false);
   const [isMuted, setIsMuted] = useState(false);

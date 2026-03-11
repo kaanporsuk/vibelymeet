@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 interface UseMysteryMatchOptions {
@@ -9,7 +9,7 @@ interface UseMysteryMatchOptions {
 }
 
 export const useMysteryMatch = ({ eventId, onMatchFound }: UseMysteryMatchOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [isSearching, setIsSearching] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);

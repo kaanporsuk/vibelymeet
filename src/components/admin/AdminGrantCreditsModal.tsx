@@ -4,7 +4,7 @@ import { X, Plus, Minus, Coins, Sparkles, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -24,7 +24,7 @@ const AdminGrantCreditsModal = ({
   const [superVibe, setSuperVibe] = useState(0);
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   const handleGrant = async () => {
     if (extraTime === 0 && extendedVibe === 0 && superVibe === 0) {

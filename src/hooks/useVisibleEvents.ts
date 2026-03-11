@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export interface VisibleEvent {
   id: string;
@@ -35,7 +35,7 @@ export interface OtherCityEvent {
 }
 
 export const useVisibleEvents = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["visible-events", user?.id],
@@ -52,8 +52,8 @@ export const useVisibleEvents = () => {
 
       const { data, error } = await supabase.rpc("get_visible_events", {
         p_user_id: user.id,
-        p_user_lat: locationData?.lat ?? null,
-        p_user_lng: locationData?.lng ?? null,
+        p_user_lat: locationData?.lat ?? undefined,
+        p_user_lng: locationData?.lng ?? undefined,
         p_is_premium: false,
         p_browse_lat: null,
         p_browse_lng: null,
@@ -67,7 +67,7 @@ export const useVisibleEvents = () => {
 };
 
 export const useOtherCityEvents = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["other-city-events", user?.id],
@@ -84,8 +84,8 @@ export const useOtherCityEvents = () => {
 
       const { data, error } = await supabase.rpc("get_other_city_events", {
         p_user_id: user.id,
-        p_user_lat: locationData?.lat ?? null,
-        p_user_lng: locationData?.lng ?? null,
+        p_user_lat: locationData?.lat ?? undefined,
+        p_user_lng: locationData?.lng ?? undefined,
       });
 
       if (error) throw error;

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export interface BlockedUser {
   id: string;
@@ -12,7 +12,7 @@ export interface BlockedUser {
 }
 
 export const useBlockUser = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const userId = user?.id;
   const queryClient = useQueryClient();
 

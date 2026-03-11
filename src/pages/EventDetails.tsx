@@ -27,7 +27,7 @@ import ManageBookingModal from "@/components/events/ManageBookingModal";
 import CancelBookingModal from "@/components/events/CancelBookingModal";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useRealtimeEvents } from "@/hooks/useEvents";
@@ -43,7 +43,7 @@ const EventDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
   const { isPremium } = useSubscription();
   

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
 import { useReadyGate } from "@/hooks/useReadyGate";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ const GATE_TIMEOUT = 30;
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
   const [partnerPhotos, setPartnerPhotos] = useState<string[] | null>(null);

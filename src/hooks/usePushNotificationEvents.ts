@@ -68,11 +68,15 @@ export function usePushNotificationEvents(limit: number = 50) {
         .limit(limit);
 
       // Fetch campaign titles separately since views don't support joins
-      const campaignIds = [...new Set(eventsData?.map(e => e.campaign_id).filter(Boolean) || [])];
-      const { data: campaigns } = campaignIds.length > 0 ? await supabase
-        .from("push_campaigns")
-        .select("id, title")
-        .in("id", campaignIds) : { data: [] };
+      const rawCampaignIds = eventsData?.map((e) => e.campaign_id) ?? [];
+      const campaignIds = [...new Set(rawCampaignIds.filter((id): id is string => !!id))];
+      const { data: campaigns } =
+        campaignIds.length > 0
+          ? await supabase
+              .from("push_campaigns")
+              .select("id, title")
+              .in("id", campaignIds)
+          : { data: [] as { id: string; title: string }[] };
       
       const campaignMap = new Map<string, string>(
         (campaigns || []).map(c => [c.id, c.title] as [string, string])
@@ -84,7 +88,8 @@ export function usePushNotificationEvents(limit: number = 50) {
       }
 
       // Fetch user names for events
-      const userIds = [...new Set(eventsData?.map(e => e.user_id) || [])];
+      const rawUserIds = eventsData?.map((e) => e.user_id) ?? [];
+      const userIds = [...new Set(rawUserIds.filter((id): id is string => !!id))];
       const { data: profiles } = await supabase
         .from("profiles")
         .select("id, name")
@@ -92,26 +97,32 @@ export function usePushNotificationEvents(limit: number = 50) {
 
       const profileMap = new Map(profiles?.map(p => [p.id, p.name]) || []);
 
-      const transformedEvents: PushNotificationEvent[] = (eventsData || []).map(event => ({
-        id: event.id,
-        campaign_id: event.campaign_id,
-        user_id: event.user_id,
-        user_name: profileMap.get(event.user_id) || "Unknown User",
-        device_token: event.device_token,
-        platform: event.platform as NotificationPlatform,
-        status: event.status as NotificationStatus,
-        fcm_message_id: event.fcm_message_id,
-        apns_message_id: event.apns_message_id,
-        error_code: event.error_code,
-        error_message: event.error_message,
-        queued_at: event.queued_at,
-        sent_at: event.sent_at,
-        delivered_at: event.delivered_at,
-        opened_at: event.opened_at,
-        clicked_at: event.clicked_at,
-        created_at: event.created_at,
-        campaign_title: event.campaign_id ? (campaignMap.get(event.campaign_id) || "Direct Notification") : "Direct Notification",
-      }));
+      const transformedEvents: PushNotificationEvent[] = (eventsData || [])
+        .filter((event): event is typeof event & { id: string; user_id: string; queued_at: string; created_at: string } => {
+          return Boolean(event.id && event.user_id && event.queued_at && event.created_at);
+        })
+        .map((event) => ({
+          id: event.id,
+          campaign_id: event.campaign_id,
+          user_id: event.user_id,
+          user_name: profileMap.get(event.user_id) || "Unknown User",
+          device_token: event.device_token,
+          platform: event.platform as NotificationPlatform,
+          status: event.status as NotificationStatus,
+          fcm_message_id: event.fcm_message_id,
+          apns_message_id: event.apns_message_id,
+          error_code: event.error_code,
+          error_message: event.error_message,
+          queued_at: event.queued_at,
+          sent_at: event.sent_at,
+          delivered_at: event.delivered_at,
+          opened_at: event.opened_at,
+          clicked_at: event.clicked_at,
+          created_at: event.created_at,
+          campaign_title: event.campaign_id
+            ? campaignMap.get(event.campaign_id) || "Direct Notification"
+            : "Direct Notification",
+        }));
 
       setEvents(transformedEvents);
       calculateStats(transformedEvents);
@@ -191,22 +202,22 @@ export function usePushNotificationEvents(limit: number = 50) {
             }
 
             const transformedEvent: PushNotificationEvent = {
-              id: newEvent.id,
-              campaign_id: newEvent.campaign_id,
-              user_id: newEvent.user_id,
+              id: String(newEvent.id),
+              campaign_id: newEvent.campaign_id ?? null,
+              user_id: String(newEvent.user_id),
               user_name: profile?.name || "Unknown User",
-              device_token: newEvent.device_token,
-              platform: newEvent.platform,
-              status: newEvent.status,
-              fcm_message_id: newEvent.fcm_message_id,
-              apns_message_id: newEvent.apns_message_id,
-              error_code: newEvent.error_code,
-              error_message: newEvent.error_message,
+              device_token: newEvent.device_token ?? null,
+              platform: newEvent.platform as NotificationPlatform,
+              status: newEvent.status as NotificationStatus,
+              fcm_message_id: newEvent.fcm_message_id ?? null,
+              apns_message_id: newEvent.apns_message_id ?? null,
+              error_code: newEvent.error_code ?? null,
+              error_message: newEvent.error_message ?? null,
               queued_at: newEvent.queued_at,
-              sent_at: newEvent.sent_at,
-              delivered_at: newEvent.delivered_at,
-              opened_at: newEvent.opened_at,
-              clicked_at: newEvent.clicked_at,
+              sent_at: newEvent.sent_at ?? null,
+              delivered_at: newEvent.delivered_at ?? null,
+              opened_at: newEvent.opened_at ?? null,
+              clicked_at: newEvent.clicked_at ?? null,
               created_at: newEvent.created_at,
               campaign_title: campaignTitle,
             };

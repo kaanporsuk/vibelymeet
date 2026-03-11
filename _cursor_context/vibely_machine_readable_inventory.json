@@ -214,11 +214,6 @@
       "access": "protected"
     },
     {
-      "path": "/vibe-feed",
-      "page": "VibeFeed",
-      "access": "protected"
-    },
-    {
       "path": "/schedule",
       "page": "Schedule",
       "access": "protected"

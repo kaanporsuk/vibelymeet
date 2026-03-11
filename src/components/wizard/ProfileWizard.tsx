@@ -8,7 +8,7 @@ import WizardProgressRing from "./WizardProgressRing";
 import PhotoUploadGrid from "./PhotoUploadGrid";
 import PromptCards from "./PromptCards";
 import VibeTagCloud from "./VibeTagCloud";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -63,7 +63,7 @@ const PROMPT_THRESHOLD = 2; // At least 2 prompts answered
 const VIBE_THRESHOLD = 5; // At least 5 vibes selected
 
 const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: ProfileWizardProps) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [currentStep, setCurrentStep] = useState(0);
   const [photos, setPhotos] = useState<string[]>(Array(6).fill(""));
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(Array(6).fill(null));

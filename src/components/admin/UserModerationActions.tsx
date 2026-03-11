@@ -36,7 +36,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -55,7 +55,7 @@ const UserModerationActions = ({
   onClose,
 }: UserModerationActionsProps) => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { logActivity } = useAdminActivityLog();
   const [activeTab, setActiveTab] = useState("actions");
   

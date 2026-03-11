@@ -21,7 +21,7 @@ import { ReconnectionOverlay } from "@/components/video-date/ReconnectionOverlay
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -49,7 +49,8 @@ type CallPhase = "handshake" | "date" | "ended";
 const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { user, session } = useAuth();
+  const { session } = useAuth();
+  const { user } = useUserProfile();
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { toast } from "sonner";
 
@@ -35,7 +35,7 @@ interface MutualVibe {
 }
 
 export function useEventVibes(eventId: string) {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const queryClient = useQueryClient();
   const { sendNotification, isGranted } = usePushNotifications();
 

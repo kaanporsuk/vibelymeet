@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useEventReminders } from '@/hooks/useEventReminders';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { useEffect } from "react";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { useEventReminders } from "@/hooks/useEventReminders";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 /**
  * Background notification manager that handles:
@@ -11,7 +11,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
  * Daily Drop notifications are now handled server-side via generate-daily-drops.
  */
 export function NotificationManager() {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { permission, isGranted } = usePushNotifications();
   const { registeredEvents, scheduledCount } = useEventReminders();
 

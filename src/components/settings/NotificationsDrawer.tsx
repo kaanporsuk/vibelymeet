@@ -41,7 +41,7 @@ import {
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
 import { promptForPush, getPlayerId } from "@/lib/onesignal";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
@@ -52,7 +52,7 @@ interface NotificationsDrawerProps {
 }
 
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { prefs, isLoading, isSaving, isPushSubscribed, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
 

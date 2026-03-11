@@ -21,11 +21,10 @@ import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
-import ReadyGate from "./pages/ReadyGate";
+import ReadyGate from "./pages/ReadyRedirect";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
 import MatchCelebration from "./pages/MatchCelebration";
 import VibeStudio from "./pages/VibeStudio";
-import VibeFeed from "./pages/VibeFeed";
 import Schedule from "./pages/Schedule";
 import HowItWorks from "./pages/HowItWorks";
 import UserProfile from "./pages/UserProfile";
@@ -50,6 +49,7 @@ import { NotificationManager } from "./components/notifications/NotificationMana
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
+import { useAppBootstrap } from "./hooks/useAppBootstrap";
 
 const PostHogPageTracker = () => {
   const location = useLocation();
@@ -65,6 +65,7 @@ const PostHogPageTracker = () => {
 
 const AppContent = () => {
   useActivityHeartbeat();
+  useAppBootstrap();
   return null;
 };
 
@@ -125,7 +126,6 @@ const App = () => (
                 <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
                 <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
                 <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
-                <Route path="/vibe-feed" element={<ProtectedRoute><VibeFeed /></ProtectedRoute>} />
                 <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
                 <Route path="/how-it-works" element={<HowItWorks />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />

@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { BottomNav } from "@/components/BottomNav";
 import { FeaturedEventCard } from "@/components/events/FeaturedEventCard";
 import { EventsFilterBar } from "@/components/events/EventsFilterBar";
@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -162,7 +162,7 @@ const ScopeLabel = ({ scope, city, country, distanceKm }: {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const Events = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { data: events = [], isLoading } = useVisibleEvents();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);

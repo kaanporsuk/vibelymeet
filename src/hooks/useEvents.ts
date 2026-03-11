@@ -2,7 +2,7 @@ import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-quer
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { isEventVisible } from "@/utils/eventUtils";
 
 export interface Event {
@@ -68,13 +68,27 @@ export const useEvents = () => {
 
       if (error) throw error;
 
+      const rows = (data ?? []) as Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        cover_image: string;
+        event_date: string;
+        current_attendees: number | null;
+        tags: string[] | null;
+        status: string | null;
+        duration_minutes: number | null;
+      }>;
+
       // Filter using shared visibility helper (includes grace period)
-      return (data || [])
-        .filter((event) => isEventVisible({
-          event_date: event.event_date,
-          duration_minutes: event.duration_minutes,
-          status: event.status,
-        }))
+      return rows
+        .filter((event) =>
+          isEventVisible({
+            event_date: event.event_date,
+            duration_minutes: event.duration_minutes ?? undefined,
+            status: event.status,
+          })
+        )
         .map((event) => {
           const eventDate = new Date(event.event_date);
           const durationMs = (event.duration_minutes || 60) * 60 * 1000;
@@ -117,12 +131,26 @@ export const useInfiniteEvents = () => {
 
       if (error) throw error;
 
+      const rows = (data ?? []) as Array<{
+        id: string;
+        title: string;
+        description: string | null;
+        cover_image: string;
+        event_date: string;
+        current_attendees: number | null;
+        tags: string[] | null;
+        status: string | null;
+        duration_minutes: number | null;
+      }>;
+
       // Filter using shared visibility helper
-      const filteredData = (data || []).filter((event) => isEventVisible({
-        event_date: event.event_date,
-        duration_minutes: event.duration_minutes,
-        status: event.status,
-      }));
+      const filteredData = rows.filter((event) =>
+        isEventVisible({
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes ?? undefined,
+          status: event.status,
+        })
+      );
 
       const events = filteredData.map((event) => {
         const eventDate = new Date(event.event_date);
@@ -189,7 +217,7 @@ export const useNextEvent = () => {
 // New hook - gets user's next REGISTERED event (or recommended if none)
 // Includes LIVE events (not just future ones)
 export const useNextRegisteredEvent = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["next-registered-event", user?.id],
@@ -215,19 +243,39 @@ export const useNextRegisteredEvent = () => {
 
       // Filter to include upcoming AND live events (not ended)
       const activeRegistered = (registeredEvents || [])
-        .filter(r => {
+        .filter((r) => {
           if (!r.events) return false;
-          const eventStart = new Date(r.events.event_date);
-          const durationMs = ((r.events as { duration_minutes?: number }).duration_minutes || 60) * 60 * 1000;
+          const ev = (Array.isArray(r.events) ? r.events[0] : r.events) as {
+            event_date: string;
+            duration_minutes?: number | null;
+          };
+          const eventStart = new Date(ev.event_date);
+          const durationMs = (ev.duration_minutes ?? 60) * 60 * 1000;
           const eventEnd = new Date(eventStart.getTime() + durationMs);
           return now < eventEnd; // Event hasn't ended yet
         })
-        .sort((a, b) => new Date(a.events!.event_date).getTime() - new Date(b.events!.event_date).getTime());
+        .sort((a, b) => {
+          const evA = (Array.isArray(a.events) ? a.events[0] : a.events) as {
+            event_date: string;
+          };
+          const evB = (Array.isArray(b.events) ? b.events[0] : b.events) as {
+            event_date: string;
+          };
+          return new Date(evA.event_date).getTime() - new Date(evB.event_date).getTime();
+        });
 
       if (activeRegistered.length > 0) {
-        const event = activeRegistered[0].events!;
+        const event = (Array.isArray(activeRegistered[0].events)
+          ? activeRegistered[0].events[0]
+          : activeRegistered[0].events) as {
+          id: string;
+          title: string;
+          cover_image: string;
+          event_date: string;
+          duration_minutes?: number | null;
+        };
         const eventDate = new Date(event.event_date);
-        const durationMs = ((event as { duration_minutes?: number }).duration_minutes || 60) * 60 * 1000;
+        const durationMs = (event.duration_minutes ?? 60) * 60 * 1000;
         const eventEnd = new Date(eventDate.getTime() + durationMs);
         const isLive = now >= eventDate && now < eventEnd;
         
@@ -255,7 +303,16 @@ export const useNextRegisteredEvent = () => {
       if (recError) throw recError;
       
       // Filter to events that haven't ended
-      const activeEvents = (recommendedEvent || []).filter(event => {
+      const recRows = (recommendedEvent ?? []) as Array<{
+        id: string;
+        title: string;
+        cover_image: string;
+        event_date: string;
+        current_attendees: number | null;
+        duration_minutes: number | null;
+      }>;
+
+      const activeEvents = recRows.filter((event) => {
         const eventStart = new Date(event.event_date);
         const durationMs = (event.duration_minutes || 60) * 60 * 1000;
         const eventEnd = new Date(eventStart.getTime() + durationMs);

@@ -1,7 +1,7 @@
 # VIBELY — MIGRATION MANIFEST
 
-**Date:** 2026-03-10  
-**Baseline:** `vibelymeet-pre-native-hardening-golden-2026-03-10.zip`  
+**Date:** 2026-03-11  
+**Baseline:** `vibelymeet-pre-native-hardening-golden-2026-03-10.zip` (frozen 101-file archive)  
 **Primary source:** `supabase/migrations/*.sql`
 
 ---
@@ -23,7 +23,7 @@ This is especially important for Vibely because the migration chain is **not** p
 
 ## 2. Migration summary
 
-### Counts
+### Counts (frozen audited archive)
 - **101 SQL migration files**
 - **Date range:** `20251218002545` → `20260310124838`
 - **Distinct public tables created in migration history:** **39**
@@ -51,6 +51,20 @@ That means at least one of the following is true:
 - they were present before this repo’s earliest frozen migration and never backfilled into versioned SQL
 
 For rebuild fidelity, this is a real gap and should be treated as such.
+
+### Post-repair working baseline (linked production branch)
+
+After the dedicated migration-repair workstream (2026-03-11), the **current hardened/live-aligned branch baseline** contains **104** migration files under `supabase/migrations`:
+- the original 101 frozen SQL migrations described above, plus:
+  - `20260311000000_chat_videos_anon_read.sql` — chat-videos anon-read RLS policy; its logic had already been applied manually before being recorded as applied in history
+  - `20260309000534_legacy_remote_artifact.sql` — **no-op placeholder** representing a legacy remote-only version that must not be replayed
+  - `20260309005543_legacy_remote_artifact.sql` — **no-op placeholder** representing a second legacy remote-only version that must not be replayed
+
+The parity repair was performed **via metadata-only history reconciliation** using `supabase migration repair`:
+- historical SQL bodies were **not** re-executed
+- the two legacy artifacts are now represented locally, but contain no DDL/DML
+- `./scripts/check_migration_parity.sh` reports zero missing local/remote versions
+- `supabase db push --linked --dry-run` reports the remote database as **up to date**
 
 ---
 

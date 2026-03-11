@@ -1,7 +1,7 @@
 import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { getImageUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
@@ -33,7 +33,7 @@ export interface Match {
 const PAGE_SIZE = 20;
 
 export const useMatches = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const userId = user?.id;
   const queryClient = useQueryClient();
 
@@ -232,7 +232,7 @@ export const useMatches = () => {
 };
 
 export const useDashboardMatches = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const userId = user?.id;
 
   return useQuery({

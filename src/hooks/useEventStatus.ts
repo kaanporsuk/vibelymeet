@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export type ParticipantStatus =
   | "browsing"
@@ -17,7 +17,7 @@ interface UseEventStatusOptions {
 }
 
 export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
 
