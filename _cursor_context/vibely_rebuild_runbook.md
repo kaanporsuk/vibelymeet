@@ -170,14 +170,17 @@ VITE_SUPABASE_PUBLISHABLE_KEY=
 VITE_BUNNY_STREAM_CDN_HOSTNAME=
 VITE_BUNNY_CDN_HOSTNAME=
 VITE_POSTHOG_API_KEY=
+VITE_POSTHOG_HOST=               # optional; defaults to https://eu.i.posthog.com
+VITE_SENTRY_DSN=                 # optional; defaults to the historical Sentry DSN
+VITE_ONESIGNAL_APP_ID=           # optional; defaults to the historical OneSignal App ID
 ```
 
 ### Notes
 
 - `VITE_SUPABASE_PROJECT_ID` appears in the checked-in `.env` but is not required by the app runtime.
-- OneSignal App ID is **hardcoded** in `src/lib/onesignal.ts`.
-- Sentry DSN is **hardcoded** in `src/main.tsx`.
-- PostHog host is **hardcoded** to EU cloud; only the API key is env-driven.
+- OneSignal App ID is now **env-backed with fallback** via `VITE_ONESIGNAL_APP_ID`; if unset, the historical App ID is used.
+- Sentry DSN is now **env-backed with fallback** via `VITE_SENTRY_DSN`; if unset, the historical DSN is used.
+- PostHog host is now **env-backed with fallback** via `VITE_POSTHOG_HOST`; if unset, it defaults to the EU cloud host.
 
 Recommended local file:
 

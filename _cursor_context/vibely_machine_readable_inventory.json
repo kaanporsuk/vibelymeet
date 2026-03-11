@@ -423,8 +423,11 @@
       "VITE_BUNNY_CDN_HOSTNAME",
       "VITE_BUNNY_STREAM_CDN_HOSTNAME",
       "VITE_POSTHOG_API_KEY",
+      "VITE_POSTHOG_HOST",
       "VITE_SUPABASE_PUBLISHABLE_KEY",
-      "VITE_SUPABASE_URL"
+      "VITE_SUPABASE_URL",
+      "VITE_SENTRY_DSN",
+      "VITE_ONESIGNAL_APP_ID"
     ],
     "backend_function_vars": [
       "APP_URL",
@@ -963,18 +966,21 @@
   "hardcoded_runtime_dependencies": [
     {
       "surface": "src/lib/onesignal.ts",
-      "type": "hardcoded_value",
-      "key": "OneSignal App ID"
+      "type": "env_backed_with_fallback",
+      "key": "OneSignal App ID",
+      "env_var": "VITE_ONESIGNAL_APP_ID"
     },
     {
       "surface": "src/main.tsx",
-      "type": "hardcoded_value",
-      "key": "Sentry DSN"
+      "type": "env_backed_with_fallback",
+      "key": "Sentry DSN",
+      "env_var": "VITE_SENTRY_DSN"
     },
     {
       "surface": "src/main.tsx",
-      "type": "hardcoded_value",
-      "key": "PostHog host"
+      "type": "env_backed_with_fallback",
+      "key": "PostHog host",
+      "env_var": "VITE_POSTHOG_HOST"
     },
     {
       "surface": "supabase/functions/daily-room/index.ts",

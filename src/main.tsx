@@ -5,8 +5,17 @@ import posthog from 'posthog-js';
 import App from "./App.tsx";
 import "./index.css";
 
+const SENTRY_DSN_FALLBACK =
+  "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088";
+const SENTRY_DSN =
+  import.meta.env.VITE_SENTRY_DSN || SENTRY_DSN_FALLBACK;
+
+const POSTHOG_HOST_FALLBACK = "https://eu.i.posthog.com";
+const POSTHOG_HOST =
+  import.meta.env.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
+
 Sentry.init({
-  dsn: "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088",
+  dsn: SENTRY_DSN,
   environment: window.location.hostname === "vibelymeet.com" ? "production" : "development",
   integrations: [
     Sentry.browserTracingIntegration(),
@@ -31,7 +40,7 @@ Sentry.init({
 });
 
 posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
-  api_host: 'https://eu.i.posthog.com',
+  api_host: POSTHOG_HOST,
   person_profiles: 'identified_only',
   capture_pageview: true,
   capture_pageleave: true,

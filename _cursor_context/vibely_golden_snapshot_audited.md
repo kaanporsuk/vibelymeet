@@ -238,8 +238,11 @@ Only **two** Supabase storage buckets are live and in use: `chat-videos`, `proof
 - `VITE_BUNNY_CDN_HOSTNAME`
 - `VITE_BUNNY_STREAM_CDN_HOSTNAME`
 - `VITE_POSTHOG_API_KEY`
+- `VITE_POSTHOG_HOST`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 - `VITE_SUPABASE_URL`
+- `VITE_SENTRY_DSN`
+- `VITE_ONESIGNAL_APP_ID`
 
 ### Backend / Edge Function environment variables referenced via `Deno.env.get(...)`
 - `APP_URL`
@@ -278,9 +281,9 @@ Only **two** Supabase storage buckets are live and in use: `chat-videos`, `proof
 
 ## 9. Hardcoded integration touchpoints that matter for rebuild
 
-- OneSignal App ID is hardcoded in `src/lib/onesignal.ts`, not sourced from Vite env at runtime.
-- Sentry DSN is hardcoded in `src/main.tsx`.
-- PostHog host is hardcoded to EU cloud in `src/main.tsx`; only the API key is env-driven.
+- OneSignal App ID now reads from `VITE_ONESIGNAL_APP_ID` with a fallback to the historical hardcoded value in `src/lib/onesignal.ts`.
+- Sentry DSN now reads from `VITE_SENTRY_DSN` with a fallback to the historical hardcoded value in `src/main.tsx`.
+- PostHog host now reads from `VITE_POSTHOG_HOST` with a fallback to `https://eu.i.posthog.com` in `src/main.tsx`; the API key remains env-driven via `VITE_POSTHOG_API_KEY`.
 - Daily fallback domain defaults to `vibelyapp.daily.co` in the `daily-room` function if env is absent.
 - Several frontend and function files hardcode the production domain `vibelymeet.com` for links, referrals, notifications, unsubscribe flows, and email templates.
 - Bunny video upload endpoint is hardcoded to `video.bunnycdn.com/tusupload` in the vibe studio modal.

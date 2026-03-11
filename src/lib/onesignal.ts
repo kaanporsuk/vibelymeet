@@ -4,7 +4,9 @@ declare global {
   }
 }
 
-const ONESIGNAL_APP_ID = "97e52ea2-6a27-4486-a678-4dd8a0d49e94";
+const ONESIGNAL_APP_ID_FALLBACK = "97e52ea2-6a27-4486-a678-4dd8a0d49e94";
+const ONESIGNAL_APP_ID =
+  import.meta.env.VITE_ONESIGNAL_APP_ID || ONESIGNAL_APP_ID_FALLBACK;
 
 export const initOneSignal = () => {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
