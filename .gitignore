@@ -24,3 +24,4 @@ dist-ssr
 *.sw?
 .env.functions.production
 .env.functions.production
+.env.cursor.local

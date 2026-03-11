@@ -48,6 +48,9 @@ verify_jwt = true
 [functions.upload-voice]
 verify_jwt = true
 
+[functions.upload-chat-video]
+verify_jwt = true
+
 [functions.upload-event-cover]
 verify_jwt = true
 
