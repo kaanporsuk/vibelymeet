@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
@@ -22,25 +22,59 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isReady, setIsReady] = useState(false);
+  const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+
+  const isIosSafari = useMemo(() => {
+    if (typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    // Safari on iOS uses WebKit; exclude common iOS browsers that also embed WebKit but
+    // still behave differently enough that we don't want a broad heuristic.
+    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    return isIOS && isSafari;
+  }, []);
 
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     setIsLoading(true);
     setIsReady(false);
+    setHasMetadata(false);
     setLoadError(false);
   }, [videoUrl]);
 
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    // HAVE_CURRENT_DATA (2) means the first frame is available.
-    if (video.readyState >= 2 && video.videoWidth > 0) {
+    // HAVE_CURRENT_DATA (2) means the first frame is available in most browsers.
+    // On iOS Safari, decoding/painting the first frame can be deferred until a user
+    // gesture even though metadata is loaded and the element is effectively usable.
+    const readyForFirstFrame = video.readyState >= 2 && video.videoWidth > 0;
+    const readyEnoughForInteractionOnIosSafari = isIosSafari && video.readyState >= 1;
+
+    if (readyForFirstFrame || readyEnoughForInteractionOnIosSafari) {
       setIsReady(true);
       setIsLoading(false);
     }
-  }, []);
+  }, [isIosSafari]);
+
+  // iOS Safari fallback: avoid infinite loading when the browser won't paint the first frame
+  // until the first user gesture. After metadata is loaded, give it a short window to become
+  // truly frame-ready; if it doesn't, allow interaction UI instead of an endless placeholder.
+  useEffect(() => {
+    if (!isIosSafari) return;
+    if (!hasMetadata) return;
+    if (isReady || loadError) return;
+
+    const t = setTimeout(() => {
+      if (!videoRef.current) return;
+      setIsReady(true);
+      setIsLoading(false);
+    }, 900);
+
+    return () => clearTimeout(t);
+  }, [hasMetadata, isIosSafari, isReady, loadError]);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -150,6 +184,10 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
           muted={isMuted}
           preload="metadata"
           onLoadStart={() => setIsLoading(true)}
+          onLoadedMetadata={() => {
+            setHasMetadata(true);
+            markReadyIfPossible();
+          }}
           onLoadedData={markReadyIfPossible}
           onCanPlay={markReadyIfPossible}
           onPlaying={() => setIsLoading(false)}
