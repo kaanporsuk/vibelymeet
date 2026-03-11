@@ -49,7 +49,7 @@
       "services": 6,
       "edge_functions_deployable": 30,
       "edge_function_shared_dirs": 1,
-      "migrations": 106,
+      "migrations": 107,
       "public_tables": 41,
       "public_views": 1,
       "public_functions": 22,

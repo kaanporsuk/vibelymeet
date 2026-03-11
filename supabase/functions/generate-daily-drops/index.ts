@@ -129,12 +129,22 @@ serve(async (req) => {
       .gte("updated_at", sevenDaysAgo)
       .or("is_suspended.is.null,is_suspended.eq.false");
 
-    const nowIso = now.toISOString();
-    const eligibleUsersFiltered = (eligibleUsers || []).filter((u: { is_paused?: boolean; paused_until?: string | null }) => {
-      if (!u.is_paused) return true;
-      const until = u.paused_until;
-      return until != null && until <= nowIso;
-    });
+    const eligibleUsersFiltered = (eligibleUsers || []).filter(
+      (u: { is_paused?: boolean; paused_until?: string | null }) => {
+        if (!u.is_paused) return true;
+        const until = u.paused_until;
+        if (!until) {
+          // paused indefinitely or missing timestamp: treat as still paused
+          return false;
+        }
+        const untilDate = new Date(until);
+        if (Number.isNaN(untilDate.getTime())) {
+          // invalid timestamp: safest is to keep user paused
+          return false;
+        }
+        return untilDate <= now;
+      }
+    );
 
     if (!eligibleUsersFiltered || eligibleUsersFiltered.length < 2) {
       return new Response(
