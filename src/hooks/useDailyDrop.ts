@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from '@/integrations/supabase/client';
-import { sendNotification } from '@/lib/notifications';
 import { DailyDropData, DailyDropPartner, PastDrop } from '@/types/dailyDrop';
 
 export function useDailyDrop() {
@@ -269,10 +268,12 @@ export function useDailyDrop() {
     if (drop.opener_sender_id) return; // already sent
     if (drop.status.startsWith('expired') || drop.status === 'passed' || drop.status === 'matched') return;
 
-    const { data, error } = await supabase.rpc('daily_drop_transition', {
-      p_drop_id: drop.id,
-      p_action: 'send_opener',
-      p_text: trimmed,
+    const { data, error } = await supabase.functions.invoke('daily-drop-actions', {
+      body: {
+        drop_id: drop.id,
+        action: 'send_opener',
+        text: trimmed,
+      },
     });
     if (error) {
       console.error('Error sending daily drop opener:', error);
@@ -304,15 +305,6 @@ export function useDailyDrop() {
         affinity_score: d.affinity_score ?? 0,
       });
     }
-
-    // Notify partner
-    sendNotification({
-      user_id: partnerId,
-      category: 'daily_drop',
-      title: '💧 Your Daily Drop sent you a message',
-      body: 'Reply before 6 PM tomorrow to unlock chat',
-      data: { url: '/matches' },
-    });
   }, [drop, user, partnerId]);
 
   const sendReply = useCallback(async (text: string) => {
@@ -322,10 +314,12 @@ export function useDailyDrop() {
     if (!drop.opener_sender_id || drop.opener_sender_id === user.id) return;
     if (drop.chat_unlocked) return;
 
-    const { data, error } = await supabase.rpc('daily_drop_transition', {
-      p_drop_id: drop.id,
-      p_action: 'send_reply',
-      p_text: trimmed,
+    const { data, error } = await supabase.functions.invoke('daily-drop-actions', {
+      body: {
+        drop_id: drop.id,
+        action: 'send_reply',
+        text: trimmed,
+      },
     });
     if (error) {
       console.error('Error sending daily drop reply:', error);
@@ -358,15 +352,6 @@ export function useDailyDrop() {
         affinity_score: d.affinity_score ?? 0,
       });
     }
-
-    // Notify opener sender
-    sendNotification({
-      user_id: drop.opener_sender_id!,
-      category: 'new_match',
-      title: "You're connected! 🎉",
-      body: `You and ${partner?.name ?? 'someone'} matched through Daily Drop`,
-      data: newMatchId ? { url: `/chat/${newMatchId}` } : { url: '/matches' },
-    });
   }, [drop, user, partnerId, partner?.name]);
 
   const passDrop = useCallback(async () => {

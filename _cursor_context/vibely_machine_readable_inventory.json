@@ -47,7 +47,7 @@
       "components": 259,
       "hooks": 53,
       "services": 6,
-      "edge_functions_deployable": 30,
+      "edge_functions_deployable": 31,
       "edge_function_shared_dirs": 1,
       "migrations": 109,
       "public_tables": 41,
@@ -685,6 +685,19 @@
       ],
       "frontend_references": [
         "src/components/admin/AdminDailyDropCard.tsx"
+      ]
+    },
+    {
+      "name": "daily-drop-actions",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDailyDrop.ts"
       ]
     },
     {
