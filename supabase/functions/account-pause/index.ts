@@ -41,6 +41,14 @@ serve(async (req) => {
     const duration = body.duration as string | undefined; // 'day' | 'week' | 'indefinite'
     const reason = (body.reason as string) || null;
 
+    const allowedDurations = ["day", "week", "indefinite"] as const;
+    if (!duration || !allowedDurations.includes(duration as (typeof allowedDurations)[number])) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid pause duration" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const now = new Date();
     let pausedUntil: string | null = null;
     if (duration === "day") {
@@ -50,7 +58,7 @@ serve(async (req) => {
       const d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
       pausedUntil = d.toISOString();
     }
-    // 'indefinite' or missing => pausedUntil stays null
+    // 'indefinite' => pausedUntil stays null
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },

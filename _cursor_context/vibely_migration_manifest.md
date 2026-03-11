@@ -54,13 +54,14 @@ For rebuild fidelity, this is a real gap and should be treated as such.
 
 ### Post-repair working baseline (linked production branch)
 
-After the dedicated migration-repair workstream (2026-03-11), the **current hardened/live-aligned branch baseline** contains **106** migration files under `supabase/migrations`:
+After the dedicated migration-repair workstream (2026-03-11), the **current hardened/live-aligned branch baseline** contains **107** migration files under `supabase/migrations`:
 - the original 101 frozen SQL migrations described above, plus:
   - `20260311000000_chat_videos_anon_read.sql` — chat-videos anon-read RLS policy; its logic had already been applied manually before being recorded as applied in history
   - `20260309000534_legacy_remote_artifact.sql` — **no-op placeholder** representing a legacy remote-only version that must not be replayed
   - `20260309005543_legacy_remote_artifact.sql` — **no-op placeholder** representing a second legacy remote-only version that must not be replayed
   - `20260311120000_profiles_pause_columns.sql` — **Stream 1B:** add `profiles.is_paused`, `paused_at`, `paused_until`, `pause_reason` for backend-authoritative account pause/resume
   - `20260311120001_get_event_deck_exclude_paused.sql` — **Stream 1B:** update `get_event_deck` to exclude effectively paused profiles from discoverability
+  - `20260311141500_get_event_deck_auth_guard.sql` — **Stream 1B follow-up:** add `auth.uid()` = `p_user_id` guard to `get_event_deck` via an additive, production-safe function redefinition
 
 The parity repair was performed **via metadata-only history reconciliation** using `supabase migration repair`:
 - historical SQL bodies were **not** re-executed
