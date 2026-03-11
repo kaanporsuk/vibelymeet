@@ -55,7 +55,7 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
     isPremium: (profileData?.is_premium as boolean) || false,
     isVerified: (profileData?.photo_verified as boolean) || false,
     isPaused: (profileData?.is_paused as boolean) || false,
-    pauseUntil: profileData?.pause_until ? new Date(profileData.pause_until as string) : null,
+    pauseUntil: profileData?.paused_until ? new Date(profileData.paused_until as string) : null,
   };
 }
 
@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: profile } = await supabase
       .from("profiles")
       .select(
-        "id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified, is_paused, pause_until"
+        "id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified, is_paused, paused_at, paused_until, pause_reason"
       )
       .eq("id", userId)
       .maybeSingle();
@@ -184,28 +184,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
     if (!user) return;
-    
-    let pauseUntil: Date | null = null;
-    const now = new Date();
-    
-    switch (duration) {
-      case 'day':
-        pauseUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-        break;
-      case 'week':
-        pauseUntil = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'indefinite':
-        pauseUntil = null;
-        break;
+    const { data, error } = await supabase.functions.invoke('account-pause', {
+      body: { duration },
+    });
+    if (!error && data?.success) {
+      await refreshProfile();
     }
-    
-    setUser({ ...user, isPaused: true, pauseUntil });
   };
 
   const resumeAccount = async () => {
     if (!user) return;
-    setUser({ ...user, isPaused: false, pauseUntil: null });
+    const { data, error } = await supabase.functions.invoke('account-resume', { body: {} });
+    if (!error && data?.success) {
+      await refreshProfile();
+    }
   };
 
   return (

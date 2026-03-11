@@ -86,3 +86,9 @@ verify_jwt = false
 
 [functions.forward-geocode]
 verify_jwt = true
+
+[functions.account-pause]
+verify_jwt = true
+
+[functions.account-resume]
+verify_jwt = true

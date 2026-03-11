@@ -148,7 +148,25 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 4. Check pause
+    // 4. Check account-level pause (profiles.is_paused / paused_until)
+    if (category !== 'safety_alerts') {
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('is_paused, paused_until')
+        .eq('id', user_id)
+        .maybeSingle()
+      if (profileRow?.is_paused) {
+        const until = profileRow.paused_until
+        if (until == null || new Date(until) > new Date()) {
+          await logNotification(user_id, category, title, body, data, false, 'account_paused')
+          return new Response(JSON.stringify({ success: false, reason: 'account_paused' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+      }
+    }
+
+    // 5. Check notification-prefs pause (paused_until on notification_preferences)
     if (category !== 'safety_alerts' && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
         await logNotification(user_id, category, title, body, data, false, 'paused')
@@ -158,7 +176,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5. Check master toggle
+    // 6. Check master toggle
     if (!prefs.push_enabled && !bypass_preferences) {
       await logNotification(user_id, category, title, body, data, false, 'user_disabled')
       return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
@@ -166,7 +184,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 6. Check category toggle
+    // 7. Check category toggle
     if (category !== 'safety_alerts') {
       const col = CATEGORY_TO_COLUMN[category]
       if (col && prefs[col] === false) {
@@ -177,7 +195,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 7. Check per-match mute (messages and new_match categories)
+    // 8. Check per-match mute (messages and new_match categories)
     if ((category === 'messages' || category === 'new_match') && data?.match_id) {
       // Check match_mutes table (written by useMuteMatch on the client)
       const { data: matchMute } = await supabase

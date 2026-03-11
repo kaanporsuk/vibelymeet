@@ -404,6 +404,8 @@ supabase secrets list
 
 Deploy all function directories except `_shared`:
 
+- `account-pause`
+- `account-resume`
 - `admin-review-verification`
 - `cancel-deletion`
 - `create-checkout-session`
@@ -445,9 +447,9 @@ If you deploy functions individually, do so deliberately and preserve JWT behavi
 
 ### JWT behavior (post-hardening)
 
-`supabase/config.toml` configures **all 28** functions. No gaps.
+`supabase/config.toml` configures **all 30** functions. No gaps.
 
-- **21 functions** have `verify_jwt = true` (JWT enforced at gateway): phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
+- **23 functions** have `verify_jwt = true` (JWT enforced at gateway): account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
 - **7 functions** have `verify_jwt = false` (public-but-protected by secret/token in code): stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
 
 ### Required secrets for hardened behavior

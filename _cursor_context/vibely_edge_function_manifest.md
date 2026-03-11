@@ -29,19 +29,19 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Deployable directories
 
-There are **28 deployable Edge Functions** plus one shared helper directory:
+There are **30 deployable Edge Functions** plus one shared helper directory:
 
-- deployable functions: **28**
+- deployable functions: **30**
 - shared helper directory: `_shared`
 
 ### Config coverage
 
-`supabase/config.toml` explicitly configures **all 28** functions. No config gaps remain.
+`supabase/config.toml` explicitly configures **all 30** functions. No config gaps remain.
 
 ### Gateway JWT posture from config (post-hardening)
 
 **JWT-at-gateway (`verify_jwt = true`):**  
-phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
+account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
 
 **Public-but-protected (`verify_jwt = false`):**  
 stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
@@ -118,6 +118,22 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Primary tables touched:** `account_deletion_requests`, `profiles`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`
+
+### `account-pause` (Stream 1B)
+- **Purpose:** set profile to paused state (backend-authoritative); updates `profiles.is_paused`, `paused_at`, `paused_until`, `pause_reason`
+- **Auth posture:** Class C — `verify_jwt = true`; JWT required, updates only the authenticated user's profile
+- **Frontend call sites:** `src/contexts/AuthContext.tsx` (via `pauseAccount` → `supabase.functions.invoke('account-pause', { body: { duration } })`)
+- **Primary tables touched:** `profiles`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** body.duration: `'day'` | `'week'` | `'indefinite'`; paused profiles are excluded from event deck, daily drops, and notification dispatch
+
+### `account-resume` (Stream 1B)
+- **Purpose:** clear profile pause state (backend-authoritative)
+- **Auth posture:** Class C — `verify_jwt = true`
+- **Frontend call sites:** `src/contexts/AuthContext.tsx` (via `resumeAccount` → `supabase.functions.invoke('account-resume', { body: {} })`)
+- **Primary tables touched:** `profiles`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** sets `is_paused = false`, `paused_at`/`paused_until`/`pause_reason` = null
 
 ### `delete-account`
 - **Purpose:** executes account deletion flow, including profile/subscription cleanup and Stripe-linked cleanup logic

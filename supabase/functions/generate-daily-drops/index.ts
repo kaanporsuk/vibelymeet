@@ -125,11 +125,18 @@ serve(async (req) => {
 
     const { data: eligibleUsers } = await supabase
       .from("profiles")
-      .select("id, name, gender, interested_in, age, is_suspended")
+      .select("id, name, gender, interested_in, age, is_suspended, is_paused, paused_until")
       .gte("updated_at", sevenDaysAgo)
       .or("is_suspended.is.null,is_suspended.eq.false");
 
-    if (!eligibleUsers || eligibleUsers.length < 2) {
+    const nowIso = now.toISOString();
+    const eligibleUsersFiltered = (eligibleUsers || []).filter((u: { is_paused?: boolean; paused_until?: string | null }) => {
+      if (!u.is_paused) return true;
+      const until = u.paused_until;
+      return until != null && until <= nowIso;
+    });
+
+    if (!eligibleUsersFiltered || eligibleUsersFiltered.length < 2) {
       return new Response(
         JSON.stringify({ success: true, pairs_created: 0, reason: "Not enough eligible users" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -146,7 +153,7 @@ serve(async (req) => {
     const cooldownSet = new Set((activeCooldowns || []).map(c => `${c.user_a_id}:${c.user_b_id}`));
 
     // STEP 6: Get vibe tags for scoring
-    const userIds = eligibleUsers.map(u => u.id);
+    const userIds = eligibleUsersFiltered.map(u => u.id);
     const { data: allVibes } = await supabase.from("profile_vibes").select("profile_id, vibe_tag_id").in("profile_id", userIds);
 
     const vibeMap: Record<string, Set<string>> = {};
@@ -173,9 +180,9 @@ serve(async (req) => {
     // STEP 9: Score and pair
     const scoredPairs: Array<{ id_a: string; id_b: string; score: number; reasons: string[] }> = [];
 
-    for (let i = 0; i < eligibleUsers.length; i++) {
-      for (let j = i + 1; j < eligibleUsers.length; j++) {
-        const a = eligibleUsers[i], b = eligibleUsers[j];
+    for (let i = 0; i < eligibleUsersFiltered.length; i++) {
+      for (let j = i + 1; j < eligibleUsersFiltered.length; j++) {
+        const a = eligibleUsersFiltered[i], b = eligibleUsersFiltered[j];
         const [lo, hi] = [a.id, b.id].sort();
         const pairKey = `${lo}:${hi}`;
 
@@ -253,7 +260,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, pairs_created: pairs.length, users_notified: notifiedUserIds.size, unpaired_users: eligibleUsers.length - paired.size }),
+      JSON.stringify({ success: true, pairs_created: pairs.length, users_notified: notifiedUserIds.size, unpaired_users: eligibleUsersFiltered.length - paired.size }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
