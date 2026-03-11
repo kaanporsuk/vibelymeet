@@ -49,10 +49,10 @@
       "services": 6,
       "edge_functions_deployable": 30,
       "edge_function_shared_dirs": 1,
-      "migrations": 107,
+      "migrations": 108,
       "public_tables": 41,
       "public_views": 1,
-      "public_functions": 23,
+      "public_functions": 24,
       "public_enums": 4,
       "public_assets": 23
     },
@@ -409,7 +409,8 @@
       "join_matching_queue",
       "leave_matching_queue",
       "update_participant_status",
-      "video_date_transition"
+      "video_date_transition",
+      "ready_gate_transition"
     ],
     "public_enums": [
       "app_role",
