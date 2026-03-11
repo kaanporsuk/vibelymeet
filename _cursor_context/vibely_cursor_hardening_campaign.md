@@ -153,6 +153,15 @@ Any migration that changes tables, views, enums, functions, storage, or policies
 - migration manifest summary if the change is material
 - machine-readable inventory JSON if object lists change
 
+### Rule C.1 — No remote migration operations without parity check
+Before any operator (or Cursor) runs remote migration operations (push/pull/repair), run:
+
+```bash
+./scripts/check_migration_parity.sh
+```
+
+If it reports parity drift, stop. Do not run `supabase db push`, `supabase db pull`, or `supabase migration repair` until drift is understood and handled as a dedicated workstream.
+
 ### Rule D — No Edge Function change without function-manifest review
 Any added, removed, renamed, or materially changed function must update:
 - Edge Function manifest

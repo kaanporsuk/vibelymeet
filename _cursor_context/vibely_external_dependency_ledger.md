@@ -105,6 +105,8 @@ It carries:
 - confirm all required secrets exist (including hardening secrets above)
 - confirm all 28 Edge Functions are deployed with correct verify_jwt
 - confirm live buckets `chat-videos` and `proof-selfies` exist and behave correctly
+- run migration parity check before any remote migration operations:
+  - `./scripts/check_migration_parity.sh`
 
 ---
 

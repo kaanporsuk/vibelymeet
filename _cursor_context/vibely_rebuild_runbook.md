@@ -234,6 +234,23 @@ The repo does **not** provide a clean, complete seed baseline for business data.
 
 Dry-run mentally first by checking current project state, then push the repo migrations.
 
+### Parity-first rule (required before any db push/pull/repair)
+
+Before running **any** of the following against a linked remote project:
+- `supabase db push`
+- `supabase db pull`
+- `supabase migration repair`
+
+You must first run the repo’s **read-only migration parity checker** to confirm what kind of drift exists:
+
+```bash
+./scripts/check_migration_parity.sh
+```
+
+If parity drift is detected, do **not** proceed with push/pull/repair in an ad-hoc way. Treat it as a dedicated workstream:
+- determine whether drift is **systematic timestamp mismatch** (common) vs genuinely missing migrations
+- only then decide on a repair strategy
+
 Canonical command:
 
 ```bash
