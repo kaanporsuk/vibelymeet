@@ -54,7 +54,7 @@ For rebuild fidelity, this is a real gap and should be treated as such.
 
 ### Post-repair working baseline (linked production branch)
 
-After the dedicated migration-repair workstream (2026-03-11), the **current hardened/live-aligned branch baseline** contains **108** migration files under `supabase/migrations`:
+After the dedicated migration-repair workstream (2026-03-11), the **current hardened/live-aligned branch baseline** contains **109** migration files under `supabase/migrations`:
 - the original 101 frozen SQL migrations described above, plus:
   - `20260311000000_chat_videos_anon_read.sql` — chat-videos anon-read RLS policy; its logic had already been applied manually before being recorded as applied in history
   - `20260309000534_legacy_remote_artifact.sql` — **no-op placeholder** representing a legacy remote-only version that must not be replayed
@@ -64,6 +64,7 @@ After the dedicated migration-repair workstream (2026-03-11), the **current hard
   - `20260311141500_get_event_deck_auth_guard.sql` — **Stream 1B follow-up:** add `auth.uid()` = `p_user_id` guard to `get_event_deck` via an additive, production-safe function redefinition
   - `20260311133000_video_date_state_machine.sql` — **Stream 2A:** introduce server-owned video-date state machine (`video_date_state`, `video_date_transition`) and move timing/phase ownership out of fragile client writes
   - `20260311153000_ready_gate_transition.sql` — **Stream 2B:** introduce server-owned Ready Gate transition RPC (`ready_gate_transition`) to replace fragile client-owned updates for ready/snooze/forfeit
+  - `20260311160000_daily_drop_transition.sql` — **Stream 2C:** introduce server-owned Daily Drop transition RPC (`daily_drop_transition`) for view/opener/reply/pass, including match creation and idempotent terminal handling
 
 The parity repair was performed **via metadata-only history reconciliation** using `supabase migration repair`:
 - historical SQL bodies were **not** re-executed

@@ -226,16 +226,40 @@ export function useDailyDrop() {
   const markViewed = useCallback(async () => {
     if (!drop || !user || !myRole) return;
 
-    const updates: Record<string, any> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (myRole === 'a') updates.user_a_viewed = true;
-    else updates.user_b_viewed = true;
-
-    if (drop.status === 'active_unopened') updates.status = 'active_viewed';
-
-    await supabase.from('daily_drops').update(updates).eq('id', drop.id);
-    setDrop(prev => prev ? { ...prev, ...updates } : null);
+    const { data, error } = await supabase.rpc('daily_drop_transition', {
+      p_drop_id: drop.id,
+      p_action: 'view',
+    });
+    if (error) {
+      console.error('Error marking daily drop viewed:', error);
+      return;
+    }
+    const payload = data as any;
+    if (payload?.drop) {
+      const d = payload.drop as any;
+      setDrop({
+        id: d.id,
+        user_a_id: d.user_a_id,
+        user_b_id: d.user_b_id,
+        drop_date: d.drop_date,
+        starts_at: d.starts_at,
+        expires_at: d.expires_at,
+        status: d.status,
+        user_a_viewed: d.user_a_viewed ?? false,
+        user_b_viewed: d.user_b_viewed ?? false,
+        opener_sender_id: d.opener_sender_id,
+        opener_text: d.opener_text,
+        opener_sent_at: d.opener_sent_at,
+        reply_sender_id: d.reply_sender_id,
+        reply_text: d.reply_text,
+        reply_sent_at: d.reply_sent_at,
+        chat_unlocked: d.chat_unlocked ?? false,
+        match_id: d.match_id,
+        passed_by_user_id: d.passed_by_user_id,
+        pick_reasons: (d.pick_reasons as string[]) ?? [],
+        affinity_score: d.affinity_score ?? 0,
+      });
+    }
   }, [drop, user, myRole]);
 
   const sendOpener = useCallback(async (text: string) => {
@@ -245,16 +269,41 @@ export function useDailyDrop() {
     if (drop.opener_sender_id) return; // already sent
     if (drop.status.startsWith('expired') || drop.status === 'passed' || drop.status === 'matched') return;
 
-    const updates = {
-      opener_sender_id: user.id,
-      opener_text: trimmed,
-      opener_sent_at: new Date().toISOString(),
-      status: 'active_opener_sent',
-      updated_at: new Date().toISOString(),
-    };
-
-    await supabase.from('daily_drops').update(updates).eq('id', drop.id);
-    setDrop(prev => prev ? { ...prev, ...updates } : null);
+    const { data, error } = await supabase.rpc('daily_drop_transition', {
+      p_drop_id: drop.id,
+      p_action: 'send_opener',
+      p_text: trimmed,
+    });
+    if (error) {
+      console.error('Error sending daily drop opener:', error);
+      return;
+    }
+    const payload = data as any;
+    if (payload?.drop) {
+      const d = payload.drop as any;
+      setDrop({
+        id: d.id,
+        user_a_id: d.user_a_id,
+        user_b_id: d.user_b_id,
+        drop_date: d.drop_date,
+        starts_at: d.starts_at,
+        expires_at: d.expires_at,
+        status: d.status,
+        user_a_viewed: d.user_a_viewed ?? false,
+        user_b_viewed: d.user_b_viewed ?? false,
+        opener_sender_id: d.opener_sender_id,
+        opener_text: d.opener_text,
+        opener_sent_at: d.opener_sent_at,
+        reply_sender_id: d.reply_sender_id,
+        reply_text: d.reply_text,
+        reply_sent_at: d.reply_sent_at,
+        chat_unlocked: d.chat_unlocked ?? false,
+        match_id: d.match_id,
+        passed_by_user_id: d.passed_by_user_id,
+        pick_reasons: (d.pick_reasons as string[]) ?? [],
+        affinity_score: d.affinity_score ?? 0,
+      });
+    }
 
     // Notify partner
     sendNotification({
@@ -273,48 +322,42 @@ export function useDailyDrop() {
     if (!drop.opener_sender_id || drop.opener_sender_id === user.id) return;
     if (drop.chat_unlocked) return;
 
-    // Create match
-    const p1 = [user.id, partnerId].sort()[0];
-    const p2 = [user.id, partnerId].sort()[1];
-
-    const { data: matchData } = await supabase
-      .from('matches')
-      .insert({ profile_id_1: p1, profile_id_2: p2 })
-      .select('id')
-      .single();
-
-    const newMatchId = matchData?.id;
-    if (!newMatchId) return;
-
-    // Update drop
-    const updates = {
-      reply_sender_id: user.id,
-      reply_text: trimmed,
-      reply_sent_at: new Date().toISOString(),
-      chat_unlocked: true,
-      match_id: newMatchId,
-      status: 'matched',
-      updated_at: new Date().toISOString(),
-    };
-
-    await supabase.from('daily_drops').update(updates).eq('id', drop.id);
-
-    // Insert opener + reply as first messages
-    await supabase.from('messages').insert([
-      {
-        match_id: newMatchId,
-        sender_id: drop.opener_sender_id!,
-        content: drop.opener_text!,
-        created_at: drop.opener_sent_at!,
-      },
-      {
-        match_id: newMatchId,
-        sender_id: user.id,
-        content: trimmed,
-      },
-    ]);
-
-    setDrop(prev => prev ? { ...prev, ...updates, match_id: newMatchId } : null);
+    const { data, error } = await supabase.rpc('daily_drop_transition', {
+      p_drop_id: drop.id,
+      p_action: 'send_reply',
+      p_text: trimmed,
+    });
+    if (error) {
+      console.error('Error sending daily drop reply:', error);
+      return;
+    }
+    const payload = data as any;
+    const newMatchId = payload?.match_id as string | undefined;
+    if (payload?.drop) {
+      const d = payload.drop as any;
+      setDrop({
+        id: d.id,
+        user_a_id: d.user_a_id,
+        user_b_id: d.user_b_id,
+        drop_date: d.drop_date,
+        starts_at: d.starts_at,
+        expires_at: d.expires_at,
+        status: d.status,
+        user_a_viewed: d.user_a_viewed ?? false,
+        user_b_viewed: d.user_b_viewed ?? false,
+        opener_sender_id: d.opener_sender_id,
+        opener_text: d.opener_text,
+        opener_sent_at: d.opener_sent_at,
+        reply_sender_id: d.reply_sender_id,
+        reply_text: d.reply_text,
+        reply_sent_at: d.reply_sent_at,
+        chat_unlocked: d.chat_unlocked ?? false,
+        match_id: d.match_id,
+        passed_by_user_id: d.passed_by_user_id,
+        pick_reasons: (d.pick_reasons as string[]) ?? [],
+        affinity_score: d.affinity_score ?? 0,
+      });
+    }
 
     // Notify opener sender
     sendNotification({
@@ -322,21 +365,47 @@ export function useDailyDrop() {
       category: 'new_match',
       title: "You're connected! 🎉",
       body: `You and ${partner?.name ?? 'someone'} matched through Daily Drop`,
-      data: { url: `/chat/${newMatchId}` },
+      data: newMatchId ? { url: `/chat/${newMatchId}` } : { url: '/matches' },
     });
   }, [drop, user, partnerId, partner?.name]);
 
   const passDrop = useCallback(async () => {
     if (!drop || !user) return;
 
-    const updates = {
-      passed_by_user_id: user.id,
-      status: 'passed',
-      updated_at: new Date().toISOString(),
-    };
-
-    await supabase.from('daily_drops').update(updates).eq('id', drop.id);
-    setDrop(prev => prev ? { ...prev, ...updates } : null);
+    const { data, error } = await supabase.rpc('daily_drop_transition', {
+      p_drop_id: drop.id,
+      p_action: 'pass',
+    });
+    if (error) {
+      console.error('Error passing daily drop:', error);
+      return;
+    }
+    const payload = data as any;
+    if (payload?.drop) {
+      const d = payload.drop as any;
+      setDrop({
+        id: d.id,
+        user_a_id: d.user_a_id,
+        user_b_id: d.user_b_id,
+        drop_date: d.drop_date,
+        starts_at: d.starts_at,
+        expires_at: d.expires_at,
+        status: d.status,
+        user_a_viewed: d.user_a_viewed ?? false,
+        user_b_viewed: d.user_b_viewed ?? false,
+        opener_sender_id: d.opener_sender_id,
+        opener_text: d.opener_text,
+        opener_sent_at: d.opener_sent_at,
+        reply_sender_id: d.reply_sender_id,
+        reply_text: d.reply_text,
+        reply_sent_at: d.reply_sent_at,
+        chat_unlocked: d.chat_unlocked ?? false,
+        match_id: d.match_id,
+        passed_by_user_id: d.passed_by_user_id,
+        pick_reasons: (d.pick_reasons as string[]) ?? [],
+        affinity_score: d.affinity_score ?? 0,
+      });
+    }
   }, [drop, user]);
 
   return {
