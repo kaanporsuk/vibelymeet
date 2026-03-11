@@ -759,3 +759,15 @@ Execute the following in order; do not scaffold `apps/mobile` until the first tw
 3. **Only then scaffold `apps/mobile`.**  
    After the harness is on `main` and the web baseline has passed a full golden-path run, proceed with Sprint 1 (app shell, auth, navigation, env/bootstrap) and create the `apps/mobile` directory. Do not create `apps/mobile` or any native app code before completing steps 1 and 2.
 
+---
+
+## 14. Post–Sprint 6 / launch readiness
+
+After Sprints 1–6 are complete, use the following for integration and release prep (no new product features):
+
+- **`docs/native-launch-readiness.md`** — Completion status by domain, what is implemented, external setup, device testing, TestFlight/Production validation.
+- **`docs/native-external-setup-checklist.md`** — Stepwise checklist: Supabase migrations and Edge Functions, RevenueCat, OneSignal, Daily, Expo/EAS, App Store Connect, Play Console, env vars.
+- **`docs/native-manual-test-matrix.md`** — Manual test matrix for auth, onboarding, events, lobby, swipes, matches, chat, push, Daily Drop, Ready Gate, video date, premium, and cross-platform (web ↔ iOS/Android).
+- **`docs/native-deployment-validation-sequence.md`** — Ordered merge, backend rollout, external dashboard setup, dev-build validation, release gates, and known limitations.
+- **`docs/native-pr-summary.md`** — Concise PR/merge summary and reviewer focus areas.
+

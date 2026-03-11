@@ -1569,6 +1569,9 @@ export type Database = {
           current_period_end: string | null
           id: string
           plan: string | null
+          provider: string
+          rc_original_app_user_id: string | null
+          rc_product_id: string | null
           status: string
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
@@ -1580,6 +1583,9 @@ export type Database = {
           current_period_end?: string | null
           id?: string
           plan?: string | null
+          provider?: string
+          rc_original_app_user_id?: string | null
+          rc_product_id?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
@@ -1591,6 +1597,9 @@ export type Database = {
           current_period_end?: string | null
           id?: string
           plan?: string | null
+          provider?: string
+          rc_original_app_user_id?: string | null
+          rc_product_id?: string | null
           status?: string
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null

@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
       .from('subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
+      .eq('provider', 'stripe')
       .maybeSingle()
 
     if (!sub?.stripe_customer_id) {

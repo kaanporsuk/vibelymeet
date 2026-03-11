@@ -71,11 +71,12 @@ Deno.serve(async (req) => {
       )
     }
 
-    // Get or create Stripe customer
+    // Get or create Stripe customer (web uses Stripe provider)
     const { data: subData } = await supabase
       .from('subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
+      .eq('provider', 'stripe')
       .maybeSingle()
 
     let customerId = subData?.stripe_customer_id
