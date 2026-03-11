@@ -272,18 +272,25 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 10. Check player ID
-    if (!prefs.onesignal_player_id || !prefs.onesignal_subscribed) {
+    // 10. Collect all player IDs (web + mobile) for multi-device delivery
+    const playerIds: string[] = []
+    if (prefs.onesignal_player_id && prefs.onesignal_subscribed) {
+      playerIds.push(prefs.onesignal_player_id)
+    }
+    if (prefs.mobile_onesignal_player_id && prefs.mobile_onesignal_subscribed) {
+      playerIds.push(prefs.mobile_onesignal_player_id)
+    }
+    if (playerIds.length === 0) {
       await logNotification(user_id, category, title, body, data, false, 'no_player_id')
       return new Response(JSON.stringify({ success: false, reason: 'no_player_id' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
 
-    // 11. Send via OneSignal
+    // 11. Send via OneSignal (all registered devices)
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,
-      include_player_ids: [prefs.onesignal_player_id],
+      include_player_ids: playerIds,
       headings: { en: title },
       contents: { en: body },
       data: data || {},

@@ -23,17 +23,25 @@ export const useSubscription = () => {
   const fetchSubscription = useCallback(async () => {
     if (!user?.id) { setIsLoading(false); return }
 
-    const { data } = await supabase
+    const { data: rows } = await supabase
       .from('subscriptions')
       .select('status, plan, current_period_end')
       .eq('user_id', user.id)
-      .maybeSingle()
+      .order('current_period_end', { ascending: false, nullsFirst: false })
 
-    if (data) {
+    // Canonical: any active/trialing from Stripe or RevenueCat counts as premium
+    const active = (rows ?? []).find((r) => r.status === 'active' || r.status === 'trialing')
+    if (active) {
       setSubscription({
-        status: data.status as SubscriptionStatus,
-        plan: data.plan as SubscriptionPlan,
-        current_period_end: data.current_period_end,
+        status: active.status as SubscriptionStatus,
+        plan: active.plan as SubscriptionPlan,
+        current_period_end: active.current_period_end,
+      })
+    } else if (rows?.length) {
+      setSubscription({
+        status: (rows[0].status as SubscriptionStatus) ?? 'inactive',
+        plan: (rows[0].plan as SubscriptionPlan) ?? null,
+        current_period_end: rows[0].current_period_end ?? null,
       })
     }
     setIsLoading(false)

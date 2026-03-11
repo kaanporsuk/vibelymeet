@@ -146,16 +146,14 @@ Deno.serve(async (req) => {
 
         await supabase.from('subscriptions').upsert({
           user_id: userId,
+          provider: 'stripe',
           stripe_customer_id: session.customer as string,
           stripe_subscription_id: subscriptionId,
           status: subscription.status,
           plan: plan,
           current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
-
-        // Sync is_premium flag on profile
-        await supabase.from('profiles').update({ is_premium: true }).eq('id', userId)
+        }, { onConflict: 'user_id,provider' })
 
         break
       }
@@ -173,13 +171,14 @@ Deno.serve(async (req) => {
 
         await supabase.from('subscriptions').upsert({
           user_id: userId,
+          provider: 'stripe',
           stripe_customer_id: subscription.customer as string,
           stripe_subscription_id: subscription.id,
           status: subscription.status,
           plan: plan,
           current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
+        }, { onConflict: 'user_id,provider' })
 
         break
       }
@@ -196,9 +195,7 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', userId)
-
-        // Sync is_premium flag on profile
-        await supabase.from('profiles').update({ is_premium: false }).eq('id', userId)
+          .eq('provider', 'stripe')
 
         break
       }
@@ -220,6 +217,7 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', userId)
+          .eq('provider', 'stripe')
 
         break
       }
