@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export const useUserRegistrations = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["user-registrations", user?.id],
@@ -24,7 +24,7 @@ export const useUserRegistrations = () => {
 };
 
 export const useRegisterForEvent = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   const registerForEvent = async (eventId: string): Promise<boolean> => {
     if (!user?.id) return false;

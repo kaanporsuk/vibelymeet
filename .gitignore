@@ -1,3 +1,5 @@
+supabase/.temp/
+
 # Logs
 logs
 *.log
@@ -25,3 +27,6 @@ dist-ssr
 .env.functions.production
 .env.functions.production
 .env.cursor.local
+
+# Local rehearsal/worktree artifacts (do not commit)
+vibelymeet-rehearsal-artifact/

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { usePushNotifications } from "./usePushNotifications";
 
 interface InactiveUser {
@@ -14,7 +14,7 @@ interface InactiveUser {
 const REENGAGEMENT_INTERVALS = [3, 7, 14]; // Days of inactivity to trigger notifications
 
 export function useReengagementNotifications() {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { sendNotification, isSupported, permission } = usePushNotifications();
 
   // Check if user hasn't responded to daily drops in 3+ days
@@ -33,13 +33,13 @@ export function useReengagementNotifications() {
 
       if (error) throw error;
       
-      if (!drops?.length) {
+      if (!drops?.length || !drops[0]?.created_at) {
         // User has never interacted with drops
         return { lastActivity: null, inactiveDays: 999 };
       }
 
       const lastDrop = drops[0];
-      const lastActivityDate = new Date(lastDrop.created_at);
+      const lastActivityDate = new Date(lastDrop.created_at as string);
       const now = new Date();
       const diffTime = now.getTime() - lastActivityDate.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
@@ -151,7 +151,7 @@ export async function getInactiveUsers(daysInactive: number = 3): Promise<Inacti
 
   profiles?.forEach(profile => {
     const lastActivity = activityMap.get(profile.id);
-    
+
     if (!lastActivity) {
       // Never interacted - definitely inactive
       inactiveUsers.push({

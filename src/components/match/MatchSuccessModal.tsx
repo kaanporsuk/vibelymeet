@@ -8,7 +8,7 @@ import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { LazyImage } from "@/components/LazyImage";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 interface MatchSuccessModalProps {
   isOpen: boolean;
@@ -42,7 +42,7 @@ const MatchSuccessModal = ({
   },
 }: MatchSuccessModalProps) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [animationPhase, setAnimationPhase] = useState(0);
   const { playFeedback, preloadAll } = useSoundEffects();
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);

@@ -12,7 +12,7 @@ import {
   DrawerFooter,
 } from "@/components/ui/drawer";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 
@@ -31,7 +31,7 @@ interface FeedbackDrawerProps {
 }
 
 export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [category, setCategory] = useState<CategoryValue | null>(null);
   const [message, setMessage] = useState("");
   const [includeDeviceInfo, setIncludeDeviceInfo] = useState(true);

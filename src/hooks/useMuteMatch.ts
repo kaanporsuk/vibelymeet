@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addHours, addDays, addWeeks } from "date-fns";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export type MuteDuration = "1hour" | "1day" | "1week" | "forever";
 
@@ -46,7 +46,7 @@ const getDurationLabel = (duration: MuteDuration): string => {
 };
 
 export const useMuteMatch = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const userId = user?.id;
   const queryClient = useQueryClient();
 

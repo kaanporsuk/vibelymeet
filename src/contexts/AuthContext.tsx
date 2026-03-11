@@ -1,34 +1,46 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as Sentry from "@sentry/react";
-import { supabase } from '@/integrations/supabase/client';
-import { Session, User as SupabaseUser } from '@supabase/supabase-js';
-import { setExternalUserId, removeExternalUserId, getPlayerId, isSubscribed } from '@/lib/onesignal';
-import { identifyUser, resetAnalytics, setUserProperties } from '@/lib/analytics';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
   id: string;
   name: string;
   email: string;
   avatarUrl: string;
+  age: number | null;
+  gender: string | null;
+  location: string | null;
+  hasPhotos: boolean;
+  isPremium: boolean;
+  isVerified: boolean;
   isPaused: boolean;
   pauseUntil: Date | null;
 }
 
-interface AuthContextType {
-  user: User | null;
+interface SessionContextType {
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  isAdmin: boolean;
   isOfflineAtBoot: boolean;
   signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
+}
+
+interface ProfileContextType {
+  user: User | null;
+  refreshProfile: () => Promise<void>;
+}
+
+interface EntitlementsContextType {
+  isAdmin: boolean;
   pauseAccount: (duration: 'day' | 'week' | 'indefinite') => void;
   resumeAccount: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const SessionContext = createContext<SessionContextType | undefined>(undefined);
+const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
+const EntitlementsContext = createContext<EntitlementsContextType | undefined>(undefined);
 
 function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<string, unknown>): User {
   return {
@@ -36,51 +48,34 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
     name: (profileData?.name as string) || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
     email: supabaseUser.email || '',
     avatarUrl: (profileData?.avatar_url as string) || supabaseUser.user_metadata?.avatar_url || '',
+    age: (profileData?.age as number) ?? null,
+    gender: (profileData?.gender as string) ?? null,
+    location: (profileData?.location as string) ?? null,
+    hasPhotos: (((profileData?.photos as string[] | null) ?? []).length || 0) > 0,
+    isPremium: (profileData?.is_premium as boolean) || false,
+    isVerified: (profileData?.photo_verified as boolean) || false,
     isPaused: (profileData?.is_paused as boolean) || false,
     pauseUntil: profileData?.pause_until ? new Date(profileData.pause_until as string) : null,
   };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOfflineAtBoot, setIsOfflineAtBoot] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
-        if (session?.user) {
-          Sentry.setUser({ id: session.user.id });
-          Sentry.addBreadcrumb({ category: "auth", message: "User signed in", level: "info" });
-          identifyUser(session.user.id, {
-            email: session.user.email,
-            created_at: session.user.created_at,
-          });
-          setTimeout(() => {
-            fetchUserProfile(session.user.id);
-            checkAdminRole(session.user.id);
-            syncOneSignal(session.user.id);
-          }, 0);
-        } else {
-          setUser(null);
-          setIsAdmin(false);
-          Sentry.setUser(null);
-          resetAnalytics();
-        }
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session?.user) {
-        Sentry.setUser({ id: session.user.id });
-        fetchUserProfile(session.user.id);
-        checkAdminRole(session.user.id);
-        syncOneSignal(session.user.id);
-      } else if (!navigator.onLine) {
+      if (!session?.user && !navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
       setIsLoading(false);
@@ -101,27 +96,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
+  const refreshProfile = useCallback(async () => {
+    if (!session?.user) {
+      setUser(null);
+      return;
+    }
+
+    const userId = session.user.id;
+
     const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified')
-      .eq('id', userId)
+      .from("profiles")
+      .select(
+        "id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified, is_paused, pause_until"
+      )
+      .eq("id", userId)
       .maybeSingle();
 
     const { data: { user: supabaseUser } } = await supabase.auth.getUser();
     if (supabaseUser) {
       setUser(transformSupabaseUser(supabaseUser, profile || undefined));
-      setUserProperties({
-        name: profile?.name,
-        age: profile?.age,
-        gender: profile?.gender,
-        location: profile?.location,
-        has_photos: ((profile?.photos as string[] | null)?.length || 0) > 0,
-        is_premium: (profile?.is_premium as boolean) || false,
-        is_verified: (profile?.photo_verified as boolean) || false,
-      });
     }
-  };
+  }, [session]);
 
   const checkAdminRole = async (userId: string) => {
     const { data } = await supabase
@@ -134,22 +129,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(!!data);
   };
 
-  const syncOneSignal = async (userId: string) => {
-    try {
-      setExternalUserId(userId);
-      const playerId = await getPlayerId();
-      const subscribed = await isSubscribed();
-      if (playerId) {
-        await supabase.from('notification_preferences').upsert({
-          user_id: userId,
-          onesignal_player_id: playerId,
-          onesignal_subscribed: subscribed,
-        }, { onConflict: 'user_id' });
-      }
-    } catch (e) {
-      console.error('OneSignal sync error:', e);
+  useEffect(() => {
+    if (session?.user) {
+      void refreshProfile();
+      void checkAdminRole(session.user.id);
+    } else {
+      setUser(null);
+      setIsAdmin(false);
     }
-  };
+  }, [session?.user, refreshProfile]);
 
   const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
     const redirectUrl = `${window.location.origin}/`;
@@ -188,10 +176,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    Sentry.addBreadcrumb({ category: "auth", message: "User signed out", level: "info" });
-    Sentry.setUser(null);
-    resetAnalytics();
-    removeExternalUserId();
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
@@ -225,30 +209,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider
+    <SessionContext.Provider
       value={{
-        user,
         session,
         isAuthenticated: !!session,
         isLoading,
-        isAdmin,
         isOfflineAtBoot,
         signUp,
         signIn,
         logout,
-        pauseAccount,
-        resumeAccount,
       }}
     >
-      {children}
-    </AuthContext.Provider>
+      <ProfileContext.Provider
+        value={{
+          user,
+          refreshProfile,
+        }}
+      >
+        <EntitlementsContext.Provider
+          value={{
+            isAdmin,
+            pauseAccount,
+            resumeAccount,
+          }}
+        >
+          {children}
+        </EntitlementsContext.Provider>
+      </ProfileContext.Provider>
+    </SessionContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  const ctx = useContext(SessionContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
   }
-  return context;
+  return ctx;
+}
+
+export function useUserProfile() {
+  const ctx = useContext(ProfileContext);
+  if (!ctx) {
+    throw new Error("useUserProfile must be used within an AuthProvider");
+  }
+  return ctx;
+}
+
+export function useEntitlements() {
+  const ctx = useContext(EntitlementsContext);
+  if (!ctx) {
+    throw new Error("useEntitlements must be used within an AuthProvider");
+  }
+  return ctx;
 }

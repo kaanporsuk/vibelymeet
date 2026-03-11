@@ -36,7 +36,7 @@ import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator"
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessages, useSendMessage } from "@/hooks/useMessages";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
@@ -63,7 +63,7 @@ interface ChatMessage {
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const currentUserId = user?.id || "";
   
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);

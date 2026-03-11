@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useReadyGate } from "@/hooks/useReadyGate";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -28,7 +28,7 @@ const GATE_TIMEOUT = 30; // seconds
 const ReadyGate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [eventId, setEventId] = useState<string | undefined>(undefined);
   const { setStatus } = useEventStatus({ eventId });
 

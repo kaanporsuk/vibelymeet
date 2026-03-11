@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { captureSupabaseError } from "@/lib/errorTracking";
 
 interface Credits {
@@ -9,7 +9,7 @@ interface Credits {
 }
 
 export const useCredits = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [credits, setCredits] = useState<Credits>({ extraTime: 0, extendedVibe: 0 });
   const [isLoading, setIsLoading] = useState(true);
 

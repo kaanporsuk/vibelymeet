@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -11,7 +11,7 @@ interface DeletionRequest {
 }
 
 export const useDeletionRecovery = () => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const queryClient = useQueryClient();
   const [pendingDeletion, setPendingDeletion] = useState<DeletionRequest | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);

@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { formatDistanceToNow } from "date-fns";
@@ -78,7 +78,7 @@ const reportReasons = [
 ];
 
 const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [step, setStep] = useState<ReportStep>(preSelectedUser ? "reason" : "identify");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<ReportableUser | null>(

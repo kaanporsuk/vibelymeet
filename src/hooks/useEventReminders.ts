@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from "@/integrations/supabase/client";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useServiceWorker } from './useServiceWorker';
 
 const REMINDER_STORAGE_KEY = 'vibely_event_reminders_sent';
@@ -31,7 +31,7 @@ function markReminderSent(eventId: string): void {
 }
 
 export function useEventReminders() {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const queryClient = useQueryClient();
   const { isReady: swReady, scheduleNotification, showNotification } = useServiceWorker();
   const scheduledRef = useRef<Set<string>>(new Set());

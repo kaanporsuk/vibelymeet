@@ -17,7 +17,7 @@ import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { supabase } from "@/integrations/supabase/client";
 import { differenceInSeconds } from "date-fns";
@@ -28,7 +28,7 @@ import { useDeletionRecovery } from "@/hooks/useDeletionRecovery";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   useRealtimeEvents();
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery();
 

@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
@@ -9,7 +9,7 @@ interface UseMatchQueueOptions {
 }
 
 export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatchQueueOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [queuedCount, setQueuedCount] = useState(0);
   const onMatchReadyRef = useRef(onMatchReady);
 

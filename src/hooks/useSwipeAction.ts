@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { sendNotification } from "@/lib/notifications";
@@ -19,7 +19,7 @@ interface UseSwipeActionOptions {
 }
 
 export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActionOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const swipe = useCallback(

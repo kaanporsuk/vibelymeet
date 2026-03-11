@@ -27,7 +27,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,7 @@ export const AccountSettingsDrawer = ({
   onDeleteAccount,
 }: AccountSettingsDrawerProps) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);

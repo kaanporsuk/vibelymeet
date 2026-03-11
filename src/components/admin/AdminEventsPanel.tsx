@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
@@ -75,7 +75,7 @@ const getRecurrenceSummary = (event: any): string => {
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);

@@ -8,7 +8,7 @@ import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
 import { MutualMatchCelebration } from "./survey/MutualMatchCelebration";
 import { EventEndedModal } from "@/components/events/EventEndedModal";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
@@ -36,7 +36,7 @@ export const PostDateSurvey = ({
   eventId,
 }: PostDateSurveyProps) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [feedbackId, setFeedbackId] = useState<string | null>(null);

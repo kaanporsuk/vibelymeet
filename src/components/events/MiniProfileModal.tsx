@@ -3,7 +3,7 @@ import { X, Sparkles, Loader2, User, Heart, HeartOff, Check } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { swipeCardUrl } from "@/utils/imageUrl";
 
 interface Profile {
@@ -48,7 +48,7 @@ const MiniProfileModal = ({
   isSendingVibe = false,
   eventStatus = "upcoming",
 }: MiniProfileModalProps) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [signedPhotoUrl, setSignedPhotoUrl] = useState<string | null>(null);
   const [loadingPhoto, setLoadingPhoto] = useState(false);
 

@@ -89,9 +89,20 @@ export const profileService = {
       .eq("profile_id", profileId);
 
     if (error) throw error;
-    
-    type VibeResult = { vibe_tags: { label: string } | null };
-    return (data as VibeResult[])?.map(v => v.vibe_tags?.label).filter(Boolean) as string[] || [];
+
+    type VibeResult = { vibe_tags: any };
+    return (
+      (data as VibeResult[] | null)
+        ?.map((v) => {
+          const vt = v.vibe_tags;
+          if (!vt) return undefined;
+          if (Array.isArray(vt)) {
+            return vt[0]?.label as string | undefined;
+          }
+          return (vt as { label: string }).label;
+        })
+        .filter(Boolean) as string[]
+    ) || [];
   },
 
   /**

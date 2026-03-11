@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { haptics } from "@/lib/haptics";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
 import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
@@ -22,7 +22,7 @@ import { trackEvent } from "@/lib/analytics";
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);

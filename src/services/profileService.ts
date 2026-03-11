@@ -205,7 +205,16 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (profileResult.error) throw profileResult.error;
   if (!profileResult.data) return null;
 
-  const vibes = vibesResult.data?.map((v: { vibe_tags: { label: string } | null }) => v.vibe_tags?.label).filter(Boolean) as string[] || [];
+  type VibeRow = { vibe_tags: any };
+  const vibes =
+    (vibesResult.data as VibeRow[] | null)?.map((v) => {
+      const vt = v.vibe_tags;
+      if (!vt) return undefined;
+      if (Array.isArray(vt)) {
+        return vt[0]?.label as string | undefined;
+      }
+      return (vt as { label: string }).label;
+    }).filter(Boolean) as string[] || [];
 
   const profileData = dbToProfile(profileResult.data as unknown as DbProfile, vibes);
 

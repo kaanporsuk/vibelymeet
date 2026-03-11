@@ -5,7 +5,7 @@ import { ArrowLeft, Clock, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/BottomNav";
 import { useCredits } from "@/hooks/useCredits";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
@@ -48,7 +48,7 @@ const PACKS = [
 const Credits = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { credits, isLoading, refetch } = useCredits();
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
 

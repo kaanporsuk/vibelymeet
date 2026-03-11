@@ -41,7 +41,7 @@ import {
 import { toast } from "sonner";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 
@@ -49,7 +49,7 @@ type SortOption = "recent" | "unread" | "compatibility";
 
 const Matches = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const { data: matches = [], isLoading, refetch } = useMatches();
   const { isPremium } = useSubscription();
   const [phoneVerifiedForEmpty, setPhoneVerifiedForEmpty] = useState(true);

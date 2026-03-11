@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { supabase } from '@/integrations/supabase/client'
-import { useAuth } from '@/contexts/AuthContext'
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export type SubscriptionStatus = 'active' | 'inactive' | 'past_due' | 'canceled' | 'trialing'
 export type SubscriptionPlan = 'monthly' | 'annual' | null
@@ -12,7 +12,7 @@ interface Subscription {
 }
 
 export const useSubscription = () => {
-  const { user } = useAuth()
+  const { user } = useUserProfile();
   const [subscription, setSubscription] = useState<Subscription>({
     status: 'inactive',
     plan: null,

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/hooks/**/*",
+    "src/domain/**/*",
+    "src/services/**/*",
+    "src/contexts/**/*",
+    "src/lib/**/*"
+  ]
+}
+

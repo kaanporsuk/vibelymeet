@@ -162,6 +162,12 @@ Before any operator (or Cursor) runs remote migration operations (push/pull/repa
 
 If it reports parity drift, stop. Do not run `supabase db push`, `supabase db pull`, or `supabase migration repair` until drift is understood and handled as a dedicated workstream.
 
+As of 2026-03-11, one such dedicated workstream has been completed for the linked production project:
+- drift caused primarily by timestamp aliasing was repaired via **metadata-only** history updates
+- two remote-only artifacts are now represented locally by **no-op placeholder migrations**
+- the chat-videos anon-read policy migration (`20260311000000_chat_videos_anon_read.sql`) is recorded as applied in history
+- migration parity is currently clean and `supabase db push --linked --dry-run` reports the remote database as up to date
+
 ### Rule D — No Edge Function change without function-manifest review
 Any added, removed, renamed, or materially changed function must update:
 - Edge Function manifest
@@ -467,9 +473,7 @@ This campaign can be considered complete when:
 - migration risks are classified
 - at least one clean rehearsal rebuild has been completed and logged
 - the team can begin native-specific hardening without losing web baseline recoverability
-
-Latest committed rehearsal log: `_cursor_context/rebuild_rehearsals/2026-03-11_current-controlled-baseline.md`
-
+- Latest committed rehearsal log: `_cursor_context/rebuild_rehearsals/2026-03-11_current-controlled-baseline.md`
 ---
 
 ## 18. Bottom line

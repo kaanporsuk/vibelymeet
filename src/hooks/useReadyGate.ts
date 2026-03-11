@@ -1,14 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
-
-export type ReadyGateStatus =
-  | "waiting"
-  | "ready_a"
-  | "ready_b"
-  | "both_ready"
-  | "forfeited"
-  | "snoozed";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { ReadyGateStatus } from "@/domain/enums";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
@@ -27,9 +20,9 @@ interface UseReadyGateOptions {
 }
 
 export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGateOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [state, setState] = useState<ReadyGateState>({
-    status: "waiting",
+    status: ReadyGateStatus.Queued,
     iAmReady: false,
     partnerReady: false,
     partnerName: null,
@@ -84,9 +77,9 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         expiresAt: session.ready_gate_expires_at,
       });
 
-      if (session.ready_gate_status === "both_ready") {
+      if (session.ready_gate_status === ReadyGateStatus.BothReady) {
         onBothReadyRef.current();
-      } else if (session.ready_gate_status === "forfeited") {
+      } else if (session.ready_gate_status === ReadyGateStatus.Forfeited) {
         onForfeitedRef.current("timeout");
       }
     };
@@ -124,9 +117,9 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
             expiresAt: s.ready_gate_expires_at,
           }));
 
-          if (s.ready_gate_status === "both_ready") {
+          if (s.ready_gate_status === ReadyGateStatus.BothReady) {
             onBothReadyRef.current();
-          } else if (s.ready_gate_status === "forfeited") {
+          } else if (s.ready_gate_status === ReadyGateStatus.Forfeited) {
             onForfeitedRef.current("timeout");
           }
         }
@@ -160,11 +153,13 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     if (session?.ready_participant_1_at && session?.ready_participant_2_at) {
       await supabase
         .from("video_sessions")
-        .update({ ready_gate_status: "both_ready" })
+        .update({ ready_gate_status: ReadyGateStatus.BothReady })
         .eq("id", sessionId);
     } else {
       // Update status to show one is ready
-      const newStatus = isParticipant1 ? "ready_a" : "ready_b";
+      const newStatus = isParticipant1
+        ? ReadyGateStatus.ReadyA
+        : ReadyGateStatus.ReadyB;
       await supabase
         .from("video_sessions")
         .update({ ready_gate_status: newStatus })
@@ -180,7 +175,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
     await supabase
       .from("video_sessions")
-      .update({ ready_gate_status: "forfeited" })
+      .update({ ready_gate_status: ReadyGateStatus.Forfeited })
       .eq("id", sessionId);
   }, [sessionId]);
 
@@ -193,7 +188,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     await supabase
       .from("video_sessions")
       .update({
-        ready_gate_status: "snoozed",
+        ready_gate_status: ReadyGateStatus.Snoozed,
         snoozed_by: user.id,
         snooze_expires_at: snoozeExpires,
       })

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 export interface DeckProfile {
   profile_id: string;
@@ -29,7 +29,7 @@ interface UseEventDeckOptions {
 }
 
 export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
 
   const query = useQuery({
     queryKey: ["event-deck", eventId, user?.id],

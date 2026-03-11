@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 interface UseReconnectionOptions {
   sessionId: string | undefined;
@@ -17,7 +17,7 @@ export const useReconnection = ({
   onReconnected,
   onGraceExpired,
 }: UseReconnectionOptions) => {
-  const { user } = useAuth();
+  const { user } = useUserProfile();
   const [isPartnerDisconnected, setIsPartnerDisconnected] = useState(false);
   const [graceTimeLeft, setGraceTimeLeft] = useState(60);
   const [isTimerPaused, setIsTimerPaused] = useState(false);

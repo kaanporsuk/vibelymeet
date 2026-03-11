@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 
 export interface EventAttendee {
   id: string;
@@ -10,8 +9,6 @@ export interface EventAttendee {
 }
 
 export function useEventAttendees(eventId: string, limit: number = 5) {
-  const { user } = useAuth();
-
   return useQuery({
     queryKey: ['event-attendees', eventId, limit],
     enabled: !!eventId,
