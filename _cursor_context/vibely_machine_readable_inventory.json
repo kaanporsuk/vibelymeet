@@ -49,12 +49,29 @@
       "services": 6,
       "edge_functions_deployable": 28,
       "edge_function_shared_dirs": 1,
-      "migrations": 101,
+      "migrations": 104,
       "public_tables": 41,
       "public_views": 1,
       "public_functions": 22,
       "public_enums": 3,
       "public_assets": 23
+    },
+    "static_assets": {
+      "notification_related": [
+        "public/sw.js",
+        "public/OneSignalSDK.sw.js"
+      ]
+    },
+    "migration_history": {
+      "status": "parity_clean_post_repair",
+      "repair_date": "2026-03-11",
+      "repair_mode": "metadata_only_history_reconciliation",
+      "notes": [
+        "Historical SQL bodies were not re-executed during repair.",
+        "Two legacy remote-only artifacts are now represented by no-op local placeholders: 20260309000534_legacy_remote_artifact.sql and 20260309005543_legacy_remote_artifact.sql.",
+        "Migration 20260311000000_chat_videos_anon_read.sql was marked applied in history because its RLS policy had already been executed manually.",
+        "./scripts/check_migration_parity.sh reports parity OK and supabase db push --linked --dry-run reports the remote database as up to date."
+      ]
     }
   },
   "stack": {

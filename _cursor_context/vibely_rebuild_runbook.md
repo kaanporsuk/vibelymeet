@@ -130,7 +130,7 @@ The repo contains all of the following:
 
 For rebuild reproducibility, use **npm as the canonical installer** because `package-lock.json` is present and unambiguous.
 
-Install dependencies:
+Install dependencies (including devDependencies, which are required for `vite` to be available in scripts):
 
 ```bash
 npm ci
@@ -189,6 +189,24 @@ cp .env .env.backup-from-frozen || true
 ```
 
 Then replace with a clean file using only valid `KEY=value` lines.
+
+---
+
+## 9. Required static assets for notifications
+
+For OneSignal web push (v16), the site must serve a OneSignal service worker script **from the domain root**:
+
+- `https://vibelymeet.com/OneSignalSDK.sw.js`
+
+The repo provides a shim at:
+
+- `public/OneSignalSDK.sw.js`
+
+which delegates to the official OneSignal CDN worker. A successful rebuild/deploy **must** ensure this file is published at the root so that requests like:
+
+- `https://vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+
+do **not** 404 and OneSignal’s service worker can register correctly. OneSignal health still depends on the provider-side app/origin/service-worker configuration in the OneSignal dashboard.
 
 ---
 
@@ -253,6 +271,19 @@ You must first run the repo’s **read-only migration parity checker** to confir
 If parity drift is detected, do **not** proceed with push/pull/repair in an ad-hoc way. Treat it as a dedicated workstream:
 - determine whether drift is **systematic timestamp mismatch** (common) vs genuinely missing migrations
 - only then decide on a repair strategy
+
+#### 11.1 Current production-linked migration state (post-repair)
+
+As of 2026-03-11, a dedicated **metadata-only** migration-repair lane has been run against the linked production project:
+- remote vs local migration history was reconciled via `supabase migration repair` status flips only; **no historical SQL bodies were re-executed**
+- two legacy remote-only artifacts are now represented by **no-op local placeholder migrations**:
+  - `20260309000534_legacy_remote_artifact.sql`
+  - `20260309005543_legacy_remote_artifact.sql`
+- migration `20260311000000_chat_videos_anon_read.sql` (chat-videos anon-read policy) was marked **applied** in history because its logic had already been executed manually
+- `./scripts/check_migration_parity.sh` now reports **parity OK** (no missing local or remote versions)
+- `supabase db push --linked --dry-run` reports the remote database as **up to date**
+
+Future operators must still respect the parity-first rule above before making any new migration changes.
 
 Canonical command:
 

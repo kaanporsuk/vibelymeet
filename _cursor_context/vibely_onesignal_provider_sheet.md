@@ -1,7 +1,7 @@
 # VIBELY — ONESIGNAL PROVIDER SHEET
 
-**Date:** 2026-03-10  
-**Baseline:** pre-native-hardening frozen baseline  
+**Date:** 2026-03-11  
+**Baseline:** post-hardening / reconciled baseline  
 **Priority:** Tier 2 / notification-critical
 
 ---
@@ -103,10 +103,11 @@ Do not treat “browser notifications work” as proof that OneSignal is healthy
 ## 5. OneSignal config surface
 
 ## Frontend hardcoded config
-`src/lib/onesignal.ts` hardcodes:
-- `ONESIGNAL_APP_ID = "97e52ea2-6a27-4486-a678-4dd8a0d49e94"`
+`src/lib/onesignal.ts` uses:
+- `ONESIGNAL_APP_ID_FALLBACK = "97e52ea2-6a27-4486-a678-4dd8a0d49e94"`
+- `ONESIGNAL_APP_ID = import.meta.env.VITE_ONESIGNAL_APP_ID || ONESIGNAL_APP_ID_FALLBACK`
 
-This is **not** read from Vite env in the frozen baseline.
+This means the frontend app ID is now **env-backed with fallback**; the env and fallback values must both refer to the same OneSignal app used by the backend.
 
 ## Backend env config
 Functions expect:
@@ -126,6 +127,26 @@ The system has two sources of truth for the OneSignal app:
 They must point to the **same** OneSignal app.
 
 If they drift, Vibely can register subscriptions in one app while sending through another.
+
+### Service worker / static asset requirements (web push v16)
+
+OneSignal v16 web push requires a root-served service worker script. The browser will request:
+
+- `https://vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+
+The repo now provides a **shim** at:
+
+- `public/OneSignalSDK.sw.js`
+
+which imports the official CDN worker:
+
+- `importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");`
+
+A healthy deploy must ensure that `OneSignalSDK.sw.js` is actually served from the site root so this request does **not** 404. Final delivery still depends on:
+
+- OneSignal dashboard app identity
+- allowed origins/domains (must include `https://vibelymeet.com`)
+- any service-worker/origin linkage configured in the OneSignal dashboard.
 
 ---
 
