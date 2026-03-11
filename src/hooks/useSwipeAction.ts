@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
-import { sendNotification } from "@/lib/notifications";
 import { trackEvent } from "@/lib/analytics";
 
 interface SwipeResult {
@@ -32,11 +31,12 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
 
       setIsProcessing(true);
       try {
-        const { data, error } = await supabase.rpc("handle_swipe", {
-          p_event_id: eventId,
-          p_actor_id: user.id,
-          p_target_id: targetId,
-          p_swipe_type: swipeType,
+        const { data, error } = await supabase.functions.invoke("swipe-actions", {
+          body: {
+            event_id: eventId,
+            target_id: targetId,
+            swipe_type: swipeType,
+          },
         });
 
         if (error) {
@@ -58,14 +58,6 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             if (result.immediate && result.match_id) {
               onMatch?.(result.match_id);
             }
-            // Notify both users about the match
-            sendNotification({
-              user_id: targetId,
-              category: "new_match",
-              title: "It's a match! 🎉",
-              body: "You have a new match! Start chatting now.",
-              data: { url: "/matches" },
-            });
             return result;
 
           case "match_queued":
@@ -73,26 +65,10 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
               duration: 3000,
             });
             if (result.match_id) onMatchQueued?.(result.match_id);
-            // Notify partner about the queued match
-            sendNotification({
-              user_id: targetId,
-              category: "ready_gate",
-              title: "Video date ready! 📹",
-              body: "Someone is waiting — tap to join your video date",
-              data: { url: `/matches` },
-            });
             return result;
 
           case "super_vibe_sent":
             toast("Super Vibe sent! ✨", { duration: 2000 });
-            // Notify target that someone vibed them (don't reveal who)
-            sendNotification({
-              user_id: targetId,
-              category: "someone_vibed_you",
-              title: "Someone vibed you! 💜",
-              body: "Join the event to find out who",
-              data: { url: "/events" },
-            });
             return result;
 
           case "no_credits":
@@ -117,14 +93,7 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             return result;
 
           case "vibe_recorded":
-            // Non-mutual vibe — notify target without revealing who
-            sendNotification({
-              user_id: targetId,
-              category: "someone_vibed_you",
-              title: "Someone vibed you! 💜",
-              body: "Join the event to find out who",
-              data: { url: "/events" },
-            });
+            // Non-mutual vibe — notification handled server-side
             return result;
 
           default:
