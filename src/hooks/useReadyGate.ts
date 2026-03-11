@@ -131,68 +131,34 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     };
   }, [sessionId, user?.id]);
 
-  // Mark self as ready
+  // Mark self as ready (server-owned transition)
   const markReady = useCallback(async () => {
     if (!sessionId || !user?.id) return;
 
-    const readyField = isParticipant1 ? "ready_participant_1_at" : "ready_participant_2_at";
+    await supabase.rpc("ready_gate_transition", {
+      p_session_id: sessionId,
+      p_action: "mark_ready",
+    });
+  }, [sessionId, user?.id]);
 
-    // First update my ready timestamp
-    await supabase
-      .from("video_sessions")
-      .update({ [readyField]: new Date().toISOString() })
-      .eq("id", sessionId);
-
-    // Now check if both are ready
-    const { data: session } = await supabase
-      .from("video_sessions")
-      .select("ready_participant_1_at, ready_participant_2_at")
-      .eq("id", sessionId)
-      .maybeSingle();
-
-    if (session?.ready_participant_1_at && session?.ready_participant_2_at) {
-      await supabase
-        .from("video_sessions")
-        .update({ ready_gate_status: ReadyGateStatus.BothReady })
-        .eq("id", sessionId);
-    } else {
-      // Update status to show one is ready
-      const newStatus = isParticipant1
-        ? ReadyGateStatus.ReadyA
-        : ReadyGateStatus.ReadyB;
-      await supabase
-        .from("video_sessions")
-        .update({ ready_gate_status: newStatus })
-        .eq("id", sessionId);
-    }
-
-    setState((prev) => ({ ...prev, iAmReady: true }));
-  }, [sessionId, user?.id, isParticipant1]);
-
-  // Skip — forfeit
+  // Skip — forfeit (server-owned transition)
   const skip = useCallback(async () => {
     if (!sessionId) return;
 
-    await supabase
-      .from("video_sessions")
-      .update({ ready_gate_status: ReadyGateStatus.Forfeited })
-      .eq("id", sessionId);
+    await supabase.rpc("ready_gate_transition", {
+      p_session_id: sessionId,
+      p_action: "forfeit",
+    });
   }, [sessionId]);
 
-  // Snooze — request 2 more minutes
+  // Snooze — request 2 more minutes (server-owned transition)
   const snooze = useCallback(async () => {
     if (!sessionId || !user?.id) return;
 
-    const snoozeExpires = new Date(Date.now() + 2 * 60 * 1000).toISOString();
-
-    await supabase
-      .from("video_sessions")
-      .update({
-        ready_gate_status: ReadyGateStatus.Snoozed,
-        snoozed_by: user.id,
-        snooze_expires_at: snoozeExpires,
-      })
-      .eq("id", sessionId);
+    await supabase.rpc("ready_gate_transition", {
+      p_session_id: sessionId,
+      p_action: "snooze",
+    });
   }, [sessionId, user?.id]);
 
   return {

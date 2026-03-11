@@ -2159,6 +2159,10 @@ export type Database = {
         Args: { p_event_id: string; p_status: string; p_user_id: string }
         Returns: undefined
       }
+      ready_gate_transition: {
+        Args: { p_action: string; p_reason?: string | null; p_session_id: string }
+        Returns: Json
+      }
       video_date_transition: {
         Args: { p_action: string; p_reason?: string | null; p_session_id: string }
         Returns: Json
