@@ -20,7 +20,8 @@ Copy `.env.example` to `.env` and set:
 | Variable | Description |
 |----------|-------------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Supabase project URL (same as web `VITE_SUPABASE_URL`) |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (same as web `VITE_SUPABASE_PUBLISHABLE_KEY`) |
+| `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key used by the mobile client. Preferred over the legacy anon key. |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | (Legacy) Supabase anon key, used only as a fallback if publishable key is not set. |
 | `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Optional; for `photos/` image URLs (same as web Bunny CDN). |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | OneSignal App ID for push (same as web). Required for push registration. |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat public API key for iOS. Preferred on iOS; omit to fall back to `EXPO_PUBLIC_REVENUECAT_API_KEY`. |
@@ -29,12 +30,14 @@ Copy `.env.example` to `.env` and set:
 
 Secrets stay out of committed source; use `.env` locally and EAS/CI secrets for builds.
 
+**EAS / npm install:** `.npmrc` sets `legacy-peer-deps=true` so cloud installs succeed despite `@daily-co/config-plugin-rn-daily-js` declaring `expo@^54` while the app uses Expo 55. This is temporary until Daily publishes an Expo 55–compatible plugin; remove the override when no longer needed.
+
 ## Run locally
 
 ```bash
 cd apps/mobile
 npm install
-# Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY (e.g. in .env or export)
+# Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or EXPO_PUBLIC_SUPABASE_ANON_KEY as fallback) (e.g. in .env or export)
 npm start
 # Then: i (iOS simulator), a (Android emulator), or w (web)
 ```
