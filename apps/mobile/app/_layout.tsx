@@ -51,8 +51,7 @@ function RootLayoutNav() {
   const colorScheme = useColorScheme();
 
   useEffect(() => {
-    const key = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY;
-    if (key) initRevenueCat(key);
+    initRevenueCat();
   }, []);
 
   return (

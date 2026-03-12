@@ -50,7 +50,7 @@ Use this order so dependencies are available when needed.
    - Create or use project; add iOS and Android apps (bundle ID / package name match Expo app).  
    - Create products in App Store Connect / Play Console; create entitlement(s) (e.g. `premium`) and offerings in RevenueCat.  
    - Configure webhook: URL `https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook`, Authorization header = `REVENUECAT_WEBHOOK_AUTHORIZATION` value.  
-   - Copy public API key(s) for mobile `EXPO_PUBLIC_REVENUECAT_API_KEY`.
+   - Copy public API key(s) for mobile: `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, or `EXPO_PUBLIC_REVENUECAT_API_KEY` (fallback).
 
 2. **OneSignal**  
    - Ensure web app already configured; add iOS app (APNs) and Android app (FCM) in same or linked OneSignal project.  
@@ -62,7 +62,7 @@ Use this order so dependencies are available when needed.
 
 4. **Expo / EAS**  
    - Link EAS project; configure build profiles (development, preview, production).  
-   - Set EAS secrets for mobile: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, `EXPO_PUBLIC_REVENUECAT_API_KEY`, optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`.  
+   - Set EAS secrets for mobile: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, RevenueCat keys (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` / `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` or `EXPO_PUBLIC_REVENUECAT_API_KEY`), optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`.  
    - Credentials: iOS (distribution cert, provisioning profile), Android (keystore); EAS can manage.
 
 5. **App Store Connect**  

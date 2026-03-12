@@ -29,7 +29,7 @@ Sprint 6 adds native in-app purchases via RevenueCat, a canonical backend entitl
 ## RevenueCat mobile integration implemented
 
 - **SDK:** `react-native-purchases` in `apps/mobile`. Wrapper in `lib/revenuecat.ts`: `initRevenueCat(apiKey)`, `setRevenueCatUserId(userId)`, `getOfferings()`, `purchasePackage(pkg)`, `restorePurchases()`. Initialization in `_layout.tsx` and on premium screen; `setRevenueCatUserId` when user is logged in and opening premium.
-- **Env:** `EXPO_PUBLIC_REVENUECAT_API_KEY` (optional). If unset, premium screen shows backend state and “In-app purchases are not configured” instead of packages.
+- **Env:** `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` and/or `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` (preferred), or `EXPO_PUBLIC_REVENUECAT_API_KEY` (fallback for both). If all unset, premium screen shows backend state and “In-app purchases are not configured” instead of packages.
 - **Premium screen** (`app/premium.tsx`): Reads canonical state via `useBackendSubscription` (subscriptions + profiles). If RevenueCat configured, loads offerings and shows packages; purchase and restore call SDK then `refetch` backend. Handles loading, already premium, no offerings, and not-configured states without faking success.
 
 ## Backend sync / reconciliation implemented
@@ -45,7 +45,7 @@ Sprint 6 adds native in-app purchases via RevenueCat, a canonical backend entitl
 ## Release hardening completed
 
 - **App config:** No new native config beyond existing (Daily, OneSignal). RevenueCat SDK works with existing Expo dev builds.
-- **Env documentation:** `.env.example` and `README.md` updated with `EXPO_PUBLIC_REVENUECAT_API_KEY`; README lists all required env vars and “Release readiness” section.
+- **Env documentation:** `.env.example` and `README.md` list `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, and `EXPO_PUBLIC_REVENUECAT_API_KEY` (fallback); README lists all required env vars and “Release readiness” section.
 - **Dev build vs Expo Go:** README states that video and in-app purchases require a development build (prebuild or EAS); Expo Go not supported for these features.
 - **External dashboards:** Documented: RevenueCat (project, apps, products, offerings, webhook URL + auth header); Supabase (deploy revenuecat-webhook, set webhook secret). Store submission and final dashboard setup are out of scope for Sprint 6.
 
