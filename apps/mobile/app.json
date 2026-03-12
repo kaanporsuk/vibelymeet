@@ -16,7 +16,10 @@
       "bundleIdentifier": "com.vibelymeet.vibely",
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["remote-notification", "voip"],
+        "UIBackgroundModes": [
+          "remote-notification",
+          "voip"
+        ],
         "NSCameraUsageDescription": "Vibely needs camera access for video dates.",
         "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates."
       },
@@ -32,7 +35,20 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET",
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.CAMERA",
+        "android.permission.FOREGROUND_SERVICE_CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -41,11 +57,39 @@
     },
     "plugins": [
       "@daily-co/config-plugin-rn-daily-js",
-      ["onesignal-expo-plugin", { "mode": "development" }],
+      [
+        "onesignal-expo-plugin",
+        {
+          "mode": "development"
+        }
+      ],
       "expo-router"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "OneSignalNotificationServiceExtension",
+                  "bundleIdentifier": "com.vibelymeet.vibely.OneSignalNotificationServiceExtension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.vibelymeet.vibely.onesignal"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "5c6f619c-3eea-4cbc-82f8-52b3875e0bf9"
+      },
+      "router": {}
     }
   }
 }

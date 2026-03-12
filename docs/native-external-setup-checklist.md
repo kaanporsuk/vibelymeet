@@ -96,7 +96,8 @@ Exact checklist for external provider and store setup required before TestFlight
 | Variable | Local dev | EAS preview/production |
 |----------|-----------|-------------------------|
 | `EXPO_PUBLIC_SUPABASE_URL` | Required (e.g. `.env`) | Set in EAS secrets |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Required | Set in EAS secrets |
+| `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Required (preferred) | Set in EAS secrets |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Legacy fallback only | Set in EAS secrets (optional) |
 | `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Optional | Optional |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | Required for push | Set in EAS secrets |
 | `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | Preferred for iOS IAP | Set in EAS secrets |
