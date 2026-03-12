@@ -62,7 +62,7 @@ Use this order so dependencies are available when needed.
 
 4. **Expo / EAS**  
    - Link EAS project; configure build profiles (development, preview, production).  
-   - Set EAS secrets for mobile: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, RevenueCat keys (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` / `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` or `EXPO_PUBLIC_REVENUECAT_API_KEY`), optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`.  
+   - Set EAS secrets for mobile: `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `EXPO_PUBLIC_SUPABASE_ANON_KEY` as legacy fallback), `EXPO_PUBLIC_ONESIGNAL_APP_ID`, RevenueCat keys (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` / `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` or `EXPO_PUBLIC_REVENUECAT_API_KEY`), optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`.  
    - Credentials: iOS (distribution cert, provisioning profile), Android (keystore); EAS can manage.
 
 5. **App Store Connect**  
