@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 
 export type ParticipantStatus =
@@ -66,8 +66,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
       // Use sendBeacon for reliability on page close
       // Include apikey as query param since sendBeacon can't set custom headers
       // update_participant_status is SECURITY DEFINER so anon key is sufficient
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/update_participant_status?apikey=${anonKey}`;
+      const url = `${SUPABASE_URL}/rest/v1/rpc/update_participant_status?apikey=${SUPABASE_PUBLISHABLE_KEY}`;
       const body = JSON.stringify({
         p_event_id: eventId,
         p_user_id: user.id,

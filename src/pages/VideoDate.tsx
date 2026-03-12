@@ -23,7 +23,7 @@ import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
@@ -378,8 +378,8 @@ const VideoDate = () => {
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
 
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL;
       const token = accessTokenRef.current;
+      const baseUrl = SUPABASE_URL;
 
       // Server-owned transition + status update (keepalive fetch with JWT)
       if (token && baseUrl) {
@@ -388,7 +388,7 @@ const VideoDate = () => {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            apikey: SUPABASE_PUBLISHABLE_KEY,
           },
           body: JSON.stringify({ p_session_id: id, p_action: "end", p_reason: "beforeunload" }),
           keepalive: true,
@@ -400,7 +400,7 @@ const VideoDate = () => {
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
-              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              apikey: SUPABASE_PUBLISHABLE_KEY,
             },
             body: JSON.stringify({ p_event_id: eventId, p_user_id: user.id, p_status: "offline" }),
             keepalive: true,
