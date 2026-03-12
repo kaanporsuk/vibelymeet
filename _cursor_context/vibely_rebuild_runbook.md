@@ -164,20 +164,15 @@ Create a clean frontend env file for local use.
 
 ### Required frontend variables actually referenced by source
 
-```env
-VITE_SUPABASE_URL=
-VITE_SUPABASE_PUBLISHABLE_KEY=
-VITE_BUNNY_STREAM_CDN_HOSTNAME=
-VITE_BUNNY_CDN_HOSTNAME=
-VITE_POSTHOG_API_KEY=
-VITE_POSTHOG_HOST=               # optional; defaults to https://eu.i.posthog.com
-VITE_SENTRY_DSN=                 # optional; defaults to the historical Sentry DSN
-VITE_ONESIGNAL_APP_ID=           # optional; defaults to the historical OneSignal App ID
-```
+See root **`.env.example`** for the canonical list. Use `KEY=value` with no spaces around `=`.
+
+- **Required:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY` as fallback).
+- **Optional:** `VITE_BUNNY_STREAM_CDN_HOSTNAME`, `VITE_BUNNY_CDN_HOSTNAME`, `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_HOST`, `VITE_SENTRY_DSN`, `VITE_ONESIGNAL_APP_ID` (each has in-code fallback or is optional).
 
 ### Notes
 
-- `VITE_SUPABASE_PROJECT_ID` appears in the checked-in `.env` but is not required by the app runtime.
+- Do **not** put server secrets in `VITE_*` (e.g. Twilio auth token, Resend API key, Supabase project ID). They are browser-exposed.
+- `VITE_SUPABASE_PROJECT_ID` is not required by the app runtime.
 - OneSignal App ID is now **env-backed with fallback** via `VITE_ONESIGNAL_APP_ID`; if unset, the historical App ID is used.
 - Sentry DSN is now **env-backed with fallback** via `VITE_SENTRY_DSN`; if unset, the historical DSN is used.
 - PostHog host is now **env-backed with fallback** via `VITE_POSTHOG_HOST`; if unset, it defaults to the EU cloud host.
@@ -426,7 +421,10 @@ Deploy all function directories except `_shared`:
 - `push-webhook`
 - `request-account-deletion`
 - `send-notification`
+- `send-message`
 - `stripe-webhook`
+- `swipe-actions`
+- `daily-drop-actions`
 - `unsubscribe`
 - `upload-event-cover`
 - `upload-image`
@@ -597,6 +595,15 @@ Run these after migrations, secrets, and function deployments are complete.
 - email verification flow works
 - unsubscribe links resolve correctly
 - event notification / drip emails render without broken URLs
+
+### Golden-path regression runbook (post-hardening)
+
+For a repeatable regression pass over the hardened web baseline (auth/onboarding gating, pause/resume, Ready Gate, video-date, Daily Drop, chat send + notifications, swipe/match notifications, premium/credits, admin), use:
+
+- **Runbook:** `docs/golden-path-regression-runbook.md` — step-by-step PASS/fail checklist for each flow.
+- **Static smoke script:** `scripts/run_golden_path_smoke.sh` — runs `npm run typecheck:core` and `npm run build`; run this first, then follow the runbook for manual/browser steps.
+
+No Playwright/Cypress is installed; the runbook is manual/scriptable. Add E2E automation later if desired.
 
 ---
 
