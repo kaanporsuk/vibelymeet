@@ -13,6 +13,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
+      "bundleIdentifier": "com.vibelymeet.vibely",
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": ["remote-notification", "voip"],
@@ -24,6 +25,7 @@
       }
     },
     "android": {
+      "package": "com.vibelymeet.vibely",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
