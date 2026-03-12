@@ -1,21 +1,39 @@
 /**
  * RevenueCat SDK wrapper for native premium/subscription.
- * Requires EXPO_PUBLIC_REVENUECAT_API_KEY (iOS and/or Android key from RevenueCat dashboard).
+ * Prefers platform-specific keys: EXPO_PUBLIC_REVENUECAT_IOS_API_KEY, EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY.
+ * Falls back to EXPO_PUBLIC_REVENUECAT_API_KEY if platform key is unset (backward compatible).
  * Backend entitlement is synced via revenuecat-webhook Edge Function; mobile reads canonical state from backend after purchase.
  */
 
+import { Platform } from 'react-native';
 import Purchases, { type PurchasesOfferings, type PurchasesPackage } from 'react-native-purchases'
 
 let configured = false
+
+/**
+ * Resolves the RevenueCat API key for the current platform.
+ * Uses iOS/Android-specific env vars when set, otherwise EXPO_PUBLIC_REVENUECAT_API_KEY.
+ */
+export function getRevenueCatApiKey(): string {
+  const generic = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY ?? '';
+  if (Platform.OS === 'ios') {
+    return (process.env.EXPO_PUBLIC_REVENUECAT_IOS_API_KEY ?? generic).trim();
+  }
+  if (Platform.OS === 'android') {
+    return (process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY ?? generic).trim();
+  }
+  return generic.trim();
+}
 
 export function isRevenueCatConfigured(): boolean {
   return configured
 }
 
-export function initRevenueCat(apiKey: string | undefined): void {
-  if (!apiKey?.trim()) return
+export function initRevenueCat(apiKey?: string): void {
+  const key = (apiKey?.trim() ?? getRevenueCatApiKey()) || '';
+  if (!key) return
   try {
-    Purchases.configure({ apiKey: apiKey.trim() })
+    Purchases.configure({ apiKey: key })
     configured = true
   } catch {
     configured = false

@@ -22,24 +22,23 @@ import {
   initRevenueCat,
   setRevenueCatUserId,
   isRevenueCatConfigured,
+  getRevenueCatApiKey,
 } from '@/lib/revenuecat';
 import type { PurchasesOfferings, PurchasesPackage } from 'react-native-purchases';
 import { format } from 'date-fns';
-
-const RC_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY ?? '';
 
 export default function PremiumScreen() {
   const { user } = useAuth();
   const { isPremium, plan, currentPeriodEnd, isLoading: subLoading, refetch } = useBackendSubscription(user?.id);
 
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
-  const [offeringsLoading, setOfferingsLoading] = useState(!!RC_API_KEY);
+  const [offeringsLoading, setOfferingsLoading] = useState(!!getRevenueCatApiKey());
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    initRevenueCat(RC_API_KEY);
+    initRevenueCat();
   }, []);
 
   useEffect(() => {

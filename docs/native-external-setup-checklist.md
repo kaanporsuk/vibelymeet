@@ -41,7 +41,7 @@ Exact checklist for external provider and store setup required before TestFlight
 - [ ] In RevenueCat dashboard → Integrations → Webhooks: add webhook URL  
   `https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook`
 - [ ] Set Authorization header to the **same value** as `REVENUECAT_WEBHOOK_AUTHORIZATION` (e.g. `Bearer <secret>` or just `<secret>` per RevenueCat docs).
-- [ ] Copy **public** API keys (iOS and/or Android) for use in mobile app as `EXPO_PUBLIC_REVENUECAT_API_KEY` (or separate keys per platform if you prefer).
+- [ ] Copy **public** API keys: set `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` and/or `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` in mobile app (or single `EXPO_PUBLIC_REVENUECAT_API_KEY` as fallback for both).
 
 ---
 
@@ -67,7 +67,7 @@ Exact checklist for external provider and store setup required before TestFlight
 - [ ] EAS project linked: `eas init` or existing project.
 - [ ] `eas.json` build profiles (e.g. development, preview, production).
 - [ ] Credentials: iOS (distribution cert, provisioning profile), Android (keystore). EAS can manage these.
-- [ ] Env vars / secrets in EAS: set `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, `EXPO_PUBLIC_REVENUECAT_API_KEY`, and optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` for the appropriate profile.
+- [ ] Env vars / secrets in EAS: set `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, RevenueCat keys (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, or `EXPO_PUBLIC_REVENUECAT_API_KEY`), and optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` for the appropriate profile.
 
 ---
 
@@ -99,7 +99,9 @@ Exact checklist for external provider and store setup required before TestFlight
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Required | Set in EAS secrets |
 | `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` | Optional | Optional |
 | `EXPO_PUBLIC_ONESIGNAL_APP_ID` | Required for push | Set in EAS secrets |
-| `EXPO_PUBLIC_REVENUECAT_API_KEY` | Required for IAP UI | Set in EAS secrets |
+| `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | Preferred for iOS IAP | Set in EAS secrets |
+| `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` | Preferred for Android IAP | Set in EAS secrets |
+| `EXPO_PUBLIC_REVENUECAT_API_KEY` | Fallback for both if platform keys unset | Set in EAS secrets |
 
 ### Supabase Edge Functions (already used by web)
 
