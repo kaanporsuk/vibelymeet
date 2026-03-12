@@ -14,5 +14,8 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    // Ensure single React instance (avoids "dispatcher is null" / invalid hook / useAuth context loss).
+    // @vitejs/plugin-react-swc does not dedupe automatically; duplicate React breaks context and hooks.
+    dedupe: ["react", "react-dom"],
   },
 }));
