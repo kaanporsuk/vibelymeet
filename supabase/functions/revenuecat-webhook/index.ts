@@ -52,10 +52,20 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = (await req.json()) as RCEvent
-    const eventType = body.type
-    const appUserId = body.app_user_id ?? body.original_app_user_id
+    const payload = await req.json() as { event?: RCEvent } & RCEvent
+    const event: RCEvent = payload.event ?? payload
 
+    const eventType = event.type
+    const appUserId = event.app_user_id ?? event.original_app_user_id
+
+    // TEST and TRANSFER may have no app_user_id per RevenueCat docs; acknowledge and skip DB write
+    if ((eventType === 'TEST' || eventType === 'TRANSFER') && !appUserId) {
+      console.log(`RevenueCat webhook ${eventType} (no app_user_id): acknowledged`)
+      return new Response(
+        JSON.stringify({ success: true, received: true }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
     if (!appUserId) {
       return new Response(
         JSON.stringify({ success: false, error: 'Missing app_user_id' }),
@@ -69,9 +79,9 @@ Deno.serve(async (req) => {
     )
 
     const provider = 'revenuecat'
-    const plan = planFromProductId(body.product_id)
-    const currentPeriodEnd = toPeriodEnd(body.expiration_at_ms ?? undefined)
-    const isTrialing = body.period_type === 'TRIAL'
+    const plan = planFromProductId(event.product_id)
+    const currentPeriodEnd = toPeriodEnd(event.expiration_at_ms ?? undefined)
+    const isTrialing = event.period_type === 'TRIAL'
 
     switch (eventType) {
       case 'INITIAL_PURCHASE':
@@ -86,8 +96,8 @@ Deno.serve(async (req) => {
             status: isTrialing ? 'trialing' : 'active',
             plan,
             current_period_end: currentPeriodEnd,
-            rc_product_id: body.product_id ?? null,
-            rc_original_app_user_id: body.original_app_user_id ?? null,
+            rc_product_id: event.product_id ?? null,
+            rc_original_app_user_id: event.original_app_user_id ?? null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'user_id,provider' }

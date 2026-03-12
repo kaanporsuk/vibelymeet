@@ -5,6 +5,11 @@ import posthog from 'posthog-js';
 import App from "./App.tsx";
 import "./index.css";
 
+// P0: Stale/callback reference — avoid "scheduleDailyDropNotification is not defined" (e.g. from SW or legacy config).
+if (typeof window !== "undefined") {
+  (window as unknown as { scheduleDailyDropNotification?: () => void }).scheduleDailyDropNotification = () => {};
+}
+
 const SENTRY_DSN_FALLBACK =
   "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088";
 const SENTRY_DSN =
@@ -58,6 +63,16 @@ posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
   },
 });
 
-initOneSignal();
+// Only init OneSignal on production origin to avoid "Can only be used on: https://vibelymeet.com" crash.
+const origin = typeof window !== "undefined" ? window.location.origin : "";
+if (origin === "https://vibelymeet.com" || origin.startsWith("http://localhost")) {
+  try {
+    initOneSignal();
+  } catch (e) {
+    if (typeof Sentry?.captureMessage === "function") {
+      Sentry.captureMessage("OneSignal init skipped or failed", { level: "warning", extra: { error: String(e) } });
+    }
+  }
+}
 
 createRoot(document.getElementById("root")!).render(<App />);

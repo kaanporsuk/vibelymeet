@@ -49,8 +49,15 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
         videoRef.current.srcObject = stream;
       }
       return stream;
-    } catch (err) {
-      toast.error('Could not access camera');
+    } catch (err: unknown) {
+      const name = err instanceof Error ? err.name : "";
+      if (name === "AbortError" || name === "NotAllowedError") {
+        toast.error("Camera access was denied or cancelled");
+      } else if (name === "NotSupportedError") {
+        toast.error("Video recording is not supported in this browser");
+      } else {
+        toast.error("Could not access camera");
+      }
       onCancel();
       return null;
     }
