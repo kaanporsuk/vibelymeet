@@ -66,7 +66,7 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
     animationFrameRef.current = requestAnimationFrame(analyzeAudio);
   }, []);
 
-  // Start recording
+  // Start recording (AbortError/NotSupportedError are expected when user denies or browser limits)
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -139,8 +139,15 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
       if ('vibrate' in navigator) {
         navigator.vibrate(50);
       }
-    } catch (err) {
-      toast.error('Could not access microphone');
+    } catch (err: unknown) {
+      const name = err instanceof Error ? err.name : "";
+      if (name === "AbortError" || name === "NotAllowedError") {
+        toast.error("Microphone access was denied or cancelled");
+      } else if (name === "NotSupportedError") {
+        toast.error("Recording is not supported in this browser");
+      } else {
+        toast.error("Could not access microphone");
+      }
     }
   };
 

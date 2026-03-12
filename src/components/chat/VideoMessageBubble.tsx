@@ -80,8 +80,12 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play();
-      setIsPlaying(true);
+      video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
+        const name = err instanceof Error ? err.name : "";
+        if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
+          setLoadError(true);
+        }
+      });
     } else {
       video.pause();
       setIsPlaying(false);

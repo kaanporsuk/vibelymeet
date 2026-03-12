@@ -8,23 +8,37 @@ const ONESIGNAL_APP_ID_FALLBACK = "97e52ea2-6a27-4486-a678-4dd8a0d49e94";
 const ONESIGNAL_APP_ID =
   import.meta.env.VITE_ONESIGNAL_APP_ID || ONESIGNAL_APP_ID_FALLBACK;
 
+/** OneSignal domain restriction throws e.g. "This web push config can only be used on https://vibelymeet.com". */
+function isOneSignalDomainError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /can only be used on|WrongSiteUrl|SdkInitError/i.test(msg);
+}
+
 export const initOneSignal = () => {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   window.OneSignalDeferred.push(async (OneSignal: any) => {
-    await OneSignal.init({
-      appId: ONESIGNAL_APP_ID,
-      notifyButton: { enable: false },
-      allowLocalhostAsSecureOrigin: true,
-      serviceWorkerParam: { scope: "/" },
-    });
+    try {
+      await OneSignal.init({
+        appId: ONESIGNAL_APP_ID,
+        notifyButton: { enable: false },
+        allowLocalhostAsSecureOrigin: true,
+        serviceWorkerParam: { scope: "/" },
+      });
 
-    // Deep link handler — navigate on notification tap
-    OneSignal.Notifications.addEventListener("click", (event: any) => {
-      const url = event.notification?.data?.url;
-      if (url && typeof url === "string") {
-        window.location.href = url;
+      // Deep link handler — navigate on notification tap
+      OneSignal.Notifications.addEventListener("click", (event: any) => {
+        const url = event.notification?.data?.url;
+        if (url && typeof url === "string") {
+          window.location.href = url;
+        }
+      });
+    } catch (e) {
+      if (isOneSignalDomainError(e)) {
+        console.warn("[OneSignal] Skipped on this origin (domain restriction).");
+        return;
       }
-    });
+      throw e;
+    }
   });
 };
 
