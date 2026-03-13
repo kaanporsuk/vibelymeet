@@ -180,22 +180,27 @@ export default function ProfileScreen() {
         />
       }
     >
-      {/* Hero gradient header — premium/neon top area */}
+      {/* Hero — web parity: top-left eye, top-right settings, centered photo, floating camera/video */}
       <View style={[styles.heroGradient, { backgroundColor: theme.tint, paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.heroButtons}>
-          <View style={[styles.heroButton, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+          <Pressable
+            style={[styles.heroButton, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+            onPress={() => {}}
+            accessibilityLabel="Preview profile"
+          >
             <Ionicons name="eye-outline" size={20} color={theme.text} />
-          </View>
+          </Pressable>
           <Pressable
             style={[styles.heroButton, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
             onPress={() => router.push('/settings')}
+            accessibilityLabel="Settings"
           >
             <Ionicons name="settings-outline" size={20} color={theme.text} />
           </Pressable>
         </View>
       </View>
 
-      {/* Overlapping profile photo area */}
+      {/* Centered profile photo with floating video + camera buttons */}
       <View style={styles.avatarWrap}>
         <View style={[styles.avatarRing, { borderColor: theme.background }]}>
           <Avatar
@@ -208,8 +213,16 @@ export default function ProfileScreen() {
             fallbackInitials={profile?.name?.[0] ?? 'V'}
           />
           <Pressable
+            style={[styles.videoBtn, { backgroundColor: theme.surface }]}
+            onPress={() => {}}
+            accessibilityLabel="Vibe video"
+          >
+            <Ionicons name="videocam-outline" size={18} color={theme.text} />
+          </Pressable>
+          <Pressable
             style={[styles.cameraBtn, { backgroundColor: theme.tint }]}
             onPress={() => setEditing(true)}
+            accessibilityLabel="Edit photo"
           >
             <Ionicons name="camera" size={20} color="#fff" />
           </Pressable>
@@ -596,6 +609,16 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 999,
+  },
+  videoBtn: {
+    position: 'absolute',
+    bottom: -2,
+    left: -2,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cameraBtn: {
     position: 'absolute',

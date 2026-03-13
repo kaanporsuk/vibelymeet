@@ -5,7 +5,6 @@ import { SymbolView } from 'expo-symbols';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { spacing } from '@/constants/theme';
 
 export default function TabLayout() {
@@ -30,14 +29,19 @@ export default function TabLayout() {
           height: tabBarHeight,
           paddingBottom,
           paddingTop,
+          shadowColor: '#8B5CF6',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
+          elevation: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '500',
         },
-        tabBarItemStyle: { paddingVertical: spacing.xs },
+        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 12 },
         tabBarIconStyle: { marginBottom: -2 },
-        headerShown: useClientOnlyValue(false, true),
+        headerShown: false,
       }}>
       <Tabs.Screen
         name="index"

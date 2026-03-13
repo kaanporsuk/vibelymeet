@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { StyleSheet, Pressable, FlatList, ListRenderItem, Image, RefreshControl, View as RNView, Text as RNText, TextInput, Linking } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ListRenderItem, Image, RefreshControl, View as RNView, Text as RNText, TextInput, Linking, Share, Platform } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -32,6 +32,19 @@ export default function MatchesListScreen() {
     await refetch();
   }, [refetch]);
 
+  const handleInviteFriends = useCallback(() => {
+    const link = `https://vibelymeet.com/auth?mode=signup&ref=${user?.id ?? ''}`;
+    if (Platform.OS !== 'web' && Share.share) {
+      Share.share({
+        title: 'Join me on Vibely!',
+        message: "I'm using Vibely for video dates — come find your vibe! 💜",
+        url: link,
+      }).catch(() => {});
+    } else {
+      Linking.openURL(link);
+    }
+  }, [user?.id]);
+
   if (isLoading && !matches.length) {
     return <LoadingState title="Loading matches" message="Finding people you’ve vibed with at events." />;
   }
@@ -49,7 +62,22 @@ export default function MatchesListScreen() {
 
   if (!matches.length) {
     return (
-      <ScreenContainer title="Matches">
+      <ScreenContainer>
+        <RNView style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+          <RNView style={styles.headerTopRow}>
+            <RNView style={styles.headerTitleRow}>
+              <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
+              <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
+            </RNView>
+            <Pressable
+              onPress={() => router.push('/settings')}
+              style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+              accessibilityLabel="Settings"
+            >
+              <Ionicons name="options-outline" size={20} color={theme.text} />
+            </Pressable>
+          </RNView>
+        </RNView>
         <Card style={styles.heroCard}>
           <RNText style={[styles.heroTitle, { color: theme.text }]}>Your vibe circle awaits</RNText>
           <RNText style={[styles.heroBody, { color: theme.textSecondary }]}>
@@ -101,26 +129,39 @@ export default function MatchesListScreen() {
 
   return (
     <ScreenContainer>
-      <RNView style={[styles.headerCard, { borderColor: theme.border }]}>
+      <RNView style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
         <RNView style={styles.headerTopRow}>
           <RNView style={styles.headerTitleRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
             <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
           </RNView>
-          {matches.length > 0 && (
-            <RNView style={[styles.countPill, { backgroundColor: 'rgba(148, 163, 184, 0.16)' }]}>
-              <RNText style={[styles.countPillText, { color: theme.tint }]}>{matches.length} matches</RNText>
-            </RNView>
-          )}
+          <RNView style={styles.headerActions}>
+            {matches.length > 0 && (
+              <RNView style={[styles.countPill, { backgroundColor: theme.accentSoft }]}>
+                <RNText style={[styles.countPillText, { color: theme.tint }]}>{matches.length}</RNText>
+              </RNView>
+            )}
+            <Pressable
+              onPress={() => router.push('/settings')}
+              style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+              accessibilityLabel="Filter or settings"
+            >
+              <Ionicons name="options-outline" size={20} color={theme.text} />
+            </Pressable>
+          </RNView>
         </RNView>
 
-        {/* Tabs */}
+        {/* Tabs — web parity pill styling */}
         <RNView style={styles.tabsRow}>
           <Pressable
             onPress={() => setActiveTab('conversations')}
             style={[
               styles.tab,
-              activeTab === 'conversations' && { backgroundColor: 'rgba(148, 163, 184, 0.18)' },
+              activeTab === 'conversations' && {
+                backgroundColor: theme.accentSoft,
+                borderWidth: 1,
+                borderColor: theme.tint,
+              },
             ]}
           >
             <Ionicons
@@ -141,7 +182,11 @@ export default function MatchesListScreen() {
             onPress={() => setActiveTab('drops')}
             style={[
               styles.tab,
-              activeTab === 'drops' && { backgroundColor: 'rgba(148, 163, 184, 0.18)' },
+              activeTab === 'drops' && {
+                backgroundColor: theme.accentSoft,
+                borderWidth: 1,
+                borderColor: theme.tint,
+              },
             ]}
           >
             <Ionicons
@@ -190,10 +235,44 @@ export default function MatchesListScreen() {
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />}
           ListHeaderComponent={
-            <SectionHeader
-              title="Conversations"
+            <>
+              <RNView style={[styles.conversationsDivider, { borderColor: theme.border }]}>
+                <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+                <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
+                <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+              </RNView>
+              <SectionHeader
+                title="Conversations"
               subtitle="Keep talking with people you’ve met at events."
-            />
+              />
+            </>
+          }
+          ListFooterComponent={
+            <RNView style={styles.footerCards}>
+              <Card style={[styles.proTipCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                <RNView style={styles.proTipRow}>
+                  <Ionicons name="bulb-outline" size={20} color={theme.tint} />
+                  <RNText style={[styles.proTipTitle, { color: theme.text }]}>Pro tip</RNText>
+                </RNView>
+                <RNText style={[styles.proTipBody, { color: theme.textSecondary }]}>
+                  Keep the conversation going — reply within 24 hours to keep the vibe alive.
+                </RNText>
+              </Card>
+              <Card onPress={handleInviteFriends} style={[styles.inviteCard, { borderColor: theme.border }]}>
+                <RNView style={styles.inviteRow}>
+                  <RNView style={[styles.inviteIconBox, { backgroundColor: theme.accentSoft }]}>
+                    <Ionicons name="people-outline" size={22} color={theme.tint} />
+                  </RNView>
+                  <RNView style={styles.inviteCopy}>
+                    <RNText style={[styles.inviteCardTitle, { color: theme.text }]}>Invite friends</RNText>
+                    <RNText style={[styles.inviteCardSub, { color: theme.textSecondary }]}>
+                      More friends, more vibes. Share Vibely and get matches together.
+                    </RNText>
+                  </RNView>
+                  <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+                </RNView>
+              </Card>
+            </RNView>
           }
         />
       ) : (
@@ -235,6 +314,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  headerIconBtn: {
+    padding: spacing.xs,
   },
   headerTitle: {
     ...typography.titleLG,
@@ -281,8 +368,70 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
+  conversationsDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    gap: spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  conversationsLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
   list: {
-    paddingBottom: spacing['2xl'],
+    paddingBottom: spacing.sm,
+  },
+  footerCards: {
+    marginTop: spacing.lg,
+    gap: spacing.md,
+  },
+  proTipCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  proTipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  proTipTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  proTipBody: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  inviteCard: {
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  inviteIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteCopy: { flex: 1 },
+  inviteCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  inviteCardSub: {
+    fontSize: 13,
   },
   heroCard: {
     marginBottom: spacing.xl,
