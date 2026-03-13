@@ -17,7 +17,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import {
-  ScreenContainer,
   SectionHeader,
   Card,
   VibelyButton,

@@ -11,7 +11,6 @@ import {
   Image,
   RefreshControl,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,7 +24,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useIsRegisteredForEvent } from '@/lib/eventsApi';
 import { useMatches } from '@/lib/chatApi';
-import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
+import { eventCoverUrl } from '@/lib/imageUrl';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();

@@ -8,16 +8,17 @@ import { LogBox } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
-
-// Suppress RevenueCat SDK LogBox when offerings are missing/empty in dev (dashboard not yet configured).
-LogBox.ignoreLogs([
-  'RevenueCat',
-  'configuration is not valid',
-  'offering',
-  'has no packages',
-  'packages configured',
-]);
 import { PushRegistration } from '@/components/PushRegistration';
+
+if (__DEV__) {
+  LogBox.ignoreLogs([
+    'RevenueCat',
+    'configuration is not valid',
+    'offering',
+    'has no packages',
+    'packages configured',
+  ]);
+}
 import { AuthProvider } from '@/context/AuthContext';
 import { initRevenueCat } from '@/lib/revenuecat';
 

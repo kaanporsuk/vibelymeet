@@ -20,8 +20,6 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification",
-          "voip",
-          "remote-notification",
           "voip"
         ],
         "NSCameraUsageDescription": "Vibely needs camera access for video dates.",
@@ -51,8 +49,7 @@
         "android.permission.FOREGROUND_SERVICE_CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
-        "android.permission.SYSTEM_ALERT_WINDOW"
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
       ]
     },
     "web": {

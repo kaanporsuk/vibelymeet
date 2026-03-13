@@ -96,11 +96,7 @@ export function Card({ children, style, onPress }: CardProps) {
   );
 
   if (onPress) {
-    return (
-      <Pressable style={{ marginBottom: spacing.md }} onPress={onPress}>
-        {content}
-      </Pressable>
-    );
+    return <Pressable onPress={onPress}>{content}</Pressable>;
   }
 
   return content;
