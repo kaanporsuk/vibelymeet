@@ -105,11 +105,7 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
         await audioRef.current.play();
         setIsPlaying(true);
         setIsLoading(false);
-      } catch (err: unknown) {
-        const name = err instanceof Error ? err.name : "";
-        if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
-          setLoadError(true);
-        }
+      } catch {
         setIsLoading(false);
         setHasError(true);
       }

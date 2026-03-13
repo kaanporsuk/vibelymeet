@@ -41,7 +41,6 @@
         "android.permission.INTERNET",
         "android.permission.WAKE_LOCK",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.CAMERA",
         "android.permission.FOREGROUND_SERVICE_CAMERA",
