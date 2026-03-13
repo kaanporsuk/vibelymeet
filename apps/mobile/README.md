@@ -30,7 +30,7 @@ Copy `.env.example` to `.env` and set:
 
 Secrets stay out of committed source; use `.env` locally and EAS/CI secrets for builds.
 
-**EAS / npm install:** `.npmrc` sets `legacy-peer-deps=true` so cloud installs succeed despite `@daily-co/config-plugin-rn-daily-js` declaring `expo@^54` while the app uses Expo 55. This is temporary until Daily publishes an Expo 55–compatible plugin; remove the override when no longer needed.
+**EAS / npm install:** `.npmrc` sets `legacy-peer-deps=true` so cloud installs succeed despite (1) `@daily-co/config-plugin-rn-daily-js` declaring `expo@^54` while the app uses Expo 55, and (2) `@daily-co/react-native-daily-js` declaring a peer on `@react-native-async-storage/async-storage@^1.24.0` while we use `2.2.0` for Expo 55 compatibility. This is temporary until Daily publishes Expo 55–compatible packages; remove the override when no longer needed.
 
 ## Run locally
 
