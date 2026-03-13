@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   StyleProp,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   View,
   Text,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/Colors';
 import { layout, radius, spacing, typography, shadows } from '@/constants/theme';
@@ -26,9 +28,11 @@ type ScreenProps = {
 export function ScreenContainer({ title, children, footer, headerRight, style }: ScreenProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const insets = useSafeAreaInsets();
+  const topPadding = Platform.OS === 'web' ? layout.screenPadding.default : insets.top;
 
   return (
-    <View style={[styles.screen, { backgroundColor: theme.background }, style]}>
+    <View style={[styles.screen, { backgroundColor: theme.background, paddingTop: topPadding }, style]}>
       <View style={styles.screenInner}>
         {title ? (
           <View style={styles.headerRow}>
@@ -83,6 +87,7 @@ export function Card({ children, style, onPress }: CardProps) {
           backgroundColor: theme.surface,
           borderColor: theme.border,
         },
+        shadows.card,
         style,
       ]}
     >
@@ -136,9 +141,9 @@ export function VibelyButton({
     gap: spacing.sm,
   };
 
-  let backgroundColor = theme.tint;
-  let borderColor = theme.tint;
-  let labelColor = '#ffffff';
+  let backgroundColor: string = theme.tint;
+  let borderColor: string = theme.tint;
+  let labelColor: string = '#ffffff';
 
   if (variant === 'secondary') {
     backgroundColor = theme.surface;
@@ -291,8 +296,7 @@ export function LoadingState({ title, message }: Pick<StateProps, 'title' | 'mes
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    paddingHorizontal: layout.screenPadding.default,
-    paddingTop: layout.screenPadding.default,
+    paddingHorizontal: spacing.lg,
     paddingBottom: layout.screenPadding.default,
   },
   screenInner: {
@@ -328,10 +332,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   card: {
-    borderRadius: radius.lg,
+    borderRadius: radius['2xl'],
     padding: spacing.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    ...shadows.card,
     marginBottom: spacing.md,
   },
   footer: {

@@ -4,9 +4,19 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { LogBox } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
+
+// Suppress RevenueCat SDK LogBox when offerings are missing/empty in dev (dashboard not yet configured).
+LogBox.ignoreLogs([
+  'RevenueCat',
+  'configuration is not valid',
+  'offering',
+  'has no packages',
+  'packages configured',
+]);
 import { PushRegistration } from '@/components/PushRegistration';
 import { AuthProvider } from '@/context/AuthContext';
 import { initRevenueCat } from '@/lib/revenuecat';

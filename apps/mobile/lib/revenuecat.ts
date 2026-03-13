@@ -52,8 +52,19 @@ export async function setRevenueCatUserId(userId: string): Promise<void> {
 export async function getOfferings(): Promise<PurchasesOfferings | null> {
   if (!configured) return null
   try {
-    return await Purchases.getOfferings()
-  } catch {
+    const offerings = await Purchases.getOfferings()
+    // Treat "default offering has no packages" as no offerings — fall back cleanly in UI
+    if (offerings?.current?.availablePackages?.length === 0) {
+      if (__DEV__) {
+        console.warn('[RevenueCat] Default offering has no packages; subscription UI will show fallback. Configure products in RevenueCat dashboard.')
+      }
+      return null
+    }
+    return offerings
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[RevenueCat] getOfferings failed (e.g. no packages configured):', e instanceof Error ? e.message : String(e))
+    }
     return null
   }
 }
