@@ -6,6 +6,7 @@ import { SymbolView } from 'expo-symbols';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { spacing } from '@/constants/theme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -20,9 +21,11 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
         tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.2)',
+        tabBarInactiveBackgroundColor: 'transparent',
         tabBarStyle: {
-          backgroundColor: theme.surface,
-          borderTopColor: theme.border,
+          backgroundColor: theme.glassSurface,
+          borderTopColor: theme.glassBorder,
           borderTopWidth: 1,
           height: tabBarHeight,
           paddingBottom,
@@ -32,6 +35,8 @@ export default function TabLayout() {
           fontSize: 11,
           fontWeight: '500',
         },
+        tabBarItemStyle: { paddingVertical: spacing.xs },
+        tabBarIconStyle: { marginBottom: -2 },
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen

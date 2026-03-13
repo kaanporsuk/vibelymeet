@@ -1,45 +1,35 @@
-const tintColorLight = '#2f95dc';
-const tintColorDark = '#2f95dc';
+// Vibely Neon Noir palette — mirrored from web (see src/index.css)
+const vibelyPrimary = 'hsl(263, 70%, 66%)'; // --primary / --neon-violet
+const vibelyAccent = 'hsl(330, 81%, 60%)'; // --accent / --neon-pink
+const vibelyCyan = 'hsl(187, 94%, 43%)'; // --neon-cyan
 
-const vibelyPink = '#f973b8';
-const vibelyPurple = '#6366f1';
-const vibelyIndigo = '#1d4ed8';
-
-const light = {
-  text: '#0f172a',
-  textSecondary: '#64748b',
-  background: '#f9fafb',
-  surface: '#ffffff',
-  surfaceSubtle: '#f3f4f6',
-  border: '#e5e7eb',
-  tint: tintColorLight,
-  accent: vibelyPink,
-  accentSoft: '#fdf2f8',
-  danger: '#dc2626',
-  dangerSoft: '#fef2f2',
-  success: '#16a34a',
-  successSoft: '#ecfdf3',
-  tabIconDefault: '#94a3b8',
-  tabIconSelected: tintColorLight,
-};
-
-const dark = {
-  text: '#f9fafb',
-  textSecondary: '#94a3b8',
-  background: '#020617',
-  surface: '#020617',
-  surfaceSubtle: '#0f172a',
-  border: '#1f2937',
-  tint: tintColorDark,
-  accent: vibelyPink,
-  accentSoft: '#3b0764',
-  danger: '#f97373',
-  dangerSoft: '#450a0a',
+const base = {
+  text: 'hsl(0, 0%, 98%)', // --foreground
+  textSecondary: 'hsl(240, 5%, 60%)', // --muted-foreground
+  background: 'hsl(240, 10%, 4%)', // --background
+  surface: 'hsl(240, 10%, 8%)', // --card
+  surfaceSubtle: 'hsl(240, 10%, 10%)',
+  border: 'hsl(240, 10%, 18%)', // --border
+  tint: vibelyPrimary,
+  accent: vibelyAccent,
+  accentSoft: 'hsla(330, 81%, 60%, 0.2)',
+  neonViolet: vibelyPrimary,
+  neonPink: vibelyAccent,
+  neonCyan: vibelyCyan,
+  danger: 'hsl(0, 84%, 60%)', // --destructive
+  dangerSoft: 'hsla(0, 84%, 60%, 0.16)',
   success: '#22c55e',
-  successSoft: '#022c22',
-  tabIconDefault: '#64748b',
-  tabIconSelected: tintColorDark,
-};
+  successSoft: 'rgba(34, 197, 94, 0.16)',
+  tabIconDefault: 'hsl(240, 5%, 60%)',
+  tabIconSelected: vibelyPrimary,
+  /** Glass-style surfaces (header, tab bar) — web parity glass-card */
+  glassSurface: 'rgba(20,20,24,0.92)',
+  glassBorder: 'rgba(255,255,255,0.1)',
+} as const;
+
+// Mobile is dark-first like web; light and dark share the same palette for now.
+const light = { ...base };
+const dark = { ...base };
 
 export default {
   light,
