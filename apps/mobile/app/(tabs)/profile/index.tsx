@@ -188,14 +188,14 @@ export default function ProfileScreen() {
             onPress={() => {}}
             accessibilityLabel="Preview profile"
           >
-            <Ionicons name="eye-outline" size={22} color={theme.text} />
+            <Ionicons name="eye-outline" size={24} color={theme.text} />
           </Pressable>
           <Pressable
             style={[styles.heroButton, styles.heroButtonGlassRight]}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Settings"
           >
-            <Ionicons name="settings-outline" size={22} color={theme.text} />
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
           </Pressable>
         </View>
       </View>
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroGradient: {
-    height: 160,
+    height: 168,
     paddingHorizontal: spacing.lg,
   },
   heroButtons: {
@@ -588,25 +588,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   heroButtonGlass: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   heroButtonGlassRight: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   avatarWrap: {
     alignItems: 'center',
-    marginTop: -72,
-    marginBottom: spacing.lg,
+    marginTop: -76,
+    marginBottom: spacing.xl,
   },
   avatarRing: {
-    borderWidth: 4,
+    borderWidth: 5,
     borderRadius: 999,
     padding: 3,
   },
@@ -644,11 +646,12 @@ const styles = StyleSheet.create({
   identityBlock: {
     alignItems: 'center',
     marginBottom: spacing.xl,
+    marginTop: spacing.xs,
   },
   nameAge: {
     ...typography.titleLG,
     fontSize: 24,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   taglineText: {
     fontSize: 14,
@@ -684,7 +687,7 @@ const styles = StyleSheet.create({
   },
   vibeScoreDesc: {
     ...typography.bodySecondary,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
   },
   vibeScoreActions: {
     flexDirection: 'row',
@@ -722,21 +725,21 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
+    gap: spacing.md,
+    marginBottom: spacing.xl,
   },
   statCard: {
     flex: 1,
-    padding: spacing.md + 2,
+    padding: spacing.lg,
     borderRadius: radius.xl,
     borderWidth: 1,
     alignItems: 'center',
   },
   statIcon: {
-    marginBottom: 4,
+    marginBottom: 6,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
   },
   statLabel: {
