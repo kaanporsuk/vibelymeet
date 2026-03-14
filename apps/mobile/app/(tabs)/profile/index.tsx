@@ -308,7 +308,7 @@ export default function ProfileScreen() {
             { label: 'Matches', value: matchesCount, icon: 'heart-outline' as const },
             { label: 'Convos', value: convosCount, icon: 'flash-outline' as const },
           ].map((stat) => (
-            <View key={stat.label} style={[styles.statCard, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
+            <View key={stat.label} style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Ionicons name={stat.icon} size={16} color={theme.tint} style={styles.statIcon} />
               <Text style={[styles.statValue, { color: theme.tint }]}>{stat.value}</Text>
               <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{stat.label}</Text>
@@ -579,8 +579,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroGradient: {
-    height: 144,
-    opacity: 0.9,
+    height: 160,
     paddingHorizontal: spacing.lg,
   },
   heroButtons: {
@@ -589,21 +588,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarWrap: {
     alignItems: 'center',
-    marginTop: -64,
+    marginTop: -72,
     marginBottom: spacing.lg,
   },
   avatarRing: {
     borderWidth: 4,
     borderRadius: 999,
-    padding: 2,
+    padding: 3,
   },
   avatarImage: {
     width: '100%',
@@ -612,21 +611,21 @@ const styles = StyleSheet.create({
   },
   videoBtn: {
     position: 'absolute',
-    bottom: -2,
-    left: -2,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    bottom: -4,
+    left: -4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cameraBtn: {
     position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    bottom: -4,
+    right: -4,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -663,12 +662,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   vibeScoreCard: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   vibeScoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.lg,
+    gap: spacing.xl,
   },
   vibeScoreCopy: {
     flex: 1,
@@ -718,25 +717,27 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
   },
   statCard: {
     flex: 1,
-    padding: spacing.md,
-    borderRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md + 2,
+    borderRadius: radius.xl,
+    borderWidth: 1,
     alignItems: 'center',
   },
   statIcon: {
     marginBottom: 4,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   cardHeader: {
     flexDirection: 'row',

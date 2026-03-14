@@ -151,6 +151,8 @@ export function VibelyButton({
     labelColor = theme.tint;
   }
 
+  const borderWidth = variant === 'ghost' ? 0 : variant === 'secondary' ? 1 : 1;
+
   return (
     <Pressable
       onPress={onPress}
@@ -159,7 +161,7 @@ export function VibelyButton({
         base,
         {
           backgroundColor,
-          borderWidth: variant === 'ghost' ? 0 : StyleSheet.hairlineWidth,
+          borderWidth,
           borderColor,
           opacity: isDisabled ? 0.6 : pressed ? 0.9 : 1,
         },

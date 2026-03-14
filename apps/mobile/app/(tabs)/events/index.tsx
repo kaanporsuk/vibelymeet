@@ -184,12 +184,12 @@ function FeaturedEventCard({
 const featuredStyles = StyleSheet.create({
   wrapper: {
     marginHorizontal: spacing.lg,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
     borderRadius: radius['3xl'],
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
-    height: 380,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    height: 360,
   },
   image: {
     ...StyleSheet.absoluteFillObject,
@@ -244,29 +244,30 @@ const featuredStyles = StyleSheet.create({
     borderWidth: 1,
   },
   tagText: { fontSize: 14, fontWeight: '500' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  desc: { fontSize: 16, marginBottom: spacing.md },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
+  desc: { fontSize: 14, marginBottom: spacing.md },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   attendees: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatarStack: { flexDirection: 'row' },
   avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginLeft: -8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    marginLeft: -6,
     borderWidth: 2,
     borderColor: 'hsl(240, 10%, 4%)',
   },
-  attendeesText: { fontSize: 14, fontWeight: '500' },
+  attendeesText: { fontSize: 13, fontWeight: '500' },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: spacing.lg,
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderRadius: radius.pill,
+    borderWidth: 0,
   },
-  ctaLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  ctaLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
 });
 
 // ── Rail card (EventCardPremium-style)
@@ -376,8 +377,8 @@ const railCardStyles = StyleSheet.create({
   },
   tagText: { color: '#fff', fontSize: 11, fontWeight: '500' },
   body: { padding: spacing.md },
-  title: { ...typography.titleMD, fontSize: 16, marginBottom: 4 },
-  meta: { fontSize: 12, marginBottom: 8 },
+  title: { ...typography.titleMD, fontSize: 15, marginBottom: 4 },
+  meta: { fontSize: 11, marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   avatars: { flexDirection: 'row' },
   avatar: {
@@ -388,7 +389,7 @@ const railCardStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'hsl(240, 10%, 8%)',
   },
-  attendees: { fontSize: 12 },
+  attendees: { fontSize: 11 },
   cta: {
     paddingVertical: 10,
     borderRadius: radius.lg,
@@ -564,7 +565,7 @@ export default function EventsListScreen() {
       }
     >
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View style={[styles.headerIconBox, { backgroundColor: theme.accentSoft }]}>
           <Ionicons name="calendar" size={24} color={theme.tint} />
         </View>
@@ -770,20 +771,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
+    paddingBottom: spacing.md,
   },
   headerIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.lg,
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { fontSize: 24, fontWeight: '700' },
-  headerSub: { fontSize: 14, marginTop: 2 },
+  headerTitle: { fontSize: 22, fontWeight: '700' },
+  headerSub: { fontSize: 13, marginTop: 2 },
   filterBar: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   searchWrap: {
@@ -802,14 +803,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   clearSearch: { padding: spacing.sm, marginRight: spacing.sm },
-  chipsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: 4 },
+  chipsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingBottom: 4 },
   chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
     borderRadius: radius.pill,
     borderWidth: 1,
   },
-  chipText: { fontSize: 14, fontWeight: '500' },
+  chipText: { fontSize: 13, fontWeight: '500' },
   clearChips: { paddingVertical: 8, paddingHorizontal: spacing.sm },
   clearChipsText: { fontSize: 14, fontWeight: '500' },
   content: { paddingTop: spacing.xl },

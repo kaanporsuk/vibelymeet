@@ -84,8 +84,8 @@ export default function DashboardScreen() {
         style={[
           styles.header,
           {
-            paddingTop: insets.top + spacing.md,
-            paddingBottom: spacing.md,
+            paddingTop: insets.top + spacing.sm,
+            paddingBottom: spacing.sm,
             paddingHorizontal: spacing.lg,
             backgroundColor: theme.glassSurface,
             borderBottomColor: theme.glassBorder,
@@ -99,14 +99,19 @@ export default function DashboardScreen() {
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.8 }]}
             accessibilityLabel="Notifications"
           >
-            <Ionicons name="notifications-outline" size={22} color={theme.text} />
+            <View style={styles.notifWrap}>
+              <Ionicons name="notifications-outline" size={22} color={theme.text} />
+              <View style={[styles.notifDot, { backgroundColor: theme.accent }]} />
+            </View>
           </Pressable>
           <Pressable
             onPress={() => router.push('/profile')}
             style={({ pressed }) => [styles.avatarBtn, pressed && { opacity: 0.8 }]}
             accessibilityLabel="Profile"
           >
-            <Avatar size={32} fallbackInitials={user?.user_metadata?.name?.[0] ?? user?.email?.[0] ?? 'V'} />
+            <View style={[styles.avatarRing, { borderColor: theme.glassBorder }]}>
+              <Avatar size={36} fallbackInitials={user?.user_metadata?.name?.[0] ?? user?.email?.[0] ?? 'V'} />
+            </View>
           </Pressable>
         </View>
       </View>
@@ -126,7 +131,7 @@ export default function DashboardScreen() {
                 style={[styles.eventCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
               >
                 <View style={styles.eventCardMedia}>
-                  <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} />
+                  <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} resizeMode="cover" />
                   <View style={styles.eventCardOverlay} />
                   {isRegistered && (
                     <View style={[styles.registeredBadge, { backgroundColor: 'rgba(0,229,255,0.2)', borderColor: theme.neonCyan }]}>
@@ -147,7 +152,7 @@ export default function DashboardScreen() {
                         { value: countdown.minutes, label: 'MIN' },
                         { value: countdown.seconds, label: 'SEC' },
                       ].map((item, i) => (
-                        <View key={i} style={[styles.countdownBlock, { backgroundColor: theme.surfaceSubtle }]}>
+                        <View key={i} style={[styles.countdownBlock, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                           <Text style={[styles.countdownValue, { color: theme.tint }]}>
                             {String(item.value).padStart(2, '0')}
                           </Text>
@@ -204,7 +209,7 @@ export default function DashboardScreen() {
                     style={({ pressed }) => [styles.matchItem, pressed && { opacity: 0.8 }]}
                   >
                     <Avatar
-                      size={56}
+                      size={52}
                       image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
                       fallbackInitials={m.name?.[0]}
                     />
@@ -278,9 +283,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderBottomWidth: 1,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   iconBtn: { padding: spacing.xs },
+  notifWrap: { position: 'relative' },
+  notifDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    opacity: 0.9,
+  },
   avatarBtn: {},
+  avatarRing: { borderRadius: 999, borderWidth: 1, padding: 2 },
   avatarImg: { width: '100%', height: '100%', borderRadius: 999 },
   scroll: { flex: 1 },
   scrollContent: { paddingTop: spacing.lg },
@@ -295,11 +311,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
   },
-  eventCardMedia: { height: 144, position: 'relative' },
+  eventCardMedia: { height: 168, position: 'relative' },
   eventCardImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   eventCardOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   registeredBadge: {
     position: 'absolute',
@@ -315,16 +331,17 @@ const styles = StyleSheet.create({
   eventCardTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
   eventCardDate: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2 },
   eventCardBody: { padding: spacing.lg, gap: spacing.md },
-  countdownRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.md },
+  countdownRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   countdownBlock: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.lg,
+    minWidth: 52,
+    height: 52,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  countdownValue: { fontSize: 18, fontWeight: '700' },
-  countdownLabel: { fontSize: 10, marginTop: 2 },
+  countdownValue: { fontSize: 16, fontWeight: '700' },
+  countdownLabel: { fontSize: 9, marginTop: 2, letterSpacing: 0.5 },
   emptyCard: {
     padding: spacing.xl,
     borderRadius: radius['2xl'],
@@ -333,21 +350,21 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   emptyText: { fontSize: 14 },
-  matchRow: { flexDirection: 'row', gap: spacing.lg, paddingVertical: spacing.sm },
-  matchItem: { alignItems: 'center', gap: spacing.sm, minWidth: 72 },
-  matchName: { fontSize: 12, fontWeight: '600' },
-  matchAvatarSkeleton: { width: 56, height: 56, borderRadius: 28 },
-  eventRail: { flexDirection: 'row', gap: spacing.md, paddingBottom: spacing.sm },
-  discoverCardSkeleton: { width: 260, height: 160, borderRadius: radius['2xl'] },
+  matchRow: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.xs, paddingRight: spacing.lg },
+  matchItem: { alignItems: 'center', gap: spacing.xs, minWidth: 64 },
+  matchName: { fontSize: 11, fontWeight: '600' },
+  matchAvatarSkeleton: { width: 52, height: 52, borderRadius: 26 },
+  eventRail: { flexDirection: 'row', gap: spacing.md, paddingBottom: spacing.md },
+  discoverCardSkeleton: { width: 240, height: 148, borderRadius: radius.xl },
   discoverCard: {
-    width: 260,
-    borderRadius: radius['2xl'],
+    width: 240,
+    borderRadius: radius.xl,
     borderWidth: 1,
     overflow: 'hidden',
   },
-  discoverImage: { width: '100%', height: 120 },
+  discoverImage: { width: '100%', height: 112 },
   discoverBody: { padding: spacing.md, gap: 2 },
-  discoverTitle: { fontSize: 14, fontWeight: '600' },
-  discoverMeta: { fontSize: 12 },
-  discoverAttendees: { fontSize: 12 },
+  discoverTitle: { fontSize: 13, fontWeight: '600' },
+  discoverMeta: { fontSize: 11 },
+  discoverAttendees: { fontSize: 11 },
 });

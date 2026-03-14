@@ -94,38 +94,46 @@ export default function MatchesListScreen() {
     );
   }
 
-  const renderItem: ListRenderItem<(typeof matches)[0]> = ({ item }) => (
-    <Link href={`/chat/${item.id}`} asChild>
-      <Pressable style={styles.row}>
-        <Avatar
-          size={56}
-          image={<Image source={{ uri: item.image }} style={styles.avatarImage} />}
-          fallbackInitials={item.name?.[0]}
-        />
-        <RNView style={styles.rowBody}>
-          <RNView style={styles.rowTop}>
-            <RNText style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-              {item.name}
-            </RNText>
-            <RNText style={[styles.time, { color: theme.textSecondary }]} numberOfLines={1}>
-              {item.time}
+  const renderItem: ListRenderItem<(typeof matches)[0]> = ({ item }) => {
+    const isNew = item.time === 'now' || item.time?.endsWith('m');
+    return (
+      <Link href={`/chat/${item.id}`} asChild>
+        <Pressable style={styles.row}>
+          <Avatar
+            size={52}
+            image={<Image source={{ uri: item.image }} style={styles.avatarImage} />}
+            fallbackInitials={item.name?.[0]}
+          />
+          <RNView style={styles.rowBody}>
+            <RNView style={styles.rowTop}>
+              <RNText style={[styles.name, { color: theme.text }]} numberOfLines={1}>
+                {item.name}
+              </RNText>
+              {isNew && (
+                <RNView style={[styles.newBadge, { backgroundColor: theme.accentSoft }]}>
+                  <RNText style={[styles.newBadgeText, { color: theme.tint }]}>New</RNText>
+                </RNView>
+              )}
+              <RNText style={[styles.time, { color: theme.textSecondary }]} numberOfLines={1}>
+                {item.time}
+              </RNText>
+            </RNView>
+            <RNText
+              style={[
+                styles.preview,
+                { color: theme.textSecondary },
+                item.unread && { color: theme.text, fontWeight: '600' },
+              ]}
+              numberOfLines={1}
+            >
+              {item.lastMessage || 'New match'}
             </RNText>
           </RNView>
-          <RNText
-            style={[
-              styles.preview,
-              { color: theme.textSecondary },
-              item.unread && { color: theme.text, fontWeight: '600' },
-            ]}
-            numberOfLines={1}
-          >
-            {item.lastMessage || 'New match'}
-          </RNText>
-        </RNView>
-        {item.unread && <RNView style={[styles.unreadDot, { backgroundColor: theme.accent }]} />}
-      </Pressable>
-    </Link>
-  );
+          {item.unread && <RNView style={[styles.unreadDot, { backgroundColor: theme.accent }]} />}
+        </Pressable>
+      </Link>
+    );
+  };
 
   return (
     <ScreenContainer>
@@ -297,18 +305,17 @@ export default function MatchesListScreen() {
 
 const styles = StyleSheet.create({
   headerCard: {
-    borderRadius: 24,
+    borderRadius: 20,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    marginBottom: spacing.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: spacing.md,
+    borderWidth: 1,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -337,7 +344,7 @@ const styles = StyleSheet.create({
   },
   tabsRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.xs,
     marginTop: spacing.sm,
   },
   tab: {
@@ -346,12 +353,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     borderRadius: 999,
   },
   tabLabel: {
     fontSize: 13,
     marginLeft: spacing.xs,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   searchRow: {
     marginTop: spacing.sm,
@@ -391,8 +399,8 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   proTipCard: {
-    padding: spacing.lg,
-    marginBottom: spacing.md,
+    padding: spacing.md + 2,
+    marginBottom: spacing.sm,
   },
   proTipRow: {
     flexDirection: 'row',
@@ -401,16 +409,16 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   proTipTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   proTipBody: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 12,
+    lineHeight: 18,
   },
   inviteCard: {
-    padding: spacing.lg,
-    marginBottom: spacing.md,
+    padding: spacing.md + 2,
+    marginBottom: spacing.sm,
   },
   inviteRow: {
     flexDirection: 'row',
@@ -426,12 +434,12 @@ const styles = StyleSheet.create({
   },
   inviteCopy: { flex: 1 },
   inviteCardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
   },
   inviteCardSub: {
-    fontSize: 13,
+    fontSize: 12,
   },
   heroCard: {
     marginBottom: spacing.xl,
@@ -456,9 +464,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm + 2,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(148, 163, 184, 0.25)',
+    borderBottomColor: 'rgba(148, 163, 184, 0.2)',
     gap: spacing.md,
   },
   avatarImage: {
@@ -468,22 +476,35 @@ const styles = StyleSheet.create({
   rowBody: {
     flex: 1,
     marginLeft: spacing.sm,
+    minWidth: 0,
   },
   rowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 2,
+    gap: spacing.xs,
   },
   name: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  newBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  newBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   time: {
-    fontSize: 12,
+    fontSize: 11,
   },
   preview: {
-    fontSize: 14,
+    fontSize: 13,
     marginTop: 2,
   },
   unreadDot: {
