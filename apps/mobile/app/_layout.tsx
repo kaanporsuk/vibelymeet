@@ -9,6 +9,8 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
+import { AuthProvider } from '@/context/AuthContext';
+import { initRevenueCat } from '@/lib/revenuecat';
 
 if (__DEV__) {
   LogBox.ignoreLogs([
@@ -19,8 +21,6 @@ if (__DEV__) {
     'packages configured',
   ]);
 }
-import { AuthProvider } from '@/context/AuthContext';
-import { initRevenueCat } from '@/lib/revenuecat';
 
 const queryClient = new QueryClient();
 
