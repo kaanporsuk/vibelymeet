@@ -193,6 +193,9 @@ export default function PremiumScreen() {
                 <Text style={[styles.muted, { color: theme.textSecondary }]}>
                   No offerings available. Configure products in RevenueCat dashboard.
                 </Text>
+                <Text style={[styles.mutedSmall, { color: theme.textSecondary, marginTop: spacing.sm }]}>
+                  This is expected until products and offerings are set up. Premium state still comes from the backend.
+                </Text>
               </Card>
             ) : (
               <Card style={styles.card}>
@@ -251,5 +254,6 @@ const styles = StyleSheet.create({
   packages: { gap: spacing.md, marginBottom: spacing.lg },
   packageButton: {},
   muted: { fontSize: 14, textAlign: 'center' },
+  mutedSmall: { fontSize: 12, textAlign: 'center', opacity: 0.9 },
   restoreButton: { marginTop: spacing.sm },
 });
