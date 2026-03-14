@@ -1,6 +1,6 @@
 ## 1. Executive summary
 
-Vibely’s current production baseline is a hardened web app running against a single Supabase-backed backend with Edge Functions and Stripe-based billing. The `origin/main` branch already includes server-owned state for video dates and Ready Gate, backend-owned Daily Drop transitions, and server-owned chat/swipe notification flows, with a controlled migration history and a documented rebuild pack in `_cursor_context`. A separate, not-yet-merged docs/runbook pair (`docs/golden-path-regression-runbook.md`, `scripts/run_golden_path_smoke.sh`) adds a golden-path regression harness on top of that baseline.
+Vibely’s current production baseline is a hardened web app running against a single Supabase-backed backend with Edge Functions and Stripe-based billing. The `origin/main` branch already includes server-owned state for video dates and Ready Gate, backend-owned Daily Drop transitions, and server-owned chat/swipe notification flows, with a controlled migration history and a documented rebuild pack in `_cursor_context`. The **golden-path regression harness** (`docs/golden-path-regression-runbook.md`, `scripts/run_golden_path_smoke.sh`) is **merged on main** and is the canonical regression checklist and static smoke for the web baseline.
 
 The goal of the native-build stream is to add iOS and Android clients that sit on top of **the same backend system of record**, reuse the hardened business logic, and preserve web rebuildability. This document focuses on architecture and planning only: it defines target parity, backend contracts, client responsibilities, and a recommended native stack so that when implementation starts, it is constrained by shared contracts rather than ad-hoc duplication.
 
@@ -51,19 +51,7 @@ The goal of the native-build stream is to add iOS and Android clients that sit o
     - server-owned swipe/match notification flows
     - server-owned Daily Drop opener/reply flows
 
-**What exists locally but is not yet on `origin/main`:**
-
-- `docs/golden-path-regression-runbook.md` — stepwise golden-path regression checklist, including:
-  - Auth/onboarding gating.
-  - Pause/resume.
-  - Ready Gate transitions.
-  - Video-date lifecycle.
-  - Daily Drop, chat send, swipe/match flows, premium/credits, admin.
-- `scripts/run_golden_path_smoke.sh` — static smoke harness:
-  - Runs `npm run typecheck:core` and `npm run build`.
-  - Points operators to the golden-path runbook for manual/browser flows.
-
-These two files are currently **untracked** on the working branch and therefore not yet proven to be merged into `origin/main`, even though they were authored against this baseline.
+  - **Golden-path regression harness on main:** `docs/golden-path-regression-runbook.md` (stepwise checklist) and `scripts/run_golden_path_smoke.sh` (static smoke: `npm run typecheck:core` + `npm run build`; points to runbook for manual flows).
 
 **Gaps / uncertainties (“still not proven on main”):**
 
@@ -78,7 +66,19 @@ These two files are currently **untracked** on the working branch and therefore 
 
 - The **single source of truth** for user, event, match, chat, Daily Drop, and video-date state is the production Supabase project as reflected by the migrations in `origin/main`.
 - The hardening streams for backend-owned pause/resume, Ready Gate, video-date lifecycle, Daily Drop, and notification flows are all landed on `origin/main`.
-- The golden-path regression docs/runbook pair will be merged in a near-term branch and treated as part of the operational baseline, but until that happens they are **advisory**, not canonical.
+- The golden-path regression docs/runbook pair is on `origin/main` and is **canonical** for the operational baseline.
+
+### 2.1 Locked practical architecture (Sprint 0)
+
+The following architecture is **locked** and will not be reopened without explicit decision-log update:
+
+- **Current repo:** Monorepo at repo root; web app in `src/`; native app in `apps/mobile`; shared backend in `supabase/`.
+- **`apps/mobile`:** Seed of the future universal user-facing app (iOS + Android). Expo + React Native + TypeScript; Expo Router; same Supabase project as web.
+- **Legacy web:** Remains the production safety net. No removal of web routes or features; web and native share the same backend contracts.
+- **Admin / legal / marketing:** Remain web-only for now (admin dashboards, legal pages, marketing landing). Native links out to web where required.
+- **Shared backend:** Unchanged. No client-owned business logic; all critical transitions live in Supabase (RPCs, Edge Functions, webhooks). See `docs/native-backend-contract-matrix.md` and `docs/native-platform-adapter-matrix.md`.
+
+Implementation sprint order: **UI-1** (shared design primitives) → **UI-2** (dashboard + shell) → **UI-3** (profile + settings) → **UI-4** (matches + chat list) → **UI-5** (events / discovery / lobby) → **UI-6** (premium / roughness sweep). See `docs/native-sprint-board.md`.
 
 ---
 
@@ -608,37 +608,27 @@ Shared backend and infrastructure changes must preserve web functionality or inc
 
 ## 11. Sprint plan
 
-**Sprint 0 — Architecture, contracts, risk list (this document)**
-- **Objective:** Lock in shared contracts and stack decisions before writing mobile code.
-- **Scope:**
-  - Finalize this plan.
-  - Confirm backend contracts and schemas from `_cursor_context` docs.
-  - Align on entitlements model (Stripe + RevenueCat).
-  - Define initial `apps/mobile` layout and shared packages plan (no scaffolding yet).
-- **Dependencies:** Current rebuild pack, origin/main, stakeholder sign-off.
-- **Acceptance criteria:**
-  - This doc committed and reviewed.
-  - Clear written decisions on stack, contracts, and entitlements.
-  - At least one golden-path regression run performed against web baseline.
-- **Web/backend coordination notes:**
-  - None beyond verification; this sprint is documentation-only.
+**Sprint 0 — Architecture, contracts, risk list (this document)**  
+- **Objective:** Lock in shared contracts and stack decisions before native UI parity implementation.
+- **Scope:** Finalize this plan; confirm backend contracts; align on entitlements (Stripe + RevenueCat); document screen contract, backend matrix, platform adapters; define implementation sprints UI-1 through UI-6. **No feature implementation.** `apps/mobile` already exists as the native seed.
+- **Acceptance criteria:** This doc and companion docs (`native-screen-contract-map`, `native-backend-contract-matrix`, `native-platform-adapter-matrix`, `native-sprint-board`, `native-decision-log`) committed and reviewed; golden-path harness on main confirmed; architecture locked.
 
-**Sprint 1 — App shell, auth, navigation, env/bootstrap**
-- **Objective:** Stand up a non-functional mobile shell that can authenticate against the existing backend.
-- **Scope:**
-  - Scaffold `apps/mobile` (Expo + React Native + TypeScript).
-  - Implement Supabase auth integration and basic session management.
-  - Wire navigation for main tabs (Dashboard, Events, Matches, Profile, Settings).
-  - Set up env handling, Sentry, PostHog, and basic logging.
-- **Dependencies:** Finalized stack choice, Supabase project, existing auth flow.
-- **Acceptance criteria:**
-  - Mobile app can sign in/out using same accounts as web.
-  - Session persists and recovers across app restarts.
-  - Navigation between core tabs is stable.
-- **Web/backend coordination notes:**
-  - No schema changes; ensure any new mobile-specific env vars are documented.
+**Implementation sprints (UI-1 through UI-6)** are defined in **`docs/native-sprint-board.md`**. Summary:
 
-**Sprint 2 — Profile / events / discovery parity**
+- **UI-1** — Shared design primitives (tokens, typography, components).
+- **UI-2** — Dashboard + shell (tabs, nav, auth gates).
+- **UI-3** — Profile + settings.
+- **UI-4** — Matches + chat list.
+- **UI-5** — Events / discovery / lobby.
+- **UI-6** — Premium + roughness sweep.
+
+The following legacy sprint descriptions are retained for domain context; map to UI-N via the sprint board.
+
+**Sprint 1 (maps to UI-2 shell) — App shell, auth, navigation, env/bootstrap**
+- **Objective:** Shell that can authenticate against the existing backend. `apps/mobile` already scaffolded; focus on auth, nav, env, logging.
+- **Acceptance criteria:** Mobile app can sign in/out using same accounts as web; session persists; navigation between core tabs stable.
+
+**Sprint 2 (maps to UI-3 + UI-5) — Profile / events / discovery parity**
 - **Objective:** Achieve parity for onboarding, profile, and event discovery.
 - **Scope:**
   - Implement onboarding flows mapped to web’s required steps.
@@ -748,16 +738,11 @@ Shared backend and infrastructure changes must preserve web functionality or inc
 
 ## 13. Recommended immediate next action
 
-Execute the following in order; do not scaffold `apps/mobile` until the first two are done.
+1. **Golden-path harness:** Already on `main` (`docs/golden-path-regression-runbook.md`, `scripts/run_golden_path_smoke.sh`). No merge required.
 
-1. **Merge the regression harness to `main`.**  
-   Add and merge `docs/golden-path-regression-runbook.md` and `scripts/run_golden_path_smoke.sh` to the repository (e.g. via a dedicated PR or branch). They become the canonical golden-path checklist and static smoke for the web baseline.
+2. **Before starting UI parity:** Run `./scripts/run_golden_path_smoke.sh` from repo root, then perform the manual steps in `docs/golden-path-regression-runbook.md` for the web baseline. Confirm all sections pass or document failures. Fix any regressions before Sprint 1 (UI-2).
 
-2. **Rerun web golden-path regression.**  
-   On a checkout that includes the harness: run `./scripts/run_golden_path_smoke.sh` (typecheck + build), then perform the manual steps in `docs/golden-path-regression-runbook.md` (auth, pause/resume, Ready Gate, video-date, Daily Drop, chat, swipe, premium, admin). Confirm all sections pass or document any failures. Fix any regressions before proceeding.
-
-3. **Only then scaffold `apps/mobile`.**  
-   After the harness is on `main` and the web baseline has passed a full golden-path run, proceed with Sprint 1 (app shell, auth, navigation, env/bootstrap) and create the `apps/mobile` directory. Do not create `apps/mobile` or any native app code before completing steps 1 and 2.
+3. **Sprint 1 (UI-2) can begin immediately after merge of this docs branch** provided the web baseline passes golden-path regression. `apps/mobile` already exists; no scaffolding step. Proceed with shared design primitives (UI-1) then dashboard + shell (UI-2) per `docs/native-sprint-board.md`.
 
 ---
 
