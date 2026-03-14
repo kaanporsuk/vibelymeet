@@ -180,22 +180,22 @@ export default function ProfileScreen() {
         />
       }
     >
-      {/* Hero — web parity: top-left eye, top-right settings, centered photo, floating camera/video */}
+      {/* Hero — web parity: top-left eye, top-right settings only; no global gear elsewhere */}
       <View style={[styles.heroGradient, { backgroundColor: theme.tint, paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.heroButtons}>
           <Pressable
-            style={[styles.heroButton, { backgroundColor: 'rgba(255,255,255,0.08)' }]}
+            style={[styles.heroButton, styles.heroButtonGlass]}
             onPress={() => {}}
             accessibilityLabel="Preview profile"
           >
-            <Ionicons name="eye-outline" size={20} color={theme.text} />
+            <Ionicons name="eye-outline" size={22} color={theme.text} />
           </Pressable>
           <Pressable
-            style={[styles.heroButton, { backgroundColor: 'rgba(255,255,255,0.15)' }]}
+            style={[styles.heroButton, styles.heroButtonGlassRight]}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Settings"
           >
-            <Ionicons name="settings-outline" size={20} color={theme.text} />
+            <Ionicons name="settings-outline" size={22} color={theme.text} />
           </Pressable>
         </View>
       </View>
@@ -593,6 +593,12 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heroButtonGlass: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroButtonGlassRight: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
   },
   avatarWrap: {
     alignItems: 'center',

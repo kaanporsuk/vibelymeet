@@ -127,6 +127,7 @@ function FeaturedEventCard({
       <Image
         source={{ uri: eventCoverUrl(event.image) }}
         style={featuredStyles.image}
+        resizeMode="cover"
       />
       <View style={featuredStyles.gradientOverlay} />
       <View style={featuredStyles.content}>
@@ -201,8 +202,8 @@ const featuredStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '70%',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    height: '72%',
+    backgroundColor: 'rgba(0,0,0,0.58)',
   },
   content: {
     flex: 1,

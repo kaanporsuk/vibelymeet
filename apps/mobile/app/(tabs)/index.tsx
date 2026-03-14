@@ -129,6 +129,8 @@ export default function DashboardScreen() {
               <Pressable
                 onPress={() => router.push(`/events/${nextEvent.id}` as const)}
                 style={[styles.eventCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Next event: ${nextEvent.title}`}
               >
                 <View style={styles.eventCardMedia}>
                   <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} resizeMode="cover" />
@@ -139,7 +141,7 @@ export default function DashboardScreen() {
                     </View>
                   )}
                   <View style={styles.eventCardCaption}>
-                    <Text style={styles.eventCardTitle} numberOfLines={1}>{nextEvent.title}</Text>
+                    <Text style={[styles.eventCardTitle, styles.eventCardTitleShadow]} numberOfLines={2}>{nextEvent.title}</Text>
                     <Text style={styles.eventCardDate}>{nextEvent.date}</Text>
                   </View>
                 </View>
@@ -161,18 +163,21 @@ export default function DashboardScreen() {
                       ))}
                     </View>
                   )}
-                  {isLiveEvent && isRegistered ? (
-                    <VibelyButton
-                      label="Enter Lobby →"
-                      onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
-                    />
-                  ) : (
-                    <VibelyButton
-                      label={isRegistered ? 'View event' : 'View & Register'}
-                      onPress={() => router.push(`/events/${nextEvent.id}` as const)}
-                      variant={isRegistered ? 'primary' : 'secondary'}
-                    />
-                  )}
+                  <View style={styles.ctaWrap}>
+                    {isLiveEvent && isRegistered ? (
+                      <VibelyButton
+                        label="Enter Lobby →"
+                        onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
+                      />
+                    ) : (
+                      <VibelyButton
+                        label={isRegistered ? 'View event' : 'View & Register'}
+                        onPress={() => router.push(`/events/${nextEvent.id}` as const)}
+                        variant={isRegistered ? 'primary' : 'secondary'}
+                        style={styles.ctaFull}
+                      />
+                    )}
+                  </View>
                 </View>
               </Pressable>
             </View>
@@ -327,10 +332,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   registeredText: { fontSize: 12, fontWeight: '600' },
-  eventCardCaption: { position: 'absolute', bottom: spacing.md, left: spacing.md },
-  eventCardTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  eventCardDate: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2 },
+  eventCardCaption: { position: 'absolute', bottom: spacing.lg, left: spacing.lg, right: spacing.lg },
+  eventCardTitle: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  eventCardTitleShadow: { textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  eventCardDate: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginTop: 4 },
   eventCardBody: { padding: spacing.lg, gap: spacing.md },
+  ctaWrap: { width: '100%' },
+  ctaFull: { alignSelf: 'stretch' },
   countdownRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   countdownBlock: {
     minWidth: 52,

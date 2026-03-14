@@ -20,7 +20,7 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
         tabBarInactiveTintColor: theme.tabIconDefault,
-        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.2)',
+        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.22)',
         tabBarInactiveBackgroundColor: 'transparent',
         tabBarStyle: {
           backgroundColor: theme.glassSurface,
@@ -30,16 +30,16 @@ export default function TabLayout() {
           paddingBottom,
           paddingTop,
           shadowColor: '#8B5CF6',
-          shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.12,
-          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
           elevation: 8,
         },
         tabBarLabelStyle: {
           fontSize: 11,
-          fontWeight: '500',
+          fontWeight: '600',
         },
-        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 12 },
+        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 14, marginHorizontal: 2 },
         tabBarIconStyle: { marginBottom: -2 },
         headerShown: false,
       }}>

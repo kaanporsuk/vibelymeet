@@ -69,13 +69,6 @@ export default function MatchesListScreen() {
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
               <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
             </RNView>
-            <Pressable
-              onPress={() => router.push('/settings')}
-              style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
-              accessibilityLabel="Settings"
-            >
-              <Ionicons name="options-outline" size={20} color={theme.text} />
-            </Pressable>
           </RNView>
         </RNView>
         <Card style={styles.heroCard}>
@@ -143,20 +136,11 @@ export default function MatchesListScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
             <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
           </RNView>
-          <RNView style={styles.headerActions}>
-            {matches.length > 0 && (
-              <RNView style={[styles.countPill, { backgroundColor: theme.accentSoft }]}>
-                <RNText style={[styles.countPillText, { color: theme.tint }]}>{matches.length}</RNText>
-              </RNView>
-            )}
-            <Pressable
-              onPress={() => router.push('/settings')}
-              style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
-              accessibilityLabel="Filter or settings"
-            >
-              <Ionicons name="options-outline" size={20} color={theme.text} />
-            </Pressable>
-          </RNView>
+          {matches.length > 0 && (
+            <RNView style={[styles.countPill, { backgroundColor: theme.accentSoft }]}>
+              <RNText style={[styles.countPillText, { color: theme.tint }]}>{matches.length}</RNText>
+            </RNView>
+          )}
         </RNView>
 
         {/* Tabs — web parity pill styling */}
@@ -321,14 +305,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  headerIconBtn: {
-    padding: spacing.xs,
   },
   headerTitle: {
     ...typography.titleLG,

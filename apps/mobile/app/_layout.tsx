@@ -71,17 +71,17 @@ function RootLayoutNav() {
         <PushRegistration />
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
+          <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="(auth)" options={{ headerShown: true }} />
-          <Stack.Screen name="(onboarding)" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="event/[eventId]/lobby" options={{ title: 'Event Lobby' }} />
-          <Stack.Screen name="chat/[id]" options={{ title: 'Chat' }} />
-          <Stack.Screen name="daily-drop" options={{ title: 'Daily Drop' }} />
-          <Stack.Screen name="ready/[id]" options={{ title: 'Ready Gate' }} />
-          <Stack.Screen name="date/[id]" options={{ title: 'Video Date' }} />
-          <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-          <Stack.Screen name="premium" options={{ title: 'Premium' }} />
+          <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="event/[eventId]/lobby" options={{ headerShown: false, title: 'Event Lobby' }} />
+          <Stack.Screen name="chat/[id]" options={{ headerShown: false, title: 'Chat' }} />
+          <Stack.Screen name="daily-drop" options={{ headerShown: false, title: 'Daily Drop' }} />
+          <Stack.Screen name="ready/[id]" options={{ headerShown: false, title: 'Ready Gate' }} />
+          <Stack.Screen name="date/[id]" options={{ headerShown: false, title: 'Video Date' }} />
+          <Stack.Screen name="settings" options={{ headerShown: false, title: 'Settings' }} />
+          <Stack.Screen name="premium" options={{ headerShown: false, title: 'Premium' }} />
         </Stack>
         </ThemeProvider>
       </AuthProvider>
