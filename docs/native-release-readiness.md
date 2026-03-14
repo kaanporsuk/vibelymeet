@@ -8,8 +8,10 @@ Scope: Branding sanity, release-readiness pass, final blocker checklist. Media r
 ## 1. What is complete
 
 - **App shell and navigation:** Tab layout (Dashboard, Events, Matches, Profile), stack screens, auth gate, onboarding gate.
-- **P0 screens (native v1):** Index, auth (sign-in, sign-up, reset-password), onboarding, dashboard, events list/detail, event lobby, matches, chat, profile, settings (with subpages: notifications, credits, account), Ready Gate, video date, Daily Drop. Premium screen present (P1).
-- **Dead-end cleanup:** Profile preview, vibe video, schedule, and settings rows wired to navigation or explicit deferred/web handoff. Dashboard notifications → settings/notifications.
+- **P0 screens (native v1):** Index, auth (sign-in, sign-up, reset-password), onboarding, dashboard, events list/detail, event lobby, matches, chat, profile (including profile photo upload and vibe video), settings (with subpages: notifications, credits, account), Ready Gate, video date, Daily Drop, premium (RevenueCat; hard blocker).
+- **Profile photo upload:** In v1; native image picker → upload-image EF → profiles.photos update; implemented in Sprint 1.
+- **Vibe video:** In v1; native record → create-video-upload → tus upload → video-webhook; state (none/uploading/processing/ready/failed) and delete via delete-vibe-video; implemented in Sprint 1.
+- **Dead-end cleanup:** Profile preview, schedule, and settings rows wired to navigation or explicit deferred/web handoff. Dashboard notifications → settings/notifications.
 - **Branding config:** `app.json` — name "Vibely", icon `./assets/images/icon.png`, splash `./assets/images/splash-icon.png`, splash background `#0a0a0c`, Android adaptive icons and favicon referenced. All referenced assets exist in repo.
 - **Backend contracts:** Same Supabase project, RPCs, Edge Functions as web; no native-only business logic.
 - **Platform adapters:** OneSignal (push), RevenueCat (entitlements), Daily (video date) wired; env and docs in place.
@@ -34,9 +36,9 @@ Scope: Branding sanity, release-readiness pass, final blocker checklist. Media r
 
 ## 4. What is explicitly deferred
 
-- **Photo loading:** Profile/event/avatar images from Bunny; path prefix and URL logic in place; CDN/path still returning 404. Tracked in `docs/native-runtime-stabilization-diagnosis.md` and deferred backlog. No Bunny/provider config changes in this sprint.
-- **Media / vibe video:** Bunny HLS; product-deferred; "Use on web" CTA in place. Video dates (Daily) are implemented.
-- **Screens (per contract):** Match celebration, public user profile, vibe studio, schedule — deferred or link-out. Legal/marketing/admin remain web-only.
+- **Photo loading (Bunny 404):** Profile/event/avatar images from Bunny; path prefix and URL logic in place; CDN/path may still return 404 until pull zone is configured. Profile photo **upload** is in v1 and implemented (upload-image EF). Loading remains tracked in `docs/native-runtime-stabilization-diagnosis.md`.
+- **Vibe video:** In v1; native record, upload (create-video-upload + tus), state display, delete implemented. Full studio UX (trimming, caption) can follow in a later release.
+- **Screens (per contract):** Match celebration, public user profile, schedule — deferred or link-out. Legal/marketing/admin remain web-only. Credits/delete-account remain as current repo (settings entry or link-out).
 - **Polish:** Accessibility, loading-state polish, visual tweaks — after v1 essential flows.
 
 ---

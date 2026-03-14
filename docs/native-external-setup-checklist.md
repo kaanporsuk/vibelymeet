@@ -30,18 +30,31 @@ Exact checklist for external provider and store setup required before TestFlight
 
 ---
 
-## 2. RevenueCat
+## 2. RevenueCat (Kaan: exact dashboard actions)
 
-- [ ] Create or use existing RevenueCat project.
-- [ ] Add iOS app (bundle ID matches Expo app).
-- [ ] Add Android app (package name matches Expo app).
-- [ ] Create products in App Store Connect / Play Console and link in RevenueCat (product IDs, e.g. monthly/annual).
-- [ ] Create entitlement(s) (e.g. `premium`) and attach to products.
-- [ ] Create offering(s) and packages (e.g. monthly, annual).
-- [ ] In RevenueCat dashboard → Integrations → Webhooks: add webhook URL  
-  `https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook`
-- [ ] Set Authorization header to the **same value** as `REVENUECAT_WEBHOOK_AUTHORIZATION` (e.g. `Bearer <secret>` or just `<secret>` per RevenueCat docs).
-- [ ] Copy **public** API keys: set `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` and/or `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` in mobile app (or single `EXPO_PUBLIC_REVENUECAT_API_KEY` as fallback for both).
+Premium is a hard blocker for native launch. App code is ready (offerings, purchase, restore, backend sync via revenuecat-webhook). The following must be done in RevenueCat and Supabase before TestFlight/Play or production IAP.
+
+### 2.1 RevenueCat dashboard
+
+- [ ] **Project:** Create or use existing RevenueCat project.
+- [ ] **Apps:** Add iOS app (bundle ID must match Expo `app.json` / EAS). Add Android app (package name must match).
+- [ ] **Products:** In App Store Connect create In-App Purchase subscription products (e.g. monthly, annual). In Play Console create subscription products. In RevenueCat → Products, link these (product IDs must match).
+- [ ] **Entitlements:** Create entitlement (e.g. `premium`) and attach to the products.
+- [ ] **Offerings:** Create at least one Offering (e.g. "default"); add packages (monthly, annual) to that offering. The app calls `Purchases.getOfferings()` and uses `offerings.current.availablePackages`; if empty, the premium screen shows "No offerings available."
+- [ ] **Webhook:** RevenueCat dashboard → Integrations → Webhooks. Add webhook:
+  - URL: `https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook`
+  - Authorization header: set to the **exact same** value as the Supabase secret `REVENUECAT_WEBHOOK_AUTHORIZATION` (e.g. generate with `openssl rand -hex 32` and use that string, or `Bearer <token>` per RevenueCat docs).
+- [ ] **Public API keys:** In RevenueCat → Project Settings → API Keys, copy the **public** API keys (not secret). Set in mobile: `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, or a single `EXPO_PUBLIC_REVENUECAT_API_KEY` for both. These go in `.env` locally and in EAS secrets for builds.
+
+### 2.2 Supabase (required for RevenueCat sync)
+
+- [ ] Deploy Edge Function: `supabase functions deploy revenuecat-webhook`.
+- [ ] Set secret: `REVENUECAT_WEBHOOK_AUTHORIZATION` to the same value configured as the Authorization header in the RevenueCat webhook.
+- [ ] Migrations applied so `subscriptions` has `provider` and trigger updates `profiles.is_premium` (see §1).
+
+### 2.3 App-side
+
+No code changes required. The app already: initializes RevenueCat with the API key, calls `Purchases.logIn(userId)` with Supabase user id so webhook receives `app_user_id`, fetches offerings, purchases packages, restores purchases, and refetches backend subscription state after purchase/restore.
 
 ---
 

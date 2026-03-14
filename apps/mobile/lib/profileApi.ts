@@ -15,6 +15,8 @@ export type ProfileRow = {
   looking_for: string | null;
   photos: string[] | null;
   avatar_url: string | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string | null;
   events_attended: number | null;
   total_matches: number | null;
   total_conversations: number | null;
@@ -33,7 +35,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
   if (!user) return null;
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, events_attended, total_matches, total_conversations')
+    .select('id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations')
     .eq('id', user.id)
     .maybeSingle();
   if (error) throw error;
@@ -48,6 +50,7 @@ export async function updateMyProfile(updates: Partial<{
   job: string;
   about_me: string;
   looking_for: string;
+  photos: string[];
 }>): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -59,6 +62,7 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.job !== undefined) db.job = updates.job;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
   if (updates.looking_for !== undefined) db.looking_for = updates.looking_for;
+  if (updates.photos !== undefined) db.photos = updates.photos;
   if (Object.keys(db).length === 0) return;
   const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
   if (error) throw error;

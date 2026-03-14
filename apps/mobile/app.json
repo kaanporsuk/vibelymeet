@@ -22,8 +22,9 @@
           "remote-notification",
           "voip"
         ],
-        "NSCameraUsageDescription": "Vibely needs camera access for video dates.",
-        "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates.",
+        "NSCameraUsageDescription": "Vibely needs camera access for video dates and vibe video.",
+        "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates and vibe video.",
+        "NSPhotoLibraryUsageDescription": "Vibely needs photo library access to add profile photos.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -49,7 +50,8 @@
         "android.permission.FOREGROUND_SERVICE_CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -65,7 +67,22 @@
           "mode": "development"
         }
       ],
-      "expo-router"
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Vibely needs camera access for video dates and vibe video.",
+          "microphonePermission": "Vibely needs microphone access for video dates and vibe video.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Vibely needs photo library access to add profile photos.",
+          "cameraPermission": "Vibely needs camera access to take profile photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

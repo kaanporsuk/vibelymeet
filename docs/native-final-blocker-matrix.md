@@ -46,9 +46,17 @@ Known issues that do not block release-readiness or dev validation. Fix when con
 |------|--------|
 | **RevenueCat offerings / dashboard** | Offerings or packages not fully configured; console warnings in dev. Premium screen and entitlement checks work; paywall may show empty or need dashboard setup before real purchases. |
 | **Reset-password screen** | Placeholder or minimal flow; web has full flow. Document as P1 if needed. |
-| **Still-missing native-v1 secondary surfaces** | Per contract: schedule tab, match celebration, public profile, vibe studio are deferred. Credits/subscription success are link-out or in-app browser. No P0 gap. |
+| **Still-missing native-v1 secondary surfaces** | Per contract: schedule tab, match celebration, public profile are deferred. Credits/delete-account remain as repo (link-out). No P0 gap. |
 
 ---
+
+## In v1 (Sprint 1)
+
+| Item | Notes |
+|------|--------|
+| **Profile photo upload** | In v1. Native: image picker → upload-image EF → profiles.photos update. No new backend. |
+| **Vibe video** | In v1. Native: record → create-video-upload → tus upload → video-webhook; state (none/uploading/processing/ready/failed); delete via delete-vibe-video. |
+| **Premium** | In v1; hard blocker. RevenueCat + backend; see RevenueCat dashboard checklist in `docs/native-external-setup-checklist.md`. |
 
 ## Deferred
 
@@ -56,11 +64,10 @@ Explicitly deferred; tracked but not in scope for this sprint.
 
 | Item | Notes |
 |------|--------|
-| **Photo loading** | Bunny CDN returns 404 after path/provider work. Env and path-prefix support in place; CDN or dashboard path/origin still to be resolved. See `docs/native-runtime-stabilization-diagnosis.md`. |
-| **Media / vibe video** | Bunny HLS; product-deferred. Video dates (Daily) implemented. |
-| **Match celebration, public profile, vibe studio, schedule** | Per `docs/native-screen-contract-map.md`; deferred or link-out. |
+| **Photo loading (Bunny 404)** | Bunny CDN may return 404 until pull zone configured. URL logic correct; see `docs/native-runtime-stabilization-diagnosis.md`. |
+| **Match celebration, public profile, schedule** | Per `docs/native-screen-contract-map.md`; deferred or link-out. Credits/delete-account remain as current repo. |
 | **Polish-only** | Accessibility, loading states, visual tweaks after v1 flows. |
-| **Bunny/provider config** | No changes in this sprint; media tracked separately. |
+| **Bunny/provider config** | Pull zone origin/path; no app code change. |
 
 ---
 
@@ -80,5 +87,6 @@ Expected in dev builds only; not bugs and not present in production builds.
 
 - **Blocker:** None added this sprint; production/store path is out of scope.
 - **Non-blocking:** RevenueCat dashboard gap, reset-password minimal state, deferred secondary surfaces (documented).
-- **Deferred:** Photo loading (404), media/vibe video, schedule/public profile/vibe studio, polish, Bunny config.
+- **In v1:** Profile photo upload, vibe video (record/upload/state/delete), premium (RevenueCat).
+- **Deferred:** Photo loading (404) until Bunny config, schedule/public profile/match celebration, polish, Bunny config.
 - **Dev-only:** Dev client UI, RevenueCat warnings, trace logs.
