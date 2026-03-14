@@ -34,18 +34,23 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
   return data.url;
 }
 
-export async function uploadChatVideoMessage(videoUri: string, matchId: string): Promise<string> {
+export async function uploadChatVideoMessage(
+  videoUri: string,
+  matchId: string,
+  mimeType: string = 'video/mp4'
+): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
   const formData = new FormData();
   formData.append('match_id', matchId);
+  const ext = mimeType.includes('quicktime') || mimeType.includes('x-m4v') ? 'mov' : 'mp4';
   formData.append(
     'file',
     {
       uri: videoUri,
-      type: 'video/mp4',
-      name: 'chat-video.mp4',
+      type: mimeType || 'video/mp4',
+      name: `chat-video.${ext}`,
     } as unknown as Blob
   );
 

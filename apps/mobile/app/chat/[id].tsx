@@ -15,6 +15,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { Audio } from 'expo-av';
 import { Video, ResizeMode } from 'expo-av';
 import Colors from '@/constants/Colors';
@@ -26,6 +27,7 @@ import {
   useMessages,
   useSendMessage,
   useSendVoiceMessage,
+  useSendChatVideoMessage,
   useRealtimeMessages,
   useMatches,
   type ChatMessage,
@@ -88,14 +90,16 @@ export default function ChatThreadScreen() {
   const { data: matches = [] } = useMatches(user?.id);
   const { mutateAsync: sendMessage, isPending: sending } = useSendMessage();
   const { mutateAsync: sendVoiceMessage, isPending: sendingVoice } = useSendVoiceMessage();
+  const { mutateAsync: sendChatVideoMessage, isPending: sendingVideo } = useSendChatVideoMessage();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
 
   const [input, setInput] = useState('');
   const [recording, setRecording] = useState(false);
   const recordingRef = useRef<InstanceType<typeof Audio.Recording> | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
-  const isSending = sending || sendingVoice;
+  const isSending = sending || sendingVoice || sendingVideo;
 
   const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
 
@@ -168,6 +172,37 @@ export default function ChatThreadScreen() {
       await stopVoiceRecordingAndSend();
     } else {
       await startVoiceRecording();
+    }
+  };
+
+  const handleVideoPick = async () => {
+    if (!data?.matchId || !user?.id || isSending) return;
+    setVideoError(null);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your media library to send a video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const durationSec = asset.duration ?? 0;
+      await sendChatVideoMessage({
+        matchId: data.matchId,
+        videoUri: asset.uri,
+        durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+        currentUserId: user.id,
+        mimeType: asset.mimeType ?? undefined,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Video send failed';
+      setVideoError(msg);
+      Alert.alert('Video failed', msg);
     }
   };
 
@@ -305,6 +340,17 @@ export default function ChatThreadScreen() {
           />
           <Pressable
             style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
+            onPress={handleVideoPick}
+            disabled={isSending}
+          >
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="videocam-outline" size={22} color={theme.tint} />
+            )}
+          </Pressable>
+          <Pressable
+            style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
             onPress={handleVoicePress}
             disabled={isSending}
           >
@@ -328,8 +374,8 @@ export default function ChatThreadScreen() {
             </Text>
           </Pressable>
         </View>
-        {voiceError ? (
-          <Text style={[styles.voiceError, { color: theme.danger }]}>{voiceError}</Text>
+        {(voiceError || videoError) ? (
+          <Text style={[styles.voiceError, { color: theme.danger }]}>{voiceError ?? videoError}</Text>
         ) : null}
         {recording ? (
           <Text style={[styles.recordingHint, { color: theme.textSecondary }]}>Recording… Tap mic to send</Text>

@@ -223,13 +223,15 @@ export function useSendChatVideoMessage() {
       videoUri,
       durationSeconds,
       currentUserId,
+      mimeType,
     }: {
       matchId: string;
       videoUri: string;
       durationSeconds: number;
       currentUserId: string;
+      mimeType?: string;
     }) => {
-      const videoUrl = await uploadChatVideoMessage(videoUri, matchId);
+      const videoUrl = await uploadChatVideoMessage(videoUri, matchId, mimeType ?? 'video/mp4');
       const { data, error } = await supabase.from('messages').insert({
         match_id: matchId,
         sender_id: currentUserId,
