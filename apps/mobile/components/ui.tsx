@@ -16,6 +16,52 @@ import Colors from '@/constants/Colors';
 import { layout, radius, spacing, typography, shadows } from '@/constants/theme';
 import { useColorScheme } from './useColorScheme';
 
+type GlassSurfaceProps = {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  /** When true (default), show bottom border. Set false for full-bleed glass (e.g. tab bar). */
+  borderBottom?: boolean;
+};
+
+export function GlassSurface({ children, style, borderBottom = true }: GlassSurfaceProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View
+      style={[
+        { backgroundColor: theme.glassSurface },
+        borderBottom && { borderBottomWidth: 1, borderBottomColor: theme.glassBorder },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+type SkeletonProps = {
+  width?: number;
+  height?: number;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function Skeleton({ width, height, borderRadius, style }: SkeletonProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View
+      style={[
+        { backgroundColor: theme.surfaceSubtle },
+        width !== undefined && { width },
+        height !== undefined && { height },
+        borderRadius !== undefined && { borderRadius },
+        style,
+      ]}
+    />
+  );
+}
+
 type ScreenProps = {
   title?: string;
   children: ReactNode;
