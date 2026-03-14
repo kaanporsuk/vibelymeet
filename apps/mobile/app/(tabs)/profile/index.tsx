@@ -33,7 +33,9 @@ import { useAuth } from '@/context/AuthContext';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
+import { getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { avatarUrl } from '@/lib/imageUrl';
+import { Video, ResizeMode } from 'expo-av';
 
 // Relationship intent labels (mirrored from web RelationshipIntent)
 const LOOKING_FOR_LABELS: Record<string, string> = {
@@ -498,16 +500,34 @@ export default function ProfileScreen() {
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing your video…</Text>
             </>
           )}
-          {vibeStatus === 'ready' && (
-            <>
-              <Ionicons name="checkmark-circle-outline" size={48} color={theme.tint} />
-              <Text style={[styles.vibeVideoCopy, { color: theme.text }]}>Your vibe video is ready.</Text>
-              <VibelyButton label="Record new" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
-              <Pressable onPress={handleDeleteVibeVideo} style={{ marginTop: spacing.sm }}>
-                <Text style={{ color: theme.danger, fontSize: 14 }}>Delete video</Text>
-              </Pressable>
-            </>
-          )}
+          {vibeStatus === 'ready' && (() => {
+            const playbackUrl = getVibeVideoPlaybackUrl(profile?.bunny_video_uid);
+            return (
+              <>
+                <Ionicons name="checkmark-circle-outline" size={48} color={theme.tint} />
+                <Text style={[styles.vibeVideoCopy, { color: theme.text }]}>Your vibe video is ready.</Text>
+                {playbackUrl ? (
+                  <View style={[styles.vibeVideoPlayerWrap, { backgroundColor: theme.background }]}>
+                    <Video
+                      source={{ uri: playbackUrl }}
+                      useNativeControls
+                      resizeMode={ResizeMode.CONTAIN}
+                      style={styles.vibeVideoPlayer}
+                      shouldPlay={false}
+                    />
+                  </View>
+                ) : (
+                  <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary, fontSize: 13 }]}>
+                    Playback requires EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME in .env
+                  </Text>
+                )}
+                <VibelyButton label="Record new" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
+                <Pressable onPress={handleDeleteVibeVideo} style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: theme.danger, fontSize: 14 }}>Delete video</Text>
+                </Pressable>
+              </>
+            );
+          })()}
           {vibeStatus === 'failed' && (
             <>
               <Ionicons name="alert-circle-outline" size={48} color={theme.danger} style={{ opacity: 0.8 }} />
@@ -950,6 +970,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: spacing.sm,
     textAlign: 'center',
+  },
+  vibeVideoPlayerWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  vibeVideoPlayer: {
+    width: '100%',
+    height: '100%',
   },
   photosRow: {
     flexDirection: 'row',

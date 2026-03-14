@@ -56,6 +56,48 @@ Premium is a hard blocker for native launch. App code is ready (offerings, purch
 
 No code changes required. The app already: initializes RevenueCat with the API key, calls `Purchases.logIn(userId)` with Supabase user id so webhook receives `app_user_id`, fetches offerings, purchases packages, restores purchases, and refetches backend subscription state after purchase/restore.
 
+### 2.4 RevenueCat real-device closure prep (Kaan)
+
+Checklist for closing IAP on real devices before TestFlight/Play or production. Do not change working purchase code unless a real issue is found.
+
+#### iOS
+
+- [ ] **App Store Connect:** In-App Purchase subscription products created and approved (e.g. `monthly_premium`, `annual_premium`). Product IDs must match exactly what the app expects (check `apps/mobile` premium screen / RevenueCat packages).
+- [ ] **RevenueCat → Products:** iOS products linked to App Store Connect product IDs.
+- [ ] **Sandbox:** Use a Sandbox Apple ID (App Store Connect → Users and Access → Sandbox testers) for testing. On device: Settings → App Store → Sandbox Account. Expect "Environment: Sandbox" in RevenueCat debug logs.
+- [ ] **Env / EAS:** `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` set in `.env` (local) and in EAS secrets for the build profile used for the device build.
+
+#### Android
+
+- [ ] **Play Console:** Subscription products created and active (e.g. same product IDs as iOS or app-specific). License testing: add testers in Play Console if needed.
+- [ ] **RevenueCat → Products:** Android products linked to Play Console product IDs.
+- [ ] **Env / EAS:** `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` set in `.env` and in EAS secrets for the build profile.
+
+#### Entitlements and offerings
+
+- [ ] **Entitlement:** One entitlement (e.g. `premium`) created in RevenueCat and attached to all subscription products.
+- [ ] **Offering:** At least one Offering (e.g. "default") with packages (monthly, annual). App uses `offerings.current.availablePackages`; empty offerings show "No offerings available" in UI.
+
+#### Webhook auth
+
+- [ ] **Supabase secret:** `REVENUECAT_WEBHOOK_AUTHORIZATION` set (e.g. `openssl rand -hex 32`). Same value in RevenueCat webhook Authorization header.
+- [ ] **Webhook URL:** `https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook`. RevenueCat must deliver events (initial purchase, renewal, cancellation) so backend can keep `subscriptions` and `profiles.is_premium` in sync.
+
+#### Test accounts and sandbox expectations
+
+- [ ] **Sandbox (iOS):** Purchases do not charge real money; renewals are accelerated. Use Sandbox Apple ID only for IAP testing.
+- [ ] **Test (Android):** License testers in Play Console can make test purchases without being charged.
+- [ ] **Backend:** After a sandbox/test purchase, verify in Supabase: `subscriptions` row for the user with `provider = 'revenuecat'` and correct status; `profiles.is_premium` true if entitlement is active.
+
+#### Exact real-device validation steps
+
+1. **Build:** `eas build --profile preview` (or development) for iOS and Android; install on physical device (simulator/emulator IAP behavior can differ).
+2. **Auth:** Sign in with a test Supabase user (same one you will use to check `subscriptions` in DB).
+3. **Premium screen:** Open app → Premium. Expect offerings to load (no "No offerings available" unless dashboard is misconfigured).
+4. **Purchase:** Tap a package; complete sandbox/test purchase. Expect success and return to app; premium state should unlock (e.g. backend `is_premium` true, or in-app paywall dismissed).
+5. **Webhook:** In RevenueCat dashboard → Customers, select the test user; confirm events. In Supabase `subscriptions` and `profiles`, confirm row/columns updated.
+6. **Restore:** On a second device or after reinstall, sign in with same user → Premium → Restore. Expect entitlements to restore and backend to stay in sync.
+
 ---
 
 ## 3. OneSignal

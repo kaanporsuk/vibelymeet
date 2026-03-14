@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
+import { uploadVoiceMessage, uploadChatVideoMessage } from '@/lib/chatMediaUpload';
 
 export type MatchListItem = {
   id: string;
@@ -100,6 +101,10 @@ export type ChatMessage = {
   text: string;
   sender: 'me' | 'them';
   time: string;
+  audio_url?: string | null;
+  audio_duration_seconds?: number | null;
+  video_url?: string | null;
+  video_duration_seconds?: number | null;
 };
 
 export function useMessages(otherUserId: string | undefined, currentUserId: string | null | undefined) {
@@ -117,7 +122,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
 
       const { data: messages, error: msgError } = await supabase
         .from('messages')
-        .select('id, match_id, sender_id, content, created_at')
+        .select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds')
         .eq('match_id', match.id)
         .order('created_at', { ascending: true });
       if (msgError) throw msgError;
@@ -129,6 +134,10 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           text: m.content,
           sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
           time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          audio_url: m.audio_url ?? undefined,
+          audio_duration_seconds: m.audio_duration_seconds ?? undefined,
+          video_url: m.video_url ?? undefined,
+          video_duration_seconds: m.video_duration_seconds ?? undefined,
         })),
       };
     },
@@ -170,4 +179,70 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [matchId, enabled, invalidate]);
+}
+
+/** Send voice message: upload via upload-voice EF then insert (same as web). */
+export function useSendVoiceMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      matchId,
+      audioUri,
+      durationSeconds,
+      currentUserId,
+    }: {
+      matchId: string;
+      audioUri: string;
+      durationSeconds: number;
+      currentUserId: string;
+    }) => {
+      const audioUrl = await uploadVoiceMessage(audioUri, matchId);
+      const { data, error } = await supabase.from('messages').insert({
+        match_id: matchId,
+        sender_id: currentUserId,
+        content: '🎤 Voice message',
+        audio_url: audioUrl,
+        audio_duration_seconds: Math.round(durationSeconds),
+      }).select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds').single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/** Send chat video message: upload via upload-chat-video EF then insert (same as web). */
+export function useSendChatVideoMessage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      matchId,
+      videoUri,
+      durationSeconds,
+      currentUserId,
+    }: {
+      matchId: string;
+      videoUri: string;
+      durationSeconds: number;
+      currentUserId: string;
+    }) => {
+      const videoUrl = await uploadChatVideoMessage(videoUri, matchId);
+      const { data, error } = await supabase.from('messages').insert({
+        match_id: matchId,
+        sender_id: currentUserId,
+        content: '📹 Video message',
+        video_url: videoUrl,
+        video_duration_seconds: Math.round(durationSeconds),
+      }).select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds').single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
 }
