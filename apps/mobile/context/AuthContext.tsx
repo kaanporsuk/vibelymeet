@@ -38,16 +38,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      setUser(s?.user ?? null);
-      if (s?.user) {
-        resolveOnboarding(s.user.id);
-      } else {
+    supabase.auth
+      .getSession()
+      .then(({ data: { session: s } }) => {
+        setSession(s);
+        setUser(s?.user ?? null);
+        if (s?.user) {
+          resolveOnboarding(s.user.id);
+        } else {
+          setOnboardingComplete(null);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setSession(null);
+        setUser(null);
         setOnboardingComplete(null);
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      });
 
     const {
       data: { subscription },

@@ -33,7 +33,12 @@ export const unstable_settings = {
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+// Guard so preview/standalone never crashes on splash init or unhandled rejection.
+try {
+  SplashScreen.preventAutoHideAsync()?.catch(() => {});
+} catch {
+  // no-op: allow app to continue if native splash module fails
+}
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -50,7 +55,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (loaded || error) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync()?.catch(() => {});
     }
   }, [loaded, error]);
 
