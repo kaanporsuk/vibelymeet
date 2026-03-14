@@ -31,10 +31,15 @@ function useCountdown(endTime: Date | null): string {
   const [timeRemaining, setTimeRemaining] = useState('');
   useEffect(() => {
     if (!endTime) return;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
       const diff = Math.max(0, Math.floor((endTime.getTime() - Date.now()) / 1000));
       if (diff <= 0) {
         setTimeRemaining('Ended');
+        if (intervalId != null) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
         return;
       }
       const m = Math.floor(diff / 60);
@@ -42,8 +47,10 @@ function useCountdown(endTime: Date | null): string {
       setTimeRemaining(`${m}:${String(s).padStart(2, '0')}`);
     };
     tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
+    intervalId = setInterval(tick, 1000);
+    return () => {
+      if (intervalId != null) clearInterval(intervalId);
+    };
   }, [endTime?.getTime()]);
   return timeRemaining;
 }
@@ -278,10 +285,14 @@ function LobbyProfileCard({
   const uri = photo ? avatarUrl(photo) : '';
   return (
     <Card style={[styles.profileCard, isBehind && styles.profileCardBehind]}>
-      <Image
-        source={{ uri }}
-        style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle }]}
-      />
+      {uri ? (
+        <Image
+          source={{ uri }}
+          style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle }]}
+        />
+      ) : (
+        <View style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle }]} />
+      )}
       <View style={[styles.cardGradient]} />
       <View style={styles.cardBody}>
         <Text style={[styles.cardName, { color: theme.text }]}>

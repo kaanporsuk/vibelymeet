@@ -313,7 +313,7 @@ export default function ProfileScreen() {
         </Card>
 
         {/* My Vibe Schedule card — deferred: open web or show coming-soon */}
-        <Card onPress={handleSchedulePress}>
+        <Card>
           <SettingsRow
             icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
             title="My Vibe Schedule"

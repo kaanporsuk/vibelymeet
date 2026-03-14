@@ -22,7 +22,7 @@ export function ReadyGateOverlay({ partnerName, onReady, onClose }: ReadyGateOve
   const theme = Colors[colorScheme];
 
   return (
-    <Modal visible transparent animationType="fade">
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
         <Card style={[styles.card, { borderColor: theme.glassBorder }]}>
           <Text style={[styles.title, { color: theme.text }]}>Ready to vibe?</Text>

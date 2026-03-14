@@ -136,7 +136,7 @@ export default function PremiumScreen() {
       >
         {isPremium ? (
           <Card style={styles.card}>
-            <View style={styles.cardIconWrap}>
+            <View style={[styles.cardIconWrap, { backgroundColor: theme.surfaceSubtle }]}>
               <Ionicons name="sparkles" size={32} color={theme.tint} />
             </View>
             <Text style={[styles.cardTitle, { color: theme.text }]}>You're already Premium</Text>
@@ -238,7 +238,6 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(139,92,246,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,

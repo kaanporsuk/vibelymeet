@@ -3,7 +3,7 @@
  * Backend: notification_preferences (player ID stored by PushRegistration); toggles/quiet hours on web.
  */
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,7 +47,14 @@ export default function NotificationsSettingsScreen() {
             </Text>
             <VibelyButton
               label="Open notification settings on web"
-              onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
+              onPress={() =>
+              Linking.openURL('https://vibelymeet.com/settings').catch(() => {
+                Alert.alert(
+                  'Unable to open link',
+                  'We could not open your notification settings in the browser. Please try again later.'
+                );
+              })
+            }
               variant="primary"
               style={styles.cta}
             />
