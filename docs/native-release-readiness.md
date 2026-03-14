@@ -38,7 +38,7 @@ Scope: Branding sanity, release-readiness pass, final blocker checklist. Media r
 
 - **Photo loading (Bunny 404):** Profile/event/avatar images from Bunny; path prefix and URL logic in place; CDN/path may still return 404 until pull zone is configured. Profile photo **upload** is in v1 and implemented (upload-image EF). Loading remains tracked in `docs/native-runtime-stabilization-diagnosis.md`.
 - **Vibe video:** In v1; native record, upload (create-video-upload + tus), state display, delete implemented. Full studio UX (trimming, caption) can follow in a later release.
-- **Screens (per contract):** Match celebration, public user profile, schedule — deferred or link-out. Legal/marketing/admin remain web-only. Credits/delete-account remain as current repo (settings entry or link-out).
+- **Screens (Sprint 4):** Public user profile (`/user/:userId`) and match celebration implemented natively; schedule remains web handoff (explicit copy). Credits: native pack selection + create-credits-checkout → Stripe in browser. Legal/marketing/admin remain web-only.
 - **Polish:** Accessibility, loading-state polish, visual tweaks — after v1 essential flows.
 
 ---

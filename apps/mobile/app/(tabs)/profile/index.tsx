@@ -210,10 +210,10 @@ export default function ProfileScreen() {
   const handleSchedulePress = () => {
     Alert.alert(
       'My Vibe Schedule',
-      'Set when you\'re open for dates on web. Schedule is coming to mobile in a future update.',
+      'Set when you\'re open for dates on vibelymeet.com. Schedule management is on web for now.',
       [
-        { text: 'OK', style: 'cancel' },
-        { text: 'Open on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open schedule on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
       ]
     );
   };
@@ -394,12 +394,12 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {/* My Vibe Schedule card — deferred: open web or show coming-soon */}
+        {/* My Vibe Schedule — web handoff (explicit) */}
         <Card>
           <SettingsRow
             icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
             title="My Vibe Schedule"
-            subtitle="Set when you're open for dates"
+            subtitle="Manage on web"
             onPress={handleSchedulePress}
           />
         </Card>

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, View as RNView, Text as RNText, TextInput, Linking, Share, Platform } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { ScreenContainer, SectionHeader, Card, EmptyState, ErrorState, LoadingState, VibelyButton, GlassSurface, MatchListRow, SettingsRow } from '@/components/ui';
@@ -87,21 +87,35 @@ export default function MatchesListScreen() {
     );
   }
 
+  const handleMatchPress = useCallback(
+    (item: (typeof matches)[0]) => {
+      if (item.unread) {
+        const params = new URLSearchParams({
+          otherUserId: item.id,
+          name: item.name ?? '',
+          image: item.image ?? '',
+        });
+        (router as { push: (p: string) => void }).push(`/match-celebration?${params.toString()}`);
+      } else {
+        (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
+      }
+    },
+    [router]
+  );
+
   const renderItem: ListRenderItem<(typeof matches)[0]> = ({ item }) => {
     const isNew = item.time === 'now' || item.time?.endsWith('m');
     return (
-      <Link href={`/chat/${item.id}`} asChild>
-        <Pressable style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
-          <MatchListRow
-            imageUri={item.image}
-            name={item.name}
-            time={item.time}
-            lastMessage={item.lastMessage}
-            unread={item.unread}
-            isNew={isNew}
-          />
-        </Pressable>
-      </Link>
+      <Pressable onPress={() => handleMatchPress(item)} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
+        <MatchListRow
+          imageUri={item.image}
+          name={item.name}
+          time={item.time}
+          lastMessage={item.lastMessage}
+          unread={item.unread}
+          isNew={isNew}
+        />
+      </Pressable>
     );
   };
 

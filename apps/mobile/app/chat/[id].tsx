@@ -308,6 +308,13 @@ export default function ChatThreadScreen() {
         <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
           {otherName}
         </Text>
+        <Pressable
+          onPress={() => otherUserId && (router as { push: (p: string) => void }).push(`/user/${otherUserId}`)}
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+          accessibilityLabel="View profile"
+        >
+          <Ionicons name="person-outline" size={22} color={theme.text} />
+        </Pressable>
       </GlassSurface>
 
       <KeyboardAvoidingView

@@ -91,6 +91,8 @@ function RootLayoutNav() {
           <Stack.Screen name="settings" options={{ headerShown: false, title: 'Settings' }} />
           <Stack.Screen name="premium" options={{ headerShown: false, title: 'Premium' }} />
           <Stack.Screen name="vibe-video-record" options={{ headerShown: false, title: 'Record Vibe Video' }} />
+          <Stack.Screen name="user/[userId]" options={{ headerShown: false, title: 'Profile' }} />
+          <Stack.Screen name="match-celebration" options={{ headerShown: false, title: "It's a match!" }} />
         </Stack>
         </ThemeProvider>
       </AuthProvider>

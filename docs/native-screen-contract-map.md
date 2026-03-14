@@ -64,15 +64,22 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 ---
 
+## Public profile and match celebration (Sprint 4)
+
+| Web route | Web component | Native route | Notes |
+|-----------|---------------|--------------|--------|
+| `/user/:userId` | UserProfile | `app/user/[userId]` | Public profile; entry from chat "View profile". |
+| `/match-celebration` | MatchCelebration | `app/match-celebration` | Shown when opening unread match; "Message" → chat. |
+
+---
+
 ## Deferred / web-only (no native route or link-out only)
 
 | Web route | Web component | Native | Notes |
 |-----------|---------------|--------|--------|
-| `/match-celebration` | MatchCelebration | Deferred (v1.1+) | Simpler confirmation in v1 |
-| `/user/:userId` | UserProfile | Deferred (v1.1+) | Public profile |
-| Vibe video | (profile) | `app/(tabs)/profile/index` + record flow | create-video-upload (EF), tus upload, delete-vibe-video (EF) | In v1: record, upload, state, delete |
-| `/schedule` | Schedule | Deferred or later tab | useSchedule, useDateReminders, usePushNotifications |
-| `/credits`, `/credits/success` | Credits, CreditsSuccess | P1 / link-out | Respect credits state; purchase UX can be simplified |
+| Vibe video | (profile) | `app/(tabs)/profile/index` + record flow | In v1: create-video-upload, tus, delete-vibe-video (EF); record, upload, state, delete |
+| `/schedule` | Schedule | Web handoff (explicit) | Profile card "My Vibe Schedule" → open vibelymeet.com/schedule |
+| `/credits`, `/credits/success` | Credits, CreditsSuccess | Native pack selection + create-credits-checkout → Stripe in browser | Balance native; payment opens Stripe URL; success/cancel on web |
 | `/subscription/success`, `/subscription/cancel` | SubscriptionSuccess, SubscriptionCancel | Web / in-app browser | RevenueCat handles natively |
 | `/event-payment/success` | EventPaymentSuccess | Web / link-out | Stripe callback |
 | `/how-it-works`, `/privacy`, `/terms`, `/delete-account`, `/community-guidelines` | HowItWorks, legal pages | Web-only; link out | No native duplication |
@@ -84,6 +91,7 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 - **P0 (native v1):** Auth, onboarding, dashboard, events list/detail, event lobby, matches, chat, profile (including profile photo upload and vibe video), settings, Ready Gate, video date, Daily Drop, premium (RevenueCat + backend; hard blocker).
 - **P1:** Credits full UX, optional schedule.
-- **P2 / web-only:** Match celebration, public user profile, legal/marketing content, admin.
+- **Sprint 4:** Public profile (`/user/:userId`), match celebration (unread → celebration → chat), credits (pack selection + checkout URL). Schedule remains web handoff with explicit copy.
+- **P2 / web-only:** Legal/marketing content, admin.
 
 See `docs/native-backend-contract-matrix.md` for RPC/EF details and `docs/native-platform-adapter-matrix.md` for adapters (RevenueCat, OneSignal, Daily, Bunny, Supabase).
