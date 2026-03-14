@@ -16,7 +16,7 @@ Exact checklist for external provider and store setup required before TestFlight
 ### Edge Functions to deploy
 
 - [ ] Deploy/update all existing functions (e.g. `send-notification` already updated for multi-device; `stripe-webhook`, `create-checkout-session`, `create-portal-session`, `create-credits-checkout` with provider filter).
-- [ ] Deploy **revenuecat-webhook** (new): `supabase functions deploy revenuecat-webhook`.
+- [ ] Deploy **revenuecat-webhook**: `supabase functions deploy revenuecat-webhook`. Gateway has `verify_jwt = false` (config.toml) so RevenueCat’s custom Authorization header reaches the function; the function validates it against `REVENUECAT_WEBHOOK_AUTHORIZATION`.
 
 ### Required Supabase secrets
 
