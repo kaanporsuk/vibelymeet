@@ -83,7 +83,7 @@ export default function SettingsScreen() {
               icon={<Ionicons name="flash" size={20} color={theme.tint} />}
               title="Video Date Credits"
               subtitle="Extra Time · Extended Vibe"
-              onPress={() => {}}
+              onPress={() => router.push('/settings/credits')}
             />
           </Card>
 
@@ -93,7 +93,7 @@ export default function SettingsScreen() {
               icon={<Ionicons name="notifications-outline" size={20} color={theme.tint} />}
               title="Notifications"
               subtitle="Manage alerts and sounds"
-              onPress={() => {}}
+              onPress={() => router.push('/settings/notifications')}
             />
           </Card>
 
@@ -103,7 +103,7 @@ export default function SettingsScreen() {
               icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
               title="Privacy"
               subtitle="Control who sees what"
-              onPress={() => {}}
+              onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
             />
           </Card>
 
@@ -113,7 +113,7 @@ export default function SettingsScreen() {
               icon={<Ionicons name="person-outline" size={20} color={theme.accent} />}
               title="Account"
               subtitle="Manage your account"
-              onPress={() => {}}
+              onPress={() => router.push('/settings/account')}
             />
           </Card>
 
@@ -128,7 +128,7 @@ export default function SettingsScreen() {
               <SettingsRow
                 icon={<Ionicons name="chatbubble-outline" size={18} color={theme.tint} />}
                 title="Help & Feedback"
-                onPress={() => {}}
+                onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
               />
               <SettingsRow
                 icon={<Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />}

@@ -93,7 +93,7 @@ export default function DashboardScreen() {
         <DashboardGreeting />
         <View style={styles.headerRight}>
           <Pressable
-            onPress={() => {}}
+            onPress={() => router.push('/settings/notifications')}
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.8 }]}
             accessibilityLabel="Notifications"
           >
