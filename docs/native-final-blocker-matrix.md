@@ -1,26 +1,35 @@
-# Native final blocker matrix (Sprint R4)
+# Native final blocker matrix (through Sprint 5)
 
-Categorized view of what blocks production-style validation vs what is acceptable or deferred. Use for go/no-go and prioritization.
+Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–4 and Sprint 5 (provider/build closure prep). Use for go/no-go and prioritization.
 
 ---
 
-## Blocker
-
-Items that must be resolved before considering production or TestFlight-style validation.
+## Blocker (must resolve before production / TestFlight-style validation)
 
 | Item | Notes |
 |------|--------|
-| *(None in code)* | This sprint does not introduce new blockers. Production build, signing, and store submission are out of scope. |
-
-*When moving to production:* Add store signing, EAS build profile, and TestFlight/Store checklist as blockers.
+| **RevenueCat dashboard + webhook** | Products, offerings, entitlement, webhook URL and auth header; App Store Connect / Play Console subscription products. Without these, premium screen shows "No offerings available." See `docs/native-external-setup-checklist.md` §2 and §2.4. |
+| **OneSignal dashboard (iOS + Android)** | Add iOS app (bundle ID, APNs key/cert) and Android app (FCM). App code is ready; push will not deliver until OneSignal is configured. See §3. |
+| **EAS build + secrets** | For real-device validation: EAS profile (preview or production), credentials, and EAS secrets for Supabase, OneSignal App ID, RevenueCat API keys. See §5 and §5.1. |
+| **Store submission** | When moving to production: signing, TestFlight/Play upload, store listing. Out of scope for Sprint 5; document as final step. |
 
 ---
 
-## Blocker resolution plan (Sprint R5)
+## Blocker resolution plan (Kaan dashboard/device actions)
 
-For items that are currently blocking or deferred but have a clear resolution path:
+For items that are blocking and have a clear resolution path:
 
-### Bunny photo 404
+### RevenueCat (hard blocker)
+
+- **Cause:** Products/offerings not configured in RevenueCat dashboard, or API key points at a project with no packages.
+- **Fix:** Follow `docs/native-external-setup-checklist.md` §2 and §2.4: RevenueCat dashboard (products, entitlement, offering, webhook), Supabase `revenuecat-webhook` + secret, App Store Connect / Play Console products. App shows "No offerings available" until configured; no code change required.
+
+### OneSignal (hard blocker for push)
+
+- **Cause:** OneSignal project must have iOS and Android apps with APNs/FCM configured.
+- **Fix:** Follow `docs/native-external-setup-checklist.md` §3: Add iOS app (bundle ID, APNs), Android app (FCM). Set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets. App uses production APNs for EAS preview/production builds via `app.config.js`.
+
+### Bunny photo 404 (non-blocker for launch if accepted)
 
 - **Cause:** Pull zone returns 404 — request reaches CDN but path not found. App builds URLs per contract (`photos/{userId}/{timestamp}.{ext}`); no app bug.
 - **Fix (provider-side only):**
@@ -30,11 +39,6 @@ For items that are currently blocking or deferred but have a clear resolution pa
   4. Confirm in DB that stored paths look like `photos/...`; test one URL in Safari.
 - **App-side:** None required; URL logic is correct.
 
-### RevenueCat empty offerings
-
-- **Cause:** Products/offerings not configured in RevenueCat dashboard, or API key points at a project with no packages.
-- **Fix:** Configure products and a default offering in RevenueCat dashboard; link App Store Connect / Play Console products. App already shows a clear “No offerings available” state and treats it as intentional (see premium screen copy).
-- **App-side:** Premium screen shows intentional empty state and “Restore purchases” only when RevenueCat is configured; no code change required beyond existing graceful copy.
 
 ---
 
@@ -44,30 +48,34 @@ Known issues that do not block release-readiness or dev validation. Fix when con
 
 | Item | Notes |
 |------|--------|
-| **RevenueCat offerings / dashboard** | Offerings or packages not fully configured; console warnings in dev. Premium screen and entitlement checks work; paywall may show empty or need dashboard setup before real purchases. |
-| **Reset-password screen** | Placeholder or minimal flow; web has full flow. Document as P1 if needed. |
-| **Still-missing native-v1 secondary surfaces** | Per contract: schedule tab, match celebration, public profile are deferred. Credits/delete-account remain as repo (link-out). No P0 gap. |
+| **RevenueCat console warnings** | When dashboard not fully set up; premium screen shows intentional empty state. Resolve via dashboard before launch. |
+| **Reset-password screen** | Minimal flow; web has full flow. Document as P1 if needed. |
+| **Bunny photo 404** | Until pull zone configured; upload works; display may show placeholder. Acceptable for launch if documented. |
 
 ---
 
-## In v1 (Sprint 1)
+## In v1 (done in Sprints 1–4)
 
 | Item | Notes |
 |------|--------|
-| **Profile photo upload** | In v1. Native: image picker → upload-image EF → profiles.photos update. No new backend. |
-| **Vibe video** | In v1. Native: record → create-video-upload → tus upload → video-webhook; state (none/uploading/processing/ready/failed); delete via delete-vibe-video. |
-| **Premium** | In v1; hard blocker. RevenueCat + backend; see RevenueCat dashboard checklist in `docs/native-external-setup-checklist.md`. |
+| **Profile photo upload** | Image picker → upload-image EF → profiles.photos update. |
+| **Vibe video** | Record → create-video-upload → tus upload → video-webhook; state and delete. |
+| **Premium** | RevenueCat + backend; hard blocker until dashboard/webhook configured. |
+| **Public profile** | `/user/:userId`; entry from chat. Sprint 4. |
+| **Match celebration** | Unread match → celebration → Message → chat. Sprint 4. |
+| **Credits** | Pack selection + create-credits-checkout → Stripe in browser. Sprint 4. |
+| **Delete account** | Native flow via delete-account EF. Sprint 3. |
+
+## Explicitly accepted web handoff (no blocker)
+
+Schedule, profile preview, account settings, notification toggles, Daily Drop (empty state), reset password, legal/marketing links. See `docs/native-web-handoff-burndown.md`.
 
 ## Deferred
 
-Explicitly deferred; tracked but not in scope for this sprint.
-
 | Item | Notes |
 |------|--------|
-| **Photo loading (Bunny 404)** | Bunny CDN may return 404 until pull zone configured. URL logic correct; see `docs/native-runtime-stabilization-diagnosis.md`. |
-| **Match celebration, public profile, schedule** | Per `docs/native-screen-contract-map.md`; deferred or link-out. Credits/delete-account remain as current repo. |
+| **Photo loading (Bunny 404)** | Until pull zone configured; URL logic correct. |
 | **Polish-only** | Accessibility, loading states, visual tweaks after v1 flows. |
-| **Bunny/provider config** | Pull zone origin/path; no app code change. |
 
 ---
 
@@ -85,8 +93,9 @@ Expected in dev builds only; not bugs and not present in production builds.
 
 ## Summary
 
-- **Blocker:** None added this sprint; production/store path is out of scope.
-- **Non-blocking:** RevenueCat dashboard gap, reset-password minimal state, deferred secondary surfaces (documented).
-- **In v1:** Profile photo upload, vibe video (record/upload/state/delete), premium (RevenueCat).
-- **Deferred:** Photo loading (404) until Bunny config, schedule/public profile/match celebration, polish, Bunny config.
+- **Blocker (must resolve for launch):** RevenueCat dashboard + webhook + store products; OneSignal dashboard (iOS + Android); EAS build + secrets. All documented in `docs/native-external-setup-checklist.md`.
+- **Non-blocking:** RevenueCat warnings until configured, reset-password minimal, Bunny 404 until pull zone.
+- **In v1 (done):** Profile photo, vibe video, premium, public profile, match celebration, credits, delete account.
+- **Accepted web handoff:** Schedule, account, notifications, Daily Drop, reset password, legal/marketing.
+- **Deferred:** Bunny photo loading, polish.
 - **Dev-only:** Dev client UI, RevenueCat warnings, trace logs.

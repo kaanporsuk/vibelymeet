@@ -1,20 +1,19 @@
-# Native release readiness (Sprint R4)
+# Native release readiness (through Sprint 5)
 
-Branch: `feat/native-branding-release-readiness`  
-Scope: Branding sanity, release-readiness pass, final blocker checklist. Media remains deferred but tracked. No Expo cloud builds.
+Scope: App and provider/build closure prep. Reflects Sprints 1–4 (parity, public profile, match celebration, credits) and Sprint 5 (OneSignal/RevenueCat real-device prep, build validation docs, blocker matrix refresh).
 
 ---
 
 ## 1. What is complete
 
 - **App shell and navigation:** Tab layout (Dashboard, Events, Matches, Profile), stack screens, auth gate, onboarding gate.
-- **P0 screens (native v1):** Index, auth (sign-in, sign-up, reset-password), onboarding, dashboard, events list/detail, event lobby, matches, chat, profile (including profile photo upload and vibe video), settings (with subpages: notifications, credits, account), Ready Gate, video date, Daily Drop, premium (RevenueCat; hard blocker).
+- **P0 screens (native v1):** Index, auth (sign-in, sign-up, reset-password), onboarding, dashboard, events list/detail, event lobby, matches, chat, profile (including profile photo upload and vibe video), settings (with subpages: notifications, credits, account), Ready Gate, video date, Daily Drop, premium (RevenueCat; hard blocker). **Sprint 4:** Public profile (`/user/:userId`), match celebration (unread → celebration → chat), credits (pack selection + create-credits-checkout → Stripe in browser).
 - **Profile photo upload:** In v1; native image picker → upload-image EF → profiles.photos update; implemented in Sprint 1.
 - **Vibe video:** In v1; native record → create-video-upload → tus upload → video-webhook; state (none/uploading/processing/ready/failed) and delete via delete-vibe-video; implemented in Sprint 1.
-- **Dead-end cleanup:** Profile preview, schedule, and settings rows wired to navigation or explicit deferred/web handoff. Dashboard notifications → settings/notifications.
-- **Branding config:** `app.json` — name "Vibely", icon `./assets/images/icon.png`, splash `./assets/images/splash-icon.png`, splash background `#0a0a0c`, Android adaptive icons and favicon referenced. All referenced assets exist in repo.
+- **Dead-end cleanup:** Profile preview, schedule, and settings rows wired to navigation or explicit web handoff (see `docs/native-web-handoff-burndown.md`).
+- **Branding config:** `app.json` — name "Vibely", icon, splash, Android adaptive icons and favicon referenced. All referenced assets exist in repo.
 - **Backend contracts:** Same Supabase project, RPCs, Edge Functions as web; no native-only business logic.
-- **Platform adapters:** OneSignal (push), RevenueCat (entitlements), Daily (video date) wired; env and docs in place.
+- **Platform adapters:** OneSignal (push; APNs mode via `app.config.js` for preview/production), RevenueCat (entitlements), Daily (video date) wired; env and closure checklists in `docs/native-external-setup-checklist.md`.
 
 ---
 
@@ -28,9 +27,10 @@ Scope: Branding sanity, release-readiness pass, final blocker checklist. Media r
 
 ## 3. What is still blocked before production-style validation
 
-- **Production build and TestFlight/Store:** Not in scope for this sprint; local dev client + Metro only.
-- **Photo/media loading:** Under observation; Bunny CDN returns 404 after path/provider work; deferred to hardening. Does not block branding or release-readiness doc.
-- **RevenueCat offerings:** If offerings/packages are not configured in dashboard, premium paywall may show empty or warnings; resolve in dashboard when moving to production.
+- **Kaan dashboard/device actions (hard blockers for launch):** RevenueCat (products, offerings, entitlement, webhook URL + auth; App Store Connect / Play Console products). OneSignal (iOS app + APNs, Android app + FCM). See `docs/native-external-setup-checklist.md` for exact steps.
+- **Production build and TestFlight/Store:** EAS build + credentials + EAS secrets; no app code blocker. Use `preview` or `production` profile for real-device push/IAP.
+- **Photo/media loading:** Bunny CDN may return 404 until pull zone configured; URL logic is correct. Does not block launch if accepted as known limitation; see `docs/native-final-blocker-matrix.md`.
+- **RevenueCat offerings:** If offerings/packages not configured in dashboard, premium screen shows "No offerings available"; resolve in RevenueCat + store consoles before launch.
 
 ---
 
@@ -59,6 +59,6 @@ No config or code changes were required for branding this sprint; existing wirin
 
 ---
 
-## 6. Final blocker matrix
+## 6. Final blocker matrix and Sprint 5
 
-See `docs/native-final-blocker-matrix.md` for the categorized list (blocker / non-blocking / deferred / dev-only).
+See `docs/native-final-blocker-matrix.md` for the categorized list (blocker / non-blocking / deferred / dev-only). **Sprint 5:** OneSignal real-device closure prep (§3) and RevenueCat audit (§2) documented in `docs/native-external-setup-checklist.md`; production-style build validation prep (§5.1); OneSignal APNs mode set via `app.config.js` for EAS preview/production builds.

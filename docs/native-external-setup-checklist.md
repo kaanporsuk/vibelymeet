@@ -32,7 +32,13 @@ Exact checklist for external provider and store setup required before TestFlight
 
 ## 2. RevenueCat (Kaan: exact dashboard actions)
 
-Premium is a hard blocker for native launch. App code is ready (offerings, purchase, restore, backend sync via revenuecat-webhook). The following must be done in RevenueCat and Supabase before TestFlight/Play or production IAP.
+Premium is a hard blocker for native launch.
+
+**App-side code status:** Ready. App initializes RevenueCat with platform key (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` / `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` or fallback `EXPO_PUBLIC_REVENUECAT_API_KEY`), calls `Purchases.logIn(userId)` with Supabase user id, fetches offerings, purchases packages, restores purchases; backend sync via `revenuecat-webhook` Edge Function. No code changes required.
+
+**Env required:** In `.env` and in EAS secrets for the build profile: at least one of `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, or `EXPO_PUBLIC_REVENUECAT_API_KEY`. Prefer platform-specific keys for each EAS profile.
+
+The following must be done in RevenueCat and Supabase before TestFlight/Play or production IAP.
 
 ### 2.1 RevenueCat dashboard
 
@@ -100,12 +106,36 @@ Checklist for closing IAP on real devices before TestFlight/Play or production. 
 
 ---
 
-## 3. OneSignal
+## 3. OneSignal (Kaan: dashboard and device setup)
 
-- [ ] Web app already configured; ensure same OneSignal project or linked app for mobile.
-- [ ] Add iOS app in OneSignal (bundle ID, APNs key/certificate).
-- [ ] Add Android app in OneSignal (FCM/server key or Firebase config).
-- [ ] No repo code changes required; mobile already sends `mobile_onesignal_player_id` to backend and `send-notification` includes it in `include_player_ids`.
+App code is ready: init, request permission, login(userId), get subscription ID, upsert `notification_preferences` with `mobile_onesignal_player_id` and `mobile_onesignal_subscribed`. Backend `send-notification` targets this device when delivering to `user_id`. No further code changes required.
+
+### 3.1 Env and config
+
+| Item | Notes |
+|------|--------|
+| `EXPO_PUBLIC_ONESIGNAL_APP_ID` | OneSignal App ID (same project as web). Required for push. Set in `.env` and in EAS secrets for the build profile. |
+| OneSignal plugin mode | `app.config.js` sets APNs mode: **production** for EAS `preview` and `production` builds (TestFlight/Store); **development** for local/dev. Do not override unless you know the impact. |
+
+### 3.2 OneSignal dashboard (iOS)
+
+- [ ] **OneSignal project:** Use same project as web or create; note App ID.
+- [ ] **iOS app:** Add iOS app in OneSignal; bundle ID must match `com.vibelymeet.vibely` (from app.json).
+- [ ] **APNs:** Upload APNs key (.p8) or certificate. For TestFlight/Store use **production** APNs; for dev use **development**. OneSignal docs describe how to add key in Apple Developer and in OneSignal.
+
+### 3.3 OneSignal dashboard (Android)
+
+- [ ] **Android app:** Add Android app in OneSignal; package name must match `com.vibelymeet.vibely`.
+- [ ] **FCM:** Add FCM server key or Firebase config (Google Services JSON) in OneSignal so OneSignal can send to FCM.
+
+### 3.4 Exact real-device validation steps (push)
+
+1. **Build:** Use EAS `preview` or `production` for iOS so OneSignal plugin uses production APNs (or use dev build and expect dev APNs).
+2. **Install** on a physical device; sign in with a test user.
+3. **Grant notification permission** when the app prompts (or in Settings).
+4. **Verify backend:** In Supabase `notification_preferences`, confirm a row for the user with `mobile_onesignal_player_id` non-null and `mobile_onesignal_subscribed = true`.
+5. **Send test:** In OneSignal dashboard → Messages, send a test notification to that user (or by player ID). Device should receive it.
+6. **Sign out:** Sign out in app; optionally verify in OneSignal that the subscription is no longer tied to that user (app calls `OneSignal.logout()`).
 
 ---
 
@@ -119,10 +149,20 @@ Checklist for closing IAP on real devices before TestFlight/Play or production. 
 
 ## 5. Expo / EAS (for TestFlight / Play internal)
 
-- [ ] EAS project linked: `eas init` or existing project.
-- [ ] `eas.json` build profiles (e.g. development, preview, production).
-- [ ] Credentials: iOS (distribution cert, provisioning profile), Android (keystore). EAS can manage these.
-- [ ] Env vars / secrets in EAS: set `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_ONESIGNAL_APP_ID`, RevenueCat keys (`EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY`, or `EXPO_PUBLIC_REVENUECAT_API_KEY`), and optionally `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME` for the appropriate profile.
+- [ ] EAS project linked: `eas init` or existing project (`app.json` → `extra.eas.projectId`).
+- [ ] `eas.json` build profiles: **development** (dev client, internal), **preview** (internal distribution), **production** (store). Use `preview` or `production` for real-device push/IAP validation so OneSignal uses production APNs.
+- [ ] Credentials: iOS (distribution cert, provisioning profile), Android (keystore). EAS can manage these via `eas credentials`.
+- [ ] **EAS secrets** (set per profile or globally): `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (or `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), `EXPO_PUBLIC_ONESIGNAL_APP_ID`, `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` (or `EXPO_PUBLIC_REVENUECAT_API_KEY`). Optional: `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`, `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` for media.
+
+### 5.1 Production-style build validation prep (Kaan)
+
+| Goal | What to do |
+|------|------------|
+| **Local iOS** | `npx expo prebuild` then open `ios/` in Xcode; build and run on simulator or device. Or use `eas build --profile development` and install the dev client. Native modules (Daily, RevenueCat, OneSignal) require a dev client or custom build—Expo Go is not sufficient. |
+| **Local Android** | `npx expo prebuild` then run `android/` in Android Studio, or `eas build --profile development` and install the built APK. |
+| **EAS iOS (TestFlight-style)** | `eas build --profile preview` or `--profile production` for iOS. Ensure EAS secrets are set for that profile. OneSignal plugin will use production APNs for preview/production (see §3). Upload to TestFlight via `eas submit` or EAS dashboard. |
+| **EAS Android (internal track)** | `eas build --profile preview` or `--profile production` for Android. Set Android secrets. Upload to Play internal testing track. |
+| **Missing config** | All required permissions and plugins are in `app.json` / `app.config.js`: camera, mic, photo library, notifications, OneSignal NSE (iOS). No known build blockers from repo; any failure is likely credentials or env. |
 
 ---
 
