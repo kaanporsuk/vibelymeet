@@ -218,25 +218,25 @@ export default function EventLobbyScreen() {
 
             <View style={styles.actions}>
               <Pressable
-                style={[styles.actionBtn, { backgroundColor: theme.surface }, processing && styles.actionDisabled]}
+                style={[styles.actionCircle, { backgroundColor: theme.surface, borderColor: theme.border }, processing && styles.actionDisabled]}
                 onPress={() => handleSwipe('pass')}
                 disabled={processing}
               >
-                <Text style={[styles.actionBtnText, { color: theme.text }]}>Pass</Text>
+                <Ionicons name="close" size={28} color={theme.textSecondary} />
               </Pressable>
               <Pressable
-                style={[styles.actionBtn, { backgroundColor: theme.tint }, processing && styles.actionDisabled]}
+                style={[styles.actionCircle, styles.actionCirclePrimary, { backgroundColor: theme.tint }, processing && styles.actionDisabled]}
                 onPress={() => handleSwipe('vibe')}
                 disabled={processing}
               >
-                <Text style={styles.actionBtnText}>{processing ? '…' : 'Vibe'}</Text>
+                <Ionicons name="heart" size={28} color="#fff" />
               </Pressable>
               <Pressable
-                style={[styles.actionBtn, { backgroundColor: theme.accent }, processing && styles.actionDisabled]}
+                style={[styles.actionCircle, { backgroundColor: theme.accent + '40', borderColor: theme.accent }, processing && styles.actionDisabled]}
                 onPress={() => handleSwipe('super_vibe')}
                 disabled={processing}
               >
-                <Text style={styles.actionBtnText}>Super</Text>
+                <Ionicons name="star" size={26} color={theme.accent} />
               </Pressable>
             </View>
             <Text style={[styles.deckMeta, { color: theme.textSecondary }]}>
@@ -376,17 +376,19 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 16,
+    alignItems: 'center',
+    gap: spacing.lg,
     marginBottom: spacing.sm,
   },
-  actionBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: radius.lg,
-    minWidth: 80,
+  actionCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
+  actionCirclePrimary: { borderWidth: 0 },
   actionDisabled: { opacity: 0.6 },
-  actionBtnText: { color: '#fff', fontWeight: '600' },
   deckMeta: { fontSize: 12, textAlign: 'center' },
 });
