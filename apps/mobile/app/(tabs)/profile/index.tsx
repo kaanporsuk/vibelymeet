@@ -72,12 +72,13 @@ const vibeScoreStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   scoreText: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
   },
   scoreLabel: {
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 4,
+    fontWeight: '600',
   },
 });
 
@@ -579,7 +580,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroGradient: {
-    height: 168,
+    height: 172,
     paddingHorizontal: spacing.lg,
   },
   heroButtons: {
@@ -594,18 +595,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(255,255,255,0.24)',
   },
   heroButtonGlass: {
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
   heroButtonGlassRight: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
   },
   avatarWrap: {
     alignItems: 'center',
-    marginTop: -76,
-    marginBottom: spacing.xl,
+    marginTop: -78,
+    marginBottom: spacing.xl + 4,
   },
   avatarRing: {
     borderWidth: 5,
@@ -646,7 +647,7 @@ const styles = StyleSheet.create({
   identityBlock: {
     alignItems: 'center',
     marginBottom: spacing.xl,
-    marginTop: spacing.xs,
+    marginTop: spacing.sm,
   },
   nameAge: {
     ...typography.titleLG,
@@ -671,7 +672,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   vibeScoreCard: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.lg + 4,
   },
   vibeScoreRow: {
     flexDirection: 'row',
@@ -683,7 +684,7 @@ const styles = StyleSheet.create({
   },
   vibeScoreTitle: {
     ...typography.titleMD,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
   },
   vibeScoreDesc: {
     ...typography.bodySecondary,
@@ -725,12 +726,12 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: spacing.md + 2,
     marginBottom: spacing.xl,
   },
   statCard: {
     flex: 1,
-    padding: spacing.lg,
+    padding: spacing.lg + 2,
     borderRadius: radius.xl,
     borderWidth: 1,
     alignItems: 'center',
@@ -788,7 +789,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.md,
-    marginTop: spacing.lg,
+    marginTop: spacing.lg + 4,
   },
   sectionTitle: {
     ...typography.titleMD,

@@ -189,8 +189,8 @@ const featuredStyles = StyleSheet.create({
     borderRadius: radius['3xl'],
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.16)',
-    height: 368,
+    borderColor: 'rgba(255,255,255,0.18)',
+    height: 376,
   },
   image: {
     ...StyleSheet.absoluteFillObject,
@@ -202,14 +202,14 @@ const featuredStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '72%',
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    height: '74%',
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   content: {
     flex: 1,
     justifyContent: 'flex-end',
     padding: spacing.xl,
-    paddingBottom: spacing.xl + 4,
+    paddingBottom: spacing.xl + 8,
   },
   badges: { position: 'absolute', top: spacing.lg, left: spacing.lg },
   liveBadge: {
@@ -246,30 +246,30 @@ const featuredStyles = StyleSheet.create({
     borderWidth: 1,
   },
   tagText: { fontSize: 14, fontWeight: '500' },
-  title: { fontSize: 23, fontWeight: '700', marginBottom: 6 },
-  desc: { fontSize: 15, marginBottom: spacing.md },
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  title: { fontSize: 24, fontWeight: '700', marginBottom: 6 },
+  desc: { fontSize: 15, marginBottom: spacing.md, lineHeight: 20 },
+  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   attendees: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatarStack: { flexDirection: 'row' },
   avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     marginLeft: -6,
     borderWidth: 2,
     borderColor: 'hsl(240, 10%, 4%)',
   },
-  attendeesText: { fontSize: 14, fontWeight: '500' },
+  attendeesText: { fontSize: 14, fontWeight: '600' },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.xl + 4,
     paddingVertical: 14,
     borderRadius: radius.pill,
     borderWidth: 0,
   },
-  ctaLabel: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  ctaLabel: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });
 
 // ── Rail card (EventCardPremium-style)
@@ -378,7 +378,7 @@ const railCardStyles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   tagText: { color: '#fff', fontSize: 11, fontWeight: '500' },
-  body: { padding: spacing.md },
+  body: { padding: spacing.md + 2, gap: 4 },
   title: { ...typography.titleMD, fontSize: 15, marginBottom: 4 },
   meta: { fontSize: 11, marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
@@ -391,11 +391,12 @@ const railCardStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'hsl(240, 10%, 8%)',
   },
-  attendees: { fontSize: 11 },
+  attendees: { fontSize: 11, fontWeight: '500' },
   cta: {
     paddingVertical: 10,
     borderRadius: radius.lg,
     alignItems: 'center',
+    marginTop: 2,
   },
   ctaLabel: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });
@@ -444,9 +445,9 @@ function EventsRail({
 
 const railStyles = StyleSheet.create({
   section: { marginBottom: spacing.xl },
-  header: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
+  header: { paddingHorizontal: spacing.lg, marginBottom: spacing.md + 2 },
   title: { fontSize: 20, fontWeight: '700' },
-  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
 });
 
 // ── Loading skeleton
@@ -773,7 +774,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.md + 2,
   },
   headerIconBox: {
     width: 44,
