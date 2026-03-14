@@ -155,6 +155,28 @@ export default function ProfileScreen() {
     Linking.openURL('https://vibelymeet.com/vibe-studio').catch(() => {});
   };
 
+  const handlePreviewProfile = () => {
+    Alert.alert(
+      'Profile preview',
+      'Profile preview is coming to mobile soon. View your profile on web.',
+      [
+        { text: 'OK', style: 'cancel' },
+        { text: 'Open on web', onPress: () => Linking.openURL('https://vibelymeet.com/profile').catch(() => {}) },
+      ]
+    );
+  };
+
+  const handleSchedulePress = () => {
+    Alert.alert(
+      'My Vibe Schedule',
+      'Set when you\'re open for dates on web. Schedule is coming to mobile in a future update.',
+      [
+        { text: 'OK', style: 'cancel' },
+        { text: 'Open on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
+      ]
+    );
+  };
+
   // Placeholder vibe score from profile completeness (mirrors web intent; no shared calc on mobile)
   const vibeScore =
     profile?.name && profile?.about_me && profile?.tagline && (profile?.photos?.length ?? 0) > 0
@@ -196,7 +218,7 @@ export default function ProfileScreen() {
         <View style={styles.heroButtons}>
           <Pressable
             style={[styles.heroButton, styles.heroButtonGlass]}
-            onPress={() => {}}
+            onPress={handlePreviewProfile}
             accessibilityLabel="Preview profile"
           >
             <Ionicons name="eye-outline" size={24} color={theme.text} />
@@ -225,7 +247,7 @@ export default function ProfileScreen() {
           />
           <Pressable
             style={[styles.videoBtn, { backgroundColor: theme.surface }]}
-            onPress={() => {}}
+            onPress={handleUseVibeVideoOnWeb}
             accessibilityLabel="Vibe video"
           >
             <Ionicons name="videocam-outline" size={18} color={theme.text} />
@@ -290,13 +312,13 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {/* My Vibe Schedule card */}
-        <Card onPress={() => {}}>
+        {/* My Vibe Schedule card — deferred: open web or show coming-soon */}
+        <Card onPress={handleSchedulePress}>
           <SettingsRow
             icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
             title="My Vibe Schedule"
             subtitle="Set when you're open for dates"
-            onPress={() => {}}
+            onPress={handleSchedulePress}
           />
         </Card>
 
