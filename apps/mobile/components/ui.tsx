@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   StyleProp,
@@ -391,6 +392,53 @@ export function DestructiveRow({ icon, label, onPress, style }: DestructiveRowPr
   );
 }
 
+export type MatchListRowProps = {
+  imageUri: string;
+  name: string;
+  time: string;
+  lastMessage: string | null;
+  unread: boolean;
+  isNew: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+/** Conversation list row: avatar, name, optional New badge, time, preview, unread dot. */
+export function MatchListRow({ imageUri, name, time, lastMessage, unread, isNew, style }: MatchListRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View style={[styles.matchListRow, { borderBottomColor: theme.border }, style]}>
+      <Avatar
+        size={52}
+        image={imageUri ? <Image source={{ uri: imageUri }} style={styles.matchListAvatarImg} /> : undefined}
+        fallbackInitials={name?.[0]}
+      />
+      <View style={styles.matchListRowBody}>
+        <View style={styles.matchListRowTop}>
+          <Text style={[styles.matchListName, { color: theme.text }]} numberOfLines={1}>{name}</Text>
+          {isNew && (
+            <View style={[styles.matchListNewBadge, { backgroundColor: theme.accentSoft }]}>
+              <Text style={[styles.matchListNewBadgeText, { color: theme.tint }]}>New</Text>
+            </View>
+          )}
+          <Text style={[styles.matchListTime, { color: theme.textSecondary }]} numberOfLines={1}>{time}</Text>
+        </View>
+        <Text
+          style={[
+            styles.matchListPreview,
+            { color: theme.textSecondary },
+            unread && { color: theme.text, fontWeight: '600' },
+          ]}
+          numberOfLines={1}
+        >
+          {lastMessage || 'New match'}
+        </Text>
+      </View>
+      {unread && <View style={[styles.matchListUnreadDot, { backgroundColor: theme.accent }]} />}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -477,5 +525,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   destructiveRowLabel: { fontSize: 16, fontWeight: '600' },
+  matchListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.md,
+  },
+  matchListAvatarImg: { width: '100%', height: '100%' },
+  matchListRowBody: { flex: 1, marginLeft: spacing.sm, minWidth: 0 },
+  matchListRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+    gap: spacing.xs,
+  },
+  matchListName: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  matchListNewBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  matchListNewBadgeText: { fontSize: 10, fontWeight: '600', letterSpacing: 0.3 },
+  matchListTime: { fontSize: 11 },
+  matchListPreview: { fontSize: 13, marginTop: 2 },
+  matchListUnreadDot: { width: 10, height: 10, borderRadius: 5, marginLeft: spacing.sm },
 });
 
