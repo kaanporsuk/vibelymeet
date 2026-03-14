@@ -10,6 +10,7 @@ import {
   Pressable,
   Share,
   Platform,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -130,19 +131,26 @@ export default function ProfileScreen() {
     }
   };
 
+  const inviteLink = `https://vibelymeet.com/auth?mode=signup&ref=${profile?.id ?? ''}`;
+
   const handleInviteFriends = async () => {
-    const link = `https://vibelymeet.com/auth?mode=signup&ref=${profile?.id ?? ''}`;
     try {
       if (Platform.OS !== 'web' && Share.share) {
         await Share.share({
           title: 'Join me on Vibely!',
           message: "I'm using Vibely for video dates — come find your vibe! 💜",
-          url: link,
+          url: inviteLink,
         });
+      } else {
+        await Linking.openURL(inviteLink);
       }
     } catch {
-      // Fallback: copy not available on all RN; leave as no-op if Share fails
+      await Linking.openURL(inviteLink).catch(() => {});
     }
+  };
+
+  const handleUseVibeVideoOnWeb = () => {
+    Linking.openURL('https://vibelymeet.com/vibe-studio').catch(() => {});
   };
 
   // Placeholder vibe score from profile completeness (mirrors web intent; no shared calc on mobile)
@@ -401,7 +409,7 @@ export default function ProfileScreen() {
           </Text>
           <VibelyButton
             label="Use on web"
-            onPress={handleInviteFriends}
+            onPress={handleUseVibeVideoOnWeb}
             variant="secondary"
             style={{ marginTop: spacing.sm }}
           />

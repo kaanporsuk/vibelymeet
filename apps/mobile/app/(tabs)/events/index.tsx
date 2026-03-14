@@ -713,7 +713,10 @@ export default function EventsListScreen() {
                 <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
                   But there are events happening in other cities!
                 </Text>
-                <Pressable style={[styles.premiumCta, { backgroundColor: theme.tint }]}>
+                <Pressable
+                  style={[styles.premiumCta, { backgroundColor: theme.tint }]}
+                  onPress={() => router.push('/premium')}
+                >
                   <Ionicons name="sparkles" size={18} color="#fff" />
                   <Text style={styles.premiumCtaLabel}>Go Premium to explore →</Text>
                 </Pressable>

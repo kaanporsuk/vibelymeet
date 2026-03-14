@@ -20,7 +20,6 @@ type ScreenProps = {
   title?: string;
   children: ReactNode;
   footer?: ReactNode;
-  scroll?: boolean;
   headerRight?: ReactNode;
   style?: StyleProp<ViewStyle>;
 };

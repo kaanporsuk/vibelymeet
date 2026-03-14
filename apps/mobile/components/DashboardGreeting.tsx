@@ -42,9 +42,13 @@ export function DashboardGreeting() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchMyProfile().then((data) => {
-      if (!cancelled) setProfile(data ?? null);
-    });
+    fetchMyProfile()
+      .then((data) => {
+        if (!cancelled) setProfile(data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setProfile(null);
+      });
     return () => { cancelled = true; };
   }, []);
 
