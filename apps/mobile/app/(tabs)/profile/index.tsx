@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   TextInput,
   ScrollView,
-  ActivityIndicator,
   Alert,
   Image,
   RefreshControl,
@@ -22,6 +21,9 @@ import {
   Card,
   VibelyButton,
   Avatar,
+  LoadingState,
+  SettingsRow,
+  DestructiveRow,
 } from '@/components/ui';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -164,7 +166,7 @@ export default function ProfileScreen() {
   if (isLoading && !profile) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.tint} />
+        <LoadingState title="Loading profile…" />
       </View>
     );
   }
@@ -289,25 +291,13 @@ export default function ProfileScreen() {
         </Card>
 
         {/* My Vibe Schedule card */}
-        <Card
-          onPress={() => {
-            // No /schedule on native; visual shell only
-          }}
-        >
-          <View style={styles.scheduleRow}>
-            <View style={[styles.scheduleIcon, { backgroundColor: 'rgba(0,229,255,0.2)' }]}>
-              <Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />
-            </View>
-            <View style={styles.scheduleText}>
-              <Text style={[styles.scheduleTitle, { color: theme.text }]}>
-                My Vibe Schedule
-              </Text>
-              <Text style={[styles.scheduleSub, { color: theme.textSecondary }]}>
-                Set when you're open for dates
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
-          </View>
+        <Card onPress={() => {}}>
+          <SettingsRow
+            icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
+            title="My Vibe Schedule"
+            subtitle="Set when you're open for dates"
+            onPress={() => {}}
+          />
         </Card>
 
         {/* Stats row: Events, Matches, Convos */}
@@ -361,12 +351,7 @@ export default function ProfileScreen() {
         </Card>
 
         {/* Conversation Starters */}
-        <View style={styles.sectionLabel}>
-          <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.tint} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Conversation Starters
-          </Text>
-        </View>
+        <SectionHeader title="Conversation Starters" />
         <Card style={styles.promptsEmpty}>
           <View style={styles.promptsEmptyInner}>
             <View style={[styles.promptsEmptyIcon, { backgroundColor: theme.accentSoft }]}>
@@ -382,26 +367,22 @@ export default function ProfileScreen() {
         </Card>
 
         {/* My Vibes */}
-        <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="sparkles-outline" size={16} color={theme.tint} />
-              <Text style={[styles.cardTitle, { color: theme.text }]}>My Vibes</Text>
-            </View>
+        <SectionHeader
+          title="My Vibes"
+          action={
             <Pressable onPress={() => setEditing(true)}>
-              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit</Text>
             </Pressable>
-          </View>
+          }
+        />
+        <Card>
           <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
             No vibes yet. Add some personality!
           </Text>
         </Card>
 
         {/* Vibe Video card — shell */}
-        <View style={styles.sectionLabel}>
-          <Ionicons name="videocam-outline" size={16} color={theme.tint} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
-        </View>
+        <SectionHeader title="Vibe Video" />
         <View style={[styles.vibeVideoShell, { backgroundColor: theme.surfaceSubtle }]}>
           <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
           <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
@@ -494,29 +475,21 @@ export default function ProfileScreen() {
         </Card>
 
         {/* Invite Friends */}
-        <Card onPress={handleInviteFriends}>
-          <View style={styles.inviteRow}>
-            <View style={[styles.inviteIcon, { backgroundColor: theme.accentSoft }]}>
-              <Text style={styles.inviteEmoji}>💌</Text>
-            </View>
-            <View style={styles.inviteText}>
-              <Text style={[styles.inviteTitle, { color: theme.text }]}>Invite Friends</Text>
-              <Text style={[styles.inviteSub, { color: theme.textSecondary }]}>
-                Share Vibely with your friends
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
-          </View>
+        <Card>
+          <SettingsRow
+            icon={<Text style={styles.inviteEmoji}>💌</Text>}
+            title="Invite Friends"
+            subtitle="Share Vibely with your friends"
+            onPress={handleInviteFriends}
+          />
         </Card>
 
         {/* Logout */}
-        <Pressable
-          style={[styles.logoutBtn, { backgroundColor: 'transparent' }]}
+        <DestructiveRow
+          icon={<Ionicons name="log-out-outline" size={18} color={theme.danger} />}
+          label="Log Out"
           onPress={() => signOut()}
-        >
-          <Ionicons name="log-out-outline" size={18} color={theme.danger} />
-          <Text style={[styles.logoutText, { color: theme.danger }]}>Log Out</Text>
-        </Pressable>
+        />
 
         {/* Edit mode inline — same order as web edit drawers */}
         {editing && (
@@ -903,18 +876,6 @@ const styles = StyleSheet.create({
   inviteSub: {
     fontSize: 12,
     marginTop: 2,
-  },
-  logoutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.lg,
-    marginTop: spacing.lg,
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   editSection: {
     paddingHorizontal: spacing.lg,

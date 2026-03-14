@@ -336,6 +336,61 @@ export function LoadingState({ title, message }: Pick<StateProps, 'title' | 'mes
   );
 }
 
+type SettingsRowProps = {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  onPress?: () => void;
+  right?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function SettingsRow({ icon, title, subtitle, onPress, right, style }: SettingsRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const content = (
+    <View style={[styles.settingsRowInner, style]}>
+      <View style={[styles.settingsRowIcon, { backgroundColor: theme.accentSoft }]}>{icon}</View>
+      <View style={styles.settingsRowText}>
+        <Text style={[styles.settingsRowTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+        {subtitle ? (
+          <Text style={[styles.settingsRowSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>{subtitle}</Text>
+        ) : null}
+      </View>
+      {right ?? <Text style={{ color: theme.textSecondary }}>›</Text>}
+    </View>
+  );
+  if (onPress) {
+    return <Pressable onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>{content}</Pressable>;
+  }
+  return content;
+}
+
+type DestructiveRowProps = {
+  icon: ReactNode;
+  label: string;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function DestructiveRow({ icon, label, onPress, style }: DestructiveRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.destructiveRow,
+        { opacity: pressed ? 0.8 : 1 },
+        style,
+      ]}
+    >
+      {icon}
+      <Text style={[styles.destructiveRowLabel, { color: theme.danger }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -399,5 +454,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
   },
+  settingsRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  settingsRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsRowText: { flex: 1, minWidth: 0 },
+  settingsRowTitle: { ...typography.titleMD, fontSize: 16 },
+  settingsRowSubtitle: { fontSize: 12, marginTop: 2 },
+  destructiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  destructiveRowLabel: { fontSize: 16, fontWeight: '600' },
 });
 
