@@ -1,19 +1,47 @@
-import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+import { Tabs } from 'expo-router';
+import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { spacing } from '@/constants/theme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = (Platform.OS === 'ios' ? 56 : 52) + insets.bottom;
+  const paddingTop = 8;
+  const paddingBottom = Platform.OS === 'ios' ? insets.bottom : 10;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme].tint,
-        headerShown: useClientOnlyValue(false, true),
+        tabBarActiveTintColor: theme.tint,
+        tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.26)',
+        tabBarInactiveBackgroundColor: 'transparent',
+        tabBarStyle: {
+          backgroundColor: theme.glassSurface,
+          borderTopColor: theme.glassBorder,
+          borderTopWidth: 1,
+          height: tabBarHeight,
+          paddingBottom,
+          paddingTop,
+          shadowColor: '#8B5CF6',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.18,
+          shadowRadius: 10,
+          elevation: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
+        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 16, marginHorizontal: 3 },
+        tabBarIconStyle: { marginBottom: -2 },
+        headerShown: false,
       }}>
       <Tabs.Screen
         name="index"

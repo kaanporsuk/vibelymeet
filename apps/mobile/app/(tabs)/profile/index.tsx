@@ -1,23 +1,94 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  StyleSheet,
   TextInput,
   ScrollView,
-  Pressable,
   ActivityIndicator,
   Alert,
   Image,
   RefreshControl,
+  StyleSheet,
+  Pressable,
+  Share,
+  Platform,
+  Linking,
 } from 'react-native';
-import { Link, router } from 'expo-router';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import Colors from '@/constants/Colors';
+import {
+  SectionHeader,
+  Card,
+  VibelyButton,
+  Avatar,
+} from '@/components/ui';
+import { spacing, radius, typography } from '@/constants/theme';
+import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { avatarUrl } from '@/lib/imageUrl';
 
+// Relationship intent labels (mirrored from web RelationshipIntent)
+const LOOKING_FOR_LABELS: Record<string, string> = {
+  'long-term': 'Long-term partner',
+  'relationship': 'Relationship',
+  'something-casual': 'Something casual',
+  'new-friends': 'New friends',
+  'figuring-out': 'Figuring it out',
+};
+
+function getVibeScoreLabel(score: number): string {
+  if (score >= 90) return 'Iconic';
+  if (score >= 75) return 'Fire';
+  if (score >= 50) return 'Rising';
+  if (score >= 25) return 'Warming Up';
+  return 'Ghost Mode';
+}
+
+// Simple Vibe Score display (mirrors web VibeScore copy; no SVG ring on native)
+function VibeScoreDisplay({
+  score,
+  size = 90,
+  theme,
+}: {
+  score: number;
+  size?: number;
+  theme: { text: string; textSecondary: string; tint: string };
+}) {
+  const label = getVibeScoreLabel(score);
+  return (
+    <View style={[vibeScoreStyles.ring, { width: size, height: size, borderRadius: size / 2, borderColor: theme.tint }]}>
+      <Text style={[vibeScoreStyles.scoreText, { color: theme.text }]}>{score}%</Text>
+      <Text style={[vibeScoreStyles.scoreLabel, { color: theme.textSecondary }]}>{label}</Text>
+    </View>
+  );
+}
+
+const vibeScoreStyles = StyleSheet.create({
+  ring: {
+    borderWidth: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreText: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  scoreLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+});
+
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, signOut, refreshOnboarding } = useAuth();
+  const router = useRouter();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const qc = useQueryClient();
   const { data: profile, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ['my-profile'],
@@ -44,7 +115,12 @@ export default function ProfileScreen() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateMyProfile({ name: name.trim() || undefined, tagline: tagline.trim() || undefined, job: job.trim() || undefined, about_me: aboutMe.trim() || undefined });
+      await updateMyProfile({
+        name: name.trim() || undefined,
+        tagline: tagline.trim() || undefined,
+        job: job.trim() || undefined,
+        about_me: aboutMe.trim() || undefined,
+      });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       await refreshOnboarding();
       setEditing(false);
@@ -55,101 +131,815 @@ export default function ProfileScreen() {
     }
   };
 
+  const inviteLink = `https://vibelymeet.com/auth?mode=signup&ref=${profile?.id ?? ''}`;
+
+  const handleInviteFriends = async () => {
+    try {
+      if (Platform.OS !== 'web' && Share.share) {
+        await Share.share({
+          title: 'Join me on Vibely!',
+          message: "I'm using Vibely for video dates — come find your vibe! 💜",
+          url: inviteLink,
+        });
+      } else {
+        await Linking.openURL(inviteLink);
+      }
+    } catch {
+      await Linking.openURL(inviteLink).catch(() => {});
+    }
+  };
+
+  const handleUseVibeVideoOnWeb = () => {
+    Linking.openURL('https://vibelymeet.com/vibe-studio').catch(() => {});
+  };
+
+  // Placeholder vibe score from profile completeness (mirrors web intent; no shared calc on mobile)
+  const vibeScore =
+    profile?.name && profile?.about_me && profile?.tagline && (profile?.photos?.length ?? 0) > 0
+      ? 70
+      : profile?.name
+        ? 40
+        : 0;
+
   if (isLoading && !profile) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.tint} />
       </View>
     );
   }
 
   const photoUrl = profile?.avatar_url || profile?.photos?.[0];
   const displayUrl = photoUrl ? avatarUrl(photoUrl) : null;
+  const eventsCount = profile?.events_attended ?? 0;
+  const matchesCount = profile?.total_matches ?? 0;
+  const convosCount = profile?.total_conversations ?? 0;
+  const lookingForLabel = profile?.looking_for
+    ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for
+    : null;
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={isRefetching && !isLoading} onRefresh={refetch} />}
+      style={{ flex: 1, backgroundColor: theme.background }}
+      contentContainerStyle={{ paddingBottom: spacing['2xl'] }}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefetching && !isLoading}
+          onRefresh={refetch}
+        />
+      }
     >
-      <Text style={styles.title}>Profile</Text>
-      {displayUrl ? (
-        <Image source={{ uri: displayUrl }} style={styles.avatar} />
-      ) : (
-        <View style={styles.avatarPlaceholder}>
-          <Text style={styles.avatarPlaceholderText}>No photo</Text>
-          <Text style={styles.deferral}>Add photos on web or in a future update.</Text>
+      {/* Hero — web parity: top-left eye, top-right settings only; no global gear elsewhere */}
+      <View style={[styles.heroGradient, { backgroundColor: theme.tint, paddingTop: insets.top + spacing.lg }]}>
+        <View style={styles.heroButtons}>
+          <Pressable
+            style={[styles.heroButton, styles.heroButtonGlass]}
+            onPress={() => {}}
+            accessibilityLabel="Preview profile"
+          >
+            <Ionicons name="eye-outline" size={24} color={theme.text} />
+          </Pressable>
+          <Pressable
+            style={[styles.heroButton, styles.heroButtonGlassRight]}
+            onPress={() => router.push('/settings')}
+            accessibilityLabel="Settings"
+          >
+            <Ionicons name="settings-outline" size={24} color={theme.text} />
+          </Pressable>
         </View>
-      )}
+      </View>
 
-      {editing ? (
-        <>
-          <Text style={styles.label}>Name</Text>
-          <TextInput style={styles.input} value={name} onChangeText={setName} editable={!saving} />
-          <Text style={styles.label}>Tagline</Text>
-          <TextInput style={styles.input} value={tagline} onChangeText={setTagline} editable={!saving} />
-          <Text style={styles.label}>Job</Text>
-          <TextInput style={styles.input} value={job} onChangeText={setJob} editable={!saving} />
-          <Text style={styles.label}>About you</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={aboutMe}
-            onChangeText={setAboutMe}
-            multiline
-            numberOfLines={3}
-            editable={!saving}
+      {/* Centered profile photo with floating video + camera buttons */}
+      <View style={styles.avatarWrap}>
+        <View style={[styles.avatarRing, { borderColor: theme.background }]}>
+          <Avatar
+            size={120}
+            image={
+              displayUrl ? (
+                <Image source={{ uri: displayUrl }} style={styles.avatarImage} />
+              ) : undefined
+            }
+            fallbackInitials={profile?.name?.[0] ?? 'V'}
           />
-          <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save</Text>}
+          <Pressable
+            style={[styles.videoBtn, { backgroundColor: theme.surface }]}
+            onPress={() => {}}
+            accessibilityLabel="Vibe video"
+          >
+            <Ionicons name="videocam-outline" size={18} color={theme.text} />
           </Pressable>
-          <Pressable style={styles.textButton} onPress={() => setEditing(false)} disabled={saving}>
-            <Text style={styles.link}>Cancel</Text>
+          <Pressable
+            style={[styles.cameraBtn, { backgroundColor: theme.tint }]}
+            onPress={() => setEditing(true)}
+            accessibilityLabel="Edit photo"
+          >
+            <Ionicons name="camera" size={20} color="#fff" />
           </Pressable>
-        </>
-      ) : (
-        <>
-          <Text style={styles.name}>{profile?.name || '—'}</Text>
-          {profile?.tagline ? <Text style={styles.tagline}>{profile.tagline}</Text> : null}
-          {profile?.job ? <Text style={styles.meta}>{profile.job}</Text> : null}
-          {profile?.about_me ? <Text style={styles.bio}>{profile.about_me}</Text> : null}
-          <Text style={styles.meta}>Matches: {profile?.total_matches ?? 0} · Conversations: {profile?.total_conversations ?? 0}</Text>
-          <Pressable style={styles.button} onPress={() => setEditing(true)}>
-            <Text style={styles.buttonText}>Edit profile</Text>
-          </Pressable>
-        </>
-      )}
+        </View>
+      </View>
 
-      <Link href="/settings" asChild>
-        <Pressable style={styles.textButton}>
-          <Text style={styles.link}>Settings</Text>
+      <View style={styles.main}>
+        {/* Identity block: name / age, tagline, location */}
+        <View style={styles.identityBlock}>
+          <Text style={[styles.nameAge, { color: theme.text }]} numberOfLines={1}>
+            {profile?.name || 'Your name'}, {profile?.age ?? '—'}
+          </Text>
+          {profile?.tagline ? (
+            <Text style={[styles.taglineText, { color: theme.tint }]} numberOfLines={2}>
+              "{profile.tagline}"
+            </Text>
+          ) : (
+            <Text style={[styles.taglinePlaceholder, { color: theme.textSecondary }]}>
+              Add tagline
+            </Text>
+          )}
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
+            <Text style={[styles.locationText, { color: theme.textSecondary }]}>
+              {profile?.location || 'Location not set'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Vibe Score card */}
+        <Card style={styles.vibeScoreCard}>
+          <View style={styles.vibeScoreRow}>
+            <VibeScoreDisplay score={vibeScore} size={90} theme={theme} />
+            <View style={styles.vibeScoreCopy}>
+              <Text style={[styles.vibeScoreTitle, { color: theme.text }]}>
+                Your Vibe Score
+              </Text>
+              <Text style={[styles.vibeScoreDesc, { color: theme.textSecondary }]}>
+                {vibeScore < 100
+                  ? 'Complete your profile to stand out from the crowd.'
+                  : "You're at peak vibe. Time to make some connections."}
+              </Text>
+              <View style={styles.vibeScoreActions}>
+                {vibeScore < 100 && (
+                  <VibelyButton
+                    label="Complete Profile"
+                    onPress={() => setEditing(true)}
+                    variant="primary"
+                    style={styles.completeProfileBtn}
+                  />
+                )}
+              </View>
+            </View>
+          </View>
+        </Card>
+
+        {/* My Vibe Schedule card */}
+        <Card
+          onPress={() => {
+            // No /schedule on native; visual shell only
+          }}
+        >
+          <View style={styles.scheduleRow}>
+            <View style={[styles.scheduleIcon, { backgroundColor: 'rgba(0,229,255,0.2)' }]}>
+              <Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />
+            </View>
+            <View style={styles.scheduleText}>
+              <Text style={[styles.scheduleTitle, { color: theme.text }]}>
+                My Vibe Schedule
+              </Text>
+              <Text style={[styles.scheduleSub, { color: theme.textSecondary }]}>
+                Set when you're open for dates
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </View>
+        </Card>
+
+        {/* Stats row: Events, Matches, Convos */}
+        <View style={styles.statsRow}>
+          {[
+            { label: 'Events', value: eventsCount, icon: 'sparkles-outline' as const },
+            { label: 'Matches', value: matchesCount, icon: 'heart-outline' as const },
+            { label: 'Convos', value: convosCount, icon: 'flash-outline' as const },
+          ].map((stat) => (
+            <View key={stat.label} style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Ionicons name={stat.icon} size={16} color={theme.tint} style={styles.statIcon} />
+              <Text style={[styles.statValue, { color: theme.tint }]}>{stat.value}</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary }]}>{stat.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Looking For card */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="flag-outline" size={16} color={theme.tint} />
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Looking For</Text>
+            </View>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+            </Pressable>
+          </View>
+          {lookingForLabel ? (
+            <View style={[styles.intentChip, { backgroundColor: theme.accentSoft, borderColor: 'rgba(148,163,184,0.2)' }]}>
+              <Text style={[styles.intentLabel, { color: theme.text }]}>{lookingForLabel}</Text>
+            </View>
+          ) : (
+            <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+              Be upfront. It saves everyone time.
+            </Text>
+          )}
+        </Card>
+
+        {/* About Me card */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>About Me</Text>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.aboutText, { color: theme.textSecondary }]}>
+            {profile?.about_me || 'Write something that makes them swipe right...'}
+          </Text>
+        </Card>
+
+        {/* Conversation Starters */}
+        <View style={styles.sectionLabel}>
+          <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.tint} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Conversation Starters
+          </Text>
+        </View>
+        <Card style={styles.promptsEmpty}>
+          <View style={styles.promptsEmptyInner}>
+            <View style={[styles.promptsEmptyIcon, { backgroundColor: theme.accentSoft }]}>
+              <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.tint} />
+            </View>
+            <Text style={[styles.promptsEmptyTitle, { color: theme.text }]}>
+              Add your first Conversation Starter
+            </Text>
+            <Text style={[styles.promptsEmptySub, { color: theme.textSecondary }]}>
+              Give matches something fun to respond to
+            </Text>
+          </View>
+        </Card>
+
+        {/* My Vibes */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="sparkles-outline" size={16} color={theme.tint} />
+              <Text style={[styles.cardTitle, { color: theme.text }]}>My Vibes</Text>
+            </View>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+            No vibes yet. Add some personality!
+          </Text>
+        </Card>
+
+        {/* Vibe Video card — shell */}
+        <View style={styles.sectionLabel}>
+          <Ionicons name="videocam-outline" size={16} color={theme.tint} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
+        </View>
+        <View style={[styles.vibeVideoShell, { backgroundColor: theme.surfaceSubtle }]}>
+          <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
+          <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
+            Vibe Video is coming to mobile soon. Use it on web for now.
+          </Text>
+          <VibelyButton
+            label="Use on web"
+            onPress={handleUseVibeVideoOnWeb}
+            variant="secondary"
+            style={{ marginTop: spacing.sm }}
+          />
+        </View>
+
+        {/* Photos section */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Ionicons name="camera-outline" size={16} color={theme.tint} />
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Photos</Text>
+            </View>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Manage </Text>
+            </Pressable>
+          </View>
+          {profile?.photos && profile.photos.length > 0 ? (
+            <View style={styles.photosRow}>
+              {profile.photos.slice(0, 3).map((url, i) => (
+                <View key={i} style={[styles.photoThumb, { backgroundColor: theme.surfaceSubtle }]}>
+                  <Image source={{ uri: avatarUrl(url) }} style={styles.photoThumbImg} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+              Add photos to your profile
+            </Text>
+          )}
+        </Card>
+
+        {/* The Basics */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>The Basics</Text>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+            </Pressable>
+          </View>
+          <View style={styles.basicsGrid}>
+            {(
+              [
+                { icon: 'calendar-outline' as const, label: 'Birthday', value: profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString() : 'Not set' },
+                { icon: 'briefcase-outline' as const, label: 'Work', value: profile?.job || 'Not set' },
+                { icon: 'resize-outline' as const, label: 'Height', value: profile?.height_cm ? `${profile.height_cm} cm` : 'Not set' },
+                { icon: 'location-outline' as const, label: 'Location', value: profile?.location || 'Not set' },
+              ] as const
+            ).map((item) => (
+              <View key={item.label} style={[styles.basicRow, { backgroundColor: theme.surfaceSubtle }]}>
+                <Ionicons name={item.icon} size={16} color={theme.textSecondary} />
+                <View style={styles.basicRowText}>
+                  <Text style={[styles.basicLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                  <Text style={[styles.basicValue, { color: theme.text }]} numberOfLines={1}>{item.value}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </Card>
+
+        {/* Lifestyle — shell */}
+        <Card>
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Lifestyle</Text>
+            <Pressable onPress={() => setEditing(true)}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>Edit </Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+            Help find someone compatible with your lifestyle.
+          </Text>
+        </Card>
+
+        {/* Verification — shell */}
+        <Card>
+          <View style={styles.verificationHeader}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={theme.neonCyan} />
+            <Text style={[styles.cardTitle, { color: theme.text }]}>Verification</Text>
+          </View>
+          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+            Email, photo, and phone verification available on web.
+          </Text>
+        </Card>
+
+        {/* Invite Friends */}
+        <Card onPress={handleInviteFriends}>
+          <View style={styles.inviteRow}>
+            <View style={[styles.inviteIcon, { backgroundColor: theme.accentSoft }]}>
+              <Text style={styles.inviteEmoji}>💌</Text>
+            </View>
+            <View style={styles.inviteText}>
+              <Text style={[styles.inviteTitle, { color: theme.text }]}>Invite Friends</Text>
+              <Text style={[styles.inviteSub, { color: theme.textSecondary }]}>
+                Share Vibely with your friends
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </View>
+        </Card>
+
+        {/* Logout */}
+        <Pressable
+          style={[styles.logoutBtn, { backgroundColor: 'transparent' }]}
+          onPress={() => signOut()}
+        >
+          <Ionicons name="log-out-outline" size={18} color={theme.danger} />
+          <Text style={[styles.logoutText, { color: theme.danger }]}>Log Out</Text>
         </Pressable>
-      </Link>
-      <Pressable style={styles.textButton} onPress={() => signOut()}>
-        <Text style={styles.link}>Sign out</Text>
-      </Pressable>
+
+        {/* Edit mode inline — same order as web edit drawers */}
+        {editing && (
+          <View style={styles.editSection}>
+            <SectionHeader title="Edit details" />
+            <Card>
+            <Text style={[styles.label, { color: theme.text }]}>Name</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+              value={name}
+              onChangeText={setName}
+              editable={!saving}
+              placeholder="Your name"
+              placeholderTextColor={theme.textSecondary}
+            />
+            <Text style={[styles.label, { color: theme.text }]}>Tagline</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+              value={tagline}
+              onChangeText={setTagline}
+              editable={!saving}
+              placeholder="e.g., Living my best life ✨"
+              placeholderTextColor={theme.textSecondary}
+            />
+            <Text style={[styles.label, { color: theme.text }]}>Job</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+              value={job}
+              onChangeText={setJob}
+              editable={!saving}
+              placeholder="What do you do?"
+              placeholderTextColor={theme.textSecondary}
+            />
+            <Text style={[styles.label, { color: theme.text }]}>About you</Text>
+            <TextInput
+              style={[styles.input, styles.textArea, { borderColor: theme.border, color: theme.text }]}
+              value={aboutMe}
+              onChangeText={setAboutMe}
+              multiline
+              numberOfLines={3}
+              editable={!saving}
+              placeholder="Write something that makes them want to know more..."
+              placeholderTextColor={theme.textSecondary}
+            />
+            <VibelyButton
+              label={saving ? 'Saving…' : 'Save changes'}
+              onPress={handleSave}
+              loading={saving}
+              disabled={saving}
+              style={styles.primaryCta}
+            />
+            <VibelyButton
+              label="Cancel"
+              onPress={() => setEditing(false)}
+              variant="ghost"
+            />
+          </Card>
+        </View>
+        )}
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 24, paddingBottom: 48 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 16 },
-  avatar: { width: 120, height: 120, borderRadius: 60, marginBottom: 16 },
-  avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  avatarPlaceholderText: { fontSize: 12, opacity: 0.8 },
-  deferral: { fontSize: 10, marginTop: 4, opacity: 0.7 },
-  name: { fontSize: 20, fontWeight: '600', marginBottom: 4 },
-  tagline: { fontSize: 14, opacity: 0.9, marginBottom: 8 },
-  meta: { fontSize: 12, opacity: 0.8, marginBottom: 4 },
-  bio: { fontSize: 14, marginTop: 8, marginBottom: 16 },
-  label: { fontSize: 12, fontWeight: '600', marginTop: 12, marginBottom: 4 },
-  input: { borderWidth: 1, padding: 12, borderRadius: 8, marginBottom: 8 },
-  textArea: { minHeight: 80, textAlignVertical: 'top' },
-  button: { backgroundColor: '#2f95dc', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 16 },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  textButton: { marginTop: 12 },
-  link: { color: '#2f95dc' },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  heroGradient: {
+    height: 172,
+    paddingHorizontal: spacing.lg,
+  },
+  heroButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.24)',
+  },
+  heroButtonGlass: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  heroButtonGlassRight: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  avatarWrap: {
+    alignItems: 'center',
+    marginTop: -78,
+    marginBottom: spacing.xl + 4,
+  },
+  avatarRing: {
+    borderWidth: 5,
+    borderRadius: 999,
+    padding: 3,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 999,
+  },
+  videoBtn: {
+    position: 'absolute',
+    bottom: -4,
+    left: -4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraBtn: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  main: {
+    paddingHorizontal: spacing.lg,
+    maxWidth: 512,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  identityBlock: {
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+    marginTop: spacing.sm,
+  },
+  nameAge: {
+    ...typography.titleLG,
+    fontSize: 24,
+    marginBottom: spacing.sm,
+  },
+  taglineText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    marginBottom: spacing.xs,
+  },
+  taglinePlaceholder: {
+    fontSize: 14,
+    marginBottom: spacing.xs,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  locationText: {
+    fontSize: 14,
+  },
+  vibeScoreCard: {
+    marginBottom: spacing.lg + 4,
+  },
+  vibeScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+  },
+  vibeScoreCopy: {
+    flex: 1,
+  },
+  vibeScoreTitle: {
+    ...typography.titleMD,
+    marginBottom: spacing.sm,
+  },
+  vibeScoreDesc: {
+    ...typography.bodySecondary,
+    marginBottom: spacing.md,
+  },
+  vibeScoreActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  previewLink: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  completeProfileBtn: {
+    marginTop: 0,
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  scheduleIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduleText: {
+    flex: 1,
+  },
+  scheduleTitle: {
+    ...typography.titleMD,
+  },
+  scheduleSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: spacing.md + 2,
+    marginBottom: spacing.xl,
+  },
+  statCard: {
+    flex: 1,
+    padding: spacing.lg + 2,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  statIcon: {
+    marginBottom: 6,
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  cardTitle: {
+    ...typography.titleMD,
+  },
+  editLink: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  intentChip: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  intentLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  placeholder: {
+    fontSize: 14,
+  },
+  aboutText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  sectionLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    marginTop: spacing.lg + 4,
+  },
+  sectionTitle: {
+    ...typography.titleMD,
+  },
+  promptsEmpty: {
+    marginBottom: spacing.md,
+  },
+  promptsEmptyInner: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    gap: spacing.sm,
+  },
+  promptsEmptyIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promptsEmptyTitle: {
+    ...typography.titleMD,
+  },
+  promptsEmptySub: {
+    fontSize: 14,
+  },
+  vibeVideoShell: {
+    borderRadius: radius['2xl'],
+    aspectRatio: 16 / 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  vibeVideoCopy: {
+    fontSize: 14,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  photosRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  photoThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  photoThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  basicsGrid: {
+    gap: spacing.sm,
+  },
+  basicRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+  },
+  basicRowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  basicLabel: {
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  basicValue: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  verificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  inviteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  inviteIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteEmoji: {
+    fontSize: 18,
+  },
+  inviteText: {
+    flex: 1,
+  },
+  inviteTitle: {
+    ...typography.titleMD,
+  },
+  inviteSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+    marginTop: spacing.lg,
+  },
+  logoutText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  editSection: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing['2xl'],
+  },
+  label: {
+    ...typography.caption,
+    fontWeight: '600',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  textArea: {
+    minHeight: 96,
+    textAlignVertical: 'top',
+  },
+  primaryCta: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
 });

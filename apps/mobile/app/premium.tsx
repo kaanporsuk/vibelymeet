@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import {
   getOfferings,
@@ -29,6 +31,8 @@ import { format } from 'date-fns';
 
 export default function PremiumScreen() {
   const { user } = useAuth();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { isPremium, plan, currentPeriodEnd, isLoading: subLoading, refetch } = useBackendSubscription(user?.id);
 
   const [offerings, setOfferings] = useState<PurchasesOfferings | null>(null);
@@ -99,29 +103,29 @@ export default function PremiumScreen() {
 
   if (subLoading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.message}>Loading...</Text>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.tint} />
+        <Text style={[styles.message, { color: theme.textSecondary }]}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Premium</Text>
+    <ScrollView style={[styles.container, { backgroundColor: theme.background }]} contentContainerStyle={styles.content}>
+      <Text style={[styles.title, { color: theme.text }]}>Premium</Text>
 
       {isPremium ? (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>You're Premium</Text>
-          {plan && <Text style={styles.planText}>{plan === 'annual' ? 'Annual' : 'Monthly'} plan</Text>}
+        <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>You're Premium</Text>
+          {plan && <Text style={[styles.planText, { color: theme.text }]}>{plan === 'annual' ? 'Annual' : 'Monthly'} plan</Text>}
           {currentPeriodEnd && (
-            <Text style={styles.periodText}>Renews {format(new Date(currentPeriodEnd), 'MMM d, yyyy')}</Text>
+            <Text style={[styles.periodText, { color: theme.textSecondary }]}>Renews {format(new Date(currentPeriodEnd), 'MMM d, yyyy')}</Text>
           )}
-          <Text style={styles.body}>Thanks for supporting Vibely. You have full access to premium features.</Text>
+          <Text style={[styles.body, { color: theme.textSecondary }]}>Thanks for supporting Vibely. You have full access to premium features.</Text>
         </View>
       ) : (
         <>
-          <Text style={styles.body}>
+          <Text style={[styles.body, { color: theme.textSecondary }]}>
             Unlock unlimited swipes, see who liked you, and get priority in event lobbies.
           </Text>
 
@@ -138,7 +142,7 @@ export default function PremiumScreen() {
               {offerings.current.availablePackages.map((pkg) => (
                 <Pressable
                   key={pkg.identifier}
-                  style={({ pressed }) => [styles.packageButton, pressed && styles.packageButtonPressed]}
+                  style={({ pressed }) => [styles.packageButton, { backgroundColor: theme.tint }, pressed && styles.packageButtonPressed]}
                   onPress={() => handlePurchase(pkg)}
                   disabled={purchaseLoading}
                 >
@@ -149,10 +153,10 @@ export default function PremiumScreen() {
               ))}
             </View>
           ) : isRevenueCatConfigured() ? (
-            <Text style={styles.muted}>No offerings available. Check RevenueCat dashboard.</Text>
+            <Text style={[styles.muted, { color: theme.textSecondary }]}>No offerings available. Configure products in RevenueCat dashboard.</Text>
           ) : (
-            <View style={styles.card}>
-              <Text style={styles.muted}>
+            <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.muted, { color: theme.textSecondary }]}>
                 In-app purchases are not configured for this build. Subscribe on the web or contact support.
               </Text>
             </View>
@@ -164,7 +168,7 @@ export default function PremiumScreen() {
               onPress={handleRestore}
               disabled={restoreLoading}
             >
-              <Text style={styles.restoreButtonText}>
+              <Text style={[styles.restoreButtonText, { color: theme.tint }]}>
                 {restoreLoading ? 'Restoring...' : 'Restore purchases'}
               </Text>
             </Pressable>
@@ -173,7 +177,7 @@ export default function PremiumScreen() {
       )}
 
       <Pressable style={styles.backButton} onPress={() => router.back()}>
-        <Text style={styles.backButtonText}>Back</Text>
+        <Text style={[styles.backButtonText, { color: theme.textSecondary }]}>Back</Text>
       </Pressable>
     </ScrollView>
   );
@@ -194,7 +198,7 @@ const styles = StyleSheet.create({
   errorText: { color: '#c00', fontSize: 14 },
   loader: { marginVertical: 24 },
   packages: { gap: 12, marginBottom: 24 },
-  packageButton: { backgroundColor: '#0a7ea4', padding: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  packageButton: { padding: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   packageButtonPressed: { opacity: 0.9 },
   packageTitle: { color: '#fff', fontSize: 18, fontWeight: '600', textTransform: 'capitalize' },
   packagePrice: { color: '#fff', fontSize: 16 },

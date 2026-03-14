@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "Vibely",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,6 +14,8 @@
     },
     "ios": {
       "bundleIdentifier": "com.vibelymeet.vibely",
+      "appleTeamId": "W38S57AM55",
+      "deploymentTarget": "15.1",
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -21,7 +23,8 @@
           "voip"
         ],
         "NSCameraUsageDescription": "Vibely needs camera access for video dates.",
-        "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates."
+        "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates.",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
         "aps-environment": "development"
