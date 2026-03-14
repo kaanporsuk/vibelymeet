@@ -194,7 +194,7 @@ export default function ProfileScreen() {
   }
 
   const photoUrl = profile?.avatar_url || profile?.photos?.[0];
-  const displayUrl = photoUrl ? avatarUrl(photoUrl) : null;
+  const displayUrl = photoUrl ? avatarUrl(photoUrl, 'profile_photo') : null;
   const eventsCount = profile?.events_attended ?? 0;
   const matchesCount = profile?.total_matches ?? 0;
   const convosCount = profile?.total_conversations ?? 0;

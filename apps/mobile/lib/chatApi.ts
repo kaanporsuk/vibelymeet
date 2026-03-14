@@ -83,7 +83,7 @@ export function useMatches(userId: string | null | undefined) {
           id: otherId,
           name: (profile as { name?: string })?.name || 'Unknown',
           age: (profile as { age?: number })?.age ?? 0,
-          image: avatarUrl(photo),
+          image: avatarUrl(photo, 'avatar'),
           lastMessage: lastMsg?.content ?? null,
           time: lastMsg ? formatTime(lastMsg.created_at) : 'new',
           unread: lastMsg ? !lastMsg.read_at && lastMsg.sender_id !== userId : false,

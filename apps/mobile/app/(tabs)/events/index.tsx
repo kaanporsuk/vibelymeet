@@ -291,7 +291,7 @@ function EventRailCard({
       onPress={onPress}
     >
       <View style={railCardStyles.imageWrap}>
-        <Image source={{ uri: eventCoverUrl(event.image) }} style={railCardStyles.image} />
+        <Image source={{ uri: eventCoverUrl(event.image, 'event_image') }} style={railCardStyles.image} />
         <View style={railCardStyles.imageOverlay} />
         {isLive && (
           <View style={railCardStyles.liveBadge}>
