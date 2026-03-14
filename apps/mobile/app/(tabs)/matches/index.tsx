@@ -1,9 +1,9 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { StyleSheet, Pressable, FlatList, ListRenderItem, Image, RefreshControl, View as RNView, Text as RNText, TextInput, Linking, Share, Platform } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, View as RNView, Text as RNText, TextInput, Linking, Share, Platform } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { ScreenContainer, SectionHeader, Card, Avatar, EmptyState, ErrorState, LoadingState, VibelyButton } from '@/components/ui';
+import { ScreenContainer, SectionHeader, Card, EmptyState, ErrorState, LoadingState, VibelyButton, GlassSurface, MatchListRow, SettingsRow } from '@/components/ui';
 import { spacing, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -63,14 +63,14 @@ export default function MatchesListScreen() {
   if (!matches.length) {
     return (
       <ScreenContainer>
-        <RNView style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+        <GlassSurface style={styles.matchesHeader}>
           <RNView style={styles.headerTopRow}>
             <RNView style={styles.headerTitleRow}>
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
               <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
             </RNView>
           </RNView>
-        </RNView>
+        </GlassSurface>
         <Card style={styles.heroCard}>
           <RNText style={[styles.heroTitle, { color: theme.text }]}>Your vibe circle awaits</RNText>
           <RNText style={[styles.heroBody, { color: theme.textSecondary }]}>
@@ -91,38 +91,15 @@ export default function MatchesListScreen() {
     const isNew = item.time === 'now' || item.time?.endsWith('m');
     return (
       <Link href={`/chat/${item.id}`} asChild>
-        <Pressable style={styles.row}>
-          <Avatar
-            size={52}
-            image={<Image source={{ uri: item.image }} style={styles.avatarImage} />}
-            fallbackInitials={item.name?.[0]}
+        <Pressable style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
+          <MatchListRow
+            imageUri={item.image}
+            name={item.name}
+            time={item.time}
+            lastMessage={item.lastMessage}
+            unread={item.unread}
+            isNew={isNew}
           />
-          <RNView style={styles.rowBody}>
-            <RNView style={styles.rowTop}>
-              <RNText style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-                {item.name}
-              </RNText>
-              {isNew && (
-                <RNView style={[styles.newBadge, { backgroundColor: theme.accentSoft }]}>
-                  <RNText style={[styles.newBadgeText, { color: theme.tint }]}>New</RNText>
-                </RNView>
-              )}
-              <RNText style={[styles.time, { color: theme.textSecondary }]} numberOfLines={1}>
-                {item.time}
-              </RNText>
-            </RNView>
-            <RNText
-              style={[
-                styles.preview,
-                { color: theme.textSecondary },
-                item.unread && { color: theme.text, fontWeight: '600' },
-              ]}
-              numberOfLines={1}
-            >
-              {item.lastMessage || 'New match'}
-            </RNText>
-          </RNView>
-          {item.unread && <RNView style={[styles.unreadDot, { backgroundColor: theme.accent }]} />}
         </Pressable>
       </Link>
     );
@@ -130,7 +107,7 @@ export default function MatchesListScreen() {
 
   return (
     <ScreenContainer>
-      <RNView style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+      <GlassSurface style={styles.matchesHeader}>
         <RNView style={styles.headerTopRow}>
           <RNView style={styles.headerTitleRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
@@ -217,7 +194,7 @@ export default function MatchesListScreen() {
             </RNView>
           </RNView>
         )}
-      </RNView>
+      </GlassSurface>
 
       {activeTab === 'conversations' ? (
         <FlatList
@@ -228,7 +205,7 @@ export default function MatchesListScreen() {
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />}
           ListHeaderComponent={
             <>
-              <RNView style={[styles.conversationsDivider, { borderColor: theme.border }]}>
+              <RNView style={styles.conversationsDivider}>
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
                 <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
@@ -250,19 +227,13 @@ export default function MatchesListScreen() {
                   Keep the conversation going — reply within 24 hours to keep the vibe alive.
                 </RNText>
               </Card>
-              <Card onPress={handleInviteFriends} style={[styles.inviteCard, { borderColor: theme.border }]}>
-                <RNView style={styles.inviteRow}>
-                  <RNView style={[styles.inviteIconBox, { backgroundColor: theme.accentSoft }]}>
-                    <Ionicons name="people-outline" size={22} color={theme.tint} />
-                  </RNView>
-                  <RNView style={styles.inviteCopy}>
-                    <RNText style={[styles.inviteCardTitle, { color: theme.text }]}>Invite friends</RNText>
-                    <RNText style={[styles.inviteCardSub, { color: theme.textSecondary }]}>
-                      More friends, more vibes. Share Vibely and get matches together.
-                    </RNText>
-                  </RNView>
-                  <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
-                </RNView>
+              <Card style={styles.inviteCard}>
+                <SettingsRow
+                  icon={<Ionicons name="people-outline" size={22} color={theme.tint} />}
+                  title="Invite friends"
+                  subtitle="More friends, more vibes. Share Vibely and get matches together."
+                  onPress={handleInviteFriends}
+                />
               </Card>
             </RNView>
           }
@@ -288,12 +259,11 @@ export default function MatchesListScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerCard: {
+  matchesHeader: {
     borderRadius: 20,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     marginBottom: spacing.md,
-    borderWidth: 1,
   },
   headerTopRow: {
     flexDirection: 'row',
@@ -396,27 +366,6 @@ const styles = StyleSheet.create({
     padding: spacing.md + 2,
     marginBottom: spacing.sm,
   },
-  inviteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  inviteIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inviteCopy: { flex: 1 },
-  inviteCardTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  inviteCardSub: {
-    fontSize: 12,
-  },
   heroCard: {
     marginBottom: spacing.xl,
   },
@@ -436,57 +385,5 @@ const styles = StyleSheet.create({
   },
   dropsSubtitle: {
     ...typography.bodySecondary,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.sm + 2,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(148, 163, 184, 0.2)',
-    gap: spacing.md,
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  rowBody: {
-    flex: 1,
-    marginLeft: spacing.sm,
-    minWidth: 0,
-  },
-  rowTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-    gap: spacing.xs,
-  },
-  name: {
-    fontSize: 15,
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  newBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  newBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  time: {
-    fontSize: 11,
-  },
-  preview: {
-    fontSize: 13,
-    marginTop: 2,
-  },
-  unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginLeft: spacing.sm,
   },
 });

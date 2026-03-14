@@ -1,4 +1,8 @@
 const BUNNY_CDN = `https://${import.meta.env.VITE_BUNNY_CDN_HOSTNAME}`;
+const BUNNY_CDN_PATH_PREFIX = (() => {
+  const raw = import.meta.env.VITE_BUNNY_CDN_PATH_PREFIX ?? "";
+  return raw.trim().replace(/^\/+|\/+$/g, "");
+})();
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 const PLACEHOLDER =
@@ -41,7 +45,8 @@ export function getImageUrl(
     if (opts?.height) params.set("height", String(opts.height));
     if (opts?.crop) params.set("crop_gravity", opts.crop);
     params.set("quality", String(opts?.quality ?? 85));
-    return `${BUNNY_CDN}/${p}?${params.toString()}`;
+    const pathPart = BUNNY_CDN_PATH_PREFIX ? `${BUNNY_CDN_PATH_PREFIX}/${p}` : p;
+    return `${BUNNY_CDN}/${pathPart}?${params.toString()}`;
   }
 
   // Legacy Supabase storage path (relative path, no domain)

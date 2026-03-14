@@ -21,6 +21,9 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
+# Xcode / build temp (avoids CoreSimulator tmp dir issues when used as TMPDIR)
+.tmp-build/
+
 # debug
 npm-debug.*
 yarn-debug.*

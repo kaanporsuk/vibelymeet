@@ -1,13 +1,20 @@
-import { useLocalSearchParams } from 'expo-router';
-import { StyleSheet, ScrollView, Pressable, ActivityIndicator, Image, Alert } from 'react-native';
-import { Link, router } from 'expo-router';
-import { Text, View } from '@/components/Themed';
+import { useLocalSearchParams, router } from 'expo-router';
+import { StyleSheet, ScrollView, Pressable, Image, Alert, View, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import Colors from '@/constants/Colors';
+import { GlassSurface, Card, LoadingState, ErrorState, VibelyButton } from '@/components/ui';
+import { spacing, radius } from '@/constants/theme';
+import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEventDetails, useIsRegisteredForEvent, useRegisterForEvent } from '@/lib/eventsApi';
 import { eventCoverUrl } from '@/lib/imageUrl';
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { user } = useAuth();
   const { data: event, isLoading, error } = useEventDetails(id ?? undefined);
   const { data: isRegistered } = useIsRegisteredForEvent(id ?? undefined, user?.id);
@@ -15,21 +22,21 @@ export default function EventDetailScreen() {
 
   if (isLoading && !event) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <LoadingState title="Loading event…" />
       </View>
     );
   }
 
   if (error || !event) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Event not found</Text>
-        <Link href="/events" asChild>
-          <Pressable style={styles.button}>
-            <Text style={styles.buttonText}>Back to events</Text>
-          </Pressable>
-        </Link>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="Event not found"
+          message="This event may have been removed or the link is invalid."
+          actionLabel="Back to events"
+          onActionPress={() => router.push('/(tabs)/events')}
+        />
       </View>
     );
   }
@@ -49,53 +56,103 @@ export default function EventDetailScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Image source={{ uri: eventCoverUrl(event.cover_image) }} style={styles.cover} />
-      <Text style={styles.title}>{event.title}</Text>
-      <Text style={styles.meta}>{dateStr} at {timeStr}</Text>
-      <Text style={styles.meta}>{event.duration_minutes ?? 60} min · {event.current_attendees ?? 0} going</Text>
-      {event.description ? <Text style={styles.description}>{event.description}</Text> : null}
-
-      {isRegistered ? (
-        <>
-          <Pressable
-            style={[styles.button, styles.buttonSecondary]}
-            onPress={handleUnregister}
-            disabled={isUnregistering}
-          >
-            {isUnregistering ? <ActivityIndicator color="#333" /> : <Text style={styles.buttonTextSecondary}>Cancel registration</Text>}
-          </Pressable>
-          <Link href={`/event/${event.id}/lobby`} asChild>
-            <Pressable style={styles.button}>
-              <Text style={styles.buttonText}>Open lobby</Text>
-            </Pressable>
-          </Link>
-        </>
-      ) : (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <GlassSurface
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + spacing.sm,
+            paddingBottom: spacing.md,
+            paddingHorizontal: spacing.lg,
+          },
+        ]}
+      >
         <Pressable
-          style={[styles.button, (isRegistering) && styles.buttonDisabled]}
-          onPress={handleRegister}
-          disabled={isRegistering}
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+          accessibilityLabel="Back"
         >
-          {isRegistering ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Register</Text>}
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
-      )}
-    </ScrollView>
+        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+          {event.title}
+        </Text>
+      </GlassSurface>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: 48 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <Image
+          source={{ uri: eventCoverUrl(event.cover_image) }}
+          style={[styles.cover, { backgroundColor: theme.surfaceSubtle }]}
+        />
+        <Card style={styles.infoCard}>
+          <Text style={[styles.title, { color: theme.text }]}>{event.title}</Text>
+          <Text style={[styles.meta, { color: theme.textSecondary }]}>
+            {dateStr} at {timeStr}
+          </Text>
+          <Text style={[styles.meta, { color: theme.textSecondary }]}>
+            {event.duration_minutes ?? 60} min · {event.current_attendees ?? 0} going
+          </Text>
+          {event.description ? (
+            <Text style={[styles.description, { color: theme.textSecondary }]}>{event.description}</Text>
+          ) : null}
+        </Card>
+
+        {isRegistered ? (
+          <>
+            <VibelyButton
+              label={isUnregistering ? 'Cancelling…' : 'Cancel registration'}
+              onPress={handleUnregister}
+              disabled={isUnregistering}
+              variant="ghost"
+              style={styles.cta}
+            />
+            <VibelyButton
+              label="Open lobby"
+              variant="primary"
+              onPress={() => router.push(`/event/${event.id}/lobby`)}
+              style={styles.cta}
+            />
+          </>
+        ) : (
+          <VibelyButton
+            label={isRegistering ? 'Registering…' : 'Register'}
+            onPress={handleRegister}
+            loading={isRegistering}
+            disabled={isRegistering}
+            variant="primary"
+            style={styles.cta}
+          />
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 16, paddingBottom: 48 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  cover: { width: '100%', height: 200, backgroundColor: '#eee', marginBottom: 16, borderRadius: 8 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 8 },
-  meta: { fontSize: 14, opacity: 0.8, marginBottom: 4 },
-  description: { fontSize: 14, marginTop: 12, marginBottom: 24 },
-  error: { color: '#dc2626', marginBottom: 12 },
-  button: { backgroundColor: '#2f95dc', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  buttonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#666' },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  buttonTextSecondary: { color: '#333', fontWeight: '600' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  backBtn: { padding: spacing.xs },
+  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
+  scroll: { flex: 1 },
+  content: { padding: spacing.lg },
+  cover: {
+    width: '100%',
+    height: 200,
+    marginBottom: spacing.lg,
+    borderRadius: radius.lg,
+  },
+  infoCard: { marginBottom: spacing.lg },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.sm },
+  meta: { fontSize: 14, marginBottom: 4 },
+  description: { fontSize: 14, marginTop: spacing.md },
+  cta: { marginTop: spacing.md },
 });

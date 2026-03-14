@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius, typography } from '@/constants/theme';
+import { Skeleton } from '@/components/ui';
 import { fetchMyProfile } from '@/lib/profileApi';
 import type { ProfileRow } from '@/lib/profileApi';
 
@@ -39,21 +40,37 @@ export function DashboardGreeting() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [profile, setProfile] = useState<ProfileRow | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     fetchMyProfile()
       .then((data) => {
         if (!cancelled) setProfile(data ?? null);
       })
       .catch(() => {
         if (!cancelled) setProfile(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
 
   const firstName = profile?.name?.split(' ')[0] || 'Viber';
   const completeness = calculateCompleteness(profile);
+
+  if (loading) {
+    return (
+      <View style={styles.wrapper}>
+        <View style={styles.skeletonBlock}>
+          <Skeleton height={14} width={80} borderRadius={4} />
+          <Skeleton height={22} width={100} borderRadius={4} style={{ marginTop: 6 }} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrapper}>
@@ -78,6 +95,7 @@ export function DashboardGreeting() {
 
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.sm },
+  skeletonBlock: { gap: 6 },
   greeting: { ...typography.body, marginBottom: 2 },
   name: { ...typography.titleLG, fontSize: 20 },
   chip: {

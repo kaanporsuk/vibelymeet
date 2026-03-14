@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Platform,
   Pressable,
   StyleProp,
@@ -15,6 +16,52 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/Colors';
 import { layout, radius, spacing, typography, shadows } from '@/constants/theme';
 import { useColorScheme } from './useColorScheme';
+
+type GlassSurfaceProps = {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  /** When true (default), show bottom border. Set false for full-bleed glass (e.g. tab bar). */
+  borderBottom?: boolean;
+};
+
+export function GlassSurface({ children, style, borderBottom = true }: GlassSurfaceProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View
+      style={[
+        { backgroundColor: theme.glassSurface },
+        borderBottom && { borderBottomWidth: 1, borderBottomColor: theme.glassBorder },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+type SkeletonProps = {
+  width?: number;
+  height?: number;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function Skeleton({ width, height, borderRadius, style }: SkeletonProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View
+      style={[
+        { backgroundColor: theme.surfaceSubtle },
+        width !== undefined && { width },
+        height !== undefined && { height },
+        borderRadius !== undefined && { borderRadius },
+        style,
+      ]}
+    />
+  );
+}
 
 type ScreenProps = {
   title?: string;
@@ -290,6 +337,108 @@ export function LoadingState({ title, message }: Pick<StateProps, 'title' | 'mes
   );
 }
 
+type SettingsRowProps = {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  onPress?: () => void;
+  right?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function SettingsRow({ icon, title, subtitle, onPress, right, style }: SettingsRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const content = (
+    <View style={[styles.settingsRowInner, style]}>
+      <View style={[styles.settingsRowIcon, { backgroundColor: theme.accentSoft }]}>{icon}</View>
+      <View style={styles.settingsRowText}>
+        <Text style={[styles.settingsRowTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+        {subtitle ? (
+          <Text style={[styles.settingsRowSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>{subtitle}</Text>
+        ) : null}
+      </View>
+      {right ?? <Text style={{ color: theme.textSecondary }}>›</Text>}
+    </View>
+  );
+  if (onPress) {
+    return <Pressable onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>{content}</Pressable>;
+  }
+  return content;
+}
+
+type DestructiveRowProps = {
+  icon: ReactNode;
+  label: string;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function DestructiveRow({ icon, label, onPress, style }: DestructiveRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.destructiveRow,
+        { opacity: pressed ? 0.8 : 1 },
+        style,
+      ]}
+    >
+      {icon}
+      <Text style={[styles.destructiveRowLabel, { color: theme.danger }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export type MatchListRowProps = {
+  imageUri: string;
+  name: string;
+  time: string;
+  lastMessage: string | null;
+  unread: boolean;
+  isNew: boolean;
+  style?: StyleProp<ViewStyle>;
+};
+
+/** Conversation list row: avatar, name, optional New badge, time, preview, unread dot. */
+export function MatchListRow({ imageUri, name, time, lastMessage, unread, isNew, style }: MatchListRowProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  return (
+    <View style={[styles.matchListRow, { borderBottomColor: theme.border }, style]}>
+      <Avatar
+        size={52}
+        image={imageUri ? <Image source={{ uri: imageUri }} style={styles.matchListAvatarImg} /> : undefined}
+        fallbackInitials={name?.[0]}
+      />
+      <View style={styles.matchListRowBody}>
+        <View style={styles.matchListRowTop}>
+          <Text style={[styles.matchListName, { color: theme.text }]} numberOfLines={1}>{name}</Text>
+          {isNew && (
+            <View style={[styles.matchListNewBadge, { backgroundColor: theme.accentSoft }]}>
+              <Text style={[styles.matchListNewBadgeText, { color: theme.tint }]}>New</Text>
+            </View>
+          )}
+          <Text style={[styles.matchListTime, { color: theme.textSecondary }]} numberOfLines={1}>{time}</Text>
+        </View>
+        <Text
+          style={[
+            styles.matchListPreview,
+            { color: theme.textSecondary },
+            unread && { color: theme.text, fontWeight: '600' },
+          ]}
+          numberOfLines={1}
+        >
+          {lastMessage || 'New match'}
+        </Text>
+      </View>
+      {unread && <View style={[styles.matchListUnreadDot, { backgroundColor: theme.accent }]} />}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -353,5 +502,50 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
   },
+  settingsRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  settingsRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsRowText: { flex: 1, minWidth: 0 },
+  settingsRowTitle: { ...typography.titleMD, fontSize: 16 },
+  settingsRowSubtitle: { fontSize: 12, marginTop: 2 },
+  destructiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  destructiveRowLabel: { fontSize: 16, fontWeight: '600' },
+  matchListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm + 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.md,
+  },
+  matchListAvatarImg: { width: '100%', height: '100%' },
+  matchListRowBody: { flex: 1, marginLeft: spacing.sm, minWidth: 0 },
+  matchListRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+    gap: spacing.xs,
+  },
+  matchListName: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  matchListNewBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  matchListNewBadgeText: { fontSize: 10, fontWeight: '600', letterSpacing: 0.3 },
+  matchListTime: { fontSize: 11 },
+  matchListPreview: { fontSize: 13, marginTop: 2 },
+  matchListUnreadDot: { width: 10, height: 10, borderRadius: 5, marginLeft: spacing.sm },
 });
 

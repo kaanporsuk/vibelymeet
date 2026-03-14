@@ -1,10 +1,16 @@
 import { useState } from 'react';
-import { StyleSheet, TextInput, Pressable, Alert } from 'react-native';
+import { StyleSheet, TextInput, Pressable, Alert, View } from 'react-native';
 import { Link, router } from 'expo-router';
-import { Text, View } from '@/components/Themed';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
 
 export default function SignUpScreen() {
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,11 +29,12 @@ export default function SignUpScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Vibely — Sign up</Text>
+    <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 24 }]}>
+      <Text style={[styles.title, { color: theme.text }]}>Vibely — Sign up</Text>
       <TextInput
-        style={styles.input}
+        style={[styles.input, { borderColor: theme.border, color: theme.text }]}
         placeholder="Email"
+        placeholderTextColor={theme.textSecondary}
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
@@ -35,19 +42,20 @@ export default function SignUpScreen() {
         editable={!loading}
       />
       <TextInput
-        style={styles.input}
+        style={[styles.input, { borderColor: theme.border, color: theme.text }]}
         placeholder="Password"
+        placeholderTextColor={theme.textSecondary}
         value={password}
         onChangeText={setPassword}
         secureTextEntry
         editable={!loading}
       />
-      <Pressable style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
+      <Pressable style={[styles.button, { backgroundColor: theme.tint }, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
         <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Sign up'}</Text>
       </Pressable>
       <Link href="/(auth)/sign-in" asChild>
         <Pressable>
-          <Text style={styles.link}>Already have an account? Sign in</Text>
+          <Text style={[styles.link, { color: theme.tint }]}>Already have an account? Sign in</Text>
         </Pressable>
       </Link>
     </View>
@@ -55,11 +63,11 @@ export default function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, justifyContent: 'center' },
+  container: { flex: 1, justifyContent: 'center' },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24 },
   input: { borderWidth: 1, padding: 12, marginBottom: 12, borderRadius: 8 },
-  button: { backgroundColor: '#2f95dc', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  button: { padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600' },
-  link: { color: '#2f95dc', marginTop: 16 },
+  link: { marginTop: 16 },
 });

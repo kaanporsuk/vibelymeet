@@ -7,24 +7,35 @@ import {
   Pressable,
   FlatList,
   ListRenderItem,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import Colors from '@/constants/Colors';
+import { GlassSurface, LoadingState, ErrorState } from '@/components/ui';
+import { spacing } from '@/constants/theme';
+import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useMessages, useSendMessage, useRealtimeMessages, type ChatMessage } from '@/lib/chatApi';
+import { useMessages, useSendMessage, useRealtimeMessages, useMatches, type ChatMessage } from '@/lib/chatApi';
 
 export default function ChatThreadScreen() {
   const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { user } = useAuth();
-  const { data, isLoading, error } = useMessages(otherUserId ?? undefined, user?.id ?? null);
+  const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
+  const { data: matches = [] } = useMatches(user?.id);
   const { mutateAsync: sendMessage, isPending: sending } = useSendMessage();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
 
   const [input, setInput] = useState('');
   const listRef = useRef<FlatList>(null);
+
+  const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
 
   useEffect(() => {
     if (data?.messages?.length) {
@@ -45,94 +56,186 @@ export default function ChatThreadScreen() {
 
   if (!otherUserId || !user?.id) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Invalid chat</Text>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="Invalid chat"
+          message="This conversation could not be loaded."
+          actionLabel="Go back"
+          onActionPress={() => router.back()}
+        />
       </View>
     );
   }
 
   if (isLoading && !data) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <LoadingState title="Loading conversation…" />
       </View>
     );
   }
 
   if (error || !data) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Could not load conversation</Text>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="Could not load conversation"
+          message="Check your connection and try again."
+          actionLabel="Retry"
+          onActionPress={() => refetch()}
+        />
       </View>
     );
   }
 
   if (!data.matchId) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>No conversation found</Text>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="No conversation found"
+          message="This match may have been removed."
+          actionLabel="Go back"
+          onActionPress={() => router.back()}
+        />
       </View>
     );
   }
 
   const renderItem: ListRenderItem<ChatMessage> = ({ item }) => (
-    <View style={[styles.bubble, item.sender === 'me' ? styles.bubbleMe : styles.bubbleThem]}>
-      <Text style={[styles.bubbleText, item.sender === 'me' && styles.bubbleTextMe]}>{item.text}</Text>
-      <Text style={styles.bubbleTime}>{item.time}</Text>
+    <View
+      style={[
+        styles.bubble,
+        item.sender === 'me'
+          ? [styles.bubbleMe, { backgroundColor: theme.tint }]
+          : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
+      ]}
+    >
+      <Text
+        style={[
+          styles.bubbleText,
+          { color: item.sender === 'me' ? '#fff' : theme.text },
+        ]}
+      >
+        {item.text}
+      </Text>
+      <Text style={[styles.bubbleTime, { color: item.sender === 'me' ? 'rgba(255,255,255,0.8)' : theme.textSecondary }]}>
+        {item.time}
+      </Text>
     </View>
   );
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={90}
-    >
-      <FlatList
-        ref={listRef}
-        data={data.messages}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={<Text style={styles.empty}>No messages yet. Say hi!</Text>}
-      />
-      <View style={styles.footer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Message..."
-          value={input}
-          onChangeText={setInput}
-          multiline
-          maxLength={2000}
-          editable={!sending}
-        />
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <GlassSurface
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + spacing.sm,
+            paddingBottom: spacing.md,
+            paddingHorizontal: spacing.lg,
+          },
+        ]}
+      >
         <Pressable
-          style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!input.trim() || sending}
+          onPress={() => router.back()}
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+          accessibilityLabel="Back"
         >
-          {sending ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.sendBtnText}>Send</Text>}
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+          {otherName}
+        </Text>
+      </GlassSurface>
+
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90}
+      >
+        <FlatList
+          ref={listRef}
+          data={data.messages}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={
+            <Text style={[styles.empty, { color: theme.textSecondary }]}>
+              No messages yet. Say hi!
+            </Text>
+          }
+        />
+        <View style={[styles.footer, { borderTopColor: theme.border }]}>
+          <TextInput
+            style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            placeholder="Message..."
+            placeholderTextColor={theme.textSecondary}
+            value={input}
+            onChangeText={setInput}
+            multiline
+            maxLength={2000}
+            editable={!sending}
+          />
+          <Pressable
+            style={[
+              styles.sendBtn,
+              { backgroundColor: theme.tint },
+              (!input.trim() || sending) && styles.sendBtnDisabled,
+            ]}
+            onPress={handleSend}
+            disabled={!input.trim() || sending}
+          >
+            <Text style={styles.sendBtnText}>
+              {sending ? '…' : 'Send'}
+            </Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  error: { color: '#dc2626' },
-  empty: { padding: 24, textAlign: 'center', opacity: 0.7 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  backBtn: { padding: spacing.xs },
+  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
+  keyboard: { flex: 1 },
   list: { padding: 16, paddingBottom: 8 },
+  empty: { padding: 24, textAlign: 'center' },
   bubble: { maxWidth: '80%', padding: 12, borderRadius: 16, marginBottom: 8 },
-  bubbleMe: { alignSelf: 'flex-end', backgroundColor: '#2f95dc' },
-  bubbleThem: { alignSelf: 'flex-start', backgroundColor: '#e5e5e5' },
+  bubbleMe: { alignSelf: 'flex-end' },
+  bubbleThem: { alignSelf: 'flex-start' },
   bubbleText: { fontSize: 15 },
-  bubbleTextMe: { color: '#fff' },
-  bubbleTime: { fontSize: 11, opacity: 0.7, marginTop: 4 },
-  footer: { flexDirection: 'row', alignItems: 'flex-end', padding: 8, paddingBottom: 24, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e5e5e5' },
-  input: { flex: 1, borderWidth: 1, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, marginRight: 8, maxHeight: 100 },
-  sendBtn: { backgroundColor: '#2f95dc', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 20, justifyContent: 'center', minWidth: 60 },
+  bubbleTime: { fontSize: 11, marginTop: 4 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    padding: 8,
+    paddingBottom: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+    maxHeight: 100,
+  },
+  sendBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 20,
+    justifyContent: 'center',
+    minWidth: 60,
+  },
   sendBtnDisabled: { opacity: 0.5 },
   sendBtnText: { color: '#fff', fontWeight: '600' },
 });

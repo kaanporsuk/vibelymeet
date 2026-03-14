@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Card, Avatar, VibelyButton } from '@/components/ui';
+import { Card, Avatar, VibelyButton, GlassSurface, SectionHeader, EmptyState, Skeleton } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -80,22 +80,20 @@ export default function DashboardScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Glass header — web parity: greeting left, notification + avatar right */}
-      <View
+      <GlassSurface
         style={[
           styles.header,
           {
             paddingTop: insets.top + spacing.sm,
             paddingBottom: spacing.sm,
             paddingHorizontal: spacing.lg,
-            backgroundColor: theme.glassSurface,
-            borderBottomColor: theme.glassBorder,
           },
         ]}
       >
         <DashboardGreeting />
         <View style={styles.headerRight}>
           <Pressable
-            onPress={() => {}}
+            onPress={() => router.push('/settings/notifications')}
             style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.8 }]}
             accessibilityLabel="Notifications"
           >
@@ -114,7 +112,7 @@ export default function DashboardScreen() {
             </View>
           </Pressable>
         </View>
-      </View>
+      </GlassSurface>
 
       <ScrollView
         style={styles.scroll}
@@ -125,7 +123,7 @@ export default function DashboardScreen() {
           {/* Next Event card — web parity: cover, title/date, countdown, CTA */}
           {nextEvent && (
             <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Next Event</Text>
+              <SectionHeader title="Next Event" />
               <Pressable
                 onPress={() => router.push(`/events/${nextEvent.id}` as const)}
                 style={[styles.eventCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
@@ -184,25 +182,30 @@ export default function DashboardScreen() {
           )}
 
           {!nextEvent && !loading && (
-            <View style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No upcoming events</Text>
-              <VibelyButton label="Browse Events" onPress={() => router.push('/events')} variant="ghost" />
-            </View>
+            <Card style={styles.emptyCardWrap}>
+              <EmptyState
+                title="No upcoming events"
+                actionLabel="Browse Events"
+                onActionPress={() => router.push('/events')}
+              />
+            </Card>
           )}
 
           {/* Your Matches — web parity: horizontal avatars + See all */}
           <View style={styles.section}>
-            <View style={styles.sectionRow}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Your Matches</Text>
-              <Pressable onPress={() => router.push('/matches')} style={styles.seeAll}>
-                <Text style={[styles.seeAllText, { color: theme.tint }]}>See all</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-              </Pressable>
-            </View>
+            <SectionHeader
+              title="Your Matches"
+              action={
+                <Pressable onPress={() => router.push('/matches')} style={styles.seeAll}>
+                  <Text style={[styles.seeAllText, { color: theme.tint }]}>See all</Text>
+                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                </Pressable>
+              }
+            />
             {loading ? (
               <View style={styles.matchRow}>
                 {[1, 2, 3, 4].map((i) => (
-                  <View key={i} style={[styles.matchAvatarSkeleton, { backgroundColor: theme.surfaceSubtle }]} />
+                  <Skeleton key={i} width={52} height={52} borderRadius={26} />
                 ))}
               </View>
             ) : matches.length > 0 ? (
@@ -225,28 +228,32 @@ export default function DashboardScreen() {
                 ))}
               </ScrollView>
             ) : (
-              <View style={[styles.emptyCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                  No matches yet. Join an event to start connecting!
-                </Text>
-                <VibelyButton label="Browse Events" onPress={() => router.push('/events')} variant="secondary" />
-              </View>
+              <Card style={styles.emptyCardWrap}>
+                <EmptyState
+                  title="No matches yet"
+                  message="Join an event to start connecting!"
+                  actionLabel="Browse Events"
+                  onActionPress={() => router.push('/events')}
+                />
+              </Card>
             )}
           </View>
 
           {/* Upcoming Events — web parity: horizontal rail */}
           <View style={styles.section}>
-            <View style={styles.sectionRow}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Upcoming Events</Text>
-              <Pressable onPress={() => router.push('/events')} style={styles.seeAll}>
-                <Text style={[styles.seeAllText, { color: theme.tint }]}>All events</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-              </Pressable>
-            </View>
+            <SectionHeader
+              title="Upcoming Events"
+              action={
+                <Pressable onPress={() => router.push('/events')} style={styles.seeAll}>
+                  <Text style={[styles.seeAllText, { color: theme.tint }]}>All events</Text>
+                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                </Pressable>
+              }
+            />
             {loading ? (
               <View style={styles.eventRail}>
                 {[1, 2].map((i) => (
-                  <View key={i} style={[styles.discoverCardSkeleton, { backgroundColor: theme.surfaceSubtle }]} />
+                  <Skeleton key={i} width={248} height={156} borderRadius={radius.xl} />
                 ))}
               </View>
             ) : discoverEvents.length > 0 ? (
@@ -350,20 +357,11 @@ const styles = StyleSheet.create({
   },
   countdownValue: { fontSize: 17, fontWeight: '700' },
   countdownLabel: { fontSize: 9, marginTop: 2, letterSpacing: 0.5 },
-  emptyCard: {
-    padding: spacing.xl,
-    borderRadius: radius['2xl'],
-    borderWidth: 1,
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  emptyText: { fontSize: 14 },
+  emptyCardWrap: { paddingVertical: spacing.xl, alignItems: 'center' },
   matchRow: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.sm, paddingRight: spacing.lg },
   matchItem: { alignItems: 'center', gap: spacing.xs, minWidth: 64 },
   matchName: { fontSize: 11, fontWeight: '600' },
-  matchAvatarSkeleton: { width: 52, height: 52, borderRadius: 26 },
   eventRail: { flexDirection: 'row', gap: spacing.md + 2, paddingBottom: spacing.lg },
-  discoverCardSkeleton: { width: 248, height: 156, borderRadius: radius.xl },
   discoverCard: {
     width: 248,
     borderRadius: radius.xl,
