@@ -40,18 +40,21 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
 
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
+  // Do not throw on font error: in preview/production builds font loading can fail
+  // (e.g. EAS bundling); throwing would crash the app after the launch screen.
   useEffect(() => {
-    if (error) throw error;
+    if (error && __DEV__) {
+      console.warn('[Vibely] Font load failed, using system font:', error?.message ?? error);
+    }
   }, [error]);
 
   useEffect(() => {
-    if (loaded) {
+    if (loaded || error) {
       SplashScreen.hideAsync();
     }
-  }, [loaded]);
+  }, [loaded, error]);
 
-  if (!loaded) {
+  if (!loaded && !error) {
     return null;
   }
 
