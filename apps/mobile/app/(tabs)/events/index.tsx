@@ -21,7 +21,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { Card } from '@/components/ui';
+import { Card, GlassSurface, ErrorState, EmptyState, Skeleton } from '@/components/ui';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -450,16 +450,16 @@ const railStyles = StyleSheet.create({
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
 });
 
-// ── Loading skeleton
-function EventsSkeleton({ theme }: { theme: (typeof Colors)[keyof typeof Colors] }) {
+// ── Loading skeleton (uses shared Skeleton primitive)
+function EventsSkeleton() {
   return (
     <View style={skeletonStyles.wrapper}>
-      <View style={[skeletonStyles.hero, { backgroundColor: theme.surfaceSubtle }]} />
+      <Skeleton style={skeletonStyles.hero} height={380} borderRadius={radius['3xl']} />
       <View style={skeletonStyles.rail}>
-        <View style={[skeletonStyles.railTitle, { backgroundColor: theme.surfaceSubtle }]} />
+        <Skeleton width={140} height={24} borderRadius={8} style={skeletonStyles.railTitle} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {[1, 2, 3].map((i) => (
-            <View key={i} style={[skeletonStyles.railCard, { backgroundColor: theme.surfaceSubtle }]} />
+            <Skeleton key={i} width={CARD_WIDTH} height={220} borderRadius={radius['2xl']} style={skeletonStyles.railCard} />
           ))}
         </ScrollView>
       </View>
@@ -476,12 +476,7 @@ const skeletonStyles = StyleSheet.create({
   },
   rail: { marginBottom: spacing.xl },
   railTitle: { width: 140, height: 24, borderRadius: 8, marginBottom: spacing.md },
-  railCard: {
-    width: CARD_WIDTH,
-    height: 220,
-    borderRadius: radius['2xl'],
-    marginRight: spacing.md,
-  },
+  railCard: { marginRight: spacing.md },
 });
 
 export default function EventsListScreen() {
@@ -548,10 +543,12 @@ export default function EventsListScreen() {
   if (error) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <Text style={[styles.errorText, { color: theme.danger }]}>Failed to load events</Text>
-        <Pressable style={[styles.retryBtn, { backgroundColor: theme.tint }]} onPress={() => refetch()}>
-          <Text style={styles.retryLabel}>Retry</Text>
-        </Pressable>
+        <ErrorState
+          title="Failed to load events"
+          message="Check your connection and try again."
+          actionLabel="Retry"
+          onActionPress={() => refetch()}
+        />
       </View>
     );
   }
@@ -568,7 +565,7 @@ export default function EventsListScreen() {
       }
     >
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <GlassSurface style={[styles.header, { paddingTop: insets.top + spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md }]}>
         <View style={[styles.headerIconBox, { backgroundColor: theme.accentSoft }]}>
           <Ionicons name="calendar" size={24} color={theme.tint} />
         </View>
@@ -576,7 +573,7 @@ export default function EventsListScreen() {
           <Text style={[styles.headerTitle, { color: theme.text }]}>Discover Events</Text>
           <Text style={[styles.headerSub, { color: theme.textSecondary }]}>Find your next vibe match</Text>
         </View>
-      </View>
+      </GlassSurface>
 
       {/* Location prompt (shell) */}
       {showLocationPrompt && !locationDismissed && (
@@ -640,7 +637,7 @@ export default function EventsListScreen() {
       {/* Content */}
       <View style={styles.content}>
         {isLoading && !events.length ? (
-          <EventsSkeleton theme={theme} />
+          <EventsSkeleton />
         ) : isFiltering ? (
           <View style={styles.filteredContent}>
             <View style={styles.filteredHeader}>
@@ -661,15 +658,10 @@ export default function EventsListScreen() {
                 ))}
               </ScrollView>
             ) : (
-              <View style={styles.emptyState}>
-                <View style={[styles.emptyIcon, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
-                </View>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No events found</Text>
-                <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-                  Try adjusting your filters or search terms
-                </Text>
-              </View>
+              <EmptyState
+                title="No events found"
+                message="Try adjusting your filters or search terms"
+              />
             )}
           </View>
         ) : (
@@ -705,22 +697,12 @@ export default function EventsListScreen() {
             )}
 
             {events.length === 0 && !isLoading && (
-              <View style={styles.emptyState}>
-                <View style={[styles.emptyIcon, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
-                </View>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No events near you yet 💫</Text>
-                <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-                  But there are events happening in other cities!
-                </Text>
-                <Pressable
-                  style={[styles.premiumCta, { backgroundColor: theme.tint }]}
-                  onPress={() => router.push('/premium')}
-                >
-                  <Ionicons name="sparkles" size={18} color="#fff" />
-                  <Text style={styles.premiumCtaLabel}>Go Premium to explore →</Text>
-                </Pressable>
-              </View>
+              <EmptyState
+                title="No events near you yet 💫"
+                message="But there are events happening in other cities!"
+                actionLabel="Go Premium to explore"
+                onActionPress={() => router.push('/premium')}
+              />
             )}
 
             {/* Happening Elsewhere shell (premium upsell) */}
@@ -769,15 +751,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.xl,
   },
-  errorText: { fontSize: 16, marginBottom: spacing.md },
-  retryBtn: { paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: radius.lg },
-  retryLabel: { color: '#fff', fontWeight: '600' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md + 2,
   },
   headerIconBox: {
     width: 44,
@@ -824,30 +801,6 @@ const styles = StyleSheet.create({
   filteredHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
   filteredCount: { fontSize: 14 },
   filteredScroll: { paddingBottom: spacing.md, paddingHorizontal: spacing.lg },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: spacing['2xl'],
-    paddingHorizontal: spacing.xl,
-  },
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.lg,
-  },
-  emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm },
-  emptySub: { fontSize: 14, marginBottom: spacing.lg },
-  premiumCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.lg,
-  },
-  premiumCtaLabel: { color: '#fff', fontWeight: '600' },
   elsewhere: { paddingHorizontal: spacing.lg, marginTop: spacing.lg },
   elsewhereHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },
   elsewhereTitle: { fontSize: 16, fontWeight: '700' },
