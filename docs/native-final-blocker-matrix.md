@@ -1,6 +1,16 @@
-# Native final blocker matrix (through Sprint 5)
+# Native final blocker matrix (through Sprint 6)
 
-Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–4 and Sprint 5 (provider/build closure prep). Use for go/no-go and prioritization.
+Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–5 and Sprint 6 (launch closure execution runbook). Use for go/no-go and prioritization.
+
+---
+
+## Blocker ownership (Sprint 6)
+
+| Owner | Meaning | Items |
+|-------|--------|--------|
+| **Cursor (solvable now)** | Repo/docs/code changes Cursor can do. | None remaining; runbook and config check in place. |
+| **Kaan (dashboard/store/device)** | Must be done by Kaan: dashboard setup, store consoles, EAS secrets, device install and testing. | RevenueCat dashboard + webhook + store products; OneSignal dashboard (iOS + Android, APNs/FCM); EAS secrets; running builds and submitting to TestFlight/Play. |
+| **Requires build/test evidence** | Resolved only by a successful build and/or device test. | EAS preview/production build success; RevenueCat purchase/restore on device; OneSignal push delivery on device; full iOS/Android validation checklist. |
 
 ---
 
@@ -8,10 +18,10 @@ Categorized view of what blocks production-style validation vs what is acceptabl
 
 | Item | Notes |
 |------|--------|
-| **RevenueCat dashboard + webhook** | Products, offerings, entitlement, webhook URL and auth header; App Store Connect / Play Console subscription products. Without these, premium screen shows "No offerings available." See `docs/native-external-setup-checklist.md` §2 and §2.4. |
-| **OneSignal dashboard (iOS + Android)** | Add iOS app (bundle ID, APNs key/cert) and Android app (FCM). App code is ready; push will not deliver until OneSignal is configured. See §3. |
-| **EAS build + secrets** | For real-device validation: EAS profile (preview or production), credentials, and EAS secrets for Supabase, OneSignal App ID, RevenueCat API keys. See §5 and §5.1. |
-| **Store submission** | When moving to production: signing, TestFlight/Play upload, store listing. Out of scope for Sprint 5; document as final step. |
+| **RevenueCat dashboard + webhook** | Products, offerings, entitlement, webhook URL and auth header; App Store Connect / Play Console subscription products. Without these, premium screen shows "No offerings available." **Owner:** Kaan. See `docs/native-external-setup-checklist.md` §2 and §2.4; execution order in `docs/native-sprint6-launch-closure-runbook.md`. |
+| **OneSignal dashboard (iOS + Android)** | Add iOS app (bundle ID, APNs key/cert) and Android app (FCM). App code is ready; push will not deliver until OneSignal is configured. **Owner:** Kaan. See §3 and runbook Phase 3–4. |
+| **EAS build + secrets** | For real-device validation: EAS profile (preview or production), credentials, and EAS secrets for Supabase, OneSignal App ID, RevenueCat API keys. **Owner:** Kaan. See §5 and §5.1; runbook Phase 5–6. |
+| **Store submission** | When moving to production: signing, TestFlight/Play upload, store listing. **Owner:** Kaan. Runbook Phase 6. |
 
 ---
 
@@ -91,9 +101,26 @@ Expected in dev builds only; not bugs and not present in production builds.
 
 ---
 
+## Sprint 6 test results (fill after validation)
+
+| Phase | Pass/fail | Blocker (if fail) |
+|-------|-----------|--------------------|
+| RevenueCat dashboard setup | | |
+| RevenueCat real-device (purchase/restore) | | |
+| OneSignal dashboard setup | | |
+| OneSignal real-device (push) | | |
+| EAS preview build | | |
+| EAS production build | | |
+| iOS device validation checklist | | |
+| Android device validation checklist | | |
+
+Execution order and Kaan steps: `docs/native-sprint6-launch-closure-runbook.md`.
+
+---
+
 ## Summary
 
-- **Blocker (must resolve for launch):** RevenueCat dashboard + webhook + store products; OneSignal dashboard (iOS + Android); EAS build + secrets. All documented in `docs/native-external-setup-checklist.md`.
+- **Blocker (must resolve for launch):** RevenueCat dashboard + webhook + store products; OneSignal dashboard (iOS + Android); EAS build + secrets. **Owner:** Kaan. All documented in `docs/native-external-setup-checklist.md` and step-by-step in `docs/native-sprint6-launch-closure-runbook.md`.
 - **Non-blocking:** RevenueCat warnings until configured, reset-password minimal, Bunny 404 until pull zone.
 - **In v1 (done):** Profile photo, vibe video, premium, public profile, match celebration, credits, delete account.
 - **Accepted web handoff:** Schedule, account, notifications, Daily Drop, reset password, legal/marketing.

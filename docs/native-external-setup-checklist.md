@@ -149,6 +149,8 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 
 ## 5. Expo / EAS (for TestFlight / Play internal)
 
+**Config readiness (Sprint 6):** Bundle ID and package are `com.vibelymeet.vibely` (app.json). OneSignal mode is set by `app.config.js` from `EAS_BUILD_PROFILE` (production for preview/production). No repo config is missing for builds; EAS secrets and provider dashboards must be completed by Kaan before builds will have working push and IAP.
+
 - [ ] EAS project linked: `eas init` or existing project (`app.json` → `extra.eas.projectId`).
 - [ ] `eas.json` build profiles: **development** (dev client, internal), **preview** (internal distribution), **production** (store). Use `preview` or `production` for real-device push/IAP validation so OneSignal uses production APNs.
 - [ ] Credentials: iOS (distribution cert, provisioning profile), Android (keystore). EAS can manage these via `eas credentials`.
