@@ -13,6 +13,8 @@ module.exports = () => {
     }
     return p;
   });
+  if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-video')) plugins.push('expo-video');
+  if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-audio')) plugins.push('expo-audio');
   return {
     expo: {
       ...appJson.expo,

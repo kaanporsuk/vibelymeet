@@ -16,8 +16,15 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Audio } from 'expo-av';
-import { Video, ResizeMode } from 'expo-av';
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { GlassSurface, LoadingState, ErrorState } from '@/components/ui';
 import { spacing } from '@/constants/theme';
@@ -46,30 +53,16 @@ function VoiceMessageBubble({
   timeColor: string;
   time: string;
 }) {
-  const [playing, setPlaying] = useState(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const play = async () => {
-    try {
-      if (soundRef.current) {
-        await soundRef.current.replayAsync();
-        setPlaying(true);
-        return;
-      }
-      const { sound } = await Audio.Sound.createAsync({ uri });
-      soundRef.current = sound;
-      await sound.playAsync();
-      setPlaying(true);
-      sound.setOnPlaybackStatusUpdate((s) => {
-        if (s.isLoaded && !s.isPlaying) setPlaying(false);
-      });
-    } catch {
-      setPlaying(false);
-    }
+  const player = useAudioPlayer(uri);
+  const status = useAudioPlayerStatus(player);
+  const playing = status.playing;
+  const onPress = () => {
+    if (playing) player.pause();
+    else player.play();
   };
-  useEffect(() => () => { soundRef.current?.unloadAsync(); }, []);
   return (
     <View>
-      <Pressable onPress={play} style={styles.voiceRow}>
+      <Pressable onPress={onPress} style={styles.voiceRow}>
         <Ionicons name={playing ? 'pause' : 'play'} size={24} color={textColor} />
         <Text style={[styles.voiceLabel, { color: textColor }]}>
           Voice {duration != null ? `· ${duration}s` : ''}
@@ -78,6 +71,13 @@ function VoiceMessageBubble({
       <Text style={[styles.bubbleTime, { color: timeColor }]}>{time}</Text>
     </View>
   );
+}
+
+function ChatVideoPlayer({ uri, style }: { uri: string; style?: object }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+  });
+  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 
 export default function ChatThreadScreen() {
@@ -94,8 +94,8 @@ export default function ChatThreadScreen() {
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
 
   const [input, setInput] = useState('');
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
-  const recordingRef = useRef<InstanceType<typeof Audio.Recording> | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
@@ -123,18 +123,11 @@ export default function ChatThreadScreen() {
   const startVoiceRecording = async () => {
     setVoiceError(null);
     try {
-      await Audio.requestPermissionsAsync();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        interruptionModeIOS: 1,
-        interruptionModeAndroid: 1,
-      });
-      const { recording: rec } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      recordingRef.current = rec;
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) throw new Error('Permission denied');
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setRecording(true);
     } catch (e) {
       setVoiceError(e instanceof Error ? e.message : 'Could not start recording');
@@ -143,23 +136,20 @@ export default function ChatThreadScreen() {
   };
 
   const stopVoiceRecordingAndSend = async () => {
-    const rec = recordingRef.current;
-    if (!rec || !data?.matchId || !user?.id) {
+    if (!data?.matchId || !user?.id) {
       setRecording(false);
-      recordingRef.current = null;
       return;
     }
     setRecording(false);
-    recordingRef.current = null;
     try {
-      const status = await rec.stopAndUnloadAsync();
-      const uri = rec.getURI() ?? (status as { uri?: string }).uri;
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       if (!uri) throw new Error('No recording file');
-      const durationSec = (status.durationMillis ?? 0) / 1000;
+      const durationSec = audioRecorder.currentTime || 1;
       await sendVoiceMessage({
         matchId: data.matchId,
         audioUri: uri,
-        durationSeconds: durationSec || 1,
+        durationSeconds: durationSec,
         currentUserId: user.id,
       });
     } catch (e) {
@@ -167,11 +157,11 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const handleVoicePress = async () => {
+  const handleVoicePress = () => {
     if (recording) {
-      await stopVoiceRecordingAndSend();
+      void stopVoiceRecordingAndSend();
     } else {
-      await startVoiceRecording();
+      void startVoiceRecording();
     }
   };
 
@@ -268,12 +258,7 @@ export default function ChatThreadScreen() {
           <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />
         ) : item.video_url ? (
           <View>
-            <Video
-              source={{ uri: item.video_url }}
-              useNativeControls
-              resizeMode={ResizeMode.CONTAIN}
-              style={styles.chatVideo}
-            />
+            <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
             <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
           </View>
         ) : (

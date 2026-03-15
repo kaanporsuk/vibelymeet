@@ -35,7 +35,15 @@ import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
 import { getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { avatarUrl } from '@/lib/imageUrl';
-import { Video, ResizeMode } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
+
+function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
+  const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = false;
+  });
+  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
+}
 
 // Relationship intent labels (mirrored from web RelationshipIntent)
 const LOOKING_FOR_LABELS: Record<string, string> = {
@@ -508,13 +516,7 @@ export default function ProfileScreen() {
                 <Text style={[styles.vibeVideoCopy, { color: theme.text }]}>Your vibe video is ready.</Text>
                 {playbackUrl ? (
                   <View style={[styles.vibeVideoPlayerWrap, { backgroundColor: theme.background }]}>
-                    <Video
-                      source={{ uri: playbackUrl }}
-                      useNativeControls
-                      resizeMode={ResizeMode.CONTAIN}
-                      style={styles.vibeVideoPlayer}
-                      shouldPlay={false}
-                    />
+                    <VibeVideoPlayer playbackUrl={playbackUrl} style={styles.vibeVideoPlayer} />
                   </View>
                 ) : (
                   <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary, fontSize: 13 }]}>
