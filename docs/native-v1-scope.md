@@ -59,7 +59,7 @@ Post‑date survey UX today is embedded inside the video/date flow and shared co
 ### 4. Profile, settings, and verification
 
 - `/profile` – **Profile view/edit**
-  - **Native v1**: **In v1** (explicitly in Stream 0A).
+  - **Native v1**: **In v1** (explicitly in Stream 0A). **Profile photo upload** and **vibe video** (record and display) are in v1.
 - `/settings` – **Settings (notifications, account, etc.)**
   - **Native v1**: **In v1** (explicitly in Stream 0A).
 - `/user/:userId` – **Public user profile**
@@ -72,26 +72,22 @@ Verification flows (photo/phone/email) are routed through profile, onboarding, a
 ### 5. Premium, credits, and billing
 
 - `/premium` – **Premium upsell / pricing**
-  - **Native v1**: **Deferred** (v1.1+). Native v1 should support premium state, but the upsell screens can be simplified or deferred; web handles full pricing layout.
+  - **Native v1**: **In v1**. Premium is a hard blocker for launch. Native premium screen and RevenueCat (offerings, purchase, restore) are required; backend and revenuecat-webhook are in place.
 - `/subscription/success`, `/subscription/cancel` – **Subscription result pages**
-  - **Native v1**: **Web‑only** (Stripe hosted; native may open them in a web view rather than recreating them).
+  - **Native v1**: **Web‑only** (Stripe hosted); RevenueCat purchase success is handled in-app (alert/refetch).
 - `/credits` – **Buy/use credits**
-  - **Native v1**: **Deferred** (v1.1+). Credits are important but second‑order for the first native cut.
+  - **Native v1**: **Deferred** (v1.1+). Credits entry in settings; full purchase/success flow remains as current repo. No change unless implemented.
 - `/credits/success` – **Credits purchase success**
   - **Native v1**: **Web‑only** (same rationale as subscription success).
 
-Native v1 should be able to **respect premium/credits state** (e.g. read‑only), but the full purchase and success‑page UX can be web‑first initially.
-
 ---
 
-### 6. Vibes, feeds, schedule, referrals (explicitly deferred)
+### 6. Vibes, feeds, schedule, referrals
 
-- `/vibe-studio` – **Vibe Studio (create vibe videos)**
-  - **Native v1**: **Deferred** (v1.1+). Complex media UX; explicitly deferred by Stream 0A.
-- `/vibe-feed` – **Vibe Feed**
-  - **Native v1**: **Deferred** (v1.1+). Explicitly deferred in the remediation plan.
+- `/vibe-studio` / **Vibe video** – **In v1**. Native foundation: record short vibe video, upload via create-video-upload (Bunny/tus), show state (none / uploading / processing / ready / failed), optional delete via delete-vibe-video. Full studio UX can follow in a later release.
+- `/vibe-feed` – **Deferred** (v1.1+). Explicitly deferred in the remediation plan.
 - `/schedule` – **User schedule / calendar**
-  - **Native v1**: **Deferred** (v1.1+). Explicitly deferred.
+  - **Native v1**: **Deferred** (v1.1+). Not in this sprint; remains as current repo truth.
 
 Referrals and similar growth surfaces are currently woven through profile/settings and backend; any dedicated referral UX would be **Deferred** until server ownership and measurement are fully proven.
 
@@ -137,6 +133,9 @@ Admin and telemetry views should remain web‑only for the foreseeable future.
   - Post‑date survey as part of the VideoDate experience
 - Profile & settings:
   - `/profile`, `/settings`
+  - Profile photo upload (native); vibe video (record, upload, state, delete)
+- Premium:
+  - `/premium` (RevenueCat + backend; hard blocker for launch)
 
 **Deferred to v1.1+ (candidate follow‑ups):**
 - Visual/celebratory:
@@ -144,12 +143,8 @@ Admin and telemetry views should remain web‑only for the foreseeable future.
 - Growth / social:
   - `/user/:userId` (public profile)
   - full referrals UX (wherever it lands)
-- Premium / credits UX:
-  - `/premium`, `/credits`
-- Vibes / feed / schedule:
-  - `/vibe-studio`, `/vibe-feed`, `/schedule`
-- Native‑level delete account UX (vs web):
-  - `/delete-account` equivalent
+- Credits full UX, schedule, delete-account native flow:
+  - Remain as current repo (settings entry / link-out); no change unless implemented.
 
 **Web‑only (for now):**
 - Marketing / legal:

@@ -10,16 +10,75 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { GlassSurface, LoadingState, ErrorState } from '@/components/ui';
 import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useMessages, useSendMessage, useRealtimeMessages, useMatches, type ChatMessage } from '@/lib/chatApi';
+import {
+  useMessages,
+  useSendMessage,
+  useSendVoiceMessage,
+  useSendChatVideoMessage,
+  useRealtimeMessages,
+  useMatches,
+  type ChatMessage,
+} from '@/lib/chatApi';
+
+function VoiceMessageBubble({
+  uri,
+  duration,
+  textColor,
+  timeColor,
+  time,
+}: {
+  uri: string;
+  duration?: number | null;
+  textColor: string;
+  timeColor: string;
+  time: string;
+}) {
+  const player = useAudioPlayer(uri);
+  const status = useAudioPlayerStatus(player);
+  const playing = status.playing;
+  const onPress = () => {
+    if (playing) player.pause();
+    else player.play();
+  };
+  return (
+    <View>
+      <Pressable onPress={onPress} style={styles.voiceRow}>
+        <Ionicons name={playing ? 'pause' : 'play'} size={24} color={textColor} />
+        <Text style={[styles.voiceLabel, { color: textColor }]}>
+          Voice {duration != null ? `· ${duration}s` : ''}
+        </Text>
+      </Pressable>
+      <Text style={[styles.bubbleTime, { color: timeColor }]}>{time}</Text>
+    </View>
+  );
+}
+
+function ChatVideoPlayer({ uri, style }: { uri: string; style?: object }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+  });
+  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
+}
 
 export default function ChatThreadScreen() {
   const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
@@ -30,10 +89,17 @@ export default function ChatThreadScreen() {
   const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
   const { data: matches = [] } = useMatches(user?.id);
   const { mutateAsync: sendMessage, isPending: sending } = useSendMessage();
+  const { mutateAsync: sendVoiceMessage, isPending: sendingVoice } = useSendVoiceMessage();
+  const { mutateAsync: sendChatVideoMessage, isPending: sendingVideo } = useSendChatVideoMessage();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
 
   const [input, setInput] = useState('');
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [recording, setRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
+  const isSending = sending || sendingVoice || sendingVideo;
 
   const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
 
@@ -45,12 +111,88 @@ export default function ChatThreadScreen() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || !data?.matchId || sending) return;
+    if (!text || !data?.matchId || isSending) return;
     setInput('');
     try {
       await sendMessage({ matchId: data.matchId, content: text });
     } catch {
       Alert.alert('Error', 'Could not send message');
+    }
+  };
+
+  const startVoiceRecording = async () => {
+    setVoiceError(null);
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) throw new Error('Permission denied');
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setRecording(true);
+    } catch (e) {
+      setVoiceError(e instanceof Error ? e.message : 'Could not start recording');
+      Alert.alert('Recording', 'Microphone access is needed for voice messages.');
+    }
+  };
+
+  const stopVoiceRecordingAndSend = async () => {
+    if (!data?.matchId || !user?.id) {
+      setRecording(false);
+      return;
+    }
+    setRecording(false);
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      if (!uri) throw new Error('No recording file');
+      const durationSec = audioRecorder.currentTime || 1;
+      await sendVoiceMessage({
+        matchId: data.matchId,
+        audioUri: uri,
+        durationSeconds: durationSec,
+        currentUserId: user.id,
+      });
+    } catch (e) {
+      Alert.alert('Voice message failed', e instanceof Error ? e.message : 'Please try again.');
+    }
+  };
+
+  const handleVoicePress = () => {
+    if (recording) {
+      void stopVoiceRecordingAndSend();
+    } else {
+      void startVoiceRecording();
+    }
+  };
+
+  const handleVideoPick = async () => {
+    if (!data?.matchId || !user?.id || isSending) return;
+    setVideoError(null);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your media library to send a video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const durationSec = asset.duration ?? 0;
+      await sendChatVideoMessage({
+        matchId: data.matchId,
+        videoUri: asset.uri,
+        durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+        currentUserId: user.id,
+        mimeType: asset.mimeType ?? undefined,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Video send failed';
+      setVideoError(msg);
+      Alert.alert('Video failed', msg);
     }
   };
 
@@ -101,28 +243,33 @@ export default function ChatThreadScreen() {
     );
   }
 
-  const renderItem: ListRenderItem<ChatMessage> = ({ item }) => (
-    <View
-      style={[
-        styles.bubble,
-        item.sender === 'me'
-          ? [styles.bubbleMe, { backgroundColor: theme.tint }]
-          : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
-      ]}
-    >
-      <Text
+  const renderItem: ListRenderItem<ChatMessage> = ({ item }) => {
+    const isMe = item.sender === 'me';
+    const textColor = isMe ? '#fff' : theme.text;
+    const timeColor = isMe ? 'rgba(255,255,255,0.8)' : theme.textSecondary;
+    return (
+      <View
         style={[
-          styles.bubbleText,
-          { color: item.sender === 'me' ? '#fff' : theme.text },
+          styles.bubble,
+          isMe ? [styles.bubbleMe, { backgroundColor: theme.tint }] : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
         ]}
       >
-        {item.text}
-      </Text>
-      <Text style={[styles.bubbleTime, { color: item.sender === 'me' ? 'rgba(255,255,255,0.8)' : theme.textSecondary }]}>
-        {item.time}
-      </Text>
-    </View>
-  );
+        {item.audio_url ? (
+          <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />
+        ) : item.video_url ? (
+          <View>
+            <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
+            <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+          </View>
+        ) : (
+          <>
+            <Text style={[styles.bubbleText, { color: textColor }]}>{item.text}</Text>
+            <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+          </>
+        )}
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -146,6 +293,13 @@ export default function ChatThreadScreen() {
         <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
           {otherName}
         </Text>
+        <Pressable
+          onPress={() => otherUserId && (router as { push: (p: string) => void }).push(`/user/${otherUserId}`)}
+          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+          accessibilityLabel="View profile"
+        >
+          <Ionicons name="person-outline" size={22} color={theme.text} />
+        </Pressable>
       </GlassSurface>
 
       <KeyboardAvoidingView
@@ -174,22 +328,50 @@ export default function ChatThreadScreen() {
             onChangeText={setInput}
             multiline
             maxLength={2000}
-            editable={!sending}
+            editable={!isSending}
           />
+          <Pressable
+            style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
+            onPress={handleVideoPick}
+            disabled={isSending}
+          >
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="videocam-outline" size={22} color={theme.tint} />
+            )}
+          </Pressable>
+          <Pressable
+            style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
+            onPress={handleVoicePress}
+            disabled={isSending}
+          >
+            {sendingVoice ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name={recording ? 'stop' : 'mic'} size={22} color={theme.tint} />
+            )}
+          </Pressable>
           <Pressable
             style={[
               styles.sendBtn,
               { backgroundColor: theme.tint },
-              (!input.trim() || sending) && styles.sendBtnDisabled,
+              (!input.trim() || isSending) && styles.sendBtnDisabled,
             ]}
             onPress={handleSend}
-            disabled={!input.trim() || sending}
+            disabled={!input.trim() || isSending}
           >
             <Text style={styles.sendBtnText}>
-              {sending ? '…' : 'Send'}
+              {isSending ? '…' : 'Send'}
             </Text>
           </Pressable>
         </View>
+        {(voiceError || videoError) ? (
+          <Text style={[styles.voiceError, { color: theme.danger }]}>{voiceError ?? videoError}</Text>
+        ) : null}
+        {recording ? (
+          <Text style={[styles.recordingHint, { color: theme.textSecondary }]}>Recording… Tap mic to send</Text>
+        ) : null}
       </KeyboardAvoidingView>
     </View>
   );
@@ -238,4 +420,17 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.5 },
   sendBtnText: { color: '#fff', fontWeight: '600' },
+  voiceBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voiceLabel: { fontSize: 15 },
+  chatVideo: { width: 200, height: 120, borderRadius: 8 },
+  voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
+  recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
 });

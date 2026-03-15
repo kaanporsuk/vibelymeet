@@ -1,19 +1,25 @@
 /**
- * Video Date Credits — native v1: show balance from user_credits, link to web for purchase.
- * Backend: user_credits table; purchase via web (P1/link-out per contract).
+ * Video Date Credits — balance from user_credits; purchase via create-credits-checkout (Stripe in browser).
  */
-import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
-import { GlassSurface, Card, VibelyButton, Skeleton } from '@/components/ui';
+import { GlassSurface, Card, Skeleton } from '@/components/ui';
 import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { getCreditsCheckoutUrl, type CreditPackId } from '@/lib/creditsCheckout';
+
+const PACKS: { id: CreditPackId; name: string; description: string; price: string }[] = [
+  { id: 'extra_time_3', name: '3× Extra Time', description: '+2 min, 3 times', price: '€2.99' },
+  { id: 'extended_vibe_3', name: '3× Extended Vibe', description: '+5 min, 3 times', price: '€4.99' },
+  { id: 'bundle_3_3', name: 'Vibe Bundle', description: '3× Extra Time + 3× Extended Vibe', price: '€5.99' },
+];
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -37,7 +43,22 @@ export default function CreditsSettingsScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const qc = useQueryClient();
   const { data: credits, isLoading } = useCredits(user?.id);
+  const [loadingPackId, setLoadingPackId] = useState<CreditPackId | null>(null);
+
+  const handleBuyPack = async (packId: CreditPackId) => {
+    setLoadingPackId(packId);
+    try {
+      const url = await getCreditsCheckoutUrl(packId);
+      await Linking.openURL(url);
+      qc.invalidateQueries({ queryKey: ['user_credits'] });
+    } catch (e) {
+      Alert.alert('Checkout', e instanceof Error ? e.message : 'Could not start checkout. Try again.');
+    } finally {
+      setLoadingPackId(null);
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -85,14 +106,32 @@ export default function CreditsSettingsScreen() {
               </View>
             )}
             <Text style={[styles.body, { color: theme.textSecondary, marginTop: spacing.lg }]}>
-              Buy more credits on web. Use Extra Time to add minutes in a date; Extended Vibe to extend the vibe round.
+              Use Extra Time to add minutes in a date; Extended Vibe to extend the vibe round. Payment is processed on web (Stripe).
             </Text>
-            <VibelyButton
-              label="Get credits on web"
-              onPress={() => Linking.openURL('https://vibelymeet.com/credits').catch(() => {})}
-              variant="primary"
-              style={styles.cta}
-            />
+            {PACKS.map((pack) => (
+              <Pressable
+                key={pack.id}
+                onPress={() => loadingPackId === null && handleBuyPack(pack.id)}
+                disabled={!!loadingPackId}
+                style={[styles.packRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              >
+                <View>
+                  <Text style={[styles.packName, { color: theme.text }]}>{pack.name}</Text>
+                  <Text style={[styles.packDesc, { color: theme.textSecondary }]}>{pack.description}</Text>
+                </View>
+                <View style={styles.packRight}>
+                  <Text style={[styles.packPrice, { color: theme.tint }]}>{pack.price}</Text>
+                  {loadingPackId === pack.id ? (
+                    <ActivityIndicator size="small" color={theme.tint} />
+                  ) : (
+                    <Text style={[styles.packBuy, { color: theme.tint }]}>Buy</Text>
+                  )}
+                </View>
+              </Pressable>
+            ))}
+            <Text style={[styles.footnote, { color: theme.textSecondary, marginTop: spacing.lg }]}>
+              Opens Stripe checkout in browser. After payment, return to the app; balance updates when you reopen this screen.
+            </Text>
           </Card>
         </View>
       </ScrollView>
@@ -122,5 +161,20 @@ const styles = StyleSheet.create({
   balanceLabel: { fontSize: 14 },
   balanceValue: { fontSize: 18, fontWeight: '700' },
   body: { fontSize: 15, lineHeight: 22 },
-  cta: { marginTop: spacing.lg, alignSelf: 'flex-start' },
+  packRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: spacing.md,
+  },
+  packName: { fontSize: 16, fontWeight: '600' },
+  packDesc: { fontSize: 13, marginTop: 2 },
+  packRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  packPrice: { fontSize: 16, fontWeight: '700' },
+  packBuy: { fontSize: 15, fontWeight: '600' },
+  footnote: { fontSize: 13, lineHeight: 18 },
 });

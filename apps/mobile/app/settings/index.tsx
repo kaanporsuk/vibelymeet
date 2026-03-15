@@ -18,11 +18,13 @@ import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { signOut } = useAuth();
+  const { signOut, session } = useAuth();
 
   const handleLogout = () => {
     Alert.alert(
@@ -38,8 +40,39 @@ export default function SettingsScreen() {
   const handleDeleteAccount = () => {
     Alert.alert(
       'Delete account',
-      'Account deletion is available on web. Open vibelymeet.com and go to Settings to request account deletion.',
-      [{ text: 'OK' }]
+      'Your account will be scheduled for deletion. You can cancel from the web within the grace period. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (!session?.access_token) {
+              Alert.alert('Error', 'You must be signed in to delete your account.');
+              return;
+            }
+            try {
+              const res = await fetch(`${SUPABASE_URL}/functions/v1/delete-account`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${session.access_token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ reason: null }),
+              });
+              const data = await res.json().catch(() => ({}));
+              if (!data.success) {
+                Alert.alert('Error', data.error ?? 'Failed to delete account. Try again.');
+                return;
+              }
+              await signOut();
+              router.replace('/(auth)/sign-in');
+            } catch {
+              Alert.alert('Error', 'Could not reach the server. Try again.');
+            }
+          },
+        },
+      ]
     );
   };
 

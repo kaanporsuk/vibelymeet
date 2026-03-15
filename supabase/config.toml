@@ -75,6 +75,9 @@ verify_jwt = true
 [functions.request-account-deletion]
 verify_jwt = false
 
+[functions.revenuecat-webhook]
+verify_jwt = false
+
 [functions.generate-daily-drops]
 verify_jwt = false
 

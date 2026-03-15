@@ -11,6 +11,7 @@ import {
   Platform,
   Linking,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -30,7 +31,19 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
+import { uploadProfilePhoto } from '@/lib/uploadImage';
+import { deleteVibeVideo } from '@/lib/vibeVideoApi';
+import { getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { avatarUrl } from '@/lib/imageUrl';
+import { useVideoPlayer, VideoView } from 'expo-video';
+
+function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
+  const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = false;
+  });
+  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
+}
 
 // Relationship intent labels (mirrored from web RelationshipIntent)
 const LOOKING_FOR_LABELS: Record<string, string> = {
@@ -98,12 +111,22 @@ export default function ProfileScreen() {
     enabled: !!user?.id,
   });
 
+  // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
+  useEffect(() => {
+    const status = profile?.bunny_video_status;
+    if (status !== 'uploading' && status !== 'processing') return;
+    const interval = setInterval(() => refetch(), 5000);
+    return () => clearInterval(interval);
+  }, [profile?.bunny_video_status, refetch]);
+
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
   const [tagline, setTagline] = useState('');
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [saving, setSaving] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile) {
@@ -151,8 +174,33 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleUseVibeVideoOnWeb = () => {
-    Linking.openURL('https://vibelymeet.com/vibe-studio').catch(() => {});
+  const vibeStatus = (profile?.bunny_video_status ?? 'none') as string;
+
+  const handleVibeVideoPress = () => {
+    if (vibeStatus === 'uploading' || vibeStatus === 'processing') return;
+    (router as { push: (p: string) => void }).push('/vibe-video-record');
+  };
+
+  const handleDeleteVibeVideo = () => {
+    Alert.alert(
+      'Delete vibe video?',
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteVibeVideo();
+              qc.invalidateQueries({ queryKey: ['my-profile'] });
+            } catch {
+              Alert.alert('Error', 'Could not delete. Try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handlePreviewProfile = () => {
@@ -169,12 +217,47 @@ export default function ProfileScreen() {
   const handleSchedulePress = () => {
     Alert.alert(
       'My Vibe Schedule',
-      'Set when you\'re open for dates on web. Schedule is coming to mobile in a future update.',
+      'Set when you\'re open for dates on vibelymeet.com. Schedule management is on web for now.',
       [
-        { text: 'OK', style: 'cancel' },
-        { text: 'Open on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Open schedule on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
       ]
     );
+  };
+
+  const handleAddPhoto = async () => {
+    setPhotoError(null);
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setPhotoUploading(true);
+    try {
+      const path = await uploadProfilePhoto({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        fileName: asset.fileName ?? undefined,
+      });
+      const currentPhotos = profile?.photos ?? [];
+      await updateMyProfile({ photos: [...currentPhotos, path] });
+      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      await refreshOnboarding();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Upload failed';
+      setPhotoError(msg);
+      Alert.alert('Upload failed', msg);
+    } finally {
+      setPhotoUploading(false);
+    }
   };
 
   // Placeholder vibe score from profile completeness (mirrors web intent; no shared calc on mobile)
@@ -247,17 +330,23 @@ export default function ProfileScreen() {
           />
           <Pressable
             style={[styles.videoBtn, { backgroundColor: theme.surface }]}
-            onPress={handleUseVibeVideoOnWeb}
+            onPress={handleVibeVideoPress}
+            disabled={vibeStatus === 'uploading' || vibeStatus === 'processing'}
             accessibilityLabel="Vibe video"
           >
             <Ionicons name="videocam-outline" size={18} color={theme.text} />
           </Pressable>
           <Pressable
             style={[styles.cameraBtn, { backgroundColor: theme.tint }]}
-            onPress={() => setEditing(true)}
-            accessibilityLabel="Edit photo"
+            onPress={handleAddPhoto}
+            disabled={photoUploading}
+            accessibilityLabel="Add or change photo"
           >
-            <Ionicons name="camera" size={20} color="#fff" />
+            {photoUploading ? (
+              <Ionicons name="hourglass-outline" size={20} color="#fff" />
+            ) : (
+              <Ionicons name="camera" size={20} color="#fff" />
+            )}
           </Pressable>
         </View>
       </View>
@@ -312,12 +401,12 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {/* My Vibe Schedule card — deferred: open web or show coming-soon */}
+        {/* My Vibe Schedule — web handoff (explicit) */}
         <Card>
           <SettingsRow
             icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
             title="My Vibe Schedule"
-            subtitle="Set when you're open for dates"
+            subtitle="Manage on web"
             onPress={handleSchedulePress}
           />
         </Card>
@@ -403,19 +492,64 @@ export default function ProfileScreen() {
           </Text>
         </Card>
 
-        {/* Vibe Video card — shell */}
+        {/* Vibe Video card */}
         <SectionHeader title="Vibe Video" />
         <View style={[styles.vibeVideoShell, { backgroundColor: theme.surfaceSubtle }]}>
-          <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
-          <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
-            Vibe Video is coming to mobile soon. Use it on web for now.
-          </Text>
-          <VibelyButton
-            label="Use on web"
-            onPress={handleUseVibeVideoOnWeb}
-            variant="secondary"
-            style={{ marginTop: spacing.sm }}
-          />
+          {vibeStatus === 'uploading' && (
+            <>
+              <Ionicons name="cloud-upload-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.6 }} />
+              <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Uploading…</Text>
+            </>
+          )}
+          {vibeStatus === 'processing' && (
+            <>
+              <Ionicons name="sync-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.6 }} />
+              <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing your video…</Text>
+            </>
+          )}
+          {vibeStatus === 'ready' && (() => {
+            const playbackUrl = getVibeVideoPlaybackUrl(profile?.bunny_video_uid);
+            return (
+              <>
+                <Ionicons name="checkmark-circle-outline" size={48} color={theme.tint} />
+                <Text style={[styles.vibeVideoCopy, { color: theme.text }]}>Your vibe video is ready.</Text>
+                {playbackUrl ? (
+                  <View style={[styles.vibeVideoPlayerWrap, { backgroundColor: theme.background }]}>
+                    <VibeVideoPlayer playbackUrl={playbackUrl} style={styles.vibeVideoPlayer} />
+                  </View>
+                ) : (
+                  <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary, fontSize: 13 }]}>
+                    Playback requires EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME in .env
+                  </Text>
+                )}
+                <VibelyButton label="Record new" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
+                <Pressable onPress={handleDeleteVibeVideo} style={{ marginTop: spacing.sm }}>
+                  <Text style={{ color: theme.danger, fontSize: 14 }}>Delete video</Text>
+                </Pressable>
+              </>
+            );
+          })()}
+          {vibeStatus === 'failed' && (
+            <>
+              <Ionicons name="alert-circle-outline" size={48} color={theme.danger} style={{ opacity: 0.8 }} />
+              <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing failed. Try recording again.</Text>
+              <VibelyButton label="Record again" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
+            </>
+          )}
+          {(vibeStatus === 'none' || !vibeStatus) && (
+            <>
+              <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
+              <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
+                Record a short video to show your vibe.
+              </Text>
+              <VibelyButton
+                label="Record vibe video"
+                onPress={handleVibeVideoPress}
+                variant="secondary"
+                style={{ marginTop: spacing.sm }}
+              />
+            </>
+          )}
         </View>
 
         {/* Photos section */}
@@ -425,10 +559,17 @@ export default function ProfileScreen() {
               <Ionicons name="camera-outline" size={16} color={theme.tint} />
               <Text style={[styles.cardTitle, { color: theme.text }]}>Photos</Text>
             </View>
-            <Pressable onPress={() => setEditing(true)}>
-              <Text style={[styles.editLink, { color: theme.tint }]}>Manage </Text>
+            <Pressable onPress={handleAddPhoto} disabled={photoUploading}>
+              <Text style={[styles.editLink, { color: theme.tint }]}>
+                {photoUploading ? 'Uploading…' : 'Add photo'}
+              </Text>
             </Pressable>
           </View>
+          {photoError ? (
+            <Text style={[styles.placeholder, { color: theme.danger, marginBottom: spacing.sm }]}>
+              {photoError}
+            </Text>
+          ) : null}
           {profile?.photos && profile.photos.length > 0 ? (
             <View style={styles.photosRow}>
               {profile.photos.slice(0, 3).map((url, i) => (
@@ -439,7 +580,7 @@ export default function ProfileScreen() {
             </View>
           ) : (
             <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
-              Add photos to your profile
+              Tap "Add photo" to upload a profile photo.
             </Text>
           )}
         </Card>
@@ -830,6 +971,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: spacing.sm,
     textAlign: 'center',
+  },
+  vibeVideoPlayerWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  vibeVideoPlayer: {
+    width: '100%',
+    height: '100%',
   },
   photosRow: {
     flexDirection: 'row',

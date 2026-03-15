@@ -41,7 +41,7 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
-| `/profile` | `Profile` | `app/(tabs)/profile/index` | persistPhotos (storageService), useLogout, usePremium | profiles update; profileService (profiles, profile_vibes, event_registrations, matches); geocode (EF) | — | P0 |
+| `/profile` | `Profile` | `app/(tabs)/profile/index` | persistPhotos / uploadImage (upload-image EF), useLogout, usePremium; vibe video (create-video-upload, delete-vibe-video) | profiles update; upload-image (EF); create-video-upload, video-webhook, delete-vibe-video (EF) | — | P0 |
 | `/settings` | `Settings` | `app/settings` | useLogout, useDeleteAccount, useCredits, usePremium | account-pause, account-resume (EF); delete-account (EF); notification_preferences; create-checkout-session (EF) | OneSignal | P0 |
 
 ---
@@ -60,7 +60,16 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
 | (Matches tab / Drops) | DropsTabContent (Matches) | `app/daily-drop` | useDailyDrop (daily_drop_transition, daily-drop-actions) | daily_drop_transition (RPC), daily-drop-actions (EF) | — | P0 |
-| `/premium` | `Premium` | `app/premium` | useSubscription | create-checkout-session (EF); check_premium_status (RPC) | RevenueCat | P1 |
+| `/premium` | `Premium` | `app/premium` | useBackendSubscription, RevenueCat (offerings, purchase, restore) | revenuecat-webhook (EF); subscriptions + profiles.is_premium | RevenueCat | P0 (hard blocker) |
+
+---
+
+## Public profile and match celebration (Sprint 4)
+
+| Web route | Web component | Native route | Notes |
+|-----------|---------------|--------------|--------|
+| `/user/:userId` | UserProfile | `app/user/[userId]` | Public profile; entry from chat "View profile". |
+| `/match-celebration` | MatchCelebration | `app/match-celebration` | Shown when opening unread match; "Message" → chat. |
 
 ---
 
@@ -68,11 +77,9 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 | Web route | Web component | Native | Notes |
 |-----------|---------------|--------|--------|
-| `/match-celebration` | MatchCelebration | Deferred (v1.1+) | Simpler confirmation in v1 |
-| `/user/:userId` | UserProfile | Deferred (v1.1+) | Public profile |
-| `/vibe-studio` | VibeStudio | Deferred (v1.1+) | Complex media UX |
-| `/schedule` | Schedule | Deferred or later tab | useSchedule, useDateReminders, usePushNotifications |
-| `/credits`, `/credits/success` | Credits, CreditsSuccess | P1 / link-out | Respect credits state; purchase UX can be simplified |
+| Vibe video | (profile) | `app/(tabs)/profile/index` + record flow | In v1: create-video-upload, tus, delete-vibe-video (EF); record, upload, state, delete |
+| `/schedule` | Schedule | Web handoff (explicit) | Profile card "My Vibe Schedule" → open vibelymeet.com/schedule |
+| `/credits`, `/credits/success` | Credits, CreditsSuccess | Native pack selection + create-credits-checkout → Stripe in browser | Balance native; payment opens Stripe URL; success/cancel on web |
 | `/subscription/success`, `/subscription/cancel` | SubscriptionSuccess, SubscriptionCancel | Web / in-app browser | RevenueCat handles natively |
 | `/event-payment/success` | EventPaymentSuccess | Web / link-out | Stripe callback |
 | `/how-it-works`, `/privacy`, `/terms`, `/delete-account`, `/community-guidelines` | HowItWorks, legal pages | Web-only; link out | No native duplication |
@@ -82,8 +89,9 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 ## Summary
 
-- **P0 (native v1):** Auth, onboarding, dashboard, events list/detail, event lobby, matches, chat, profile, settings, Ready Gate, video date, Daily Drop. Premium state respected; premium screen can be P1.
-- **P1:** Premium/credits UX, optional schedule.
-- **P2 / web-only:** Match celebration, public user profile, vibe studio, legal/marketing content, admin.
+- **P0 (native v1):** Auth, onboarding, dashboard, events list/detail, event lobby, matches, chat, profile (including profile photo upload and vibe video), settings, Ready Gate, video date, Daily Drop, premium (RevenueCat + backend; hard blocker).
+- **P1:** Credits full UX, optional schedule.
+- **Sprint 4:** Public profile (`/user/:userId`), match celebration (unread → celebration → chat), credits (pack selection + checkout URL). Schedule remains web handoff with explicit copy.
+- **P2 / web-only:** Legal/marketing content, admin.
 
 See `docs/native-backend-contract-matrix.md` for RPC/EF details and `docs/native-platform-adapter-matrix.md` for adapters (RevenueCat, OneSignal, Daily, Bunny, Supabase).
