@@ -5,6 +5,7 @@
 import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const APP_ORIGIN = process.env.EXPO_PUBLIC_APP_ORIGIN ?? 'https://vibelymeet.com';
 
 export type CreditPackId = 'extra_time_3' | 'extended_vibe_3' | 'bundle_3_3';
 
@@ -17,6 +18,7 @@ export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<strin
     headers: {
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
+      Origin: APP_ORIGIN,
     },
     body: JSON.stringify({ packId }),
   });
