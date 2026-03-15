@@ -15,6 +15,7 @@ import {
   Dimensions,
   FlatList,
   useWindowDimensions,
+  LayoutAnimation,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -135,6 +136,7 @@ export default function ProfileScreen() {
   const [showManageSheet, setShowManageSheet] = useState(false);
   const [editingPhotos, setEditingPhotos] = useState<string[]>([]);
   const [manageSaving, setManageSaving] = useState(false);
+  const galleryBackdropOpacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (lastAddedPhotoIndex === null) return;
     newPhotoAnim.setValue(0);
@@ -142,6 +144,15 @@ export default function ProfileScreen() {
       setLastAddedPhotoIndex(null);
     });
   }, [lastAddedPhotoIndex, newPhotoAnim]);
+
+  useEffect(() => {
+    if (showPhotoViewer) {
+      galleryBackdropOpacity.setValue(0);
+      Animated.timing(galleryBackdropOpacity, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    } else {
+      galleryBackdropOpacity.setValue(0);
+    }
+  }, [showPhotoViewer, galleryBackdropOpacity]);
 
   // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
   useEffect(() => {
@@ -349,6 +360,7 @@ export default function ProfileScreen() {
         mimeType: asset.mimeType ?? 'image/jpeg',
         fileName: asset.fileName ?? undefined,
       });
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setEditingPhotos((prev) => [path, ...prev]);
     } catch (e) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
@@ -358,11 +370,13 @@ export default function ProfileScreen() {
   };
 
   const removeInSheet = (index: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditingPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const moveToMainInSheet = (index: number) => {
     if (index === 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditingPhotos((prev) => {
       const next = [...prev];
       const [photo] = next.splice(index, 1);
@@ -373,6 +387,7 @@ export default function ProfileScreen() {
 
   const moveUpInSheet = (index: number) => {
     if (index <= 0) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditingPhotos((prev) => {
       const next = [...prev];
       [next[index - 1], next[index]] = [next[index], next[index - 1]];
@@ -382,6 +397,7 @@ export default function ProfileScreen() {
 
   const moveDownInSheet = (index: number) => {
     if (index >= editingPhotos.length - 1) return;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setEditingPhotos((prev) => {
       const next = [...prev];
       [next[index], next[index + 1]] = [next[index + 1], next[index]];
@@ -711,25 +727,18 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Photos section — web parity: responsive grid, count, Manage opens sheet */}
+        {/* Photos — premium gallery preview; Edit opens media editor */}
         <Card>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Ionicons name="camera-outline" size={16} color={theme.tint} />
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Photos</Text>
-              {profile?.photos && profile.photos.length > 0 && (
-                <Text style={[styles.photoCountBadge, { color: theme.textSecondary }]}>
-                  {profile.photos.length} / {MAX_PHOTOS}
-                </Text>
-              )}
-            </View>
+          <View style={styles.photoSectionHeader}>
+            <Text style={[styles.photoSectionTitle, { color: theme.text }]}>Photos</Text>
             <Pressable
               onPress={profile?.photos && profile.photos.length > 0 ? openManageSheet : handleAddPhoto}
               disabled={photoUploading}
-              style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+              style={({ pressed }) => [styles.photoEditPill, { backgroundColor: theme.tintSoft }, pressed && { opacity: 0.85 }]}
             >
-              <Text style={[styles.editLink, { color: theme.tint }]}>
-                {photoUploading ? 'Uploading…' : (profile?.photos && profile.photos.length > 0 ? 'Manage' : 'Add photo')}
+              <Ionicons name="create-outline" size={14} color={theme.tint} />
+              <Text style={[styles.photoEditPillText, { color: theme.tint }]}>
+                {photoUploading ? 'Uploading…' : (profile?.photos && profile.photos.length > 0 ? 'Edit' : 'Add photo')}
               </Text>
             </Pressable>
           </View>
@@ -764,9 +773,9 @@ export default function ProfileScreen() {
                   >
                     <Image source={{ uri: avatarUrl(url) }} style={styles.photoGridImg} />
                     {isMain && (
-                      <View style={[styles.photoMainBadge, { backgroundColor: theme.glassSurface }]}>
-                        <Ionicons name="sparkles" size={11} color={theme.accent} />
-                        <Text style={[styles.photoMainBadgeText, { color: theme.accent }]}>Main</Text>
+                      <View style={[styles.photoMainBadge, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
+                        <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.95)" />
+                        <Text style={styles.photoMainBadgeText}>Main</Text>
                       </View>
                     )}
                   </Pressable>
@@ -782,10 +791,10 @@ export default function ProfileScreen() {
               </View>
             </View>
           ) : (
-            <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={[styles.photoEmpty, { borderColor: theme.border }]}>
-              <Ionicons name="add-circle-outline" size={32} color={theme.textSecondary} />
-              <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
-                Tap to add a profile photo (max {MAX_PHOTOS})
+            <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={({ pressed }) => [styles.photoEmpty, { borderColor: theme.border }, pressed && { opacity: 0.9 }]}>
+              <Ionicons name="add" size={36} color={theme.textSecondary} style={{ opacity: 0.7 }} />
+              <Text style={[styles.photoEmptyLabel, { color: theme.textSecondary }]}>
+                Add your first photo
               </Text>
             </Pressable>
           )}
@@ -917,21 +926,20 @@ export default function ProfileScreen() {
       </Animated.View>
     </ScrollView>
 
-    {/* Fullscreen gallery — web parity: index/total, swipe pager, bottom thumbnail strip */}
+    {/* Fullscreen gallery — premium feel: fade-in, clean chrome, thumb strip */}
     <Modal
       visible={showPhotoViewer}
       transparent
       animationType="fade"
       onRequestClose={() => setShowPhotoViewer(false)}
     >
-      <RNView style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.96)' }]}>
-        {/* Header: index/total + close */}
-        <RNView style={[styles.galleryHeader, { paddingTop: insets.top + 8 }]}>
-          <Text style={styles.galleryIndexText}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.96)', opacity: galleryBackdropOpacity }]}>
+        <RNView style={[styles.galleryChrome, { paddingTop: insets.top + 12, paddingHorizontal: spacing.lg }]}>
+          <Text style={styles.galleryCounter}>
             {photoViewerPhotos.length > 0 ? `${galleryCurrentIndex + 1} / ${photoViewerPhotos.length}` : ''}
           </Text>
-          <Pressable onPress={() => setShowPhotoViewer(false)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.8 : 1 }]}>
-            <Ionicons name="close" size={28} color="#fff" />
+          <Pressable onPress={() => setShowPhotoViewer(false)} style={({ pressed }) => [styles.galleryCloseBtn, pressed && { opacity: 0.8 }]}>
+            <Ionicons name="close" size={26} color="#fff" />
           </Pressable>
         </RNView>
 
@@ -974,14 +982,16 @@ export default function ProfileScreen() {
 
         {/* Bottom thumbnail strip — web parity */}
         {photoViewerPhotos.length > 1 && (
-          <RNView style={[styles.galleryThumbStrip, { paddingBottom: insets.bottom + 12 }]}>
+          <RNView style={[styles.galleryThumbStrip, { paddingBottom: insets.bottom + 20 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryThumbStripContent}>
               {photoViewerPhotos.map((url, index) => (
                 <Pressable
                   key={`thumb-${index}`}
-                  style={[
+                  style={({ pressed }) => [
                     styles.galleryThumb,
-                    index === galleryCurrentIndex && { borderColor: theme.tint, borderWidth: 2 },
+                    index === galleryCurrentIndex && styles.galleryThumbSelected,
+                    index === galleryCurrentIndex && { borderColor: theme.tint },
+                    pressed && { opacity: 0.9 },
                   ]}
                   onPress={() => {
                     setGalleryCurrentIndex(index);
@@ -994,10 +1004,10 @@ export default function ProfileScreen() {
             </ScrollView>
           </RNView>
         )}
-      </RNView>
+      </Animated.View>
     </Modal>
 
-    {/* Manage Your Gallery sheet — web parity: add, remove, make main, reorder */}
+    {/* Manage — visual media grid (web PhotoManager parity) */}
     <Modal
       visible={showManageSheet}
       transparent
@@ -1007,56 +1017,94 @@ export default function ProfileScreen() {
       <Pressable style={styles.manageSheetBackdrop} onPress={() => !manageSaving && setShowManageSheet(false)}>
         <RNView style={[styles.manageSheetContent, { paddingBottom: insets.bottom + spacing.lg }]} onStartShouldSetResponder={() => true}>
           <View style={[styles.manageSheetHandle, { backgroundColor: theme.border }]} />
-          <Text style={[styles.manageSheetTitle, { color: theme.text }]}>Manage Your Gallery</Text>
-          <Text style={[styles.manageSheetSubtitle, { color: theme.textSecondary }]}>First impressions matter. Make them count.</Text>
-          <ScrollView style={styles.manageSheetList} showsVerticalScrollIndicator={false}>
-            {editingPhotos.map((url, index) => (
-              <View key={`edit-${url}-${index}`} style={[styles.manageSheetRow, { backgroundColor: theme.surfaceSubtle }]}>
-                <Image source={{ uri: avatarUrl(url) }} style={styles.manageSheetThumb} />
-                <View style={styles.manageSheetRowBody}>
-                  <Text style={[styles.manageSheetRowLabel, { color: theme.text }]}>
-                    {index === 0 ? 'Main photo' : `Photo ${index + 1}`}
-                  </Text>
-                  <View style={styles.manageSheetRowActions}>
-                    {index !== 0 && (
-                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.tintSoft }]} onPress={() => moveToMainInSheet(index)}>
-                        <Ionicons name="sparkles" size={14} color={theme.tint} />
-                        <Text style={[styles.manageSheetBtnText, { color: theme.tint }]}>Main</Text>
-                      </Pressable>
+          <Text style={[styles.manageSheetTitle, { color: theme.text }]}>Your photos</Text>
+
+          {(() => {
+            const mgW = winWidth - spacing.lg * 2;
+            const mgGap = spacing.sm;
+            const mgCell = (mgW - mgGap * 2) / 3;
+            const mgMain = mgCell * 2 + mgGap;
+            const renderSlot = (i: number, size: number, isMain: boolean) => {
+              const hasPhoto = i < editingPhotos.length;
+              const url = hasPhoto ? editingPhotos[i] : null;
+              if (!hasPhoto) {
+                return (
+                  <Pressable
+                    key={`add-${i}`}
+                    style={({ pressed }) => [
+                      styles.manageGridAddSlot,
+                      { width: size, height: size, borderColor: theme.border },
+                      pressed && { opacity: 0.9 },
+                    ]}
+                    onPress={addPhotoInSheet}
+                    disabled={manageSaving}
+                  >
+                    <Ionicons name="add" size={isMain ? 32 : 28} color={theme.textSecondary} />
+                    <Text style={[styles.manageGridAddLabel, { color: theme.textSecondary }]}>{manageSaving ? '…' : 'Add'}</Text>
+                  </Pressable>
+                );
+              }
+              return (
+                <Pressable
+                  key={`photo-${i}-${url}`}
+                  style={({ pressed }) => [
+                    styles.manageGridTile,
+                    { width: size, height: size, backgroundColor: theme.surfaceSubtle },
+                    pressed && { opacity: 0.92 },
+                  ]}
+                >
+                  <Image source={{ uri: avatarUrl(url!) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                  <View style={styles.manageGridOverlay}>
+                    {i === 0 ? (
+                      <View style={[styles.manageGridMainBadge, { backgroundColor: theme.glassSurface }]}>
+                        <Ionicons name="sparkles" size={10} color={theme.accent} />
+                        <Text style={[styles.manageGridMainLabel, { color: theme.accent }]}>Main</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.manageGridActionsRow}>
+                        <Pressable style={[styles.manageGridIconBtn, { backgroundColor: theme.glassSurface }]} onPress={() => moveToMainInSheet(i)}>
+                          <Ionicons name="sparkles" size={12} color={theme.tint} />
+                        </Pressable>
+                        {i > 1 && (
+                          <Pressable style={[styles.manageGridIconBtn, { backgroundColor: theme.glassSurface }]} onPress={() => moveUpInSheet(i)}>
+                            <Ionicons name="chevron-up" size={12} color={theme.text} />
+                          </Pressable>
+                        )}
+                        {i < editingPhotos.length - 1 && (
+                          <Pressable style={[styles.manageGridIconBtn, { backgroundColor: theme.glassSurface }]} onPress={() => moveDownInSheet(i)}>
+                            <Ionicons name="chevron-down" size={12} color={theme.text} />
+                          </Pressable>
+                        )}
+                        <Pressable style={[styles.manageGridIconBtn, { backgroundColor: 'rgba(0,0,0,0.6)' }]} onPress={() => removeInSheet(i)}>
+                          <Ionicons name="trash-outline" size={12} color="#fff" />
+                        </Pressable>
+                      </View>
                     )}
-                    {index > 1 && (
-                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.surface }]} onPress={() => moveUpInSheet(index)}>
-                        <Ionicons name="chevron-up" size={14} color={theme.text} />
-                      </Pressable>
-                    )}
-                    {index < editingPhotos.length - 1 && index >= 0 && (
-                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.surface }]} onPress={() => moveDownInSheet(index)}>
-                        <Ionicons name="chevron-down" size={14} color={theme.text} />
-                      </Pressable>
-                    )}
-                    <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.dangerSoft }]} onPress={() => removeInSheet(index)}>
-                      <Ionicons name="trash-outline" size={14} color={theme.danger} />
-                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            };
+            return (
+              <View style={[styles.manageGrid, { width: mgW }]}>
+                <View style={styles.manageGridRow1}>
+                  <View style={{ width: mgMain, height: mgMain }}>{renderSlot(0, mgMain, true)}</View>
+                  <View style={[styles.manageGridRightCol, { width: mgCell + mgGap, gap: mgGap }]}>
+                    {renderSlot(1, mgCell, false)}
+                    {renderSlot(2, mgCell, false)}
                   </View>
                 </View>
+                <View style={[styles.manageGridRow2, { width: mgW, gap: mgGap, marginTop: mgGap }]}>
+                  {renderSlot(3, mgCell, false)}
+                  {renderSlot(4, mgCell, false)}
+                  {renderSlot(5, mgCell, false)}
+                </View>
               </View>
-            ))}
-            {editingPhotos.length < MAX_PHOTOS && (
-              <Pressable
-                style={[styles.manageSheetAddRow, { borderColor: theme.border }]}
-                onPress={addPhotoInSheet}
-                disabled={manageSaving}
-              >
-                <Ionicons name="add-circle-outline" size={24} color={theme.tint} />
-                <Text style={[styles.manageSheetAddText, { color: theme.tint }]}>
-                  {manageSaving ? 'Uploading…' : `Add photo (${editingPhotos.length}/${MAX_PHOTOS})`}
-                </Text>
-              </Pressable>
-            )}
-          </ScrollView>
-          <View style={styles.manageSheetFooter}>
+            );
+          })()}
+
+          <View style={[styles.manageSheetFooter, { marginTop: spacing.xl }]}>
             <VibelyButton label="Cancel" variant="secondary" onPress={() => setShowManageSheet(false)} disabled={manageSaving} style={{ flex: 1 }} />
-            <VibelyButton label={manageSaving ? 'Saving…' : 'Save Changes'} onPress={saveManageSheet} disabled={manageSaving || editingPhotos.length === 0} style={{ flex: 1 }} />
+            <VibelyButton label={manageSaving ? 'Saving…' : 'Save'} onPress={saveManageSheet} disabled={manageSaving || editingPhotos.length === 0} style={{ flex: 1 }} />
           </View>
         </RNView>
       </Pressable>
@@ -1365,8 +1413,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   photoMainBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
+    color: 'rgba(255,255,255,0.95)',
+  },
+  photoEmptyLabel: {
+    fontSize: 14,
   },
   photoEmpty: {
     flexDirection: 'row',
@@ -1378,16 +1430,22 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderRadius: radius.lg,
   },
-  galleryHeader: {
+  galleryChrome: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
-  galleryIndexText: {
-    fontSize: 14,
+  galleryCounter: {
+    fontSize: 15,
+    fontWeight: '500',
     color: 'rgba(255,255,255,0.9)',
+  },
+  galleryCloseBtn: {
+    padding: 10,
+  },
+  galleryThumbSelected: {
+    borderWidth: 2,
   },
   galleryPager: {
     flex: 1,
@@ -1425,9 +1483,26 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  photoCountBadge: {
-    fontSize: 12,
-    marginLeft: spacing.sm,
+  photoSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  photoSectionTitle: {
+    ...typography.titleMD,
+  },
+  photoEditPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+  },
+  photoEditPillText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   manageSheetBackdrop: {
     flex: 1,
@@ -1451,67 +1526,65 @@ const styles = StyleSheet.create({
   },
   manageSheetTitle: {
     ...typography.titleLG,
-    marginBottom: spacing.xs,
-  },
-  manageSheetSubtitle: {
-    fontSize: 14,
     marginBottom: spacing.lg,
   },
-  manageSheetList: {
-    maxHeight: 320,
-    marginBottom: spacing.lg,
+  manageGrid: {
+    alignSelf: 'center',
   },
-  manageSheetRow: {
+  manageGridRow1: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  manageGridRightCol: {
+    flexDirection: 'column',
+  },
+  manageGridRow2: {
+    flexDirection: 'row',
+  },
+  manageGridTile: {
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+  },
+  manageGridOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    padding: 6,
+    justifyContent: 'space-between',
+  },
+  manageGridMainBadge: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    marginBottom: spacing.sm,
-  },
-  manageSheetThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.md,
-    marginRight: spacing.md,
-  },
-  manageSheetRowBody: {
-    flex: 1,
-  },
-  manageSheetRowLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: spacing.sm,
-  },
-  manageSheetRowActions: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  manageSheetBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.md,
     gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
   },
-  manageSheetBtnText: {
-    fontSize: 12,
+  manageGridMainLabel: {
+    fontSize: 10,
     fontWeight: '600',
   },
-  manageSheetAddRow: {
+  manageGridActionsRow: {
     flexDirection: 'row',
+    alignSelf: 'flex-end',
+    gap: 6,
+  },
+  manageGridIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.lg,
+  },
+  manageGridAddSlot: {
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderRadius: radius.lg,
-    marginTop: spacing.sm,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
-  manageSheetAddText: {
-    fontSize: 14,
-    fontWeight: '600',
+  manageGridAddLabel: {
+    fontSize: 12,
   },
   manageSheetFooter: {
     flexDirection: 'row',
