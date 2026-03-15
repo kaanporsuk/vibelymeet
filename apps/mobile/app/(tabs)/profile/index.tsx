@@ -51,6 +51,9 @@ function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: 
   return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 
+// Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
+const MAX_PHOTOS = 6;
+
 // Relationship intent labels (mirrored from web RelationshipIntent)
 const LOOKING_FOR_LABELS: Record<string, string> = {
   'long-term': 'Long-term partner',
@@ -107,8 +110,10 @@ const vibeScoreStyles = StyleSheet.create({
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width: winWidth } = useWindowDimensions();
+  const [photoGridWidth, setPhotoGridWidth] = useState<number | null>(null);
   const photoGridGap = spacing.sm; // web gap-2 = 8px
-  const photoCellSize = (winWidth - layout.screenPadding.default * 2 - photoGridGap * 2) / 3;
+  const effectiveGridWidth = photoGridWidth ?? Math.max(0, winWidth - layout.screenPadding.default * 2 - spacing.lg * 2);
+  const photoCellSize = effectiveGridWidth > 0 ? (effectiveGridWidth - photoGridGap * 2) / 3 : 80;
   const photoMainSize = photoCellSize * 2 + photoGridGap;
   const photoMainHeight = photoMainSize * (5 / 4); // web aspect-[4/5] for main tile
   const { user, signOut, refreshOnboarding } = useAuth();
@@ -127,6 +132,9 @@ export default function ProfileScreen() {
   const galleryFlatListRef = useRef<FlatList<string> | null>(null);
   const [lastAddedPhotoIndex, setLastAddedPhotoIndex] = useState<number | null>(null);
   const newPhotoAnim = useRef(new Animated.Value(1)).current;
+  const [showManageSheet, setShowManageSheet] = useState(false);
+  const [editingPhotos, setEditingPhotos] = useState<string[]>([]);
+  const [manageSaving, setManageSaving] = useState(false);
   useEffect(() => {
     if (lastAddedPhotoIndex === null) return;
     newPhotoAnim.setValue(0);
@@ -280,6 +288,11 @@ export default function ProfileScreen() {
         Alert.alert('Could not use photo', 'The selected image could not be loaded. Try another.');
         return;
       }
+      const currentCount = profile?.photos?.length ?? 0;
+      if (currentCount >= MAX_PHOTOS) {
+        Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`);
+        return;
+      }
       setPhotoUploading(true);
       const path = await uploadProfilePhoto({
         uri: asset.uri,
@@ -305,6 +318,96 @@ export default function ProfileScreen() {
       Alert.alert('Upload failed', msg);
     } finally {
       setPhotoUploading(false);
+    }
+  };
+
+  const openManageSheet = () => {
+    setEditingPhotos(profile?.photos?.slice() ?? []);
+    setShowManageSheet(true);
+  };
+
+  const addPhotoInSheet = async () => {
+    if (editingPhotos.length >= MAX_PHOTOS) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+        ...(Platform.OS === 'ios' && { presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN }),
+      });
+      if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
+      const asset = result.assets[0];
+      setManageSaving(true);
+      const path = await uploadProfilePhoto({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        fileName: asset.fileName ?? undefined,
+      });
+      setEditingPhotos((prev) => [path, ...prev]);
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setManageSaving(false);
+    }
+  };
+
+  const removeInSheet = (index: number) => {
+    setEditingPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const moveToMainInSheet = (index: number) => {
+    if (index === 0) return;
+    setEditingPhotos((prev) => {
+      const next = [...prev];
+      const [photo] = next.splice(index, 1);
+      next.unshift(photo);
+      return next;
+    });
+  };
+
+  const moveUpInSheet = (index: number) => {
+    if (index <= 0) return;
+    setEditingPhotos((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  };
+
+  const moveDownInSheet = (index: number) => {
+    if (index >= editingPhotos.length - 1) return;
+    setEditingPhotos((prev) => {
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+  };
+
+  const saveManageSheet = async () => {
+    if (editingPhotos.length === 0) {
+      Alert.alert('At least one photo', 'Keep or add at least one photo.');
+      return;
+    }
+    setManageSaving(true);
+    try {
+      const primaryUrl = editingPhotos[0] ?? null;
+      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
+        old ? { ...old, photos: editingPhotos, avatar_url: primaryUrl } : old
+      );
+      await updateMyProfile({ photos: editingPhotos, avatar_url: primaryUrl });
+      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      refetch().catch(() => {});
+      setShowManageSheet(false);
+    } catch (e) {
+      Alert.alert('Save failed', e instanceof Error ? e.message : 'Could not save photos.');
+    } finally {
+      setManageSaving(false);
     }
   };
 
@@ -608,14 +711,23 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Photos section — web parity: main large tile + grid, Main badge, Manage */}
+        {/* Photos section — web parity: responsive grid, count, Manage opens sheet */}
         <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="camera-outline" size={16} color={theme.tint} />
               <Text style={[styles.cardTitle, { color: theme.text }]}>Photos</Text>
+              {profile?.photos && profile.photos.length > 0 && (
+                <Text style={[styles.photoCountBadge, { color: theme.textSecondary }]}>
+                  {profile.photos.length} / {MAX_PHOTOS}
+                </Text>
+              )}
             </View>
-            <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
+            <Pressable
+              onPress={profile?.photos && profile.photos.length > 0 ? openManageSheet : handleAddPhoto}
+              disabled={photoUploading}
+              style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}
+            >
               <Text style={[styles.editLink, { color: theme.tint }]}>
                 {photoUploading ? 'Uploading…' : (profile?.photos && profile.photos.length > 0 ? 'Manage' : 'Add photo')}
               </Text>
@@ -627,8 +739,12 @@ export default function ProfileScreen() {
             </Text>
           ) : null}
           {profile?.photos && profile.photos.length > 0 ? (
-            <View style={[styles.photoGrid, { gap: photoGridGap }]}>
-              {profile.photos.slice(0, 6).map((url, i) => {
+            <View
+              style={{ width: '100%' }}
+              onLayout={(e) => setPhotoGridWidth(e.nativeEvent.layout.width)}
+            >
+              <View style={[styles.photoGrid, { gap: photoGridGap }]}>
+                {profile.photos.slice(0, MAX_PHOTOS).map((url, i) => {
                 const isMain = i === 0;
                 const isJustAdded = i === lastAddedPhotoIndex;
                 const tile = (
@@ -663,12 +779,13 @@ export default function ProfileScreen() {
                   tile
                 );
               })}
+              </View>
             </View>
           ) : (
             <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={[styles.photoEmpty, { borderColor: theme.border }]}>
               <Ionicons name="add-circle-outline" size={32} color={theme.textSecondary} />
               <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
-                Tap to add a profile photo
+                Tap to add a profile photo (max {MAX_PHOTOS})
               </Text>
             </Pressable>
           )}
@@ -878,6 +995,71 @@ export default function ProfileScreen() {
           </RNView>
         )}
       </RNView>
+    </Modal>
+
+    {/* Manage Your Gallery sheet — web parity: add, remove, make main, reorder */}
+    <Modal
+      visible={showManageSheet}
+      transparent
+      animationType="slide"
+      onRequestClose={() => !manageSaving && setShowManageSheet(false)}
+    >
+      <Pressable style={styles.manageSheetBackdrop} onPress={() => !manageSaving && setShowManageSheet(false)}>
+        <RNView style={[styles.manageSheetContent, { paddingBottom: insets.bottom + spacing.lg }]} onStartShouldSetResponder={() => true}>
+          <View style={[styles.manageSheetHandle, { backgroundColor: theme.border }]} />
+          <Text style={[styles.manageSheetTitle, { color: theme.text }]}>Manage Your Gallery</Text>
+          <Text style={[styles.manageSheetSubtitle, { color: theme.textSecondary }]}>First impressions matter. Make them count.</Text>
+          <ScrollView style={styles.manageSheetList} showsVerticalScrollIndicator={false}>
+            {editingPhotos.map((url, index) => (
+              <View key={`edit-${url}-${index}`} style={[styles.manageSheetRow, { backgroundColor: theme.surfaceSubtle }]}>
+                <Image source={{ uri: avatarUrl(url) }} style={styles.manageSheetThumb} />
+                <View style={styles.manageSheetRowBody}>
+                  <Text style={[styles.manageSheetRowLabel, { color: theme.text }]}>
+                    {index === 0 ? 'Main photo' : `Photo ${index + 1}`}
+                  </Text>
+                  <View style={styles.manageSheetRowActions}>
+                    {index !== 0 && (
+                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.tintSoft }]} onPress={() => moveToMainInSheet(index)}>
+                        <Ionicons name="sparkles" size={14} color={theme.tint} />
+                        <Text style={[styles.manageSheetBtnText, { color: theme.tint }]}>Main</Text>
+                      </Pressable>
+                    )}
+                    {index > 1 && (
+                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.surface }]} onPress={() => moveUpInSheet(index)}>
+                        <Ionicons name="chevron-up" size={14} color={theme.text} />
+                      </Pressable>
+                    )}
+                    {index < editingPhotos.length - 1 && index >= 0 && (
+                      <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.surface }]} onPress={() => moveDownInSheet(index)}>
+                        <Ionicons name="chevron-down" size={14} color={theme.text} />
+                      </Pressable>
+                    )}
+                    <Pressable style={[styles.manageSheetBtn, { backgroundColor: theme.dangerSoft }]} onPress={() => removeInSheet(index)}>
+                      <Ionicons name="trash-outline" size={14} color={theme.danger} />
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            ))}
+            {editingPhotos.length < MAX_PHOTOS && (
+              <Pressable
+                style={[styles.manageSheetAddRow, { borderColor: theme.border }]}
+                onPress={addPhotoInSheet}
+                disabled={manageSaving}
+              >
+                <Ionicons name="add-circle-outline" size={24} color={theme.tint} />
+                <Text style={[styles.manageSheetAddText, { color: theme.tint }]}>
+                  {manageSaving ? 'Uploading…' : `Add photo (${editingPhotos.length}/${MAX_PHOTOS})`}
+                </Text>
+              </Pressable>
+            )}
+          </ScrollView>
+          <View style={styles.manageSheetFooter}>
+            <VibelyButton label="Cancel" variant="secondary" onPress={() => setShowManageSheet(false)} disabled={manageSaving} style={{ flex: 1 }} />
+            <VibelyButton label={manageSaving ? 'Saving…' : 'Save Changes'} onPress={saveManageSheet} disabled={manageSaving || editingPhotos.length === 0} style={{ flex: 1 }} />
+          </View>
+        </RNView>
+      </Pressable>
     </Modal>
     </>
   );
@@ -1242,6 +1424,98 @@ const styles = StyleSheet.create({
   galleryThumbImg: {
     width: '100%',
     height: '100%',
+  },
+  photoCountBadge: {
+    fontSize: 12,
+    marginLeft: spacing.sm,
+  },
+  manageSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  manageSheetContent: {
+    backgroundColor: Colors.dark.background,
+    borderTopLeftRadius: radius['2xl'],
+    borderTopRightRadius: radius['2xl'],
+    maxHeight: '85%',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+  },
+  manageSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: spacing.md,
+  },
+  manageSheetTitle: {
+    ...typography.titleLG,
+    marginBottom: spacing.xs,
+  },
+  manageSheetSubtitle: {
+    fontSize: 14,
+    marginBottom: spacing.lg,
+  },
+  manageSheetList: {
+    maxHeight: 320,
+    marginBottom: spacing.lg,
+  },
+  manageSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+  },
+  manageSheetThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    marginRight: spacing.md,
+  },
+  manageSheetRowBody: {
+    flex: 1,
+  },
+  manageSheetRowLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
+  },
+  manageSheetRowActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  manageSheetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+    gap: 4,
+  },
+  manageSheetBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  manageSheetAddRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.lg,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: radius.lg,
+    marginTop: spacing.sm,
+  },
+  manageSheetAddText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  manageSheetFooter: {
+    flexDirection: 'row',
+    gap: spacing.md,
   },
   basicsGrid: {
     gap: spacing.sm,
