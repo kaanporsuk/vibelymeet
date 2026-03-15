@@ -107,10 +107,10 @@ const vibeScoreStyles = StyleSheet.create({
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width: winWidth } = useWindowDimensions();
-  const photoGridGap = spacing.sm;
+  const photoGridGap = spacing.sm; // web gap-2 = 8px
   const photoCellSize = (winWidth - layout.screenPadding.default * 2 - photoGridGap * 2) / 3;
   const photoMainSize = photoCellSize * 2 + photoGridGap;
-  const photoMainHeight = photoCellSize * 2 + photoGridGap;
+  const photoMainHeight = photoMainSize * (5 / 4); // web aspect-[4/5] for main tile
   const { user, signOut, refreshOnboarding } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -287,13 +287,14 @@ export default function ProfileScreen() {
         fileName: asset.fileName ?? undefined,
       });
       const currentPhotos = profile?.photos ?? [];
-      const newPhotos = [...currentPhotos, path];
+      // Prepend so new upload becomes main (hero + grid); web sets avatar to first photo
+      const newPhotos = [path, ...currentPhotos];
       const primaryUrl = newPhotos[0] ?? null;
       // Update cache immediately so UI shows new photo without waiting for refetch
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old
       );
-      setLastAddedPhotoIndex(newPhotos.length - 1);
+      setLastAddedPhotoIndex(0);
       await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       refetch().catch(() => {});
@@ -323,7 +324,8 @@ export default function ProfileScreen() {
     );
   }
 
-  const photoUrl = profile?.avatar_url || profile?.photos?.[0];
+  // Match web ProfilePhoto: primary is first photo, avatar_url fallback
+  const photoUrl = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayUrl = photoUrl ? avatarUrl(photoUrl, 'profile_photo') : null;
   const eventsCount = profile?.events_attended ?? 0;
   const matchesCount = profile?.total_matches ?? 0;
@@ -374,6 +376,7 @@ export default function ProfileScreen() {
         <View style={[styles.avatarRing, { borderColor: theme.background }]}>
           <Avatar
             size={120}
+            key={photoUrl ?? 'no-photo'}
             image={
               displayUrl ? (
                 <Image source={{ uri: displayUrl }} style={styles.avatarImage} />
@@ -645,8 +648,8 @@ export default function ProfileScreen() {
                   >
                     <Image source={{ uri: avatarUrl(url) }} style={styles.photoGridImg} />
                     {isMain && (
-                      <View style={[styles.photoMainBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
-                        <Ionicons name="sparkles" size={12} color={theme.accent} />
+                      <View style={[styles.photoMainBadge, { backgroundColor: theme.glassSurface }]}>
+                        <Ionicons name="sparkles" size={11} color={theme.accent} />
                         <Text style={[styles.photoMainBadgeText, { color: theme.accent }]}>Main</Text>
                       </View>
                     )}
@@ -1159,7 +1162,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   photoGridTile: {
-    borderRadius: radius.xl,
+    borderRadius: radius['2xl'], // web rounded-2xl
     overflow: 'hidden',
   },
   photoGridImg: {
@@ -1168,18 +1171,19 @@ const styles = StyleSheet.create({
   },
   photoMainBadge: {
     position: 'absolute',
-    top: spacing.sm,
-    left: spacing.sm,
+    top: 8,
+    left: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   photoMainBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   photoEmpty: {
