@@ -233,21 +233,31 @@ export default function ProfileScreen() {
 
   const handleAddPhoto = async () => {
     setPhotoError(null);
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
-    setPhotoUploading(true);
     try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+        return;
+      }
+      // iOS: explicit FULL_SCREEN avoids native crash from Automatic presentation style
+      // (see expo/expo#14903 — "modal presentation style doesn't have a corresponding presentation controller")
+      const pickerOptions: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.9,
+        ...(Platform.OS === 'ios' && {
+          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+        }),
+      };
+      const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      if (!asset.uri?.trim()) {
+        Alert.alert('Could not use photo', 'The selected image could not be loaded. Try another.');
+        return;
+      }
+      setPhotoUploading(true);
       const path = await uploadProfilePhoto({
         uri: asset.uri,
         mimeType: asset.mimeType ?? 'image/jpeg',
