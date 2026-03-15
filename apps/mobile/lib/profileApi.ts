@@ -51,6 +51,7 @@ export async function updateMyProfile(updates: Partial<{
   about_me: string;
   looking_for: string;
   photos: string[];
+  avatar_url: string | null;
 }>): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -63,6 +64,7 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
   if (updates.looking_for !== undefined) db.looking_for = updates.looking_for;
   if (updates.photos !== undefined) db.photos = updates.photos;
+  if (updates.avatar_url !== undefined) db.avatar_url = updates.avatar_url;
   if (Object.keys(db).length === 0) return;
   const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
   if (error) throw error;

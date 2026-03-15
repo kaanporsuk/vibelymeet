@@ -10,6 +10,10 @@ import {
   Platform,
   Linking,
   Animated,
+  Modal,
+  View as RNView,
+  Dimensions,
+  FlatList,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -35,7 +39,7 @@ import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
 import { getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
-import { avatarUrl } from '@/lib/imageUrl';
+import { avatarUrl, getImageUrl } from '@/lib/imageUrl';
 import { useVideoPlayer, VideoView } from 'expo-video';
 
 function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
@@ -111,6 +115,8 @@ export default function ProfileScreen() {
     queryFn: fetchMyProfile,
     enabled: !!user?.id,
   });
+  const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
 
   // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
   useEffect(() => {
@@ -264,8 +270,11 @@ export default function ProfileScreen() {
         fileName: asset.fileName ?? undefined,
       });
       const currentPhotos = profile?.photos ?? [];
-      await updateMyProfile({ photos: [...currentPhotos, path] });
+      const newPhotos = [...currentPhotos, path];
+      const primaryUrl = newPhotos[0] ?? null;
+      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
+      await refetch();
       await refreshOnboarding();
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Upload failed';
@@ -301,7 +310,11 @@ export default function ProfileScreen() {
     ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for
     : null;
 
+  const profilePhotos = profile?.photos ?? [];
+  const photoViewerPhotos = profilePhotos.length > 0 ? profilePhotos : [];
+
   return (
+    <>
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.background }}
       contentContainerStyle={{ paddingBottom: spacing['2xl'] }}
@@ -590,10 +603,17 @@ export default function ProfileScreen() {
           ) : null}
           {profile?.photos && profile.photos.length > 0 ? (
             <View style={styles.photosRow}>
-              {profile.photos.slice(0, 3).map((url, i) => (
-                <View key={i} style={[styles.photoThumb, { backgroundColor: theme.surfaceSubtle }]}>
+              {profile.photos.slice(0, 6).map((url, i) => (
+                <Pressable
+                  key={i}
+                  style={[styles.photoThumb, { backgroundColor: theme.surfaceSubtle }]}
+                  onPress={() => {
+                    setPhotoViewerIndex(i);
+                    setShowPhotoViewer(true);
+                  }}
+                >
                   <Image source={{ uri: avatarUrl(url) }} style={styles.photoThumbImg} />
-                </View>
+                </Pressable>
               ))}
             </View>
           ) : (
@@ -728,6 +748,58 @@ export default function ProfileScreen() {
         )}
       </Animated.View>
     </ScrollView>
+
+    {/* Fullscreen photo viewer — web parity: tap photo to open, swipe between multiple */}
+    <Modal
+      visible={showPhotoViewer}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setShowPhotoViewer(false)}
+    >
+      <Pressable
+        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }]}
+        onPress={() => setShowPhotoViewer(false)}
+      >
+        <RNView style={{ flex: 1, width: '100%', justifyContent: 'center' }} pointerEvents="box-none">
+          {photoViewerPhotos.length === 0 ? null : photoViewerPhotos.length === 1 ? (
+            <Image
+              source={{ uri: getImageUrl(photoViewerPhotos[0], { width: 800, quality: 90 }) }}
+              style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').width, resizeMode: 'contain' }}
+              resizeMode="contain"
+            />
+          ) : (
+            <FlatList
+              data={photoViewerPhotos}
+              horizontal
+              pagingEnabled
+              initialScrollIndex={Math.min(photoViewerIndex, photoViewerPhotos.length - 1)}
+              getItemLayout={(_: unknown, index: number) => ({
+                length: Dimensions.get('window').width,
+                offset: Dimensions.get('window').width * index,
+                index,
+              })}
+              keyExtractor={(_, i) => String(i)}
+              renderItem={({ item }) => (
+                <RNView style={{ width: Dimensions.get('window').width, justifyContent: 'center', alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: getImageUrl(item, { width: 800, quality: 90 }) }}
+                    style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').width, resizeMode: 'contain' }}
+                    resizeMode="contain"
+                  />
+                </RNView>
+              )}
+            />
+          )}
+        </RNView>
+        <Pressable
+          style={{ position: 'absolute', top: insets.top + 8, right: 16, padding: 8, zIndex: 10 }}
+          onPress={() => setShowPhotoViewer(false)}
+        >
+          <Ionicons name="close" size={28} color="#fff" />
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
