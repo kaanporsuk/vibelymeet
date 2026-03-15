@@ -14,6 +14,7 @@ import {
   View as RNView,
   Dimensions,
   FlatList,
+  useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -35,7 +36,7 @@ import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
-import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
+import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
 import { getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
@@ -105,6 +106,11 @@ const vibeScoreStyles = StyleSheet.create({
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { width: winWidth } = useWindowDimensions();
+  const photoGridGap = spacing.sm;
+  const photoCellSize = (winWidth - layout.screenPadding.default * 2 - photoGridGap * 2) / 3;
+  const photoMainSize = photoCellSize * 2 + photoGridGap;
+  const photoMainHeight = photoCellSize * 2 + photoGridGap;
   const { user, signOut, refreshOnboarding } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -117,6 +123,17 @@ export default function ProfileScreen() {
   });
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+  const [galleryCurrentIndex, setGalleryCurrentIndex] = useState(0);
+  const galleryFlatListRef = useRef<FlatList<string> | null>(null);
+  const [lastAddedPhotoIndex, setLastAddedPhotoIndex] = useState<number | null>(null);
+  const newPhotoAnim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (lastAddedPhotoIndex === null) return;
+    newPhotoAnim.setValue(0);
+    Animated.timing(newPhotoAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start(() => {
+      setLastAddedPhotoIndex(null);
+    });
+  }, [lastAddedPhotoIndex, newPhotoAnim]);
 
   // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
   useEffect(() => {
@@ -272,10 +289,15 @@ export default function ProfileScreen() {
       const currentPhotos = profile?.photos ?? [];
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
+      // Update cache immediately so UI shows new photo without waiting for refetch
+      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
+        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old
+      );
+      setLastAddedPhotoIndex(newPhotos.length - 1);
       await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
-      await refetch();
-      await refreshOnboarding();
+      refetch().catch(() => {});
+      refreshOnboarding().catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Upload failed';
       setPhotoError(msg);
@@ -583,16 +605,16 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Photos section */}
+        {/* Photos section — web parity: main large tile + grid, Main badge, Manage */}
         <Card>
           <View style={styles.cardHeader}>
             <View style={styles.cardTitleRow}>
               <Ionicons name="camera-outline" size={16} color={theme.tint} />
               <Text style={[styles.cardTitle, { color: theme.text }]}>Photos</Text>
             </View>
-            <Pressable onPress={handleAddPhoto} disabled={photoUploading}>
+            <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
               <Text style={[styles.editLink, { color: theme.tint }]}>
-                {photoUploading ? 'Uploading…' : 'Add photo'}
+                {photoUploading ? 'Uploading…' : (profile?.photos && profile.photos.length > 0 ? 'Manage' : 'Add photo')}
               </Text>
             </Pressable>
           </View>
@@ -602,24 +624,50 @@ export default function ProfileScreen() {
             </Text>
           ) : null}
           {profile?.photos && profile.photos.length > 0 ? (
-            <View style={styles.photosRow}>
-              {profile.photos.slice(0, 6).map((url, i) => (
-                <Pressable
-                  key={i}
-                  style={[styles.photoThumb, { backgroundColor: theme.surfaceSubtle }]}
-                  onPress={() => {
-                    setPhotoViewerIndex(i);
-                    setShowPhotoViewer(true);
-                  }}
-                >
-                  <Image source={{ uri: avatarUrl(url) }} style={styles.photoThumbImg} />
-                </Pressable>
-              ))}
+            <View style={[styles.photoGrid, { gap: photoGridGap }]}>
+              {profile.photos.slice(0, 6).map((url, i) => {
+                const isMain = i === 0;
+                const isJustAdded = i === lastAddedPhotoIndex;
+                const tile = (
+                  <Pressable
+                    key={`${url}-${i}`}
+                    style={({ pressed }) => [
+                      styles.photoGridTile,
+                      isMain ? { width: photoMainSize, height: photoMainHeight } : { width: photoCellSize, height: photoCellSize },
+                      { backgroundColor: theme.surfaceSubtle },
+                      pressed && { opacity: 0.92 },
+                    ]}
+                    onPress={() => {
+                      setPhotoViewerIndex(i);
+                      setGalleryCurrentIndex(i);
+                      setShowPhotoViewer(true);
+                    }}
+                  >
+                    <Image source={{ uri: avatarUrl(url) }} style={styles.photoGridImg} />
+                    {isMain && (
+                      <View style={[styles.photoMainBadge, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                        <Ionicons name="sparkles" size={12} color={theme.accent} />
+                        <Text style={[styles.photoMainBadgeText, { color: theme.accent }]}>Main</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+                return isJustAdded ? (
+                  <Animated.View key={`${url}-${i}`} style={{ opacity: newPhotoAnim, transform: [{ scale: newPhotoAnim }] }}>
+                    {tile}
+                  </Animated.View>
+                ) : (
+                  tile
+                );
+              })}
             </View>
           ) : (
-            <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
-              Tap "Add photo" to upload a profile photo.
-            </Text>
+            <Pressable onPress={handleAddPhoto} disabled={photoUploading} style={[styles.photoEmpty, { borderColor: theme.border }]}>
+              <Ionicons name="add-circle-outline" size={32} color={theme.textSecondary} />
+              <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+                Tap to add a profile photo
+              </Text>
+            </Pressable>
           )}
         </Card>
 
@@ -749,55 +797,84 @@ export default function ProfileScreen() {
       </Animated.View>
     </ScrollView>
 
-    {/* Fullscreen photo viewer — web parity: tap photo to open, swipe between multiple */}
+    {/* Fullscreen gallery — web parity: index/total, swipe pager, bottom thumbnail strip */}
     <Modal
       visible={showPhotoViewer}
       transparent
       animationType="fade"
       onRequestClose={() => setShowPhotoViewer(false)}
     >
-      <Pressable
-        style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }]}
-        onPress={() => setShowPhotoViewer(false)}
-      >
-        <RNView style={{ flex: 1, width: '100%', justifyContent: 'center' }} pointerEvents="box-none">
+      <RNView style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.96)' }]}>
+        {/* Header: index/total + close */}
+        <RNView style={[styles.galleryHeader, { paddingTop: insets.top + 8 }]}>
+          <Text style={styles.galleryIndexText}>
+            {photoViewerPhotos.length > 0 ? `${galleryCurrentIndex + 1} / ${photoViewerPhotos.length}` : ''}
+          </Text>
+          <Pressable onPress={() => setShowPhotoViewer(false)} style={({ pressed }) => [{ padding: 8, opacity: pressed ? 0.8 : 1 }]}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </Pressable>
+        </RNView>
+
+        {/* Pager: horizontal FlatList */}
+        <RNView style={styles.galleryPager}>
           {photoViewerPhotos.length === 0 ? null : photoViewerPhotos.length === 1 ? (
             <Image
               source={{ uri: getImageUrl(photoViewerPhotos[0], { width: 800, quality: 90 }) }}
-              style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').width, resizeMode: 'contain' }}
+              style={styles.galleryImage}
               resizeMode="contain"
             />
           ) : (
             <FlatList
+              ref={galleryFlatListRef}
               data={photoViewerPhotos}
               horizontal
               pagingEnabled
-              initialScrollIndex={Math.min(photoViewerIndex, photoViewerPhotos.length - 1)}
+              showsHorizontalScrollIndicator={false}
+              initialScrollIndex={Math.min(photoViewerIndex, Math.max(0, photoViewerPhotos.length - 1))}
+              initialNumToRender={photoViewerPhotos.length}
               getItemLayout={(_: unknown, index: number) => ({
                 length: Dimensions.get('window').width,
                 offset: Dimensions.get('window').width * index,
                 index,
               })}
               keyExtractor={(_, i) => String(i)}
+              onMomentumScrollEnd={(e) => {
+                const idx = Math.round(e.nativeEvent.contentOffset.x / Dimensions.get('window').width);
+                setGalleryCurrentIndex(Math.min(Math.max(0, idx), photoViewerPhotos.length - 1));
+              }}
+              onScrollToIndexFailed={() => {}}
               renderItem={({ item }) => (
-                <RNView style={{ width: Dimensions.get('window').width, justifyContent: 'center', alignItems: 'center' }}>
-                  <Image
-                    source={{ uri: getImageUrl(item, { width: 800, quality: 90 }) }}
-                    style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').width, resizeMode: 'contain' }}
-                    resizeMode="contain"
-                  />
+                <RNView style={styles.galleryPage}>
+                  <Image source={{ uri: getImageUrl(item, { width: 800, quality: 90 }) }} style={styles.galleryImage} resizeMode="contain" />
                 </RNView>
               )}
             />
           )}
         </RNView>
-        <Pressable
-          style={{ position: 'absolute', top: insets.top + 8, right: 16, padding: 8, zIndex: 10 }}
-          onPress={() => setShowPhotoViewer(false)}
-        >
-          <Ionicons name="close" size={28} color="#fff" />
-        </Pressable>
-      </Pressable>
+
+        {/* Bottom thumbnail strip — web parity */}
+        {photoViewerPhotos.length > 1 && (
+          <RNView style={[styles.galleryThumbStrip, { paddingBottom: insets.bottom + 12 }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryThumbStripContent}>
+              {photoViewerPhotos.map((url, index) => (
+                <Pressable
+                  key={`thumb-${index}`}
+                  style={[
+                    styles.galleryThumb,
+                    index === galleryCurrentIndex && { borderColor: theme.tint, borderWidth: 2 },
+                  ]}
+                  onPress={() => {
+                    setGalleryCurrentIndex(index);
+                    galleryFlatListRef.current?.scrollToIndex({ index, animated: true });
+                  }}
+                >
+                  <Image source={{ uri: avatarUrl(url, 'profile_photo') }} style={styles.galleryThumbImg} />
+                </Pressable>
+              ))}
+            </ScrollView>
+          </RNView>
+        )}
+      </RNView>
     </Modal>
     </>
   );
@@ -1077,18 +1154,88 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  photosRow: {
+  photoGrid: {
     flexDirection: 'row',
-    gap: spacing.sm,
     flexWrap: 'wrap',
   },
-  photoThumb: {
-    width: 80,
-    height: 80,
-    borderRadius: radius.lg,
+  photoGridTile: {
+    borderRadius: radius.xl,
     overflow: 'hidden',
   },
-  photoThumbImg: {
+  photoGridImg: {
+    width: '100%',
+    height: '100%',
+  },
+  photoMainBadge: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  photoMainBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  photoEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xl,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: radius.lg,
+  },
+  galleryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  galleryIndexText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+  },
+  galleryPager: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  galleryPage: {
+    width: Dimensions.get('window').width,
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  galleryImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').width,
+  },
+  galleryThumbStrip: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  galleryThumbStripContent: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  galleryThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  galleryThumbImg: {
     width: '100%',
     height: '100%',
   },
