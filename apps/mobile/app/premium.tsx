@@ -12,7 +12,14 @@ import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { GlassSurface, Card, LoadingState, VibelyButton } from '@/components/ui';
-import { spacing, radius } from '@/constants/theme';
+import { spacing, radius, typography } from '@/constants/theme';
+
+const PREMIUM_FEATURES = [
+  'Unlimited swipes & matches',
+  'See who liked you',
+  'Priority in event lobbies',
+  'Exclusive premium-only events',
+];
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import {
   getOfferings,
@@ -135,19 +142,19 @@ export default function PremiumScreen() {
         showsVerticalScrollIndicator={false}
       >
         {isPremium ? (
-          <Card style={styles.card}>
-            <View style={[styles.cardIconWrap, { backgroundColor: theme.surfaceSubtle }]}>
+          <Card style={[styles.card, { borderColor: theme.border, borderWidth: 1 }]}>
+            <View style={[styles.cardIconWrap, { backgroundColor: theme.tintSoft }]}>
               <Ionicons name="sparkles" size={32} color={theme.tint} />
             </View>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>You're already Premium</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>You're already Premium 🎉</Text>
             {plan && (
               <Text style={[styles.planText, { color: theme.text }]}>
-                {plan === 'annual' ? 'Annual' : 'Monthly'} plan
+                Plan: {plan === 'annual' ? 'Annual' : 'Monthly'}
               </Text>
             )}
             {currentPeriodEnd && (
               <Text style={[styles.periodText, { color: theme.textSecondary }]}>
-                Renews {format(new Date(currentPeriodEnd), 'MMM d, yyyy')}
+                Renews {format(new Date(currentPeriodEnd), 'MMMM d, yyyy')}
               </Text>
             )}
             <Text style={[styles.body, { color: theme.textSecondary }]}>
@@ -162,9 +169,24 @@ export default function PremiumScreen() {
           </Card>
         ) : (
           <>
-            <Text style={[styles.heroCopy, { color: theme.textSecondary }]}>
-              Unlock unlimited swipes, see who liked you, and get priority in event lobbies.
-            </Text>
+            <View style={styles.heroBlock}>
+              <View style={[styles.heroIconWrap, { backgroundColor: theme.tintSoft }]}>
+                <Ionicons name="sparkles" size={36} color={theme.tint} />
+              </View>
+              <Text style={[styles.heroTitle, { color: theme.text }]}>Unlock Your Full Vibe</Text>
+              <Text style={[styles.heroSub, { color: theme.textSecondary }]}>
+                Meet people worth meeting — in real life.
+              </Text>
+            </View>
+
+            <View style={styles.featureList}>
+              {PREMIUM_FEATURES.map((feature) => (
+                <View key={feature} style={styles.featureRow}>
+                  <Ionicons name="checkmark-circle" size={20} color={theme.tint} />
+                  <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
+                </View>
+              ))}
+            </View>
 
             {error ? (
               <View style={[styles.errorBar, { backgroundColor: theme.dangerSoft }]}>
@@ -177,15 +199,31 @@ export default function PremiumScreen() {
             ) : isRevenueCatConfigured() && offerings?.current?.availablePackages?.length ? (
               <View style={styles.packages}>
                 {offerings.current.availablePackages.map((pkg) => (
-                  <VibelyButton
+                  <Pressable
                     key={pkg.identifier}
-                    label={`${pkg.packageType} · ${pkg.product.priceString}`}
                     onPress={() => handlePurchase(pkg)}
-                    loading={purchaseLoading}
                     disabled={purchaseLoading}
-                    variant="primary"
-                    style={styles.packageButton}
-                  />
+                    style={({ pressed }) => [
+                      styles.packageCard,
+                      { backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1 },
+                      pressed && { opacity: 0.9 },
+                    ]}
+                  >
+                    <Text style={[styles.packageLabel, { color: theme.text }]}>
+                      {pkg.packageType === 'ANNUAL' ? 'Annual' : pkg.packageType === 'MONTHLY' ? 'Monthly' : pkg.packageType}
+                    </Text>
+                    <Text style={[styles.packagePrice, { color: theme.tint }]}>
+                      {pkg.product.priceString}
+                    </Text>
+                    <VibelyButton
+                      label={purchaseLoading ? '…' : 'Subscribe'}
+                      onPress={() => handlePurchase(pkg)}
+                      loading={purchaseLoading}
+                      disabled={purchaseLoading}
+                      variant="primary"
+                      style={styles.packageCta}
+                    />
+                  </Pressable>
                 ))}
               </View>
             ) : isRevenueCatConfigured() ? (
@@ -235,23 +273,43 @@ const styles = StyleSheet.create({
   content: { padding: spacing.lg },
   card: { marginBottom: spacing.lg, alignItems: 'center' },
   cardIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  cardTitle: { fontSize: 20, fontWeight: '600', marginBottom: spacing.sm },
+  cardTitle: { ...typography.titleLG, marginBottom: spacing.sm },
   planText: { fontSize: 16, marginBottom: 4 },
   periodText: { fontSize: 14, marginBottom: spacing.sm },
   body: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
   cta: { marginTop: spacing.sm },
-  heroCopy: { fontSize: 16, marginBottom: spacing.lg },
+  heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
+  heroIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  heroTitle: { fontSize: 26, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },
+  heroSub: { fontSize: 16, textAlign: 'center' },
+  featureList: { marginBottom: spacing.xl, gap: spacing.md },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  featureText: { fontSize: 15 },
   errorBar: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.lg },
   errorText: { fontSize: 14 },
-  packages: { gap: spacing.md, marginBottom: spacing.lg },
-  packageButton: {},
+  packages: { gap: spacing.lg, marginBottom: spacing.lg },
+  packageCard: {
+    padding: spacing.lg,
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+  },
+  packageLabel: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
+  packagePrice: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
+  packageCta: { marginTop: spacing.sm },
   muted: { fontSize: 14, textAlign: 'center' },
   mutedSmall: { fontSize: 12, textAlign: 'center', opacity: 0.9 },
   restoreButton: { marginTop: spacing.sm },

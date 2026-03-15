@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { GlassSurface, Card, LoadingState, ErrorState, VibelyButton } from '@/components/ui';
-import { spacing, radius } from '@/constants/theme';
+import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEventDetails, useIsRegisteredForEvent, useRegisterForEvent } from '@/lib/eventsApi';
@@ -84,10 +84,12 @@ export default function EventDetailScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: 48 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Image
-          source={{ uri: eventCoverUrl(event.cover_image) }}
-          style={[styles.cover, { backgroundColor: theme.surfaceSubtle }]}
-        />
+        <View style={styles.coverWrap}>
+          <Image
+            source={{ uri: eventCoverUrl(event.cover_image) }}
+            style={[styles.cover, { backgroundColor: theme.surfaceSubtle }]}
+          />
+        </View>
         <Card style={styles.infoCard}>
           <Text style={[styles.title, { color: theme.text }]}>{event.title}</Text>
           <Text style={[styles.meta, { color: theme.textSecondary }]}>
@@ -144,15 +146,15 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
   scroll: { flex: 1 },
   content: { padding: spacing.lg },
+  coverWrap: { marginBottom: spacing.lg, borderRadius: radius['2xl'], overflow: 'hidden' },
   cover: {
     width: '100%',
-    height: 200,
-    marginBottom: spacing.lg,
-    borderRadius: radius.lg,
+    height: 220,
+    borderRadius: radius['2xl'],
   },
   infoCard: { marginBottom: spacing.lg },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.sm },
+  title: { ...typography.titleLG, marginBottom: spacing.sm },
   meta: { fontSize: 14, marginBottom: 4 },
-  description: { fontSize: 14, marginTop: spacing.md },
+  description: { fontSize: 14, lineHeight: 20, marginTop: spacing.md },
   cta: { marginTop: spacing.md },
 });

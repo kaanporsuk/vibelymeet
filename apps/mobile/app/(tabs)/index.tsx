@@ -19,7 +19,7 @@ import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
 import { Card, Avatar, VibelyButton, GlassSurface, SectionHeader, EmptyState, Skeleton } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
-import { spacing, radius, typography } from '@/constants/theme';
+import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useIsRegisteredForEvent } from '@/lib/eventsApi';
@@ -312,7 +312,13 @@ const styles = StyleSheet.create({
   avatarImg: { width: '100%', height: '100%', borderRadius: 999 },
   scroll: { flex: 1 },
   scrollContent: { paddingTop: spacing.lg + 4 },
-  main: { paddingHorizontal: spacing.lg, gap: spacing.xl + 4 },
+  main: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xl + 4,
+    maxWidth: layout.contentWidth,
+    width: '100%',
+    alignSelf: 'center',
+  },
   section: { gap: spacing.md + 2 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   sectionTitle: { ...typography.titleMD, fontSize: 18 },

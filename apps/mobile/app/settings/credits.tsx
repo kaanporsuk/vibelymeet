@@ -8,8 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
-import { GlassSurface, Card, VibelyButton, Skeleton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { GlassSurface, Card, Skeleton } from '@/components/ui';
+import { spacing, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -155,8 +155,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 12,
-    gap: 6,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
   },
   balanceLabel: { fontSize: 14 },
   balanceValue: { fontSize: 18, fontWeight: '700' },
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
     marginTop: spacing.md,
   },

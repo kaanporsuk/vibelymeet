@@ -22,6 +22,8 @@ const base = {
   successSoft: 'rgba(34, 197, 94, 0.16)',
   tabIconDefault: 'hsl(240, 5%, 60%)',
   tabIconSelected: vibelyPrimary,
+  /** Primary with alpha for tab bar active pill, chips (web: bg-primary/20) */
+  tintSoft: 'rgba(139,92,246,0.26)',
   /** Glass-style surfaces (header, tab bar) — web parity glass-card */
   glassSurface: 'rgba(20,20,24,0.92)',
   glassBorder: 'rgba(255,255,255,0.1)',

@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +28,7 @@ import {
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { GlassSurface, LoadingState, ErrorState } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, radius, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -243,30 +244,64 @@ export default function ChatThreadScreen() {
     );
   }
 
-  const renderItem: ListRenderItem<ChatMessage> = ({ item }) => {
+  const otherAvatarUri = otherUserId ? (matches.find((m) => m.id === otherUserId)?.image ?? null) : null;
+
+  const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string) => {
+    if (item.audio_url) {
+      return <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />;
+    }
+    if (item.video_url) {
+      return (
+        <View>
+          <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
+          <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+        </View>
+      );
+    }
+    return (
+      <>
+        <Text style={[styles.bubbleText, { color: textColor }]}>{item.text}</Text>
+        <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+      </>
+    );
+  };
+
+  const renderItem: ListRenderItem<ChatMessage> = ({ item, index }) => {
     const isMe = item.sender === 'me';
+    const messages = data?.messages ?? [];
+    const prev = index > 0 ? messages[index - 1] : null;
+    const next = index < messages.length - 1 ? messages[index + 1] : null;
+    const isFirstInGroup = !prev || prev.sender !== item.sender;
+    const isLastInGroup = !next || next.sender !== item.sender;
+    const bubbleMarginBottom = isLastInGroup ? spacing.sm : 2;
     const textColor = isMe ? '#fff' : theme.text;
-    const timeColor = isMe ? 'rgba(255,255,255,0.8)' : theme.textSecondary;
+    const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
+    const content = renderBubbleContent(item, textColor, timeColor);
+
+    if (!isMe && isFirstInGroup) {
+      return (
+        <View style={[styles.themRow, { marginBottom: bubbleMarginBottom }]}>
+          <View style={[styles.themAvatarWrap, { backgroundColor: theme.surfaceSubtle }]}>
+            {otherAvatarUri ? (
+              <Image source={{ uri: otherAvatarUri }} style={styles.themAvatar} />
+            ) : (
+              <Text style={[styles.themAvatarFallback, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
+            )}
+          </View>
+          <View style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }]}>{content}</View>
+        </View>
+      );
+    }
+
     return (
       <View
         style={[
           styles.bubble,
+          { marginBottom: bubbleMarginBottom },
           isMe ? [styles.bubbleMe, { backgroundColor: theme.tint }] : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
         ]}
       >
-        {item.audio_url ? (
-          <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />
-        ) : item.video_url ? (
-          <View>
-            <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
-            <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
-          </View>
-        ) : (
-          <>
-            <Text style={[styles.bubbleText, { color: textColor }]}>{item.text}</Text>
-            <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
-          </>
-        )}
+        {content}
       </View>
     );
   };
@@ -319,9 +354,9 @@ export default function ChatThreadScreen() {
             </Text>
           }
         />
-        <View style={[styles.footer, { borderTopColor: theme.border }]}>
+        <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
           <TextInput
-            style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.surfaceSubtle }]}
             placeholder="Message..."
             placeholderTextColor={theme.textSecondary}
             value={input}
@@ -388,33 +423,50 @@ const styles = StyleSheet.create({
   backBtn: { padding: spacing.xs },
   headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
   keyboard: { flex: 1 },
-  list: { padding: 16, paddingBottom: 8 },
-  empty: { padding: 24, textAlign: 'center' },
-  bubble: { maxWidth: '80%', padding: 12, borderRadius: 16, marginBottom: 8 },
+  list: { padding: spacing.lg, paddingBottom: spacing.sm },
+  empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
+  themRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, gap: spacing.xs },
+  themAvatarWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  themAvatar: { width: 28, height: 28 },
+  themAvatarFallback: { fontSize: 12, fontWeight: '600' },
+  bubble: {
+    maxWidth: '78%',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius['2xl'],
+  },
   bubbleMe: { alignSelf: 'flex-end' },
-  bubbleThem: { alignSelf: 'flex-start' },
-  bubbleText: { fontSize: 15 },
-  bubbleTime: { fontSize: 11, marginTop: 4 },
+  bubbleThem: { alignSelf: 'flex-start', flex: 0 },
+  bubbleText: { fontSize: 15, lineHeight: 20 },
+  bubbleTime: { fontSize: 11, marginTop: 4, opacity: 0.9 },
   footer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 8,
-    paddingBottom: 24,
+    padding: spacing.sm,
+    paddingBottom: Platform.OS === 'ios' ? 24 : spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 8,
+    borderRadius: radius.xl,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginRight: spacing.sm,
     maxHeight: 100,
+    minHeight: layout.inputHeight,
   },
   sendBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 20,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.xl,
     justifyContent: 'center',
     minWidth: 60,
   },
@@ -426,11 +478,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: spacing.sm,
   },
-  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   voiceLabel: { fontSize: 15 },
-  chatVideo: { width: 200, height: 120, borderRadius: 8 },
+  chatVideo: { width: 200, height: 120, borderRadius: radius.lg },
   voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
   recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
 });

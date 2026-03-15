@@ -14,7 +14,7 @@ import {
   SettingsRow,
   DestructiveRow,
 } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 
@@ -150,7 +150,8 @@ export default function SettingsScreen() {
             />
           </Card>
 
-          {/* Quick actions */}
+          {/* Quick links — web parity */}
+          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>QUICK LINKS</Text>
           <Card style={styles.cardSpacing}>
             <View style={styles.quickSection}>
               <SettingsRow
@@ -217,4 +218,5 @@ const styles = StyleSheet.create({
   destructiveSection: { marginTop: spacing.lg },
   dangerZone: { marginTop: spacing.xl, paddingTop: spacing.lg, borderTopWidth: 1 },
   dangerZoneTitle: { fontSize: 12, fontWeight: '600', letterSpacing: 1, marginBottom: spacing.sm },
+  sectionLabel: { ...typography.overline, marginBottom: spacing.sm, marginTop: spacing.lg },
 });

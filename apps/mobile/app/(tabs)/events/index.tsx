@@ -14,15 +14,15 @@ import {
   TextInput,
   Image,
   RefreshControl,
-  ActivityIndicator,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { Card, GlassSurface, ErrorState, EmptyState, Skeleton } from '@/components/ui';
-import { spacing, radius, typography } from '@/constants/theme';
+import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents } from '@/lib/eventsApi';
@@ -123,7 +123,7 @@ function FeaturedEventCard({
 }) {
   const isLive = event.status === 'live';
   return (
-    <Pressable style={[featuredStyles.wrapper, { backgroundColor: theme.surface }]} onPress={onPress}>
+    <Pressable style={[featuredStyles.wrapper, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={onPress}>
       <Image
         source={{ uri: eventCoverUrl(event.image) }}
         style={featuredStyles.image}
@@ -147,7 +147,7 @@ function FeaturedEventCard({
         {event.tags.length > 0 && (
           <View style={featuredStyles.tags}>
             {event.tags.slice(0, 3).map((tag) => (
-              <View key={tag} style={[featuredStyles.tag, { backgroundColor: 'rgba(139,92,246,0.2)', borderColor: 'rgba(139,92,246,0.3)' }]}>
+              <View key={tag} style={[featuredStyles.tag, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
                 <Text style={[featuredStyles.tagText, { color: theme.tint }]}>{tag}</Text>
               </View>
             ))}
@@ -165,7 +165,7 @@ function FeaturedEventCard({
           <View style={featuredStyles.attendees}>
             <View style={featuredStyles.avatarStack}>
               {[1, 2, 3].map((i) => (
-                <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft }]} />
+                <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.background }]} />
               ))}
             </View>
             <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
@@ -257,7 +257,6 @@ const featuredStyles = StyleSheet.create({
     borderRadius: 15,
     marginLeft: -6,
     borderWidth: 2,
-    borderColor: 'hsl(240, 10%, 4%)',
   },
   attendeesText: { fontSize: 14, fontWeight: '600' },
   cta: {
@@ -319,7 +318,7 @@ function EventRailCard({
         <View style={railCardStyles.row}>
           <View style={railCardStyles.avatars}>
             {[1, 2, 3].map((i) => (
-              <View key={i} style={[railCardStyles.avatar, { backgroundColor: theme.accentSoft }]} />
+              <View key={i} style={[railCardStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.surface }]} />
             ))}
           </View>
           <Text style={[railCardStyles.attendees, { color: theme.textSecondary }]}>+{event.attendees}</Text>
@@ -389,7 +388,6 @@ const railCardStyles = StyleSheet.create({
     borderRadius: 10,
     marginLeft: -6,
     borderWidth: 1,
-    borderColor: 'hsl(240, 10%, 8%)',
   },
   attendees: { fontSize: 11, fontWeight: '500' },
   cta: {
@@ -634,8 +632,8 @@ export default function EventsListScreen() {
         </ScrollView>
       </View>
 
-      {/* Content */}
-      <View style={styles.content}>
+      {/* Content — max width for tablet parity */}
+      <View style={[styles.content, { maxWidth: layout.contentWidth, alignSelf: 'center', width: '100%' }]}>
         {isLoading && !events.length ? (
           <EventsSkeleton />
         ) : isFiltering ? (
@@ -714,7 +712,7 @@ export default function EventsListScreen() {
               <Text style={[styles.elsewhereSub, { color: theme.textSecondary }]}>
                 Events in cities you can explore with Premium
               </Text>
-              <Card style={[styles.premiumCard, { borderColor: 'rgba(139,92,246,0.2)', backgroundColor: 'rgba(139,92,246,0.06)' }]}>
+              <Card style={[styles.premiumCard, { borderColor: theme.border, backgroundColor: theme.tintSoft }]}>
                 <View style={styles.premiumCardInner}>
                   <Text style={styles.premiumEmoji}>💎</Text>
                   <View style={styles.premiumCardCopy}>
@@ -737,7 +735,7 @@ export default function EventsListScreen() {
         )}
       </View>
 
-      <View style={styles.bottomSpacer} />
+      <View style={[styles.bottomSpacer, { height: Platform.OS === 'ios' ? 96 : 88 }]} />
     </ScrollView>
   );
 }
@@ -805,7 +803,7 @@ const styles = StyleSheet.create({
   elsewhereHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },
   elsewhereTitle: { fontSize: 16, fontWeight: '700' },
   elsewhereSub: { fontSize: 12, marginBottom: spacing.md },
-  premiumCard: { padding: spacing.lg, borderWidth: 1 },
+  premiumCard: { padding: spacing.lg, borderWidth: 1, borderColor: 'transparent' },
   premiumCardInner: { flexDirection: 'row', gap: spacing.md },
   premiumEmoji: { fontSize: 24 },
   premiumCardCopy: { flex: 1 },

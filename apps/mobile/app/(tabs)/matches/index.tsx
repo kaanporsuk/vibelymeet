@@ -347,9 +347,7 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   conversationsLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
+    ...typography.overline,
   },
   list: {
     paddingBottom: spacing.sm,

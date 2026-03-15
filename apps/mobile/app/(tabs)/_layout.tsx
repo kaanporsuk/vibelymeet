@@ -5,7 +5,7 @@ import { SymbolView } from 'expo-symbols';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { spacing } from '@/constants/theme';
+import { radius, spacing } from '@/constants/theme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -20,7 +20,7 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
         tabBarInactiveTintColor: theme.tabIconDefault,
-        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.26)',
+        tabBarActiveBackgroundColor: theme.tintSoft,
         tabBarInactiveBackgroundColor: 'transparent',
         tabBarStyle: {
           backgroundColor: theme.glassSurface,
@@ -29,9 +29,9 @@ export default function TabLayout() {
           height: tabBarHeight,
           paddingBottom,
           paddingTop,
-          shadowColor: '#8B5CF6',
+          shadowColor: theme.tint,
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.18,
+          shadowOpacity: 0.2,
           shadowRadius: 10,
           elevation: 8,
         },
@@ -39,14 +39,14 @@ export default function TabLayout() {
           fontSize: 11,
           fontWeight: '600',
         },
-        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 16, marginHorizontal: 3 },
+        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: radius.xl, marginHorizontal: 3 },
         tabBarIconStyle: { marginBottom: -2 },
         headerShown: false,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ color }) => (
             <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={24} />
           ),

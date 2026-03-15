@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleProp,
   StyleSheet,
+  TextInput,
   TextStyle,
   ViewStyle,
   View,
@@ -15,6 +16,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/Colors';
 import { layout, radius, spacing, typography, shadows } from '@/constants/theme';
+
+/** Reusable input styles for forms (profile edit, search, etc.) — web parity */
+export const inputStyles = {
+  height: layout.inputHeight,
+  borderRadius: radius.lg,
+  paddingHorizontal: spacing.md,
+  paddingVertical: spacing.sm,
+  borderWidth: 1,
+  fontSize: 15,
+} as const;
 import { useColorScheme } from './useColorScheme';
 
 type GlassSurfaceProps = {
@@ -367,6 +378,59 @@ export function SettingsRow({ icon, title, subtitle, onPress, right, style }: Se
   return content;
 }
 
+type VibelyInputProps = {
+  value: string;
+  onChangeText: (t: string) => void;
+  placeholder?: string;
+  editable?: boolean;
+  multiline?: boolean;
+  numberOfLines?: number;
+  /** Layout (e.g. marginBottom); applied to wrapper View */
+  containerStyle?: StyleProp<ViewStyle>;
+  /** TextInput style (font, etc.). Border/padding come from inputStyles. */
+  style?: StyleProp<TextStyle>;
+  placeholderTextColor?: string;
+};
+
+export function VibelyInput({
+  value,
+  onChangeText,
+  placeholder,
+  editable = true,
+  multiline,
+  numberOfLines = 3,
+  containerStyle,
+  style,
+  placeholderTextColor,
+}: VibelyInputProps) {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
+  const inputStyle: StyleProp<TextStyle> = [
+    inputStyles,
+    {
+      borderColor: theme.border,
+      color: theme.text,
+      minHeight: multiline ? 96 : layout.inputHeight,
+      textAlignVertical: multiline ? 'top' : 'center',
+    },
+    style,
+  ];
+  return (
+    <View style={containerStyle}>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={placeholderTextColor ?? theme.textSecondary}
+        editable={editable}
+        multiline={multiline}
+        numberOfLines={multiline ? numberOfLines : undefined}
+        style={inputStyle}
+      />
+    </View>
+  );
+}
+
 type DestructiveRowProps = {
   icon: ReactNode;
   label: string;
@@ -488,6 +552,7 @@ const styles = StyleSheet.create({
   },
   stateContainer: {
     flex: 1,
+    minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.xl,

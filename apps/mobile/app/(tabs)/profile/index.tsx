@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  TextInput,
   ScrollView,
   Alert,
   Image,
@@ -21,12 +20,13 @@ import {
   SectionHeader,
   Card,
   VibelyButton,
+  VibelyInput,
   Avatar,
   LoadingState,
   SettingsRow,
   DestructiveRow,
 } from '@/components/ui';
-import { spacing, radius, typography } from '@/constants/theme';
+import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
@@ -175,7 +175,6 @@ export default function ProfileScreen() {
   };
 
   const vibeStatus = (profile?.bunny_video_status ?? 'none') as string;
-  const hasVibeVideo = !!profile?.bunny_video_uid;
 
   const handleVibeVideoPress = () => {
     if (vibeStatus === 'uploading' || vibeStatus === 'processing') return;
@@ -301,14 +300,14 @@ export default function ProfileScreen() {
       <View style={[styles.heroGradient, { backgroundColor: theme.tint, paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.heroButtons}>
           <Pressable
-            style={[styles.heroButton, styles.heroButtonGlass]}
+            style={[styles.heroButton, styles.heroButtonGlass, { borderColor: theme.glassBorder }]}
             onPress={handlePreviewProfile}
             accessibilityLabel="Preview profile"
           >
             <Ionicons name="eye-outline" size={24} color={theme.text} />
           </Pressable>
           <Pressable
-            style={[styles.heroButton, styles.heroButtonGlassRight]}
+            style={[styles.heroButton, styles.heroButtonGlassRight, { borderColor: theme.glassBorder }]}
             onPress={() => router.push('/settings')}
             accessibilityLabel="Settings"
           >
@@ -462,11 +461,11 @@ export default function ProfileScreen() {
           </Text>
         </Card>
 
-        {/* Conversation Starters */}
+        {/* Conversation Starters — Vibely polish */}
         <SectionHeader title="Conversation Starters" />
-        <Card style={styles.promptsEmpty}>
+        <Card style={[styles.promptsEmpty, { borderColor: theme.border }]}>
           <View style={styles.promptsEmptyInner}>
-            <View style={[styles.promptsEmptyIcon, { backgroundColor: theme.accentSoft }]}>
+            <View style={[styles.promptsEmptyIcon, { backgroundColor: theme.tintSoft }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.tint} />
             </View>
             <Text style={[styles.promptsEmptyTitle, { color: theme.text }]}>
@@ -493,9 +492,9 @@ export default function ProfileScreen() {
           </Text>
         </Card>
 
-        {/* Vibe Video card */}
+        {/* Vibe Video card — premium feel */}
         <SectionHeader title="Vibe Video" />
-        <View style={[styles.vibeVideoShell, { backgroundColor: theme.surfaceSubtle }]}>
+        <View style={[styles.vibeVideoShell, { backgroundColor: theme.surfaceSubtle, borderWidth: 1, borderColor: theme.border }]}>
           {vibeStatus === 'uploading' && (
             <>
               <Ionicons name="cloud-upload-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.6 }} />
@@ -627,14 +626,14 @@ export default function ProfileScreen() {
           </Text>
         </Card>
 
-        {/* Verification — shell */}
+        {/* Verification — web parity copy */}
         <Card>
           <View style={styles.verificationHeader}>
             <Ionicons name="shield-checkmark-outline" size={20} color={theme.neonCyan} />
             <Text style={[styles.cardTitle, { color: theme.text }]}>Verification</Text>
           </View>
           <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
-            Email, photo, and phone verification available on web.
+            Verify your email, photo, and phone on vibelymeet.com to get a verified badge and stand out.
           </Text>
         </Card>
 
@@ -661,42 +660,38 @@ export default function ProfileScreen() {
             <SectionHeader title="Edit details" />
             <Card>
             <Text style={[styles.label, { color: theme.text }]}>Name</Text>
-            <TextInput
-              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            <VibelyInput
               value={name}
               onChangeText={setName}
               editable={!saving}
               placeholder="Your name"
-              placeholderTextColor={theme.textSecondary}
+              containerStyle={styles.input}
             />
             <Text style={[styles.label, { color: theme.text }]}>Tagline</Text>
-            <TextInput
-              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            <VibelyInput
               value={tagline}
               onChangeText={setTagline}
               editable={!saving}
               placeholder="e.g., Living my best life ✨"
-              placeholderTextColor={theme.textSecondary}
+              containerStyle={styles.input}
             />
             <Text style={[styles.label, { color: theme.text }]}>Job</Text>
-            <TextInput
-              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            <VibelyInput
               value={job}
               onChangeText={setJob}
               editable={!saving}
               placeholder="What do you do?"
-              placeholderTextColor={theme.textSecondary}
+              containerStyle={styles.input}
             />
             <Text style={[styles.label, { color: theme.text }]}>About you</Text>
-            <TextInput
-              style={[styles.input, styles.textArea, { borderColor: theme.border, color: theme.text }]}
+            <VibelyInput
               value={aboutMe}
               onChangeText={setAboutMe}
               multiline
-              numberOfLines={3}
+              numberOfLines={4}
               editable={!saving}
               placeholder="Write something that makes them want to know more..."
-              placeholderTextColor={theme.textSecondary}
+              containerStyle={styles.input}
             />
             <VibelyButton
               label={saving ? 'Saving…' : 'Save changes'}
@@ -740,7 +735,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
   },
   heroButtonGlass: {
     backgroundColor: 'rgba(255,255,255,0.16)',
@@ -785,7 +779,7 @@ const styles = StyleSheet.create({
   },
   main: {
     paddingHorizontal: spacing.lg,
-    maxWidth: 512,
+    maxWidth: layout.contentWidth,
     alignSelf: 'center',
     width: '100%',
   },
@@ -944,7 +938,7 @@ const styles = StyleSheet.create({
   },
   promptsEmptyInner: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: spacing.xl + 4,
     gap: spacing.sm,
   },
   promptsEmptyIcon: {
