@@ -34,6 +34,7 @@ export default function PublicProfileScreen() {
     queryFn: () => fetchPublicProfile(userId ?? ''),
     enabled: !!userId,
   });
+  const [photoIndex, setPhotoIndex] = React.useState(0);
 
   if (!userId) {
     return (
@@ -61,7 +62,6 @@ export default function PublicProfileScreen() {
 
   const photoUrl = profile.avatar_url || profile.photos?.[0];
   const photoUris = (profile.photos ?? []).filter(Boolean).map((p) => getImageUrl(p, { width: 800, quality: 90 }));
-  const [photoIndex, setPhotoIndex] = React.useState(0);
   const displayPhoto = photoUris.length > 0 ? photoUris[photoIndex % photoUris.length] : (photoUrl ? getImageUrl(photoUrl, { width: 800, quality: 90 }) : null);
   const lookingForLabel = profile.looking_for ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for : null;
 
