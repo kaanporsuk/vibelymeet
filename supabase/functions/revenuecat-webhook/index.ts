@@ -44,7 +44,14 @@ Deno.serve(async (req) => {
 
   const authHeader = req.headers.get('Authorization')
   const expectedAuth = Deno.env.get('REVENUECAT_WEBHOOK_AUTHORIZATION')
-  if (expectedAuth && authHeader !== expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
+  if (!expectedAuth || expectedAuth.trim() === '') {
+    console.error('RevenueCat webhook: REVENUECAT_WEBHOOK_AUTHORIZATION secret is not set')
+    return new Response(
+      JSON.stringify({ success: false, error: 'Webhook not configured' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+  if (authHeader !== expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
     return new Response(
       JSON.stringify({ success: false, error: 'Unauthorized' }),
       { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

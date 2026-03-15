@@ -362,7 +362,7 @@ export default function ChatThreadScreen() {
             disabled={!input.trim() || isSending}
           >
             <Text style={styles.sendBtnText}>
-              {sending ? '…' : 'Send'}
+              {isSending ? '…' : 'Send'}
             </Text>
           </Pressable>
         </View>

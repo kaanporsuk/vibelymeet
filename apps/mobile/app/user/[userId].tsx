@@ -13,7 +13,7 @@ import { GlassSurface, Card, LoadingState, ErrorState } from '@/components/ui';
 import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { fetchPublicProfile } from '@/lib/publicProfileApi';
-import { avatarUrl } from '@/lib/imageUrl';
+import { getImageUrl } from '@/lib/imageUrl';
 
 const LOOKING_FOR_LABELS: Record<string, string> = {
   'long-term': 'Long-term partner',
@@ -60,9 +60,9 @@ export default function PublicProfileScreen() {
   }
 
   const photoUrl = profile.avatar_url || profile.photos?.[0];
-  const photoUris = (profile.photos ?? []).filter(Boolean).map((p) => avatarUrl(p));
+  const photoUris = (profile.photos ?? []).filter(Boolean).map((p) => getImageUrl(p, { width: 800, quality: 90 }));
   const [photoIndex, setPhotoIndex] = React.useState(0);
-  const displayPhoto = photoUris.length > 0 ? photoUris[photoIndex % photoUris.length] : (photoUrl ? avatarUrl(photoUrl) : null);
+  const displayPhoto = photoUris.length > 0 ? photoUris[photoIndex % photoUris.length] : (photoUrl ? getImageUrl(photoUrl, { width: 800, quality: 90 }) : null);
   const lookingForLabel = profile.looking_for ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for : null;
 
   return (
