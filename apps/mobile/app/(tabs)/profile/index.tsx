@@ -175,7 +175,6 @@ export default function ProfileScreen() {
   };
 
   const vibeStatus = (profile?.bunny_video_status ?? 'none') as string;
-  const hasVibeVideo = !!profile?.bunny_video_uid;
 
   const handleVibeVideoPress = () => {
     if (vibeStatus === 'uploading' || vibeStatus === 'processing') return;
