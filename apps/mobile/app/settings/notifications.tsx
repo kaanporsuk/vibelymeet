@@ -42,19 +42,22 @@ export default function NotificationsSettingsScreen() {
       >
         <View style={styles.main}>
           <Card style={styles.card}>
+            <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="notifications-outline" size={32} color={theme.tint} />
+            </View>
             <Text style={[styles.body, { color: theme.textSecondary }]}>
               Manage notification preferences, quiet hours, and alert sounds on web. Your device is registered for push when you're signed in.
             </Text>
             <VibelyButton
               label="Open notification settings on web"
-              onPress={() =>
-              Linking.openURL('https://vibelymeet.com/settings').catch(() => {
-                Alert.alert(
-                  'Unable to open link',
-                  'We could not open your notification settings in the browser. Please try again later.'
-                );
-              })
-            }
+              onPress={() => {
+                Linking.openURL('https://vibelymeet.com/settings').catch(() => {
+                  Alert.alert(
+                    'Unable to open link',
+                    'We could not open your notification settings in the browser. Please try again later.'
+                  );
+                });
+              }}
               variant="primary"
               style={styles.cta}
             />
@@ -73,7 +76,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingTop: spacing.lg },
   main: { paddingHorizontal: spacing.lg },
-  card: { padding: spacing.lg },
-  body: { fontSize: 15, lineHeight: 22, marginBottom: spacing.lg },
+  card: { padding: spacing.lg, alignItems: 'center' },
+  iconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  body: { fontSize: 15, lineHeight: 22, marginBottom: spacing.lg, textAlign: 'center' },
   cta: { alignSelf: 'flex-start' },
 });

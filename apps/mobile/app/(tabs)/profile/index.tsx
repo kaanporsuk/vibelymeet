@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView,
   Alert,
@@ -9,6 +9,7 @@ import {
   Share,
   Platform,
   Linking,
+  Animated,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -127,6 +128,11 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
+  }, [fadeAnim]);
 
   useEffect(() => {
     if (profile) {
@@ -296,23 +302,25 @@ export default function ProfileScreen() {
         />
       }
     >
-      {/* Hero — web parity: top-left eye, top-right settings only; no global gear elsewhere */}
-      <View style={[styles.heroGradient, { backgroundColor: theme.tint, paddingTop: insets.top + spacing.lg }]}>
-        <View style={styles.heroButtons}>
-          <Pressable
-            style={[styles.heroButton, styles.heroButtonGlass, { borderColor: theme.glassBorder }]}
-            onPress={handlePreviewProfile}
-            accessibilityLabel="Preview profile"
-          >
-            <Ionicons name="eye-outline" size={24} color={theme.text} />
-          </Pressable>
-          <Pressable
-            style={[styles.heroButton, styles.heroButtonGlassRight, { borderColor: theme.glassBorder }]}
-            onPress={() => router.push('/settings')}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={24} color={theme.text} />
-          </Pressable>
+      {/* Hero — safe area, no clipping: rounded bottom, overflow hidden to avoid black corners */}
+      <View style={[styles.heroOuter, { paddingTop: insets.top }]}>
+        <View style={[styles.heroGradient, { backgroundColor: theme.tint }]}>
+          <View style={styles.heroButtons}>
+            <Pressable
+              style={[styles.heroButton, styles.heroButtonGlass, { borderColor: theme.glassBorder }]}
+              onPress={handlePreviewProfile}
+              accessibilityLabel="Preview profile"
+            >
+              <Ionicons name="eye-outline" size={24} color={theme.text} />
+            </Pressable>
+            <Pressable
+              style={[styles.heroButton, styles.heroButtonGlassRight, { borderColor: theme.glassBorder }]}
+              onPress={() => router.push('/settings')}
+              accessibilityLabel="Settings"
+            >
+              <Ionicons name="settings-outline" size={24} color={theme.text} />
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -351,7 +359,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <View style={styles.main}>
+      <Animated.View style={[styles.main, { opacity: fadeAnim }]}>
         {/* Identity block: name / age, tagline, location */}
         <View style={styles.identityBlock}>
           <Text style={[styles.nameAge, { color: theme.text }]} numberOfLines={1}>
@@ -708,7 +716,7 @@ export default function ProfileScreen() {
           </Card>
         </View>
         )}
-      </View>
+      </Animated.View>
     </ScrollView>
   );
 }
@@ -719,9 +727,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  heroOuter: {
+    paddingHorizontal: 0,
+    marginBottom: 0,
+  },
   heroGradient: {
-    height: 172,
+    height: 140,
+    paddingTop: spacing.lg,
     paddingHorizontal: spacing.lg,
+    borderBottomLeftRadius: radius['2xl'],
+    borderBottomRightRadius: radius['2xl'],
+    overflow: 'hidden',
   },
   heroButtons: {
     flexDirection: 'row',
@@ -744,7 +760,7 @@ const styles = StyleSheet.create({
   },
   avatarWrap: {
     alignItems: 'center',
-    marginTop: -78,
+    marginTop: -56,
     marginBottom: spacing.xl + 4,
   },
   avatarRing: {
@@ -892,7 +908,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+    marginBottom: spacing.md,
+    paddingTop: 2,
   },
   cardTitleRow: {
     flexDirection: 'row',

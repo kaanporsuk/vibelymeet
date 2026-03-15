@@ -45,6 +45,9 @@ export default function AccountSettingsScreen() {
       >
         <View style={styles.main}>
           <Card style={styles.card}>
+            <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="person-circle-outline" size={32} color={theme.tint} />
+            </View>
             <Text style={[styles.label, { color: theme.textSecondary }]}>Signed in as</Text>
             <Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{email || '—'}</Text>
             <Text style={[styles.body, { color: theme.textSecondary, marginTop: spacing.lg }]}>
@@ -71,9 +74,10 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingTop: spacing.lg },
   main: { paddingHorizontal: spacing.lg },
-  card: { padding: spacing.lg },
-  label: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  email: { fontSize: 16, fontWeight: '500' },
-  body: { fontSize: 15, lineHeight: 22 },
+  card: { padding: spacing.lg, alignItems: 'center' },
+  iconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  label: { fontSize: 12, fontWeight: '600', marginBottom: 4, alignSelf: 'stretch' },
+  email: { fontSize: 16, fontWeight: '500', alignSelf: 'stretch' },
+  body: { fontSize: 15, lineHeight: 22, alignSelf: 'stretch' },
   cta: { marginTop: spacing.lg, alignSelf: 'flex-start' },
 });

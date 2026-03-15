@@ -138,13 +138,14 @@ export default function MatchesListScreen() {
         <RNView style={styles.tabsRow}>
           <Pressable
             onPress={() => setActiveTab('conversations')}
-            style={[
+            style={({ pressed }) => [
               styles.tab,
               activeTab === 'conversations' && {
-                backgroundColor: theme.accentSoft,
+                backgroundColor: theme.tintSoft,
                 borderWidth: 1,
                 borderColor: theme.tint,
               },
+              pressed && { opacity: 0.9 },
             ]}
           >
             <Ionicons
@@ -163,13 +164,14 @@ export default function MatchesListScreen() {
           </Pressable>
           <Pressable
             onPress={() => setActiveTab('drops')}
-            style={[
+            style={({ pressed }) => [
               styles.tab,
               activeTab === 'drops' && {
-                backgroundColor: theme.accentSoft,
+                backgroundColor: theme.tintSoft,
                 borderWidth: 1,
                 borderColor: theme.tint,
               },
+              pressed && { opacity: 0.9 },
             ]}
           >
             <Ionicons
@@ -253,19 +255,22 @@ export default function MatchesListScreen() {
           }
         />
       ) : (
-        <RNView style={styles.dropsShell}>
-          <RNText style={[styles.dropsTitle, { color: theme.text }]}>Daily Drop</RNText>
-          <RNText style={[styles.dropsSubtitle, { color: theme.textSecondary }]}>
-            Daily Drop is coming to mobile soon. For now, you can use it on web.
-          </RNText>
-          <VibelyButton
-            label="Open on web"
-            onPress={() => {
-              Linking.openURL('https://vibelymeet.com/matches');
-            }}
-            variant="secondary"
-            style={{ marginTop: spacing.md }}
-          />
+        <RNView style={[styles.dropsShell, { backgroundColor: theme.background }]}>
+          <RNView style={[styles.dropsCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <RNView style={[styles.dropsIconWrap, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="water-outline" size={40} color={theme.tint} />
+            </RNView>
+            <RNText style={[styles.dropsTitle, { color: theme.text }]}>Daily Drop</RNText>
+            <RNText style={[styles.dropsSubtitle, { color: theme.textSecondary }]}>
+              Get a fresh batch of potential matches delivered daily. Use Daily Drop on web for now — we’re bringing it to the app soon.
+            </RNText>
+            <VibelyButton
+              label="Open Daily Drop on web"
+              onPress={() => Linking.openURL('https://vibelymeet.com/matches')}
+              variant="primary"
+              style={styles.dropsCta}
+            />
+          </RNView>
         </RNView>
       )}
     </ScreenContainer>
@@ -389,13 +394,39 @@ const styles = StyleSheet.create({
     ...typography.bodySecondary,
   },
   dropsShell: {
-    paddingTop: spacing.lg,
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    alignItems: 'center',
+  },
+  dropsCard: {
+    maxWidth: 400,
+    width: '100%',
+    padding: spacing.xl,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  dropsIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
   dropsTitle: {
     ...typography.titleMD,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   dropsSubtitle: {
     ...typography.bodySecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  dropsCta: {
+    alignSelf: 'stretch',
   },
 });

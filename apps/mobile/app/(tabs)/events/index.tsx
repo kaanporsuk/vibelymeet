@@ -123,7 +123,7 @@ function FeaturedEventCard({
 }) {
   const isLive = event.status === 'live';
   return (
-    <Pressable style={[featuredStyles.wrapper, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={onPress}>
+    <Pressable style={({ pressed }) => [featuredStyles.wrapper, { backgroundColor: theme.surface, borderColor: theme.border }, pressed && { opacity: 0.92 }]} onPress={onPress}>
       <Image
         source={{ uri: eventCoverUrl(event.image) }}
         style={featuredStyles.image}
@@ -286,7 +286,7 @@ function EventRailCard({
   const isLive = event.status === 'live';
   return (
     <Pressable
-      style={[railCardStyles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      style={({ pressed }) => [railCardStyles.card, { backgroundColor: theme.surface, borderColor: theme.border }, pressed && { opacity: 0.92 }]}
       onPress={onPress}
     >
       <View style={railCardStyles.imageWrap}>

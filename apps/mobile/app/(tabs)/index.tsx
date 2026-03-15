@@ -2,7 +2,7 @@
  * Dashboard — web parity: glass header (greeting + notification + avatar),
  * Next Event card with cover/countdown/CTA, Your Matches horizontal strip, Upcoming Events rail.
  */
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Image,
   RefreshControl,
   StyleSheet,
+  Animated,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -76,6 +77,10 @@ export default function DashboardScreen() {
     () => events.filter((e) => e.status !== 'live').slice(0, 4),
     [events]
   );
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 320, useNativeDriver: true }).start();
+  }, [fadeAnim]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -119,7 +124,7 @@ export default function DashboardScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 24 + 80 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
       >
-        <View style={styles.main}>
+        <Animated.View style={[styles.main, { opacity: fadeAnim }]}>
           {/* Next Event card — web parity: cover, title/date, countdown, CTA */}
           {nextEvent && (
             <View style={styles.section}>
@@ -281,7 +286,7 @@ export default function DashboardScreen() {
               </ScrollView>
             ) : null}
           </View>
-        </View>
+        </Animated.View>
       </ScrollView>
     </View>
   );
