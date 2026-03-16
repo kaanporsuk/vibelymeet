@@ -7,10 +7,6 @@ import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
-if (!SUPABASE_URL) {
-  throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
-}
-
 export type UploadImageResult = { path: string };
 
 export interface ImagePickerAsset {
@@ -30,6 +26,10 @@ export async function uploadProfilePhoto(
 ): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
+
+  if (!SUPABASE_URL) {
+    throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
+  }
 
   const formData = new FormData();
   // React Native FormData accepts { uri, type, name } for file uploads (not in TS lib)

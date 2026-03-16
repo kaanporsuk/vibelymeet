@@ -14,6 +14,10 @@ export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<strin
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
+  if (!SUPABASE_URL) {
+    throw new Error('[creditsCheckout] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
+  }
+
   const res = await fetch(`${SUPABASE_URL}/functions/v1/create-credits-checkout`, {
     method: 'POST',
     headers: {
@@ -23,7 +27,13 @@ export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<strin
     },
     body: JSON.stringify({ packId }),
   });
-  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error ?? `Checkout failed (HTTP ${res.status})`);
+  }
+
+  const data = await res.json();
   if (!data.success || !data.url) throw new Error(data.error ?? 'Could not start checkout');
   return data.url;
 }

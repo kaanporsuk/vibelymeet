@@ -9,19 +9,21 @@ import { useIsOffline } from '@/lib/useNetworkStatus';
 import { spacing } from '@/constants/theme';
 
 const BANNER_HEIGHT = 44;
+const EXTRA_OFFSET = 20;
 
 export function OfflineBanner() {
   const insets = useSafeAreaInsets();
   const isOffline = useIsOffline();
-  const translateY = useRef(new Animated.Value(-BANNER_HEIGHT - 20)).current;
+  const hiddenOffset = -(BANNER_HEIGHT + insets.top + spacing.sm * 2 + EXTRA_OFFSET);
+  const translateY = useRef(new Animated.Value(hiddenOffset)).current;
 
   useEffect(() => {
     Animated.timing(translateY, {
-      toValue: isOffline ? 0 : -BANNER_HEIGHT - 20,
+      toValue: isOffline ? 0 : hiddenOffset,
       duration: 280,
       useNativeDriver: true,
     }).start();
-  }, [isOffline, translateY]);
+  }, [isOffline, hiddenOffset, translateY]);
 
   return (
     <Animated.View

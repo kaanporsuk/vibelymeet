@@ -21,12 +21,16 @@ export function useDeletionRecovery(userId: string | null | undefined) {
       setPendingDeletion(null);
       return;
     }
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('account_deletion_requests')
       .select('id, scheduled_deletion_at, status')
       .eq('user_id', userId)
       .eq('status', 'pending')
       .maybeSingle();
+    if (error) {
+      if (__DEV__) console.warn('[useDeletionRecovery] fetch failed:', error.message);
+      return;
+    }
     setPendingDeletion(data as DeletionRequest | null);
   }, [userId]);
 

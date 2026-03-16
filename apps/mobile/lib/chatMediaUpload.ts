@@ -12,6 +12,10 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
+  if (!SUPABASE_URL) {
+    throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
+  }
+
   const formData = new FormData();
   formData.append('conversation_id', matchId);
   formData.append(
@@ -29,7 +33,12 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
     body: formData,
   });
 
-  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(errorText || `Upload failed with status ${res.status}`);
+  }
+
+  const data = await res.json();
   if (!data.success || !data.url) throw new Error(data.error ?? 'Voice upload failed');
   return data.url;
 }
@@ -41,6 +50,10 @@ export async function uploadChatVideoMessage(
 ): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
+
+  if (!SUPABASE_URL) {
+    throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
+  }
 
   const formData = new FormData();
   formData.append('match_id', matchId);
@@ -60,7 +73,12 @@ export async function uploadChatVideoMessage(
     body: formData,
   });
 
-  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(errorText || `Upload failed with status ${res.status}`);
+  }
+
+  const data = await res.json();
   if (!data.success || !data.url) throw new Error(data.error ?? 'Video upload failed');
   return data.url;
 }
