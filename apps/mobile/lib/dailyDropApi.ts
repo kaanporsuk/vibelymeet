@@ -141,19 +141,28 @@ export function useDailyDrop(userId: string | null | undefined) {
   const fetchPastDrops = useCallback(async () => {
     if (!userId) return;
     const today = new Date().toISOString().split('T')[0];
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('daily_drops')
       .select('id, user_a_id, user_b_id, drop_date, status, match_id')
       .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
       .lt('drop_date', today)
       .order('drop_date', { ascending: false })
       .limit(14);
+    if (error) {
+      if (__DEV__) console.warn('[dailyDropApi] fetchPastDrops failed:', error.message);
+      setPastDrops([]);
+      return;
+    }
     if (!data?.length) {
       setPastDrops([]);
       return;
     }
     const partnerIds = data.map((d) => (d.user_a_id === userId ? d.user_b_id : d.user_a_id));
-    const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', partnerIds);
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url')
+      .in('id', partnerIds);
+    if (profilesError && __DEV__) console.warn('[dailyDropApi] profiles fetch failed:', profilesError.message);
     const profileMap: Record<string, { name: string; avatar_url: string | null }> = {};
     profiles?.forEach((p) => { profileMap[p.id] = p; });
     setPastDrops(

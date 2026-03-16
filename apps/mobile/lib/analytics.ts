@@ -7,6 +7,17 @@ import PostHog from 'posthog-react-native';
 
 let client: PostHog | null = null;
 
+type CleanProps = Record<string, string | number | boolean>;
+
+function sanitize(props?: Record<string, string | number | boolean | null>): CleanProps | undefined {
+  if (!props) return undefined;
+  const clean: CleanProps = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (v !== null && v !== undefined) clean[k] = v;
+  }
+  return Object.keys(clean).length > 0 ? clean : undefined;
+}
+
 export function setPostHogClient(instance: PostHog | null) {
   client = instance;
 }
@@ -16,7 +27,7 @@ export function getPostHogClient(): PostHog | null {
 }
 
 export function identifyUser(userId: string, properties?: Record<string, string | number | boolean | null>) {
-  client?.identify(userId, properties as Record<string, string | number | boolean>);
+  client?.identify(userId, sanitize(properties));
 }
 
 export function resetAnalytics() {
@@ -24,9 +35,9 @@ export function resetAnalytics() {
 }
 
 export function trackEvent(eventName: string, properties?: Record<string, string | number | boolean | null>) {
-  client?.capture(eventName, properties as Record<string, string | number | boolean>);
+  client?.capture(eventName, sanitize(properties));
 }
 
 export function screen(screenName: string, properties?: Record<string, string | number | boolean | null>) {
-  client?.capture('$screen', { $screen_name: screenName, ...properties } as Record<string, string | number | boolean>);
+  client?.capture('$screen', { $screen_name: screenName, ...sanitize(properties) });
 }
