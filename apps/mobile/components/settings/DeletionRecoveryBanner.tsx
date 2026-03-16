@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 
 type DeletionRecoveryBannerProps = {
@@ -20,7 +21,7 @@ export function DeletionRecoveryBanner({ scheduledDate, onCancel, isCancelling }
   const formatted = format(new Date(scheduledDate), 'MMMM d, yyyy');
 
   return (
-    <View style={[styles.banner, { backgroundColor: theme.danger + '18', borderColor: theme.danger + '50' }]}>
+    <View style={[styles.banner, { backgroundColor: withAlpha(theme.danger, 0.09), borderColor: withAlpha(theme.danger, 0.31) }]}>
       <Ionicons name="warning" size={22} color={theme.danger} style={styles.icon} />
       <View style={styles.content}>
         <Text style={[styles.title, { color: theme.text }]}>
@@ -29,7 +30,7 @@ export function DeletionRecoveryBanner({ scheduledDate, onCancel, isCancelling }
         <Pressable
           onPress={onCancel}
           disabled={isCancelling}
-          style={[styles.btn, { borderColor: theme.danger + '80' }, isCancelling && styles.btnDisabled]}
+          style={[styles.btn, { borderColor: withAlpha(theme.danger, 0.5) }, isCancelling && styles.btnDisabled]}
         >
           {isCancelling ? (
             <ActivityIndicator size="small" color={theme.danger} />

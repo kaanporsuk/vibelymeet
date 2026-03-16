@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
@@ -87,7 +88,7 @@ export default function NotificationsSettingsScreen() {
                 ].map(({ key, label }) => (
                   <View key={key} style={[styles.toggleRow, { borderBottomColor: theme.border }]}>
                     <Text style={[styles.toggleLabel, { color: theme.text }]}>{label}</Text>
-                    <Switch value={prefs[key]} onValueChange={() => toggle(key)} trackColor={{ false: theme.surfaceSubtle, true: theme.tint + '99' }} thumbColor={prefs[key] ? theme.tint : theme.textSecondary} />
+                    <Switch value={prefs[key]} onValueChange={() => toggle(key)} trackColor={{ false: theme.surfaceSubtle, true: withAlpha(theme.tint, 0.6) }} thumbColor={prefs[key] ? theme.tint : theme.textSecondary} />
                   </View>
                 ))}
               </View>

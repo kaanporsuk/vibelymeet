@@ -174,6 +174,14 @@ export default function ProfileScreen() {
     return () => clearInterval(interval);
   }, [profile?.bunny_video_status, refetch]);
 
+  // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
+  useEffect(() => {
+    const status = profile?.bunny_video_status;
+    if (status !== 'uploading' && status !== 'processing') return;
+    const interval = setInterval(() => refetch(), 5000);
+    return () => clearInterval(interval);
+  }, [profile?.bunny_video_status, refetch]);
+
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
   const [tagline, setTagline] = useState('');
@@ -320,61 +328,59 @@ export default function ProfileScreen() {
 
   const handleAddPhoto = async () => {
     setPhotoError(null);
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
-        return;
-      }
-      // iOS: explicit FULL_SCREEN avoids native crash from Automatic presentation style
-      // (see expo/expo#14903 — "modal presentation style doesn't have a corresponding presentation controller")
-      const pickerOptions: ImagePicker.ImagePickerOptions = {
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.9,
-        ...(Platform.OS === 'ios' && {
-          presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
-        }),
-      };
-      const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
-      if (result.canceled || !result.assets?.[0]) return;
-      const asset = result.assets[0];
-      if (!asset.uri?.trim()) {
-        Alert.alert('Could not use photo', 'The selected image could not be loaded. Try another.');
-        return;
-      }
-      const currentCount = profile?.photos?.length ?? 0;
-      if (currentCount >= MAX_PHOTOS) {
-        Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`);
-        return;
-      }
-      setPhotoUploading(true);
-      const path = await uploadProfilePhoto({
-        uri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        fileName: asset.fileName ?? undefined,
-      });
-      const currentPhotos = profile?.photos ?? [];
-      // Prepend so new upload becomes main (hero + grid); web sets avatar to first photo
-      const newPhotos = [path, ...currentPhotos];
-      const primaryUrl = newPhotos[0] ?? null;
-      // Update cache immediately so UI shows new photo without waiting for refetch
-      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
-        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old
-      );
-      setLastAddedPhotoIndex(0);
-      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
-      qc.invalidateQueries({ queryKey: ['my-profile'] });
-      refetch().catch(() => {});
-      refreshOnboarding().catch(() => {});
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Upload failed';
-      setPhotoError(msg);
-      Alert.alert('Upload failed', msg);
-    } finally {
-      setPhotoUploading(false);
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+      return;
     }
+    const pickerOptions: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+      ...(Platform.OS === 'ios' && {
+        presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+      }),
+    };
+    const result = await ImagePicker.launchImageLibraryAsync(pickerOptions);
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (!asset.uri?.trim()) {
+      Alert.alert('Could not use photo', 'The selected image could not be loaded. Try another.');
+      return;
+    }
+    const currentCount = profile?.photos?.length ?? 0;
+    if (currentCount >= MAX_PHOTOS) {
+      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`);
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+        const path = await uploadProfilePhoto({
+          uri: asset.uri,
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          fileName: asset.fileName ?? undefined,
+        });
+          const currentPhotos = profile?.photos ?? [];
+        // Prepend so new upload becomes main (hero + grid); web sets avatar to first photo
+        const newPhotos = [path, ...currentPhotos];
+        const primaryUrl = newPhotos[0] ?? null;
+        // Update cache immediately so UI shows new photo without waiting for refetch
+        qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
+          old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old
+        );
+        setLastAddedPhotoIndex(0);
+        await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
+        qc.invalidateQueries({ queryKey: ['my-profile'] });
+        refetch().catch(() => {});
+        refreshOnboarding().catch(() => {});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Upload failed';
+        setPhotoError(msg);
+        Alert.alert('Upload failed', msg);
+      } finally {
+        setPhotoUploading(false);
+      }
   };
 
   const openManageSheet = () => {

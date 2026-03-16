@@ -4,7 +4,7 @@
  * If mutual: show celebration then navigate to matches/lobby. Else: warm message, navigate to lobby/dashboard.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Image, ActivityIndicator } from 'react-native';
 import { typography, spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
@@ -33,6 +33,15 @@ export function PostDateSurvey({
   const theme = Colors[colorScheme];
   const [step, setStep] = useState<'verdict' | 'celebration' | 'done'>('verdict');
   const [submitting, setSubmitting] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleVerdict = async (liked: boolean) => {
     if (submitting) return;
@@ -41,9 +50,11 @@ export function PostDateSurvey({
       const result = await onSubmitVerdict(liked);
       if (result?.mutual) {
         setStep('celebration');
-        setTimeout(() => {
+        if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => {
           setStep('done');
           onMutualMatch();
+          timeoutRef.current = null;
         }, 2000);
       } else {
         setStep('done');

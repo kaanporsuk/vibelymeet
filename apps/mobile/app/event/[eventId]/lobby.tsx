@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, LoadingState, ErrorState, Skeleton } from '@/components/ui';
 import { spacing, radius, layout, shadows } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -406,14 +407,14 @@ export default function EventLobbyScreen() {
           <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
             {event.title}
           </Text>
-          <View style={[styles.livePill, { backgroundColor: theme.success + '33' }]}>
+          <View style={[styles.livePill, { backgroundColor: withAlpha(theme.success, 0.2) }]}>
             <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
             <Text style={[styles.liveText, { color: theme.success }]}>LIVE</Text>
           </View>
         </View>
         <View style={styles.headerRight}>
           {queuedMatchCount > 0 && (
-            <View style={[styles.queuedBadge, { backgroundColor: theme.tint + '33', borderColor: theme.tint + '80' }]}>
+            <View style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.tint, 0.2), borderColor: withAlpha(theme.tint, 0.5) }]}>
               <Text style={[styles.queuedBadgeText, { color: theme.tint }]}>{queuedMatchCount} match{queuedMatchCount !== 1 ? 'es' : ''} waiting</Text>
             </View>
           )}
@@ -531,7 +532,7 @@ export default function EventLobbyScreen() {
               <Pressable
                 style={[
                   styles.actionCircle,
-                  { backgroundColor: theme.surface, borderColor: theme.danger + '60' },
+                  { backgroundColor: theme.surface, borderColor: withAlpha(theme.danger, 0.38) },
                   processing && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('pass')}
@@ -543,7 +544,7 @@ export default function EventLobbyScreen() {
                 style={[
                   styles.actionCircle,
                   styles.actionCircleSuper,
-                  { backgroundColor: theme.neonYellow + '28', borderColor: theme.neonYellow + '99' },
+                  { backgroundColor: withAlpha(theme.neonYellow, 0.16), borderColor: withAlpha(theme.neonYellow, 0.6) },
                   processing && styles.actionDisabled,
                   superVibeRemaining <= 0 && styles.actionDisabled,
                 ]}
@@ -668,13 +669,13 @@ function LobbyProfileCard({
       )}
       <View style={styles.cardGradient} />
       {profile.has_super_vibed && (
-        <View style={[styles.superVibeBadge, { backgroundColor: theme.neonYellow + '33', borderColor: theme.neonYellow + '80' }]}>
+        <View style={[styles.superVibeBadge, { backgroundColor: withAlpha(theme.neonYellow, 0.2), borderColor: withAlpha(theme.neonYellow, 0.5) }]}>
           <Ionicons name="sparkles" size={14} color={theme.neonYellow} />
           <Text style={[styles.superVibeText, { color: theme.neonYellow }]}>Someone wants to meet you!</Text>
         </View>
       )}
       {photoVerified && (
-        <View style={[styles.photoVerifiedBadge, { backgroundColor: theme.neonCyan + 'ee' }]}>
+        <View style={[styles.photoVerifiedBadge, { backgroundColor: withAlpha(theme.neonCyan, 0.93) }]}>
           <Ionicons name="shield-checkmark" size={14} color="#fff" />
         </View>
       )}
@@ -724,7 +725,7 @@ function LobbyProfileCard({
           </Text>
         )}
         {sharedCount > 0 && (
-          <View style={[styles.sharedVibesChip, { backgroundColor: theme.tintSoft, borderColor: theme.tint + '50' }]}>
+          <View style={[styles.sharedVibesChip, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
             <Ionicons name="sparkles" size={12} color={theme.tint} />
             <Text style={[styles.sharedVibesText, { color: theme.tint }]}>
               {sharedCount} shared vibe{sharedCount !== 1 ? 's' : ''}

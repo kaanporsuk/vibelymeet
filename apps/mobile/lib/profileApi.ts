@@ -70,11 +70,12 @@ function calculateAge(birthDate: Date): number {
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-
   const [profileRes, vibesRes] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until')
+      .select(
+        'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until'
+      )
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -88,12 +89,15 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
   if (!row) return null;
 
   type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
-  const vibes: string[] = (vibesRes.data as VibeRow[] | null)?.map((v) => {
-    const vt = v.vibe_tags;
-    if (!vt) return undefined;
-    const label = Array.isArray(vt) ? vt[0]?.label : (vt as { label: string }).label;
-    return label;
-  }).filter(Boolean) as string[] ?? [];
+  const vibeRows: VibeRow[] = (vibesRes.data as VibeRow[] | null) ?? [];
+  const vibes: string[] = vibeRows
+    .map((v) => {
+      const vt = v.vibe_tags;
+      if (!vt) return undefined;
+      const label = Array.isArray(vt) ? vt[0]?.label : (vt as { label: string }).label;
+      return label;
+    })
+    .filter(Boolean) as string[];
 
   return {
     ...row,
@@ -101,10 +105,10 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
     vibes,
     lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
     vibe_caption: (row.vibe_caption as string) ?? null,
-    photo_verified: row.photo_verified as boolean | null ?? null,
-    phone_verified: row.phone_verified as boolean | null ?? null,
+    photo_verified: (row.photo_verified as boolean | null) ?? null,
+    phone_verified: (row.phone_verified as boolean | null) ?? null,
     email_verified: (row as Record<string, unknown>).email_verified as boolean | null ?? null,
-    is_premium: row.is_premium as boolean | null ?? null,
+    is_premium: (row.is_premium as boolean | null) ?? null,
     premium_until: (row.premium_until as string) ?? null,
   } as ProfileRow;
 }

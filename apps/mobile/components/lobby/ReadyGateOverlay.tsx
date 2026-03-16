@@ -8,6 +8,7 @@ import { View, Text, Pressable, StyleSheet, Modal, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 
@@ -33,7 +34,7 @@ export function ReadyGateOverlay({ partnerName, partnerImageUri, onReady, onClos
             You matched with {partnerName || 'someone'}!
           </Text>
 
-          <View style={[styles.avatarWrap, { borderColor: theme.tint + '50', backgroundColor: theme.surfaceSubtle }]}>
+          <View style={[styles.avatarWrap, { borderColor: withAlpha(theme.tint, 0.31), backgroundColor: theme.surfaceSubtle }]}>
             {partnerImageUri ? (
               <Image source={{ uri: partnerImageUri }} style={styles.avatarImage} />
             ) : (

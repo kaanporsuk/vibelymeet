@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton, ErrorState } from '@/components/ui';
 import { spacing, radius, typography } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 
 const GATE_TIMEOUT_SEC = 30;
@@ -167,7 +168,7 @@ export default function ReadyGateScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
           <Text style={[styles.partnerLabel, { color: theme.textSecondary }]}>Your match</Text>
-          <View style={[styles.avatarWrap, { backgroundColor: theme.surfaceSubtle, borderColor: theme.tint + '40' }]}>
+          <View style={[styles.avatarWrap, { backgroundColor: theme.surfaceSubtle, borderColor: withAlpha(theme.tint, 0.25) }]}>
             {partnerAvatar ? (
               <Image source={{ uri: avatarUrl(partnerAvatar) }} style={styles.avatarImg} />
             ) : (
@@ -182,7 +183,7 @@ export default function ReadyGateScreen() {
           </View>
 
           {partnerReady && !iAmReady && (
-            <View style={[styles.readyCue, { backgroundColor: theme.successSoft ?? theme.tintSoft, borderColor: theme.success ?? theme.tint + '50' }]}>
+            <View style={[styles.readyCue, { backgroundColor: theme.successSoft ?? theme.tintSoft, borderColor: theme.success ?? withAlpha(theme.tint, 0.31) }]}>
               <Ionicons name="checkmark-circle" size={20} color={theme.success || theme.tint} />
               <Text style={[styles.readyCueText, { color: theme.text }]}>{partnerName ?? 'Partner'} is ready and waiting!</Text>
             </View>
@@ -212,7 +213,7 @@ export default function ReadyGateScreen() {
             </>
           ) : (
             <>
-              <View style={[styles.waitingPill, { backgroundColor: theme.tintSoft, borderColor: theme.tint + '50' }]}>
+              <View style={[styles.waitingPill, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
                 <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
                 <Text style={[styles.waitingText, { color: theme.text }]}>You're ready! Waiting for {partnerName ?? 'partner'}...</Text>
               </View>

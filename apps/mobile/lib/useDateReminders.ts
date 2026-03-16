@@ -3,7 +3,7 @@
  * Computes nextReminder, imminentReminders; no browser Notification (native uses push).
  */
 import { useState, useEffect, useMemo } from 'react';
-import { differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays } from 'date-fns';
+import { differenceInSeconds } from 'date-fns';
 import type { DateProposal } from '@/lib/useDateProposals';
 
 export type DateReminder = {
@@ -27,13 +27,11 @@ export type DateReminder = {
 function calculateTimeUntil(date: Date): DateReminder['timeUntil'] {
   const now = new Date();
   const totalSeconds = Math.max(0, differenceInSeconds(date, now));
-  return {
-    days: differenceInDays(date, now),
-    hours: differenceInHours(date, now) % 24,
-    minutes: differenceInMinutes(date, now) % 60,
-    seconds: totalSeconds % 60,
-    totalSeconds,
-  };
+  const days = Math.floor(totalSeconds / (24 * 60 * 60));
+  const hours = Math.floor((totalSeconds % (24 * 60 * 60)) / (60 * 60));
+  const minutes = Math.floor((totalSeconds % (60 * 60)) / 60);
+  const seconds = totalSeconds % 60;
+  return { days, hours, minutes, seconds, totalSeconds };
 }
 
 function getUrgency(totalSeconds: number): DateReminder['urgency'] {

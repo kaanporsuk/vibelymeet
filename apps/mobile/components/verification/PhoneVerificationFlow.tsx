@@ -9,6 +9,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyText, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 
 const COUNTRY_CODES = [
@@ -244,7 +245,7 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified }: PhoneVer
 
           {step === 'success' && (
             <View style={styles.successWrap}>
-              <Animated.View style={[styles.successIcon, { backgroundColor: theme.success + '30' }, { transform: [{ scale: successScale }] }]}>
+              <Animated.View style={[styles.successIcon, { backgroundColor: withAlpha(theme.success, 0.19) }, { transform: [{ scale: successScale }] }]}>
                 <Ionicons name="checkmark-circle" size={48} color={theme.success} />
               </Animated.View>
               <VibelyText variant="titleSM" style={{ color: theme.text }}>Your phone is verified</VibelyText>

@@ -1,8 +1,14 @@
+<<<<<<< HEAD
 # Native final blocker matrix (through Phase 7)
 
 Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use for go/no-go and prioritization.
 
 **Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done; OneSignal web production service-worker and rebuild rehearsal are accounted for as known risks.
+=======
+# Native final blocker matrix (through Sprint 6)
+
+Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–5 and Sprint 6 (launch closure execution runbook). Use for go/no-go and prioritization.
+>>>>>>> origin/main
 
 ---
 
@@ -41,11 +47,14 @@ For items that are blocking and have a clear resolution path:
 - **Cause:** OneSignal project must have iOS and Android apps with APNs/FCM configured.
 - **Fix:** Follow `docs/native-external-setup-checklist.md` §3: Add iOS app (bundle ID, APNs), Android app (FCM). Set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets. App uses production APNs for EAS preview/production builds via `app.config.js`.
 
+<<<<<<< HEAD
 ### OneSignal web (production — open hardening caveat)
 
 - **Cause:** OneSignal v16 web push requires the service-worker script to be served **from the production domain root** and correct origin/service-worker configuration in the OneSignal dashboard. Without this, production web push can fail or be untested.
 - **Fix:** Ensure production site serves the OneSignal service-worker from root (no 404); in OneSignal dashboard configure the web app’s origin and service-worker settings for production. See `docs/native-external-setup-checklist.md` §3 (web note) and runbook. **Do not forget** this when moving to submission; it is part of the release-readiness picture.
 
+=======
+>>>>>>> origin/main
 ### Bunny photo 404 (non-blocker for launch if accepted)
 
 - **Cause:** Pull zone returns 404 — request reaches CDN but path not found. App builds URLs per contract (`photos/{userId}/{timestamp}.{ext}`); no app bug.
@@ -108,7 +117,11 @@ Expected in dev builds only; not bugs and not present in production builds.
 
 ---
 
+<<<<<<< HEAD
 ## Sprint 6 / Phase 7 test results (fill after validation)
+=======
+## Sprint 6 test results (fill after validation)
+>>>>>>> origin/main
 
 | Phase | Pass/fail | Blocker (if fail) |
 |-------|-----------|--------------------|
@@ -116,14 +129,22 @@ Expected in dev builds only; not bugs and not present in production builds.
 | RevenueCat real-device (purchase/restore) | | |
 | OneSignal dashboard setup | | |
 | OneSignal real-device (push) | | |
+<<<<<<< HEAD
 | OneSignal web (production service-worker + origin) | | |
+=======
+>>>>>>> origin/main
 | EAS preview build | | |
 | EAS production build | | |
 | iOS device validation checklist | | |
 | Android device validation checklist | | |
+<<<<<<< HEAD
 | Rebuild rehearsal (post–Phase 7) | | |
 
 Execution order and Kaan steps: `docs/native-sprint6-launch-closure-runbook.md`. Full release-readiness matrix and go/no-go: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
+=======
+
+Execution order and Kaan steps: `docs/native-sprint6-launch-closure-runbook.md`.
+>>>>>>> origin/main
 
 ---
 

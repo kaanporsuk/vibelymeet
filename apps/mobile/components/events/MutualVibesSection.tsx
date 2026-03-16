@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radius, typography } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { withAlpha } from '@/lib/colorUtils';
 import type { EventVibeMutual } from '@/lib/eventsApi';
 
 const CARD_WIDTH = 100;
@@ -49,12 +50,12 @@ export function MutualVibesSection({ mutualVibes, onProfilePress }: Props) {
             onPress={() => onProfilePress?.(v.id)}
             style={({ pressed }) => [
               styles.card,
-              { backgroundColor: theme.surface, borderColor: theme.tint + '60' },
+              { backgroundColor: theme.surface, borderColor: withAlpha(theme.tint, 0.38) },
               pressed && styles.pressed,
             ]}
           >
             {v.avatar ? (
-              <Image source={{ uri: v.avatar }} style={[styles.avatar, { borderColor: theme.tint + '80' }]} />
+              <Image source={{ uri: v.avatar }} style={[styles.avatar, { borderColor: withAlpha(theme.tint, 0.5) }]} />
             ) : (
               <View style={[styles.avatarPlaceholder, { backgroundColor: theme.muted }]}>
                 <Ionicons name="person" size={24} color={theme.mutedForeground} />

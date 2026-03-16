@@ -34,7 +34,7 @@ export async function submitReport(params: {
       blocked_id: params.reportedId,
       reason: `Reported: ${params.reason}`,
     });
-    if (blockError && !blockError.message.includes('duplicate')) {
+    if (blockError && blockError.code !== '23505') {
       throw blockError;
     }
   }

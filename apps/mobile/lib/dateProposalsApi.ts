@@ -30,7 +30,7 @@ export function getTimeBlockLabel(block: TimeBlock): string {
   return TIME_BLOCK_LABELS[block] ?? block;
 }
 
-export function useDateProposals(matchId: string | null, currentUserId: string | undefined, enabled: boolean) {
+export function useChatDateProposals(matchId: string | null, currentUserId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ['date-proposals', matchId, currentUserId],
     queryFn: async (): Promise<DateProposalRow[]> => {

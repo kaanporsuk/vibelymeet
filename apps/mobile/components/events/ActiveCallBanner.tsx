@@ -7,6 +7,7 @@ import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyButton } from '@/components/ui';
 
@@ -55,7 +56,7 @@ export function ActiveCallBanner({ sessionId, partnerName, onRejoin, onEnd }: Ac
               onPress={onEnd}
               style={({ pressed }) => [
                 styles.endBtn,
-                { backgroundColor: theme.danger + '20' },
+                { backgroundColor: withAlpha(theme.danger, 0.125) },
                 pressed && { opacity: 0.8 },
               ]}
               accessibilityLabel="End date"

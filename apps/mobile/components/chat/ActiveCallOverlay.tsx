@@ -10,6 +10,7 @@ import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { VibelyText } from '@/components/ui';
 
 function formatDuration(seconds: number): string {
@@ -94,7 +95,7 @@ export function ActiveCallOverlay({
           <VibelyText variant="titleMD" style={{ color: theme.text }}>{partnerName}</VibelyText>
           <VibelyText variant="body" style={[styles.duration, { color: theme.textSecondary }]}>{formatDuration(callDuration)}</VibelyText>
           <View style={styles.controlsRow}>
-            <Pressable onPress={onToggleMute} style={[styles.controlBtn, { backgroundColor: isMuted ? theme.danger + '30' : theme.surfaceSubtle }]}>
+            <Pressable onPress={onToggleMute} style={[styles.controlBtn, { backgroundColor: isMuted ? withAlpha(theme.danger, 0.19) : theme.surfaceSubtle }]}>
               <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={24} color={theme.text} />
             </Pressable>
             <Pressable onPress={onEndCall} style={[styles.endBtn, { backgroundColor: theme.danger }]}>

@@ -18,6 +18,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton, LoadingState } from '@/components/ui';
 import { spacing, radius, layout, typography } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 
 const OPENER_MAX = 140;
@@ -113,7 +114,7 @@ export default function DailyDropScreen() {
           <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
         </GlassHeaderBar>
         <View style={styles.centered}>
-          <View style={[styles.emptyIconWrap, { backgroundColor: theme.tintSoft + '60', borderColor: theme.tint + '40' }]}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.38), borderColor: withAlpha(theme.tint, 0.25) }]}>
             <Ionicons name="gift-outline" size={40} color={theme.tint} />
           </View>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>No drop for today</Text>
@@ -179,7 +180,7 @@ export default function DailyDropScreen() {
 
         {chatUnlocked && matchId && partnerId ? (
           <View style={styles.section}>
-            <View style={[styles.connectedCue, { backgroundColor: theme.tintSoft, borderColor: theme.tint + '50' }]}>
+            <View style={[styles.connectedCue, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
               <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
               <Text style={[styles.connectedText, { color: theme.text }]}>You're connected! Chat is unlocked.</Text>
             </View>
@@ -196,7 +197,7 @@ export default function DailyDropScreen() {
               <Text style={[styles.bubbleText, { color: theme.text }]}>{openerText}</Text>
             </View>
             {replyText ? (
-              <View style={[styles.bubble, styles.bubbleMe, { backgroundColor: theme.tint + '99' }]}>
+              <View style={[styles.bubble, styles.bubbleMe, { backgroundColor: withAlpha(theme.tint, 0.6) }]}>
                 <Text style={[styles.bubbleText, { color: '#fff' }]}>{replyText}</Text>
               </View>
             ) : !openerSentByMe && user?.id ? (

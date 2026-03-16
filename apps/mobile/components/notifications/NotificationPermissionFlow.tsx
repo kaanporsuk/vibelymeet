@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 
 type Step = 'intro' | 'requesting' | 'success' | 'denied';
@@ -57,15 +58,15 @@ export function NotificationPermissionFlow({
                 Get notified when your daily drop arrives and when your dates are about to start.
               </Text>
               <View style={styles.bullets}>
-                <View style={[styles.bullet, { backgroundColor: theme.tintSoft + '80' }]}>
+                <View style={[styles.bullet, { backgroundColor: withAlpha(theme.tintSoft, 0.5) }]}>
                   <Text style={styles.bulletEmoji}>💧</Text>
                   <Text style={[styles.bulletText, { color: theme.text }]}>Daily drop ready at 6 PM</Text>
                 </View>
-                <View style={[styles.bullet, { backgroundColor: theme.neonCyan + '20' }]}>
+                <View style={[styles.bullet, { backgroundColor: withAlpha(theme.neonCyan, 0.125) }]}>
                   <Text style={styles.bulletEmoji}>📅</Text>
                   <Text style={[styles.bulletText, { color: theme.text }]}>Date reminders before start</Text>
                 </View>
-                <View style={[styles.bullet, { backgroundColor: theme.accent + '20' }]}>
+                <View style={[styles.bullet, { backgroundColor: withAlpha(theme.accent, 0.125) }]}>
                   <Text style={styles.bulletEmoji}>💬</Text>
                   <Text style={[styles.bulletText, { color: theme.text }]}>New matches & messages</Text>
                 </View>
@@ -84,7 +85,7 @@ export function NotificationPermissionFlow({
           )}
           {step === 'success' && (
             <View style={styles.centered}>
-              <View style={[styles.iconWrap, { backgroundColor: theme.success + '30' }]}>
+              <View style={[styles.iconWrap, { backgroundColor: withAlpha(theme.success, 0.19) }]}>
                 <Ionicons name="checkmark-circle" size={40} color={theme.success} />
               </View>
               <Text style={[styles.title, { color: theme.text }]}>You're All Set!</Text>
@@ -93,7 +94,7 @@ export function NotificationPermissionFlow({
           )}
           {step === 'denied' && (
             <>
-              <View style={[styles.iconWrap, { backgroundColor: theme.danger + '25' }]}>
+              <View style={[styles.iconWrap, { backgroundColor: withAlpha(theme.danger, 0.15) }]}>
                 <Ionicons name="notifications-off" size={40} color={theme.danger} />
               </View>
               <Text style={[styles.title, { color: theme.text }]}>Notifications Blocked</Text>

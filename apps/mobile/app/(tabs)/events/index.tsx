@@ -22,6 +22,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { Card, GlassHeaderBar, ErrorState, EmptyState, Skeleton, VibelyButton } from '@/components/ui';
 import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useIsRegisteredForEvent, useEventAttendees, type EventListItem, type EventAttendee } from '@/lib/eventsApi';
@@ -185,7 +186,7 @@ function FeaturedEventCard({
       <View style={featuredStyles.content}>
         <View style={featuredStyles.badges}>
           {expired ? (
-            <View style={[featuredStyles.endedBadge, { backgroundColor: theme.surface + 'cc', borderColor: theme.border }]}>
+            <View style={[featuredStyles.endedBadge, { backgroundColor: withAlpha(theme.surface, 0.8), borderColor: theme.border }]}>
               <View style={[featuredStyles.liveDot, { backgroundColor: theme.textSecondary }]} />
               <Text style={[featuredStyles.endedText, { color: theme.textSecondary }]}>Event Ended</Text>
             </View>
@@ -202,7 +203,7 @@ function FeaturedEventCard({
           )}
         </View>
         {!isLive && !expired && (
-          <View style={[featuredStyles.countdown, { backgroundColor: theme.background + '66', borderColor: 'rgba(255,255,255,0.1)' }]}>
+          <View style={[featuredStyles.countdown, { backgroundColor: withAlpha(theme.background, 0.4), borderColor: 'rgba(255,255,255,0.1)' }]}>
             <Ionicons name="time-outline" size={16} color={theme.neonCyan} />
             <Text style={[featuredStyles.countdownText, { color: theme.text }]}>
               {String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}

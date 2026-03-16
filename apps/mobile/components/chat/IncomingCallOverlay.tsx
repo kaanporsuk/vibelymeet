@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { VibelyText } from '@/components/ui';
 import type { IncomingCallData } from '@/lib/useMatchCall';
 
@@ -68,7 +69,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
                 key={i}
                 style={[
                   styles.ring,
-                  { borderColor: theme.tint + '50', transform: [{ scale: anim }], opacity: anim.interpolate({ inputRange: [1, 2.2], outputRange: [0.5, 0] }) },
+                  { borderColor: withAlpha(theme.tint, 0.31), transform: [{ scale: anim }], opacity: anim.interpolate({ inputRange: [1, 2.2], outputRange: [0.5, 0] }) },
                 ]}
               />
             ))}

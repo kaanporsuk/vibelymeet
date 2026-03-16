@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Card, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 
 const WEB_VERIFY_URL = 'https://vibelymeet.com/settings';
@@ -69,7 +70,7 @@ export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: Phone
   if (dismissed) return null;
 
   return (
-    <Card variant="glass" style={[styles.card, { borderColor: theme.tint + '40' }]}>
+    <Card variant="glass" style={[styles.card, { borderColor: withAlpha(theme.tint, 0.25) }]}>
       {variant === 'event' && (
         <Pressable style={styles.dismissBtn} onPress={handleDismiss} accessibilityLabel="Dismiss">
           <Ionicons name="close" size={18} color={theme.textSecondary} />

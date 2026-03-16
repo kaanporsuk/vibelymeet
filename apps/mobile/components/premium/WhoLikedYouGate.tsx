@@ -10,6 +10,7 @@ import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyText, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 
 type WhoLikedYouGateProps = { count: number };
@@ -32,7 +33,7 @@ export function WhoLikedYouGate({ count }: WhoLikedYouGateProps) {
         ))}
       </View>
       <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={[styles.overlay, { backgroundColor: theme.background + '99' }]}>
+      <View style={[styles.overlay, { backgroundColor: withAlpha(theme.background, 0.6) }]}>
         <View style={[styles.lockIcon, { backgroundColor: theme.tintSoft }]}>
           <Ionicons name="lock-closed" size={20} color={theme.tint} />
         </View>

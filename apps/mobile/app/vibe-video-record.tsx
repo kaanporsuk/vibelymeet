@@ -20,7 +20,7 @@ export default function VibeVideoRecordScreen() {
   const theme = Colors[colorScheme];
   const [camPermission, requestCamPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<CameraView | null>(null);
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -35,7 +35,7 @@ export default function VibeVideoRecordScreen() {
     if (!cameraRef.current || !permission) return;
     setRecording(true);
     try {
-      const result = await cameraRef.current.recordAsync({ maxDuration: MAX_DURATION_SEC });
+      const result = await cameraRef.current?.recordAsync({ maxDuration: MAX_DURATION_SEC });
       setRecording(false);
       if (result?.uri) {
         await doUpload(result.uri);
@@ -49,7 +49,7 @@ export default function VibeVideoRecordScreen() {
   const stopRecording = async () => {
     if (!cameraRef.current) return;
     try {
-      cameraRef.current.stopRecording();
+      cameraRef.current?.stopRecording();
     } catch {
       setRecording(false);
     }

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { withAlpha } from '@/lib/colorUtils';
 import { Card, VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 
@@ -126,7 +127,7 @@ export function VenueCard({
   return (
     <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
       <View style={styles.row}>
-        <View style={[styles.iconWrap, { backgroundColor: theme.accent + '25' }]}>
+        <View style={[styles.iconWrap, { backgroundColor: withAlpha(theme.accent, 0.15) }]}>
           <Ionicons name="location" size={24} color={theme.accent} />
         </View>
         <View style={styles.heading}>

@@ -6,6 +6,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import { typography, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 
 type Props = {
@@ -59,7 +60,7 @@ export function ConnectionOverlay({ isConnecting, onLeave }: Props) {
               { transform: [{ scale: ring2 }] },
             ]}
           />
-          <View style={[styles.centerDot, { backgroundColor: theme.tint + '30' }]}>
+          <View style={[styles.centerDot, { backgroundColor: withAlpha(theme.tint, 0.19) }]}>
             <View style={[styles.innerDot, { backgroundColor: theme.tint }]} />
           </View>
         </View>

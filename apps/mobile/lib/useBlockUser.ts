@@ -35,7 +35,7 @@ export function useBlockUser(userId: string | null | undefined) {
         blocked_id: blockedId,
         reason: reason || null,
       });
-      if (blockError && !blockError.message.includes('duplicate') && !blockError.message.includes('unique')) {
+      if (blockError && blockError.code !== '23505') {
         throw blockError;
       }
 

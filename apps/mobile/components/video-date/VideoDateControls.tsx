@@ -42,6 +42,8 @@ export function VideoDateControls({
           { width: btnSize, height: btnSize, backgroundColor: theme.muted },
           pressed && styles.pressed,
         ]}
+        accessibilityRole="button"
+        accessibilityLabel="View profile"
       >
         <Text style={styles.iconLabel}>👤</Text>
       </Pressable>
@@ -54,12 +56,16 @@ export function VideoDateControls({
             { width: btnSize, height: btnSize, backgroundColor: isMuted ? theme.danger : theme.muted },
             pressed && styles.pressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
           <Text style={styles.iconLabel}>{isMuted ? '🔇' : '🎤'}</Text>
         </Pressable>
         <Pressable
           onPress={onLeave}
           style={({ pressed }) => [styles.endBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="End call"
         >
           <Text style={styles.endBtnText}>📞 End</Text>
         </Pressable>
@@ -70,6 +76,8 @@ export function VideoDateControls({
             { width: btnSize, height: btnSize, backgroundColor: isVideoOff ? theme.danger : theme.muted },
             pressed && styles.pressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={isVideoOff ? 'Turn camera on' : 'Turn camera off'}
         >
           <Text style={styles.iconLabel}>{isVideoOff ? '📷 Off' : '📷'}</Text>
         </Pressable>
@@ -82,6 +90,8 @@ export function VideoDateControls({
           { width: btnSize, height: btnSize, backgroundColor: theme.muted, opacity: hasCredits ? 1 : 0.5 },
         ]}
         disabled={!hasCredits}
+        accessibilityRole="button"
+        accessibilityLabel="Add more time"
       >
         <Text style={styles.iconLabel}>+⏱</Text>
       </Pressable>

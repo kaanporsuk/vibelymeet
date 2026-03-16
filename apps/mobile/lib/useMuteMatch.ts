@@ -101,9 +101,14 @@ export function useMuteMatch(userId: string | null | undefined) {
       if (!userId) throw new Error('Not authenticated');
       const { error } = await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
       if (error) throw error;
-      try {
-        await supabase.from('match_notification_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-      } catch {}
+      const { error: notifMuteError } = await supabase
+        .from('match_notification_mutes')
+        .delete()
+        .eq('match_id', matchId)
+        .eq('user_id', userId);
+      if (notifMuteError && __DEV__) {
+        console.warn('[useMuteMatch] notification mute delete failed:', notifMuteError.message);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['match-mutes'] });

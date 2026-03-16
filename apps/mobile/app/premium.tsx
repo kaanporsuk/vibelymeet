@@ -12,6 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, LoadingState, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, layout } from '@/constants/theme';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import {
@@ -172,7 +173,7 @@ export default function PremiumScreen() {
               <Text style={[styles.featuresCardTitle, { color: theme.text }]}>What you get</Text>
               {PREMIUM_FEATURES.map((feature) => (
                 <View key={feature} style={styles.featureRow}>
-                  <View style={[styles.featureCheckWrap, { backgroundColor: theme.tintSoft + '80' }]}>
+                  <View style={[styles.featureCheckWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.5) }]}>
                     <Ionicons name="checkmark" size={16} color={theme.tint} />
                   </View>
                   <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
@@ -181,7 +182,7 @@ export default function PremiumScreen() {
             </Card>
 
             {error ? (
-              <View style={[styles.errorBar, { backgroundColor: theme.dangerSoft, borderColor: theme.danger + '40' }]}>
+              <View style={[styles.errorBar, { backgroundColor: theme.dangerSoft, borderColor: withAlpha(theme.danger, 0.25) }]}>
                 <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
               </View>
             ) : null}

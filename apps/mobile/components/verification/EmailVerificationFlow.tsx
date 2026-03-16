@@ -9,6 +9,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyText, VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 
 type Step = 'send' | 'otp' | 'success';
@@ -166,7 +167,7 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
 
           {step === 'success' && (
             <View style={styles.successWrap}>
-              <View style={[styles.successIcon, { backgroundColor: theme.success + '30' }]}>
+              <View style={[styles.successIcon, { backgroundColor: withAlpha(theme.success, 0.19) }]}>
                 <Ionicons name="checkmark-circle" size={48} color={theme.success} />
               </View>
               <VibelyText variant="titleSM" style={{ color: theme.text }}>Email verified!</VibelyText>

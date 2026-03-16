@@ -11,6 +11,7 @@ import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
@@ -114,7 +115,7 @@ export default function AccountSettingsScreen() {
             <Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{email || '—'}</Text>
             <View style={styles.verificationRow}>
               {profile?.phone_verified ? (
-                <View style={[styles.badge, { backgroundColor: theme.success + '25' }]}>
+                <View style={[styles.badge, { backgroundColor: withAlpha(theme.success, 0.15) }]}>
                   <Ionicons name="call" size={14} color={theme.success} />
                   <Text style={[styles.badgeText, { color: theme.success }]}>Phone verified</Text>
                 </View>
@@ -125,7 +126,7 @@ export default function AccountSettingsScreen() {
                 </Pressable>
               )}
               {profile?.email_verified ? (
-                <View style={[styles.badge, { backgroundColor: theme.success + '25' }]}>
+                <View style={[styles.badge, { backgroundColor: withAlpha(theme.success, 0.15) }]}>
                   <Ionicons name="mail" size={14} color={theme.success} />
                   <Text style={[styles.badgeText, { color: theme.success }]}>Email verified</Text>
                 </View>
@@ -135,7 +136,7 @@ export default function AccountSettingsScreen() {
                   <Text style={[styles.badgeText, { color: theme.textSecondary }]}>Verify Email</Text>
                 </Pressable>
               )}
-              <View style={[styles.badge, (profile?.photo_verified) ? { backgroundColor: theme.success + '25' } : { backgroundColor: theme.surfaceSubtle }]}>
+              <View style={[styles.badge, (profile?.photo_verified) ? { backgroundColor: withAlpha(theme.success, 0.15) } : { backgroundColor: theme.surfaceSubtle }]}>
                 <Ionicons name="camera" size={14} color={profile?.photo_verified ? theme.success : theme.textSecondary} />
                 <Text style={[styles.badgeText, { color: profile?.photo_verified ? theme.success : theme.textSecondary }]}>
                   {profile?.photo_verified ? 'Photo verified' : 'Photo not verified'}
@@ -159,7 +160,7 @@ export default function AccountSettingsScreen() {
               disabled={isDeleting}
               style={({ pressed }) => [
                 styles.deleteBtn,
-                { backgroundColor: theme.danger + '18', borderColor: theme.danger + '50' },
+                { backgroundColor: withAlpha(theme.danger, 0.09), borderColor: withAlpha(theme.danger, 0.31) },
                 pressed && { opacity: 0.9 },
               ]}
             >

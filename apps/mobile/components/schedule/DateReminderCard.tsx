@@ -9,6 +9,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyButton } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 import type { DateReminder } from '@/lib/useDateReminders';
 
 type DateReminderCardProps = {
@@ -33,8 +34,8 @@ export function DateReminderCard({
       style={[
         styles.card,
         {
-          backgroundColor: isUrgent ? theme.dangerSoft + '40' : isSoon ? theme.neonYellow + '20' : theme.tintSoft + '30',
-          borderColor: isUrgent ? theme.danger + '60' : isSoon ? theme.neonYellow + '60' : theme.tint + '50',
+          backgroundColor: isUrgent ? withAlpha(theme.dangerSoft, 0.25) : isSoon ? withAlpha(theme.neonYellow, 0.125) : withAlpha(theme.tintSoft, 0.19),
+          borderColor: isUrgent ? withAlpha(theme.danger, 0.38) : isSoon ? withAlpha(theme.neonYellow, 0.38) : withAlpha(theme.tint, 0.31),
         },
       ]}
     >
@@ -43,7 +44,7 @@ export function DateReminderCard({
           style={[
             styles.modeIcon,
             {
-              backgroundColor: reminder.mode === 'video' ? theme.neonCyan + '25' : theme.accent + '25',
+              backgroundColor: reminder.mode === 'video' ? withAlpha(theme.neonCyan, 0.15) : withAlpha(theme.accent, 0.15),
             },
           ]}
         >
@@ -120,7 +121,7 @@ export function MiniDateCountdown({
         styles.chip,
         {
           backgroundColor: isUrgent ? theme.dangerSoft : theme.tintSoft,
-          borderColor: isUrgent ? theme.danger + '80' : theme.tint + '80',
+          borderColor: isUrgent ? withAlpha(theme.danger, 0.5) : withAlpha(theme.tint, 0.5),
         },
       ]}
     >

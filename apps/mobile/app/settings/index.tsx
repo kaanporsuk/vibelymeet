@@ -17,6 +17,7 @@ import {
   VibelyButton,
 } from '@/components/ui';
 import { spacing, typography, layout, radius } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
@@ -45,6 +46,8 @@ function formatDate(s: string | null): string {
     return '';
   }
 }
+
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -105,7 +108,7 @@ export default function SettingsScreen() {
             {!subLoading && isPremium ? (
               <View style={styles.premiumCardInner}>
                 <View style={styles.premiumCardRow}>
-                  <View style={[styles.premiumIconBox, { backgroundColor: theme.tint + '33' }]}>
+                  <View style={[styles.premiumIconBox, { backgroundColor: withAlpha(theme.tint, 0.2) }]}>
                     <Ionicons name="sparkles" size={20} color={theme.tint} />
                   </View>
                   <View style={styles.premiumCardText}>
@@ -227,7 +230,7 @@ export default function SettingsScreen() {
           </View>
 
           {/* Danger Zone — contained, with helper */}
-          <View style={[styles.dangerZone, { borderTopColor: theme.danger + '33' }]}>
+          <View style={[styles.dangerZone, { borderTopColor: withAlpha(theme.danger, 0.2) }]}>
             <Text style={[styles.dangerZoneTitle, { color: theme.danger }]}>Danger Zone</Text>
             <Text style={[styles.dangerZoneHelper, { color: theme.textSecondary }]}>
               Account deletion is permanent after the grace period.
