@@ -26,6 +26,7 @@ export function VideoDateControls({
   onToggleVideo,
   onLeave,
   onViewProfile,
+  onAddTime,
   hasCredits,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -75,6 +76,7 @@ export function VideoDateControls({
       </View>
 
       <Pressable
+        onPress={onAddTime}
         style={[
           styles.iconBtn,
           { width: btnSize, height: btnSize, backgroundColor: theme.muted, opacity: hasCredits ? 1 : 0.5 },

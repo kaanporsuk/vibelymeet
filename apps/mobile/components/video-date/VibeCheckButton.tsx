@@ -20,7 +20,6 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
   const theme = Colors[colorScheme];
   const [hasVibed, setHasVibed] = React.useState(false);
   const isProminent = timeLeft <= 20;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -67,7 +66,7 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
       >
         <View style={styles.inner}>
           <Text style={[styles.label, isProminent ? { color: theme.primaryForeground } : { color: theme.mutedForeground }]}>
-            Vibed ✓
+            {hasVibed ? 'Vibed ✓' : 'Vibe ✓'}
           </Text>
         </View>
       </Pressable>

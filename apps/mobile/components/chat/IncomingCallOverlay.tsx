@@ -54,7 +54,8 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
     );
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, [ringAnims]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Modal transparent visible animationType="fade">

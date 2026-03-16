@@ -84,14 +84,11 @@ export function useMuteMatch(userId: string | null | undefined) {
         if (insertError) throw insertError;
       }
 
-      try {
-        await supabase.from('match_notification_mutes').upsert(
-          { match_id: matchId, user_id: userId, muted_until: mutedUntil },
-          { onConflict: 'match_id,user_id' }
-        );
-      } catch {
-        // best-effort
-      }
+      const { error: muteError } = await supabase.from('match_notification_mutes').upsert(
+        { match_id: matchId, user_id: userId, muted_until: mutedUntil },
+        { onConflict: 'match_id,user_id' }
+      );
+      if (muteError && __DEV__) console.warn('[useMuteMatch] mute upsert failed:', muteError.message);
       return { duration };
     },
     onSuccess: () => {

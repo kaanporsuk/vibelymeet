@@ -53,7 +53,11 @@ export async function updateMatchCallStatus(
   if (extra?.ended_at) payload.ended_at = extra.ended_at;
   if (extra?.started_at) payload.started_at = extra.started_at;
   if (extra?.duration_seconds != null) payload.duration_seconds = extra.duration_seconds;
-  await supabase.from('match_calls').update(payload).eq('id', callId);
+  const { error } = await supabase.from('match_calls').update(payload).eq('id', callId);
+  if (error) {
+    if (__DEV__) console.warn('[matchCallApi] updateMatchCallStatus failed:', error.message);
+    throw new Error(`Failed to update call status: ${error.message}`);
+  }
 }
 
 export async function deleteMatchCallRoom(roomName: string): Promise<void> {

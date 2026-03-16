@@ -26,7 +26,7 @@ export function ReadyGateOverlay({ partnerName, partnerImageUri, onReady, onClos
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.72)' }]} onPress={undefined}>
+      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.72)' }]} pointerEvents="auto">
         <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
           <Text style={[styles.title, { color: theme.text }]}>Ready to vibe?</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
@@ -52,7 +52,7 @@ export function ReadyGateOverlay({ partnerName, partnerImageUri, onReady, onClos
             <Text style={[styles.skipText, { color: theme.textSecondary }]}>Skip this one</Text>
           </Pressable>
         </Card>
-      </Pressable>
+      </View>
     </Modal>
   );
 }

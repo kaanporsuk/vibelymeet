@@ -33,7 +33,7 @@ export function ReactionPicker({ visible, onClose, onSelect, anchorRight = false
     <Modal transparent visible animationType="fade">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable
-          style={[styles.bar, { backgroundColor: theme.surface }, anchorRight ? styles.barRight : styles.barLeft]}
+          style={[styles.bar, { backgroundColor: theme.surface, borderColor: theme.border }, anchorRight ? styles.barRight : styles.barLeft]}
           onPress={(e) => e.stopPropagation()}
         >
           {EMOJIS.map(({ emoji, label }) => (

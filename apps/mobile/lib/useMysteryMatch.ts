@@ -16,6 +16,7 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const findMysteryMatch = useCallback(async () => {
+    if (intervalRef.current || isWaiting) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!eventId || !user?.id) return;
 

@@ -23,6 +23,7 @@ export function useArchiveMatch(userId: string | null | undefined) {
 
   const unarchiveMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
+      if (!userId) throw new Error('Not authenticated');
       const { error } = await supabase.from('matches').update({ archived_at: null, archived_by: null }).eq('id', matchId);
       if (error) throw error;
     },

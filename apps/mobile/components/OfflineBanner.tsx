@@ -5,23 +5,23 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNetworkStatus } from '@/lib/useNetworkStatus';
+import { useIsOffline } from '@/lib/useNetworkStatus';
 import { spacing } from '@/constants/theme';
 
 const BANNER_HEIGHT = 44;
 
 export function OfflineBanner() {
   const insets = useSafeAreaInsets();
-  const { isConnected } = useNetworkStatus();
+  const isOffline = useIsOffline();
   const translateY = useRef(new Animated.Value(-BANNER_HEIGHT - 20)).current;
 
   useEffect(() => {
     Animated.timing(translateY, {
-      toValue: isConnected ? -BANNER_HEIGHT - 20 : 0,
+      toValue: isOffline ? 0 : -BANNER_HEIGHT - 20,
       duration: 280,
       useNativeDriver: true,
     }).start();
-  }, [isConnected, translateY]);
+  }, [isOffline, translateY]);
 
   return (
     <Animated.View
@@ -34,7 +34,7 @@ export function OfflineBanner() {
           transform: [{ translateY }],
         },
       ]}
-      pointerEvents={isConnected ? 'none' : 'auto'}
+      pointerEvents={isOffline ? 'auto' : 'none'}
     >
       <Ionicons name="cloud-offline" size={20} color="#fff" />
       <Text style={styles.text}>No internet connection</Text>

@@ -7,6 +7,10 @@ import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
+if (!SUPABASE_URL) {
+  throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
+}
+
 export type UploadImageResult = { path: string };
 
 export interface ImagePickerAsset {

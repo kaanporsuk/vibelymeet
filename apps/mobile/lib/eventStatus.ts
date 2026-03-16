@@ -35,22 +35,20 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
   useEffect(() => {
     if (!enabled || !eventId || !userId) return;
     (async () => {
-      try {
-        await supabase
-          .from('event_registrations')
-          .update({ queue_status: 'browsing', last_active_at: new Date().toISOString() })
-          .eq('event_id', eventId)
-          .eq('profile_id', userId);
-      } catch {}
+      const { error } = await supabase
+        .from('event_registrations')
+        .update({ queue_status: 'browsing', last_active_at: new Date().toISOString() })
+        .eq('event_id', eventId)
+        .eq('profile_id', userId);
+      if (error && __DEV__) console.warn('[eventStatus] initial status update failed:', error.message);
     })();
     const heartbeat = setInterval(async () => {
-      try {
-        await supabase
-          .from('event_registrations')
-          .update({ last_active_at: new Date().toISOString() })
-          .eq('event_id', eventId)
-          .eq('profile_id', userId);
-      } catch {}
+      const { error } = await supabase
+        .from('event_registrations')
+        .update({ last_active_at: new Date().toISOString() })
+        .eq('event_id', eventId)
+        .eq('profile_id', userId);
+      if (error && __DEV__) console.warn('[eventStatus] heartbeat update failed:', error.message);
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
