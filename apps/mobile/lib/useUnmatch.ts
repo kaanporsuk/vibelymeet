@@ -2,26 +2,25 @@
  * Unmatch — delete messages, date_proposals, match. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+
+async function deleteMatchCascade(matchId: string) {
+  const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
+  if (messagesError) throw messagesError;
+  const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
+  if (dateProposalsError) throw dateProposalsError;
+  const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
+  if (matchError) throw matchError;
+  return { success: true };
+}
 
 export function useUnmatch() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ matchId }: { matchId: string }) => {
-      const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
-      if (messagesError) throw messagesError;
-
-      const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
-      if (dateProposalsError) throw dateProposalsError;
-
-      const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
-      if (matchError) throw matchError;
-
-      return { success: true };
-    },
+    mutationFn: async ({ matchId }: { matchId: string }) => deleteMatchCascade(matchId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
@@ -38,20 +37,24 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (pendingRef.current) {
+        clearTimeout(pendingRef.current.timeoutId);
+        pendingRef.current = null;
+      }
+    };
+  }, []);
+
   const performUnmatch = useCallback(
     async (matchId: string) => {
       try {
-        const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
-        if (messagesError) throw messagesError;
-        const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
-        if (dateProposalsError) throw dateProposalsError;
-        const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
-        if (matchError) throw matchError;
+        await deleteMatchCascade(matchId);
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['messages'] });
         options?.onUnmatchComplete?.();
-      } catch (e) {
-        console.error('Unmatch error:', e);
+      } catch (err) {
+        if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
       }
     },
     [queryClient, options]

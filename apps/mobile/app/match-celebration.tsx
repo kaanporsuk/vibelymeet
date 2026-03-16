@@ -20,7 +20,7 @@ export default function MatchCelebrationScreen() {
 
   const handleMessage = () => {
     if (otherUserId) {
-      router.replace({ pathname: '/chat/[id]', params: { id: otherUserId } } as any);
+      router.replace(`/chat/${otherUserId}` as any);
     }
   };
 

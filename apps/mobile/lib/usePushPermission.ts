@@ -7,23 +7,24 @@ import { Linking, Platform } from 'react-native';
 
 type PermissionStatus = 'default' | 'granted' | 'denied' | 'unknown';
 
-let OneSignalModule: typeof import('react-native-onesignal') | null = null;
+let OneSignal: any = null;
 try {
-  OneSignalModule = require('react-native-onesignal');
+  const mod: any = require('react-native-onesignal');
+  OneSignal = mod?.OneSignal ?? mod?.default ?? mod ?? null;
 } catch {
-  // OneSignal not available (e.g. web)
+  OneSignal = null;
 }
 
 export function usePushPermission() {
   const [status, setStatus] = useState<PermissionStatus>('unknown');
 
   const refresh = useCallback(async () => {
-    if (!OneSignalModule?.OneSignal) {
+    if (!OneSignal?.Notifications) {
       setStatus('unknown');
       return;
     }
     try {
-      const permission = await OneSignalModule.OneSignal.Notifications.getPermissionAsync();
+      const permission = await OneSignal.Notifications.getPermissionAsync();
       setStatus(permission ? 'granted' : 'denied');
     } catch {
       setStatus('unknown');
@@ -35,9 +36,9 @@ export function usePushPermission() {
   }, [refresh]);
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!OneSignalModule?.OneSignal) return false;
+    if (!OneSignal?.Notifications) return false;
     try {
-      const granted = await OneSignalModule.OneSignal.Notifications.requestPermission(false);
+      const granted = await OneSignal.Notifications.requestPermission(false);
       await refresh();
       return granted;
     } catch {

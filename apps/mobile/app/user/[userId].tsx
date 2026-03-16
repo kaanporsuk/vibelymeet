@@ -40,6 +40,7 @@ export default function PublicProfileScreen() {
     enabled: !!userId,
   });
   const { data: matches = [] } = useMatches(user?.id);
+  // MatchListItem.id = other participant's profile id, matchId = match table primary key (chatApi)
   const matchRow = userId && user?.id ? matches.find((m) => m.id === userId) : null;
   const { mutateAsync: unmatch } = useUnmatch();
   const { blockUser, isUserBlocked } = useBlockUser(user?.id);
