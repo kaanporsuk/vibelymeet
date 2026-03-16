@@ -14,6 +14,16 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
   const [isSearching, setIsSearching] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventIdRef = useRef(eventId);
+
+  useEffect(() => {
+    eventIdRef.current = eventId;
+    if (!eventId && intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      setIsWaiting(false);
+    }
+  }, [eventId]);
 
   const findMysteryMatch = useCallback(async () => {
     if (intervalRef.current || isWaiting) return;
@@ -42,9 +52,17 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
         setIsSearching(false);
         setIsWaiting(true);
         intervalRef.current = setInterval(async () => {
+          if (!eventIdRef.current) {
+            setIsWaiting(false);
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
+            return;
+          }
           try {
             const { data: retryData, error: retryError } = await supabase.rpc('find_mystery_match', {
-              p_event_id: eventId,
+              p_event_id: eventIdRef.current!,
               p_user_id: user.id,
             });
             if (retryError) {

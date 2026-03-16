@@ -11,6 +11,10 @@ async function deleteMatchCascade(matchId: string) {
   if (messagesError) throw messagesError;
   const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
   if (dateProposalsError) throw dateProposalsError;
+  const { error: matchMutesError } = await supabase.from('match_mutes').delete().eq('match_id', matchId);
+  if (matchMutesError) throw matchMutesError;
+  const { error: notifMutesError } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId);
+  if (notifMutesError) throw notifMutesError;
   const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
   if (matchError) throw matchError;
   return { success: true };
@@ -24,6 +28,7 @@ export function useUnmatch() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({ queryKey: ['date-proposals'] });
     },
   });
 }
@@ -53,6 +58,7 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
         await deleteMatchCascade(matchId);
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['messages'] });
+        queryClient.invalidateQueries({ queryKey: ['date-proposals'] });
         options?.onUnmatchComplete?.();
       } catch (err) {
         if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);

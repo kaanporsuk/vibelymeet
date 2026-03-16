@@ -65,7 +65,7 @@ export default function PublicProfileScreen() {
         },
       },
     ]);
-  }, [matchRow, profile?.name, unmatch]);
+  }, [matchRow, profile?.name, unmatch, router]);
 
   const handleBlock = useCallback(() => {
     if (!userId) return;
@@ -86,7 +86,7 @@ export default function PublicProfileScreen() {
         },
       },
     ]);
-  }, [userId, profile?.name, matchRow?.matchId, blockUser]);
+  }, [userId, profile?.name, matchRow?.matchId, blockUser, router]);
 
   if (!userId) {
     return (
@@ -199,7 +199,7 @@ export default function PublicProfileScreen() {
               {matchRow && (
                 <VibelyButton
                   label="Message"
-                  onPress={() => (router as { push: (p: string) => void }).push(`/chat/${userId}`)}
+                  onPress={() => (router as any).push(`/chat/${userId}`)}
                   variant="primary"
                   style={styles.actionBtn}
                 />
