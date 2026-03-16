@@ -8,6 +8,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { spacing } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 
 type CapacityStatus = 'available' | 'filling' | 'almostFull';
 
@@ -41,7 +42,7 @@ export function PricingBar({
             <Text style={[styles.price, { color: theme.text }]}>
               {price === 0 ? 'Free' : `€${Number(price).toFixed(2)}`}
             </Text>
-            <View style={[styles.badge, { backgroundColor: statusColor + '30' }]}>
+            <View style={[styles.badge, { backgroundColor: withAlpha(statusColor, 0.19) }]}>
               <Text style={[styles.badgeText, { color: statusColor }]}>{statusText}</Text>
             </View>
           </View>

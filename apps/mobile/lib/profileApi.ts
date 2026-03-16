@@ -91,13 +91,14 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
   type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
   const vibeRows: VibeRow[] = (vibesRes.data as VibeRow[] | null) ?? [];
   const vibes: string[] = vibeRows
-    .map((v) => {
+    .flatMap((v) => {
       const vt = v.vibe_tags;
-      if (!vt) return undefined;
-      const label = Array.isArray(vt) ? vt[0]?.label : (vt as { label: string }).label;
-      return label;
-    })
-    .filter(Boolean) as string[];
+      if (!vt) return [];
+      if (Array.isArray(vt)) {
+        return vt.map((tag) => tag.label).filter(Boolean) as string[];
+      }
+      return [vt.label].filter(Boolean) as string[];
+    });
 
   return {
     ...row,

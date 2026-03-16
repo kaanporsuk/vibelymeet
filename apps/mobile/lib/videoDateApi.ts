@@ -320,18 +320,58 @@ const VIBE_PROMPTS = [
   "What's your hidden gem restaurant? 🍜",
 ];
 
+function fisherYatesShuffle<T>(arr: T[]): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 /** Get or seed vibe_questions for session; returns array of question strings. */
 export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[]> {
-  const { data } = await supabase
+  const { data, error: fetchError } = await supabase
     .from('video_sessions')
     .select('vibe_questions')
     .eq('id', sessionId)
     .maybeSingle();
+  if (fetchError) {
+    if (__DEV__) console.warn('[videoDateApi] failed to fetch vibe_questions:', fetchError.message);
+    return fisherYatesShuffle(VIBE_PROMPTS);
+  }
   const stored = data?.vibe_questions as string[] | null;
   if (stored && Array.isArray(stored) && stored.length > 0) return stored;
-  const shuffled = [...VIBE_PROMPTS].sort(() => Math.random() - 0.5);
-  await supabase.from('video_sessions').update({ vibe_questions: shuffled }).eq('id', sessionId);
-  return shuffled;
+
+  const shuffled = fisherYatesShuffle(VIBE_PROMPTS);
+
+  // Only update if vibe_questions is currently null (prevents race between two clients)
+  const { data: updated, error: updateError } = await supabase
+    .from('video_sessions')
+    .update({ vibe_questions: shuffled })
+    .eq('id', sessionId)
+    .is('vibe_questions', null)
+    .select('vibe_questions')
+    .maybeSingle();
+
+  if (updateError) {
+    if (__DEV__) console.warn('[videoDateApi] failed to seed vibe_questions:', updateError.message);
+  }
+
+  // If another client seeded first, fetch what they wrote
+  if (!updated?.vibe_questions) {
+    const { data: refetched } = await supabase
+      .from('video_sessions')
+      .select('vibe_questions')
+      .eq('id', sessionId)
+      .maybeSingle();
+    const refetchedQuestions = refetched?.vibe_questions as string[] | null;
+    if (refetchedQuestions && Array.isArray(refetchedQuestions) && refetchedQuestions.length > 0) {
+      return refetchedQuestions;
+    }
+  }
+
+  return (updated?.vibe_questions as string[]) ?? shuffled;
 }
 
 /** Post-date survey: write participant_X_liked and run check_mutual_vibe_and_match. Returns { mutual: boolean }. */
@@ -341,22 +381,25 @@ export async function submitVerdictAndCheckMutual(
   partnerId: string,
   liked: boolean
 ): Promise<{ mutual: boolean } | null> {
-  const { data: session } = await supabase
+  const { data: session, error: sessionError } = await supabase
     .from('video_sessions')
     .select('participant_1_id')
     .eq('id', sessionId)
     .maybeSingle();
-  if (!session) return null;
+  if (sessionError || !session) return null;
   const isP1 = session.participant_1_id === userId;
   const field = isP1 ? 'participant_1_liked' : 'participant_2_liked';
-  await supabase.from('video_sessions').update({ [field]: liked }).eq('id', sessionId);
+  const { error: updateError } = await supabase.from('video_sessions').update({ [field]: liked }).eq('id', sessionId);
+  if (updateError) return null;
 
-  await supabase.from('date_feedback').upsert(
+  const { error: feedbackError } = await supabase.from('date_feedback').upsert(
     { session_id: sessionId, user_id: userId, target_id: partnerId, liked },
     { onConflict: 'session_id,user_id' }
   );
+  if (feedbackError) return null;
 
-  const { data: result } = await supabase.rpc('check_mutual_vibe_and_match', { p_session_id: sessionId });
+  const { data: result, error: rpcError } = await supabase.rpc('check_mutual_vibe_and_match', { p_session_id: sessionId });
+  if (rpcError) return null;
   const mutual = (result as { mutual?: boolean } | null)?.mutual === true;
   return { mutual };
 }

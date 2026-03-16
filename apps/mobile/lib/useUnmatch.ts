@@ -14,7 +14,8 @@ export function useUnmatch() {
       const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
       if (messagesError) throw messagesError;
 
-      await supabase.from('date_proposals').delete().eq('match_id', matchId);
+      const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
+      if (dateProposalsError) throw dateProposalsError;
 
       const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
       if (matchError) throw matchError;
@@ -42,7 +43,8 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       try {
         const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
         if (messagesError) throw messagesError;
-        await supabase.from('date_proposals').delete().eq('match_id', matchId);
+        const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
+        if (dateProposalsError) throw dateProposalsError;
         const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
         if (matchError) throw matchError;
         queryClient.invalidateQueries({ queryKey: ['matches'] });
