@@ -55,8 +55,13 @@ export default function PublicProfileScreen() {
         text: 'Unmatch',
         style: 'destructive',
         onPress: async () => {
-          await unmatch({ matchId: matchRow.matchId });
-          router.back();
+          try {
+            await unmatch({ matchId: matchRow.matchId });
+            router.back();
+          } catch (err) {
+            if (__DEV__) console.warn('[UserProfile] unmatch failed:', err);
+            Alert.alert('Unmatch failed', 'Something went wrong. Please try again.');
+          }
         },
       },
     ]);
@@ -70,8 +75,13 @@ export default function PublicProfileScreen() {
         text: 'Block',
         style: 'destructive',
         onPress: async () => {
-          await blockUser({ blockedId: userId, matchId: matchRow?.matchId });
-          router.back();
+          try {
+            await blockUser({ blockedId: userId, matchId: matchRow?.matchId });
+            router.back();
+          } catch (err) {
+            if (__DEV__) console.warn('[UserProfile] block failed:', err);
+            Alert.alert('Block failed', 'Something went wrong. Please try again.');
+          }
         },
       },
     ]);

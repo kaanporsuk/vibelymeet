@@ -87,6 +87,9 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
   if (profileRes.error) throw profileRes.error;
   const row = profileRes.data as Record<string, unknown> | null;
   if (!row) return null;
+  if (vibesRes.error) {
+    if (__DEV__) console.warn('[profileApi] failed to load vibes:', vibesRes.error.message);
+  }
 
   type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
   const vibeRows: VibeRow[] = (vibesRes.data as VibeRow[] | null) ?? [];

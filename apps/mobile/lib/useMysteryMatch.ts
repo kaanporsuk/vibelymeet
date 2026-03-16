@@ -60,7 +60,7 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
     } catch {
       setIsSearching(false);
     }
-  }, [eventId, onMatchFound]);
+  }, [eventId, onMatchFound, isWaiting]);
 
   const cancelSearch = useCallback(() => {
     setIsWaiting(false);

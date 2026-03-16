@@ -2,7 +2,7 @@
  * Unmatch — delete messages, date_proposals, match. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -36,6 +36,7 @@ export type UndoableUnmatchOptions = {
 export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
+  const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -65,6 +66,7 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       clearTimeout(pendingRef.current.timeoutId);
       pendingRef.current = null;
     }
+    setHasPendingUnmatch(false);
     queryClient.invalidateQueries({ queryKey: ['matches'] });
     options?.onUndo?.();
   }, [queryClient, options]);
@@ -77,11 +79,13 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       const timeoutId = setTimeout(() => {
         performUnmatch(matchId);
         pendingRef.current = null;
+        setHasPendingUnmatch(false);
       }, 5000);
       pendingRef.current = { matchId, timeoutId };
+      setHasPendingUnmatch(true);
     },
     [performUnmatch]
   );
 
-  return { initiateUnmatch, cancelPending, hasPendingUnmatch: () => pendingRef.current !== null };
+  return { initiateUnmatch, cancelPending, hasPendingUnmatch };
 }

@@ -47,7 +47,7 @@ export function useDateProposals(userId: string | null | undefined) {
         .gt('proposed_date', now)
         .order('proposed_date', { ascending: true });
 
-      if (error) return [];
+      if (error) throw error;
       const list = (rows ?? []) as DateProposalRow[];
       const ids = [...new Set(list.map((r) => (r.recipient_id === userId ? r.proposer_id : r.recipient_id)))];
       let names: Record<string, string> = {};

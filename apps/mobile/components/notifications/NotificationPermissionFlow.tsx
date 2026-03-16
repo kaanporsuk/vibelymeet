@@ -1,7 +1,7 @@
 /**
  * Notification permission flow — parity with web: intro, requesting, success, denied + Open Settings when denied.
  */
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Linking, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -27,17 +27,35 @@ export function NotificationPermissionFlow({
 }: NotificationPermissionFlowProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('intro');
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimeoutRef.current !== null) {
+        clearTimeout(closeTimeoutRef.current);
+        closeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleEnable = async () => {
     setStep('requesting');
     const granted = await onRequestPermission();
     setStep(granted ? 'success' : 'denied');
     if (granted) {
-      setTimeout(() => onOpenChange(false), 2000);
+      if (closeTimeoutRef.current !== null) clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = setTimeout(() => {
+        onOpenChange(false);
+        closeTimeoutRef.current = null;
+      }, 2000);
     }
   };
 
   const handleClose = () => {
+    if (closeTimeoutRef.current !== null) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
     setStep('intro');
     onOpenChange(false);
   };
