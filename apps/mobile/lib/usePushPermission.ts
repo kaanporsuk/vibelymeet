@@ -25,7 +25,16 @@ export function usePushPermission() {
     }
     try {
       const permission = await OneSignal.Notifications.getPermissionAsync();
-      setStatus(permission ? 'granted' : 'denied');
+      if (permission === true) {
+        setStatus('granted');
+      } else if (permission === false) {
+        // OneSignal returns false for both "not prompted" and "denied"
+        // For now treat as 'denied' — a more granular check would require
+        // native iOS permission API (Notifications.getPermissionsAsync from expo-notifications)
+        setStatus('denied');
+      } else {
+        setStatus('default');
+      }
     } catch {
       setStatus('unknown');
     }
@@ -59,6 +68,7 @@ export function usePushPermission() {
     status,
     isGranted: status === 'granted',
     isDenied: status === 'denied',
+    isDefault: status === 'default',
     isUnknown: status === 'unknown',
     requestPermission,
     openSettings,

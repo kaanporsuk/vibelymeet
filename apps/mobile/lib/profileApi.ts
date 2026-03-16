@@ -111,7 +111,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
     vibe_caption: (row.vibe_caption as string) ?? null,
     photo_verified: (row.photo_verified as boolean | null) ?? null,
     phone_verified: (row.phone_verified as boolean | null) ?? null,
-    email_verified: (row as Record<string, unknown>).email_verified as boolean | null ?? null,
+    email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
     is_premium: (row.is_premium as boolean | null) ?? null,
     premium_until: (row.premium_until as string) ?? null,
   } as ProfileRow;

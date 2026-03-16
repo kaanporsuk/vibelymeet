@@ -18,6 +18,12 @@ export function OfflineBanner() {
   const translateY = useRef(new Animated.Value(hiddenOffset)).current;
 
   useEffect(() => {
+    if (!isOffline) {
+      translateY.setValue(hiddenOffset);
+    }
+  }, [hiddenOffset, isOffline, translateY]);
+
+  useEffect(() => {
     Animated.timing(translateY, {
       toValue: isOffline ? 0 : hiddenOffset,
       duration: 280,
