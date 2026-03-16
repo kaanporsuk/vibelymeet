@@ -1,7 +1,7 @@
 /**
  * Report flow — reason, details, also block. Submits to user_reports.
  */
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, TextInput, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -33,6 +33,16 @@ export function ReportFlowModal({
   const [alsoBlock, setAlsoBlock] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const completionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (completionTimeoutRef.current !== null) {
+        clearTimeout(completionTimeoutRef.current);
+        completionTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSubmit = async () => {
     if (!reason) return;
@@ -47,12 +57,14 @@ export function ReportFlowModal({
         alsoBlock,
       });
       setStep('done');
-      setTimeout(() => {
+      if (completionTimeoutRef.current !== null) clearTimeout(completionTimeoutRef.current);
+      completionTimeoutRef.current = setTimeout(() => {
         onSuccess();
         onClose();
         setStep('reason');
         setReason(null);
         setDetails('');
+        completionTimeoutRef.current = null;
       }, 1500);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to submit report');

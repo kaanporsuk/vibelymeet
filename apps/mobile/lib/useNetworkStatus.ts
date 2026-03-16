@@ -17,16 +17,20 @@ export function useNetworkStatus(): NetworkStatus {
   });
 
   useEffect(() => {
-    const handleState = (netState: NetInfoState) => {
+    let isMounted = true;
+    const safeHandleState = (netState: NetInfoState) => {
+      if (!isMounted) return;
       setState({
         isConnected: netState.isConnected ?? false,
         isInternetReachable: netState.isInternetReachable ?? null,
       });
     };
-
-    NetInfo.fetch().then(handleState);
-    const unsubscribe = NetInfo.addEventListener(handleState);
-    return () => unsubscribe();
+    NetInfo.fetch().then(safeHandleState);
+    const unsubscribe = NetInfo.addEventListener(safeHandleState);
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   return state;

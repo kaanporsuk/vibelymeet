@@ -68,8 +68,9 @@ export default function PublicProfileScreen() {
   }, [matchRow, profile?.name, unmatch]);
 
   const handleBlock = useCallback(() => {
-    if (!userId || !profile?.name) return;
-    Alert.alert('Block?', `Block ${profile.name}? They won't be able to contact you or see your profile.`, [
+    if (!userId) return;
+    const displayName = profile?.name || 'this user';
+    Alert.alert('Block?', `Block ${displayName}? They won't be able to contact you or see your profile.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Block',

@@ -25,18 +25,33 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
   const theme = Colors[useColorScheme()];
   const [countdown, setCountdown] = useState(30);
   const ringAnims = [useRef(new Animated.Value(1)).current, useRef(new Animated.Value(1)).current, useRef(new Animated.Value(1)).current];
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasDeclinedRef = useRef(false);
 
   useEffect(() => {
-    const t = setInterval(() => {
+    hasDeclinedRef.current = false;
+    intervalRef.current = setInterval(() => {
       setCountdown((p) => {
         if (p <= 1) {
-          onDecline();
+          if (!hasDeclinedRef.current) {
+            hasDeclinedRef.current = true;
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
+            onDecline();
+          }
           return 0;
         }
         return p - 1;
       });
     }, 1000);
-    return () => clearInterval(t);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
   }, [onDecline]);
 
   useEffect(() => {

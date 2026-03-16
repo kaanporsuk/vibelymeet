@@ -3,8 +3,7 @@
  * Reference: web FeedbackDrawer; v1 uses mailto.
  */
 import React, { useState } from 'react';
-import { View, Text, Modal, Pressable, TextInput, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Modal, Pressable, TextInput, StyleSheet } from 'react-native';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyText, VibelyButton } from '@/components/ui';
