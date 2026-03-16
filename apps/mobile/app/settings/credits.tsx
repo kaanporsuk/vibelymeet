@@ -1,15 +1,16 @@
 /**
  * Video Date Credits — balance from user_credits; purchase via create-credits-checkout (Stripe in browser).
  */
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
 import { GlassSurface, Card, Skeleton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -44,8 +45,14 @@ export default function CreditsSettingsScreen() {
   const theme = Colors[colorScheme];
   const { user } = useAuth();
   const qc = useQueryClient();
-  const { data: credits, isLoading } = useCredits(user?.id);
+  const { data: credits, isLoading, refetch: refetchCredits } = useCredits(user?.id);
   const [loadingPackId, setLoadingPackId] = useState<CreditPackId | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      refetchCredits();
+    }, [refetchCredits])
+  );
 
   const handleBuyPack = async (packId: CreditPackId) => {
     setLoadingPackId(packId);
@@ -130,7 +137,7 @@ export default function CreditsSettingsScreen() {
               </Pressable>
             ))}
             <Text style={[styles.footnote, { color: theme.textSecondary, marginTop: spacing.lg }]}>
-              Opens Stripe checkout in browser. After payment, return to the app; balance updates when you reopen this screen.
+              Opens Stripe checkout in browser. Return to this screen after payment — your balance will refresh automatically.
             </Text>
           </Card>
         </View>
@@ -155,8 +162,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    borderRadius: 12,
-    gap: 6,
+    borderRadius: radius.lg,
+    gap: spacing.sm,
   },
   balanceLabel: { fontSize: 14 },
   balanceValue: { fontSize: 18, fontWeight: '700' },
@@ -167,7 +174,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
     marginTop: spacing.md,
   },

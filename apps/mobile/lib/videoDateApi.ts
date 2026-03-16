@@ -190,4 +190,240 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
   }
 }
 
+/** Record that current user "vibed" during handshake (participant_1_liked or participant_2_liked). Partner is never notified. */
+export async function recordVibe(sessionId: string): Promise<boolean> {
+  const { error } = await supabase.rpc('video_date_transition', {
+    p_session_id: sessionId,
+    p_action: 'vibe',
+  });
+  return !error;
+}
+
+/** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else { state: 'ended' }. */
+export async function completeHandshake(sessionId: string): Promise<{ state: 'date' | 'ended' } | null> {
+  const { data, error } = await supabase.rpc('video_date_transition', {
+    p_session_id: sessionId,
+    p_action: 'complete_handshake',
+  });
+  if (error) return null;
+  const state = (data as { state?: string } | null)?.state;
+  if (state === 'date') return { state: 'date' };
+  return { state: 'ended' };
+}
+
+/** Update event registration queue_status (in_handshake, in_date, in_survey, browsing, offline). */
+export async function updateParticipantStatus(eventId: string, userId: string, status: string): Promise<boolean> {
+  const { error } = await supabase.rpc('update_participant_status', {
+    p_event_id: eventId,
+    p_user_id: userId,
+    p_status: status,
+  });
+  return !error;
+}
+
+export type PartnerProfileData = {
+  name: string;
+  age: number;
+  avatarUrl: string | null;
+  photos: string[];
+  bio: string | null;
+  job: string | null;
+  location: string | null;
+  heightCm: number | null;
+  tags: string[];
+  prompts: { question: string; answer: string }[];
+};
+
+/** Fetch full partner profile for video date (session + profiles + profile_vibes). */
+export async function fetchPartnerProfile(
+  sessionId: string,
+  userId: string,
+  avatarUrlResolver: (path: string | null) => string
+): Promise<{ partnerId: string; eventId: string; isParticipant1: boolean; partner: PartnerProfileData } | null> {
+  const { data: session } = await supabase
+    .from('video_sessions')
+    .select('participant_1_id, participant_2_id, event_id')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (!session) return null;
+
+  const isP1 = session.participant_1_id === userId;
+  const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('name, age, avatar_url, photos, bio, job, location, height_cm, prompts')
+    .eq('id', partnerId)
+    .maybeSingle();
+  if (!profile) return null;
+
+  const { data: vibes } = await supabase
+    .from('profile_vibes')
+    .select('vibe_tags(label)')
+    .eq('profile_id', partnerId);
+  const tags = (vibes ?? [])
+    .map((v: unknown) => {
+      const vt = (v as { vibe_tags?: { label?: string } | { label?: string }[] | null })?.vibe_tags;
+      if (Array.isArray(vt)) return vt.map((t) => t?.label).filter(Boolean);
+      return vt?.label ? [vt.label] : [];
+    })
+    .flat()
+    .filter(Boolean) as string[];
+
+  const photoArr = (profile.photos as string[] | null) ?? [];
+  const primaryPath = photoArr[0] ?? profile.avatar_url ?? null;
+  const photos = photoArr.slice(0, 6).map((p) => avatarUrlResolver(p));
+  const avatarUrlResolved = primaryPath ? avatarUrlResolver(primaryPath) : null;
+
+  let prompts: { question: string; answer: string }[] = [];
+  if (profile.prompts && Array.isArray(profile.prompts)) {
+    prompts = (profile.prompts as { question?: string; answer?: string }[]).map((p) => ({
+      question: p.question ?? '',
+      answer: p.answer ?? '',
+    }));
+  }
+
+  return {
+    partnerId,
+    eventId: session.event_id ?? '',
+    isParticipant1: isP1,
+    partner: {
+      name: profile.name ?? 'Your date',
+      age: profile.age ?? 0,
+      avatarUrl: avatarUrlResolved,
+      photos,
+      bio: profile.bio ?? null,
+      job: profile.job ?? null,
+      location: profile.location ?? null,
+      heightCm: profile.height_cm ?? null,
+      tags,
+      prompts,
+    },
+  };
+}
+
+const VIBE_PROMPTS = [
+  "What's a weird talent you have? 🎭",
+  "Dream travel destination? ✈️",
+  "What's your go-to karaoke song? 🎤",
+  "Best date you've ever been on? 💫",
+  "What's something that instantly makes you smile? 😊",
+  "If you could have dinner with anyone, who? 🍽️",
+  "What's your love language? 💕",
+  "Describe your perfect lazy Sunday ☀️",
+  "What's on your bucket list? ✨",
+  "What makes you feel most alive? 🔥",
+  "Early bird or night owl? 🦉",
+  "What's your comfort movie? 🎬",
+  "Beach vacation or mountain adventure? 🏔️",
+  "What are you passionate about? 💜",
+  "What's your hidden gem restaurant? 🍜",
+];
+
+function fisherYatesShuffle<T>(arr: T[]): T[] {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/** Get or seed vibe_questions for session; returns array of question strings. */
+export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[]> {
+  const { data, error: fetchError } = await supabase
+    .from('video_sessions')
+    .select('vibe_questions')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (fetchError) {
+    if (__DEV__) console.warn('[videoDateApi] failed to fetch vibe_questions:', fetchError.message);
+    return fisherYatesShuffle(VIBE_PROMPTS);
+  }
+  const stored = data?.vibe_questions as string[] | null;
+  if (stored && Array.isArray(stored) && stored.length > 0) return stored;
+
+  const shuffled = fisherYatesShuffle(VIBE_PROMPTS);
+
+  // Only update if vibe_questions is currently null (prevents race between two clients)
+  const { data: updated, error: updateError } = await supabase
+    .from('video_sessions')
+    .update({ vibe_questions: shuffled })
+    .eq('id', sessionId)
+    .is('vibe_questions', null)
+    .select('vibe_questions')
+    .maybeSingle();
+
+  if (updateError) {
+    if (__DEV__) console.warn('[videoDateApi] failed to seed vibe_questions:', updateError.message);
+  }
+
+  // If another client seeded first, fetch what they wrote
+  if (!updated?.vibe_questions) {
+    const { data: refetched } = await supabase
+      .from('video_sessions')
+      .select('vibe_questions')
+      .eq('id', sessionId)
+      .maybeSingle();
+    const refetchedQuestions = refetched?.vibe_questions as string[] | null;
+    if (refetchedQuestions && Array.isArray(refetchedQuestions) && refetchedQuestions.length > 0) {
+      return refetchedQuestions;
+    }
+  }
+
+  return (updated?.vibe_questions as string[]) ?? shuffled;
+}
+
+/** Post-date survey: write participant_X_liked and run check_mutual_vibe_and_match. Returns { mutual: boolean }. */
+export async function submitVerdictAndCheckMutual(
+  sessionId: string,
+  userId: string,
+  partnerId: string,
+  liked: boolean
+): Promise<{ mutual: boolean } | null> {
+  const { data: session, error: sessionError } = await supabase
+    .from('video_sessions')
+    .select('participant_1_id')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (sessionError || !session) return null;
+  const isP1 = session.participant_1_id === userId;
+  const field = isP1 ? 'participant_1_liked' : 'participant_2_liked';
+  const { error: updateError } = await supabase.from('video_sessions').update({ [field]: liked }).eq('id', sessionId);
+  if (updateError) return null;
+
+  const { error: feedbackError } = await supabase.from('date_feedback').upsert(
+    { session_id: sessionId, user_id: userId, target_id: partnerId, liked },
+    { onConflict: 'session_id,user_id' }
+  );
+  if (feedbackError) return null;
+
+  const { data: result, error: rpcError } = await supabase.rpc('check_mutual_vibe_and_match', { p_session_id: sessionId });
+  if (rpcError) return null;
+  const mutual = (result as { mutual?: boolean } | null)?.mutual === true;
+  return { mutual };
+}
+
+/** Fetch user credits for +Time (extra_time_credits, extended_vibe_credits). */
+export async function fetchUserCredits(userId: string): Promise<{ extraTime: number; extendedVibe: number }> {
+  const { data } = await supabase
+    .from('user_credits')
+    .select('extra_time_credits, extended_vibe_credits')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return {
+    extraTime: data?.extra_time_credits ?? 0,
+    extendedVibe: data?.extended_vibe_credits ?? 0,
+  };
+}
+
+/** Deduct one credit (extra_time or extended_vibe). Returns true if successful. */
+export async function deductCredit(userId: string, creditType: 'extra_time' | 'extended_vibe'): Promise<boolean> {
+  const { data, error } = await supabase.rpc('deduct_credit', {
+    p_user_id: userId,
+    p_credit_type: creditType,
+  });
+  return !error && data === true;
+}
+
 export { HANDSHAKE_SECONDS, DATE_SECONDS };

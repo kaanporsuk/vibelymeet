@@ -5,48 +5,54 @@ import { SymbolView } from 'expo-symbols';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { spacing } from '@/constants/theme';
+import { border, layout, radius, spacing } from '@/constants/theme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
-  const tabBarHeight = (Platform.OS === 'ios' ? 56 : 52) + insets.bottom;
-  const paddingTop = 8;
-  const paddingBottom = Platform.OS === 'ios' ? insets.bottom : 10;
+  const tabBarContentHeight =
+    Platform.OS === 'ios' ? layout.tabBarContentHeightIos : layout.tabBarContentHeightAndroid;
+  const tabBarHeight = tabBarContentHeight + insets.bottom;
+  const paddingBottom = Platform.OS === 'ios' ? insets.bottom : Math.max(insets.bottom, layout.tabBarPaddingBottomAndroid);
 
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: theme.tint,
         tabBarInactiveTintColor: theme.tabIconDefault,
-        tabBarActiveBackgroundColor: 'rgba(139,92,246,0.26)',
+        tabBarActiveBackgroundColor: theme.tintSoft,
         tabBarInactiveBackgroundColor: 'transparent',
         tabBarStyle: {
           backgroundColor: theme.glassSurface,
           borderTopColor: theme.glassBorder,
-          borderTopWidth: 1,
+          borderTopWidth: border.width.thin,
           height: tabBarHeight,
           paddingBottom,
-          paddingTop,
-          shadowColor: '#8B5CF6',
+          paddingTop: layout.tabBarPaddingTop,
+          shadowColor: theme.tint,
           shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.18,
-          shadowRadius: 10,
-          elevation: 8,
+          shadowOpacity: 0.12,
+          shadowRadius: 8,
+          elevation: 6,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
         },
-        tabBarItemStyle: { paddingVertical: spacing.xs, borderRadius: 16, marginHorizontal: 3 },
+        tabBarItemStyle: {
+          paddingVertical: spacing.xs,
+          borderRadius: radius.xl,
+          marginHorizontal: 3,
+          ...(Platform.OS === 'android' && { minHeight: layout.minTouchTargetSize }),
+        },
         tabBarIconStyle: { marginBottom: -2 },
         headerShown: false,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ color }) => (
             <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={24} />
           ),

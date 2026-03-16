@@ -8,11 +8,18 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
+  View as RNView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { createProfile } from '@/lib/profileApi';
+import Colors from '@/constants/Colors';
+import { useColorScheme } from '@/components/useColorScheme';
+import { VibelyButton } from '@/components/ui';
+import { Card } from '@/components/ui';
+import { spacing, radius } from '@/constants/theme';
 
 const GENDERS = [
   { label: 'Woman', value: 'woman' },
@@ -21,7 +28,10 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
+const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
+
 export default function OnboardingScreen() {
+  const theme = Colors[useColorScheme()];
   const { refreshOnboarding } = useAuth();
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
@@ -61,92 +71,104 @@ export default function OnboardingScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.kav}
+      style={[styles.kav, { backgroundColor: theme.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>
+        <Text style={[styles.title, { color: theme.text }]}>
           {step === 0 ? "What's your name?" : 'Tell us a bit about you'}
         </Text>
 
         {step === 0 && (
           <>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
               placeholder="Your name"
+              placeholderTextColor={theme.textSecondary}
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
               editable={!loading}
             />
-            <Pressable style={[styles.button, !canNext && styles.buttonDisabled]} onPress={handleNext} disabled={!canNext}>
-              <Text style={styles.buttonText}>Next</Text>
-            </Pressable>
+            <VibelyButton label="Next" onPress={handleNext} disabled={!canNext} variant="primary" style={styles.button} />
           </>
         )}
 
         {step === 1 && (
           <>
-            <Text style={styles.label}>Gender (required)</Text>
-            <View style={styles.genderRow} lightColor="#f0f0f0" darkColor="#333">
+            <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
+            <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (
                 <Pressable
                   key={g.value}
-                  style={[styles.genderBtn, gender === g.value && styles.genderBtnActive]}
+                  style={[
+                    styles.genderBtn,
+                    { borderColor: theme.border },
+                    gender === g.value && { backgroundColor: theme.tint, borderColor: theme.tint },
+                  ]}
                   onPress={() => setGender(g.value)}
                 >
-                  <Text style={[styles.genderBtnText, gender === g.value && styles.genderBtnTextActive]}>{g.label}</Text>
+                  <Text style={[styles.genderBtnText, { color: theme.text }, gender === g.value && styles.genderBtnTextActive]}>
+                    {g.label}
+                  </Text>
                 </Pressable>
               ))}
-            </View>
-            <Text style={styles.label}>Tagline (optional)</Text>
+            </RNView>
+            <Text style={[styles.label, { color: theme.text }]}>Tagline (optional)</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
               placeholder="Short tagline"
+              placeholderTextColor={theme.textSecondary}
               value={tagline}
               onChangeText={setTagline}
               editable={!loading}
             />
-            <Text style={styles.label}>Job (optional)</Text>
+            <Text style={[styles.label, { color: theme.text }]}>Job (optional)</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
               placeholder="Job or title"
+              placeholderTextColor={theme.textSecondary}
               value={job}
               onChangeText={setJob}
               editable={!loading}
             />
-            <Text style={styles.label}>About you (optional)</Text>
+            <Text style={[styles.label, { color: theme.text }]}>About you (optional)</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, { borderColor: theme.border, color: theme.text }]}
               placeholder="A bit about you"
+              placeholderTextColor={theme.textSecondary}
               value={aboutMe}
               onChangeText={setAboutMe}
               multiline
               numberOfLines={3}
               editable={!loading}
             />
-            <Text style={styles.deferral}>
-              Profile photos can be added later on web or in a future app update.
-            </Text>
-            <Pressable
-              style={[styles.button, (!gender || loading) && styles.buttonDisabled]}
+            <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
+              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
+              <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
+                Profile photos, vibes, and vibe video are available on the full site. Finish there for the best experience.
+              </Text>
+              <VibelyButton
+                label="Complete on web"
+                onPress={() => Linking.openURL(WEB_PROFILE_URL)}
+                variant="secondary"
+                size="sm"
+                style={styles.webFallbackBtn}
+              />
+            </Card>
+            <VibelyButton
+              label={loading ? '' : 'Complete'}
               onPress={handleSubmit}
               disabled={!gender || loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Complete</Text>
-              )}
+              loading={loading}
+              variant="primary"
+              style={styles.button}
+            />
+            <Pressable style={styles.backBtn} onPress={() => setStep(0)} disabled={loading}>
+              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
-        )}
-
-        {step === 1 && (
-          <Pressable style={styles.backBtn} onPress={() => setStep(0)} disabled={loading}>
-            <Text style={styles.link}>Back</Text>
-          </Pressable>
         )}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -155,20 +177,20 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   kav: { flex: 1 },
-  scroll: { padding: 24, paddingBottom: 48 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24 },
+  scroll: { padding: spacing.lg, paddingBottom: 48 },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: 24 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
-  input: { borderWidth: 1, padding: 12, borderRadius: 8, marginBottom: 12 },
+  input: { borderWidth: 1, padding: 12, borderRadius: radius.lg, marginBottom: 12 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
-  genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  genderBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
-  genderBtnActive: { backgroundColor: '#2f95dc', borderColor: '#2f95dc' },
+  genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: radius.lg },
+  genderBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.lg, borderWidth: 1 },
   genderBtnText: {},
   genderBtnTextActive: { color: '#fff', fontWeight: '600' },
-  button: { backgroundColor: '#2f95dc', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 24 },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
+  button: { marginTop: 24 },
   backBtn: { marginTop: 16, alignSelf: 'center' },
-  link: { color: '#2f95dc' },
-  deferral: { fontSize: 12, opacity: 0.8, marginTop: 16 },
+  link: { fontSize: 14, fontWeight: '500' },
+  webFallbackCard: { marginTop: 20, marginBottom: 12, padding: spacing.lg },
+  webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
+  webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
+  webFallbackBtn: { alignSelf: 'flex-start' },
 });

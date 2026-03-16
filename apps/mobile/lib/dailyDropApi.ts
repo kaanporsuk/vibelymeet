@@ -34,6 +34,16 @@ export type DailyDropPartner = {
   bio: string | null;
 };
 
+export type PastDropRow = {
+  id: string;
+  partner_id: string;
+  partner_name: string;
+  partner_avatar: string | null;
+  drop_date: string;
+  status: string;
+  match_id: string | null;
+};
+
 function mapDrop(data: Record<string, unknown>): DailyDropRow {
   return {
     id: data.id as string,
@@ -62,15 +72,19 @@ function mapDrop(data: Record<string, unknown>): DailyDropRow {
 export function useDailyDrop(userId: string | null | undefined) {
   const [drop, setDrop] = useState<DailyDropRow | null>(null);
   const [partner, setPartner] = useState<DailyDropPartner | null>(null);
+  const [pastDrops, setPastDrops] = useState<PastDropRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
   const myRole = drop ? (drop.user_a_id === userId ? 'a' : 'b') : null;
   const partnerId = drop ? (myRole === 'a' ? drop.user_b_id : drop.user_a_id) : null;
+  const iHaveViewed = drop ? (myRole === 'a' ? drop.user_a_viewed : drop.user_b_viewed) : false;
   const openerSentByMe = drop?.opener_sender_id === userId;
   const chatUnlocked = drop?.chat_unlocked ?? false;
   const matchId = drop?.match_id ?? null;
   const isExpired = drop ? new Date(drop.expires_at) <= new Date() : false;
+  const pickReasons = drop?.pick_reasons ?? [];
+  const affinityScore = drop?.affinity_score ?? 0;
 
   const fetchPartner = useCallback(async (id: string) => {
     const { data: profile } = await supabase
@@ -124,9 +138,54 @@ export function useDailyDrop(userId: string | null | undefined) {
     setIsLoading(false);
   }, [userId, fetchPartner]);
 
+  const fetchPastDrops = useCallback(async () => {
+    if (!userId) return;
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('daily_drops')
+      .select('id, user_a_id, user_b_id, drop_date, status, match_id')
+      .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
+      .lt('drop_date', today)
+      .order('drop_date', { ascending: false })
+      .limit(14);
+    if (error) {
+      if (__DEV__) console.warn('[dailyDropApi] fetchPastDrops failed:', error.message);
+      setPastDrops([]);
+      return;
+    }
+    if (!data?.length) {
+      setPastDrops([]);
+      return;
+    }
+    const partnerIds = data.map((d) => (d.user_a_id === userId ? d.user_b_id : d.user_a_id));
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, name, avatar_url')
+      .in('id', partnerIds);
+    if (profilesError && __DEV__) console.warn('[dailyDropApi] profiles fetch failed:', profilesError.message);
+    const profileMap: Record<string, { name: string; avatar_url: string | null }> = {};
+    profiles?.forEach((p) => { profileMap[p.id] = p; });
+    setPastDrops(
+      data.map((d) => {
+        const pid = d.user_a_id === userId ? d.user_b_id : d.user_a_id;
+        const p = profileMap[pid];
+        return {
+          id: d.id,
+          partner_id: pid,
+          partner_name: p?.name ?? 'Unknown',
+          partner_avatar: p?.avatar_url ?? null,
+          drop_date: d.drop_date,
+          status: d.status,
+          match_id: d.match_id ?? null,
+        };
+      })
+    );
+  }, [userId]);
+
   useEffect(() => {
     fetchDrop();
-  }, [fetchDrop]);
+    fetchPastDrops();
+  }, [fetchDrop, fetchPastDrops]);
 
   useEffect(() => {
     if (!userId || !drop) return;
@@ -201,6 +260,7 @@ export function useDailyDrop(userId: string | null | undefined) {
     drop,
     partner,
     myRole,
+    iHaveViewed,
     openerSentByMe,
     openerText: drop?.opener_text ?? null,
     replyText: drop?.reply_text ?? null,
@@ -211,6 +271,9 @@ export function useDailyDrop(userId: string | null | undefined) {
     isExpired,
     hasDrop: !!drop,
     isLoading,
+    pickReasons,
+    affinityScore,
+    pastDrops,
     markViewed,
     sendOpener,
     sendReply,

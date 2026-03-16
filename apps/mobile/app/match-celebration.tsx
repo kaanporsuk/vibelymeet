@@ -19,7 +19,9 @@ export default function MatchCelebrationScreen() {
   const theme = Colors[colorScheme];
 
   const handleMessage = () => {
-    if (otherUserId) (router as { replace: (p: string) => void }).replace(`/chat/${otherUserId}`);
+    if (otherUserId) {
+      router.replace(`/chat/${otherUserId}` as any);
+    }
   };
 
   const displayName = name ?? 'You matched!';

@@ -100,6 +100,8 @@ export type EventDetailsRow = EventRow & {
   max_male_attendees?: number | null;
   max_female_attendees?: number | null;
   vibes?: string[] | null;
+  is_free?: boolean | null;
+  visibility?: string | null;
 };
 
 export function useEventDetails(eventId: string | undefined) {
@@ -137,6 +139,117 @@ export function useIsRegisteredForEvent(eventId: string | undefined, userId: str
   });
 }
 
+export type NextRegisteredEventResult = {
+  event: EventListItem | null;
+  isRegistered: boolean;
+};
+
+/** Next event for dashboard — web parity: user's next registered event (or first upcoming if none). */
+export function useNextRegisteredEvent(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['next-registered-event', userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<NextRegisteredEventResult> => {
+      if (!userId) return { event: null, isRegistered: false };
+      const now = new Date();
+
+      const { data: regRows, error: regError } = await supabase
+        .from('event_registrations')
+        .select('event_id')
+        .eq('profile_id', userId);
+
+      if (regError) throw regError;
+      const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean);
+      if (eventIds.length === 0) {
+        const first = await fetchFirstUpcomingEvent();
+        return { event: first, isRegistered: false };
+      }
+
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
+        .in('id', eventIds)
+        .order('event_date', { ascending: true });
+
+      if (eventsError) throw eventsError;
+      const rows = (eventsData ?? []) as EventRow[];
+      const visible = rows.filter((e) =>
+        isEventVisible({
+          event_date: e.event_date,
+          duration_minutes: e.duration_minutes,
+          status: e.status,
+        })
+      );
+      const notEnded = visible.filter((e) => {
+        const eventDate = new Date(e.event_date);
+        const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
+        const eventEnd = new Date(eventDate.getTime() + durationMs);
+        return now < eventEnd;
+      });
+      if (notEnded.length > 0) {
+        const e = notEnded[0];
+        const eventDate = new Date(e.event_date);
+        const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
+        const end = new Date(eventDate.getTime() + durationMs);
+        const isLive = now >= eventDate && now < end;
+        return {
+          event: rowToEventListItem(e, eventDate, isLive),
+          isRegistered: true,
+        };
+      }
+      const first = await fetchFirstUpcomingEvent();
+      return { event: first, isRegistered: false };
+    },
+  });
+}
+
+function rowToEventListItem(
+  e: EventRow,
+  eventDate: Date,
+  isLive: boolean
+): EventListItem {
+  const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
+  const end = new Date(eventDate.getTime() + durationMs);
+  return {
+    id: e.id,
+    title: e.title,
+    description: e.description,
+    image: e.cover_image,
+    date: eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+    time: eventDate.toLocaleTimeString(undefined, { hour: 'numeric' }),
+    attendees: e.current_attendees ?? 0,
+    tags: e.tags ?? [],
+    status: isLive ? 'live' : (e.status || 'upcoming'),
+    eventDate,
+    duration_minutes: e.duration_minutes ?? 60,
+  };
+}
+
+async function fetchFirstUpcomingEvent(): Promise<EventListItem | null> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
+    .order('event_date', { ascending: true })
+    .limit(20);
+  if (error) throw error;
+  const rows = (data ?? []) as EventRow[];
+  const now = new Date();
+  const active = rows.filter((e) => {
+    if (e.status === 'cancelled' || e.status === 'draft') return false;
+    const eventDate = new Date(e.event_date);
+    const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
+    const eventEnd = new Date(eventDate.getTime() + durationMs);
+    return now < eventEnd;
+  });
+  if (active.length === 0) return null;
+  const e = active[0];
+  const eventDate = new Date(e.event_date);
+  const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
+  const end = new Date(eventDate.getTime() + durationMs);
+  const isLive = now >= eventDate && now < end;
+  return rowToEventListItem(e, eventDate, isLive);
+}
+
 export function useRegisterForEvent() {
   const qc = useQueryClient();
   const register = useMutation({
@@ -151,6 +264,7 @@ export function useRegisterForEvent() {
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
       qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
     },
   });
@@ -168,6 +282,7 @@ export function useRegisterForEvent() {
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
       qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
     },
   });
@@ -227,4 +342,153 @@ export async function swipe(eventId: string, targetId: string, swipeType: 'vibe'
   });
   if (error) return null;
   return data as SwipeResult;
+}
+
+const SUPER_VIBE_LIMIT_PER_EVENT = 3;
+
+/** Drain match queue when user returns to browsing. Returns first ready match if any. */
+export async function drainMatchQueue(eventId: string, userId: string): Promise<{ found: boolean; match_id?: string; partner_id?: string } | null> {
+  const { data, error } = await supabase.rpc('drain_match_queue', {
+    p_event_id: eventId,
+    p_user_id: userId,
+  });
+  if (error) return null;
+  return data as { found: boolean; match_id?: string; partner_id?: string };
+}
+
+/** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */
+export async function getQueuedMatchCount(eventId: string, userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('video_sessions')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('ready_gate_status', 'queued')
+    .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+/** Remaining Super Vibes for this event (max 3 per event). */
+export async function getSuperVibeRemaining(eventId: string, userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('event_swipes')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('actor_id', userId)
+    .eq('swipe_type', 'super_vibe');
+  if (error) return SUPER_VIBE_LIMIT_PER_EVENT;
+  const used = count ?? 0;
+  return Math.max(0, SUPER_VIBE_LIMIT_PER_EVENT - used);
+}
+
+// ─── Event attendees (Who's Going) ───
+export type EventAttendee = {
+  id: string;
+  name: string;
+  age: number | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+};
+
+/** Fetch attendees for an event (event_registrations + profiles). */
+export function useEventAttendees(eventId: string | undefined) {
+  return useQuery({
+    queryKey: ['event-attendees', eventId],
+    enabled: !!eventId,
+    queryFn: async (): Promise<EventAttendee[]> => {
+      if (!eventId) return [];
+      const { data: regs, error: regError } = await supabase
+        .from('event_registrations')
+        .select('profile_id')
+        .eq('event_id', eventId);
+      if (regError || !regs?.length) return [];
+      const profileIds = [...new Set(regs.map((r) => r.profile_id).filter(Boolean))];
+      const { data: profiles, error: profError } = await supabase
+        .from('profiles')
+        .select('id, name, age, avatar_url, photos')
+        .in('id', profileIds);
+      if (profError || !profiles?.length) return [];
+      return profiles.map((p) => ({
+        id: p.id,
+        name: p.name ?? 'Guest',
+        age: p.age ?? null,
+        avatar_url: p.avatar_url,
+        photos: (p.photos as string[] | null) ?? null,
+      }));
+    },
+  });
+}
+
+// ─── Event vibes (pre-event interest) ───
+export type EventVibeMutual = {
+  id: string;
+  name: string;
+  avatar: string | null;
+  age: number;
+};
+
+/** Sent vibe receiver IDs for this event and user. */
+export function useEventVibesSent(eventId: string | undefined, userId: string | undefined) {
+  return useQuery({
+    queryKey: ['event-vibes-sent', eventId, userId],
+    enabled: !!eventId && !!userId,
+    queryFn: async (): Promise<string[]> => {
+      if (!eventId || !userId) return [];
+      const { data, error } = await supabase
+        .from('event_vibes')
+        .select('receiver_id')
+        .eq('event_id', eventId)
+        .eq('sender_id', userId);
+      if (error) return [];
+      return (data ?? []).map((r) => r.receiver_id);
+    },
+  });
+}
+
+export type EventVibeReceived = {
+  sender_id: string;
+  sender?: { id: string; name: string; avatar_url: string | null; age: number };
+};
+
+/** Received vibes with sender profile for this event and user. */
+export function useEventVibesReceived(eventId: string | undefined, userId: string | undefined) {
+  return useQuery({
+    queryKey: ['event-vibes-received', eventId, userId],
+    enabled: !!eventId && !!userId,
+    queryFn: async (): Promise<EventVibeReceived[]> => {
+      if (!eventId || !userId) return [];
+      const { data, error } = await supabase
+        .from('event_vibes')
+        .select('sender_id')
+        .eq('event_id', eventId)
+        .eq('receiver_id', userId);
+      if (error || !data?.length) return [];
+      const senderIds = [...new Set(data.map((r) => r.sender_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, avatar_url, age')
+        .in('id', senderIds);
+      return data.map((r) => {
+        const p = profiles?.find((x) => x.id === r.sender_id);
+        return {
+          sender_id: r.sender_id,
+          sender: p ? { id: p.id, name: p.name ?? 'Unknown', avatar_url: p.avatar_url, age: p.age ?? 0 } : undefined,
+        };
+      });
+    },
+  });
+}
+
+/** Send a vibe to an attendee. */
+export async function sendEventVibe(eventId: string, userId: string, receiverId: string): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.from('event_vibes').insert({
+    event_id: eventId,
+    sender_id: userId,
+    receiver_id: receiverId,
+  });
+  if (error) {
+    if (error.code === '23505') return { ok: false, error: 'You already sent a vibe to this person' };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }

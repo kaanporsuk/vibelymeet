@@ -1,6 +1,14 @@
+<<<<<<< HEAD
+# Native release readiness (through Phase 7)
+
+Scope: App and provider/build closure prep. Reflects Sprints 1–6 and **Phase 7** (Android runtime validation, RevenueCat validation, OneSignal/Daily validation, first iOS build path, release-readiness go/no-go).
+
+**Phase 7 summary:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md` for the strict release-readiness matrix, go/no-go recommendation, and critical path. **Current verdict: No-Go for submission** until provider proof and first device validation are completed and OneSignal web production caveat + rebuild rehearsal are addressed.
+=======
 # Native release readiness (through Sprint 5)
 
 Scope: App and provider/build closure prep. Reflects Sprints 1–4 (parity, public profile, match celebration, credits) and Sprint 5 (OneSignal/RevenueCat real-device prep, build validation docs, blocker matrix refresh).
+>>>>>>> origin/main
 
 ---
 
@@ -59,6 +67,19 @@ No config or code changes were required for branding this sprint; existing wirin
 
 ---
 
+<<<<<<< HEAD
+## 6. Final blocker matrix and Phase 7
+
+See `docs/native-final-blocker-matrix.md` for the categorized list (blocker / non-blocking / deferred / dev-only), now updated with Phase 7 status and the **OneSignal web production** caveat.
+
+**Phase 7 (runtime/provider validation):**  
+- **Stage 1 (Android):** Auth race and Settings crash fixed; no device run in automation.  
+- **Stage 2 (RevenueCat):** Offerings refetch after logIn fixed; code path validated; real-device purchase/restore not yet proven.  
+- **Stage 3 (OneSignal/Daily):** Mobile code path validated; Daily unmount calls endVideoDate; real-device push and video not yet proven. **Web:** Production OneSignal service-worker and dashboard origin config remain an open hardening caveat.  
+- **Stage 4 (iOS):** Prebuild succeeded; run:ios compilation observed; first launch/runtime checklist to be filled after local run.  
+- **Stage 5:** Release-readiness matrix, go/no-go (No-Go), critical path, and next actions in `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Rebuild rehearsal should be re-run and logged before submission.
+=======
 ## 6. Final blocker matrix and Sprint 5
 
 See `docs/native-final-blocker-matrix.md` for the categorized list (blocker / non-blocking / deferred / dev-only). **Sprint 5:** OneSignal real-device closure prep (§3) and RevenueCat audit (§2) documented in `docs/native-external-setup-checklist.md`; production-style build validation prep (§5.1); OneSignal APNs mode set via `app.config.js` for EAS preview/production builds.
+>>>>>>> origin/main

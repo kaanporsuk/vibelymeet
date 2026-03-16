@@ -12,3 +12,9 @@ export function getVibeVideoPlaybackUrl(bunnyVideoUid: string | null | undefined
   if (!bunnyVideoUid || !BUNNY_STREAM_CDN) return null;
   return `https://${BUNNY_STREAM_CDN}/${bunnyVideoUid}/playlist.m3u8`;
 }
+
+/** Thumbnail image URL for 16:9 card (web parity). */
+export function getVibeVideoThumbnailUrl(bunnyVideoUid: string | null | undefined): string | null {
+  if (!bunnyVideoUid || !BUNNY_STREAM_CDN) return null;
+  return `https://${BUNNY_STREAM_CDN}/${bunnyVideoUid}/thumbnail.jpg`;
+}

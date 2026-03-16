@@ -4,7 +4,7 @@
  * Uses existing useEvents and event-detail navigation; no new backend contracts.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -14,20 +14,22 @@ import {
   TextInput,
   Image,
   RefreshControl,
-  ActivityIndicator,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { Card, GlassSurface, ErrorState, EmptyState, Skeleton } from '@/components/ui';
-import { spacing, radius, typography } from '@/constants/theme';
+import { Card, GlassHeaderBar, ErrorState, EmptyState, Skeleton, VibelyButton } from '@/components/ui';
+import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useEvents } from '@/lib/eventsApi';
-import type { EventListItem } from '@/lib/eventsApi';
-import { eventCoverUrl } from '@/lib/imageUrl';
+import { useEvents, useIsRegisteredForEvent, useEventAttendees, type EventListItem, type EventAttendee } from '@/lib/eventsApi';
+import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabase';
+import { Linking } from 'react-native';
 
 const DATE_FILTERS = ['Tonight', 'This Weekend', 'This Week', 'Upcoming'] as const;
 
@@ -50,12 +52,14 @@ function isThisWeek(ed: Date, now: Date): boolean {
   return ed <= end && ed >= now;
 }
 
-// ── Location prompt banner (shell: no geolocation in this pass)
+// ── Location prompt banner: show when profile has no location_data; Enable opens web to set location
 function LocationPromptBanner({
   onDismiss,
+  onEnable,
   theme,
 }: {
   onDismiss: () => void;
+  onEnable: () => void;
   theme: (typeof Colors)[keyof typeof Colors];
 }) {
   return (
@@ -75,7 +79,7 @@ function LocationPromptBanner({
         <Pressable onPress={onDismiss} style={locationStyles.ghostBtn}>
           <Text style={[locationStyles.ghostLabel, { color: theme.textSecondary }]}>Not now</Text>
         </Pressable>
-        <Pressable style={[locationStyles.primaryBtn, { backgroundColor: theme.tint }]}>
+        <Pressable onPress={onEnable} style={[locationStyles.primaryBtn, { backgroundColor: theme.tint }]}>
           <Text style={locationStyles.primaryLabel}>Enable</Text>
         </Pressable>
       </View>
@@ -111,19 +115,68 @@ const locationStyles = StyleSheet.create({
   primaryLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
 });
 
-// ── Featured hero card (first event; web FeaturedEventCard parity)
+// ── Countdown for featured card (HH:MM:SS until start, or "Live" / "Ended")
+function useFeaturedCountdown(event: EventListItem | null) {
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [isLive, setIsLive] = useState(false);
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    if (!event) return;
+    const start = event.eventDate.getTime();
+    const end = start + (event.duration_minutes ?? 60) * 60 * 1000;
+    const tick = () => {
+      const now = Date.now();
+      if (now >= end) {
+        setExpired(true);
+        setIsLive(false);
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      if (now >= start) {
+        setIsLive(true);
+        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      const diff = Math.floor((start - now) / 1000);
+      setTimeLeft({
+        hours: Math.floor(diff / 3600),
+        minutes: Math.floor((diff % 3600) / 60),
+        seconds: diff % 60,
+      });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [event?.id, event?.eventDate?.getTime(), event?.duration_minutes]);
+  return { timeLeft, isLive, expired };
+}
+
+// ── Featured hero card (first/upcoming event; web FeaturedEventCard parity — taller, countdown, View Ticket)
 function FeaturedEventCard({
   event,
   theme,
   onPress,
+  isRegistered,
+  attendees,
 }: {
   event: EventListItem;
   theme: (typeof Colors)[keyof typeof Colors];
   onPress: () => void;
+  isRegistered?: boolean;
+  attendees?: EventAttendee[];
 }) {
-  const isLive = event.status === 'live';
+  const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
+  const avatarUrls = (attendees ?? []).slice(0, 3).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
   return (
-    <Pressable style={[featuredStyles.wrapper, { backgroundColor: theme.surface }]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [
+        featuredStyles.wrapper,
+        { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+        shadows.card,
+        pressed && { opacity: 0.92 },
+      ]}
+      onPress={onPress}
+    >
       <Image
         source={{ uri: eventCoverUrl(event.image) }}
         style={featuredStyles.image}
@@ -132,7 +185,12 @@ function FeaturedEventCard({
       <View style={featuredStyles.gradientOverlay} />
       <View style={featuredStyles.content}>
         <View style={featuredStyles.badges}>
-          {isLive ? (
+          {expired ? (
+            <View style={[featuredStyles.endedBadge, { backgroundColor: withAlpha(theme.surface, 0.8), borderColor: theme.border }]}>
+              <View style={[featuredStyles.liveDot, { backgroundColor: theme.textSecondary }]} />
+              <Text style={[featuredStyles.endedText, { color: theme.textSecondary }]}>Event Ended</Text>
+            </View>
+          ) : isLive ? (
             <View style={featuredStyles.liveBadge}>
               <View style={featuredStyles.liveDot} />
               <Text style={featuredStyles.liveText}>Live Now</Text>
@@ -144,10 +202,18 @@ function FeaturedEventCard({
             </View>
           )}
         </View>
+        {!isLive && !expired && (
+          <View style={[featuredStyles.countdown, { backgroundColor: withAlpha(theme.background, 0.4), borderColor: 'rgba(255,255,255,0.1)' }]}>
+            <Ionicons name="time-outline" size={16} color={theme.neonCyan} />
+            <Text style={[featuredStyles.countdownText, { color: theme.text }]}>
+              {String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}
+            </Text>
+          </View>
+        )}
         {event.tags.length > 0 && (
           <View style={featuredStyles.tags}>
             {event.tags.slice(0, 3).map((tag) => (
-              <View key={tag} style={[featuredStyles.tag, { backgroundColor: 'rgba(139,92,246,0.2)', borderColor: 'rgba(139,92,246,0.3)' }]}>
+              <View key={tag} style={[featuredStyles.tag, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
                 <Text style={[featuredStyles.tagText, { color: theme.tint }]}>{tag}</Text>
               </View>
             ))}
@@ -164,16 +230,20 @@ function FeaturedEventCard({
         <View style={featuredStyles.footer}>
           <View style={featuredStyles.attendees}>
             <View style={featuredStyles.avatarStack}>
-              {[1, 2, 3].map((i) => (
-                <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft }]} />
-              ))}
+              {avatarUrls.length > 0
+                ? avatarUrls.map((uri, i) => (
+                    <Image key={i} source={{ uri: avatarUrl(uri) }} style={[featuredStyles.avatar, { borderColor: theme.background }]} />
+                  ))
+                : [1, 2, 3].map((i) => (
+                    <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.background }]} />
+                  ))}
             </View>
             <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
               +{event.attendees} going
             </Text>
           </View>
-          <View style={[featuredStyles.cta, { backgroundColor: theme.accent }]}>
-            <Text style={featuredStyles.ctaLabel}>Get Tickets</Text>
+          <View style={[featuredStyles.cta, { backgroundColor: isRegistered ? theme.neonCyan : theme.accent }]}>
+            <Text style={featuredStyles.ctaLabel}>{isRegistered ? 'View Ticket' : 'Get Tickets'}</Text>
             <Ionicons name="arrow-forward" size={16} color="#fff" />
           </View>
         </View>
@@ -190,7 +260,7 @@ const featuredStyles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.18)',
-    height: 376,
+    height: 420,
   },
   image: {
     ...StyleSheet.absoluteFillObject,
@@ -202,8 +272,10 @@ const featuredStyles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: '74%',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    height: '78%',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderBottomLeftRadius: radius['3xl'],
+    borderBottomRightRadius: radius['3xl'],
   },
   content: {
     flex: 1,
@@ -212,6 +284,29 @@ const featuredStyles = StyleSheet.create({
     paddingBottom: spacing.xl + 8,
   },
   badges: { position: 'absolute', top: spacing.lg, left: spacing.lg },
+  endedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  endedText: { fontSize: 12, fontWeight: '600' },
+  countdown: {
+    position: 'absolute',
+    top: spacing.lg,
+    right: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+  },
+  countdownText: { fontSize: 16, fontWeight: '700' },
   liveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -227,7 +322,7 @@ const featuredStyles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#fff',
   },
-  liveText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  liveText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' },
   featuredBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -257,7 +352,6 @@ const featuredStyles = StyleSheet.create({
     borderRadius: 15,
     marginLeft: -6,
     borderWidth: 2,
-    borderColor: 'hsl(240, 10%, 4%)',
   },
   attendeesText: { fontSize: 14, fontWeight: '600' },
   cta: {
@@ -287,7 +381,12 @@ function EventRailCard({
   const isLive = event.status === 'live';
   return (
     <Pressable
-      style={[railCardStyles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      style={({ pressed }) => [
+        railCardStyles.card,
+        { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+        shadows.card,
+        pressed && { opacity: 0.92 },
+      ]}
       onPress={onPress}
     >
       <View style={railCardStyles.imageWrap}>
@@ -319,7 +418,7 @@ function EventRailCard({
         <View style={railCardStyles.row}>
           <View style={railCardStyles.avatars}>
             {[1, 2, 3].map((i) => (
-              <View key={i} style={[railCardStyles.avatar, { backgroundColor: theme.accentSoft }]} />
+              <View key={i} style={[railCardStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.surface }]} />
             ))}
           </View>
           <Text style={[railCardStyles.attendees, { color: theme.textSecondary }]}>+{event.attendees}</Text>
@@ -389,7 +488,6 @@ const railCardStyles = StyleSheet.create({
     borderRadius: 10,
     marginLeft: -6,
     borderWidth: 1,
-    borderColor: 'hsl(240, 10%, 8%)',
   },
   attendees: { fontSize: 11, fontWeight: '500' },
   cta: {
@@ -450,16 +548,18 @@ const railStyles = StyleSheet.create({
   scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
 });
 
-// ── Loading skeleton (uses shared Skeleton primitive)
+// ── Loading skeleton (uses shared Skeleton primitive; themed for parity)
 function EventsSkeleton() {
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   return (
     <View style={skeletonStyles.wrapper}>
-      <Skeleton style={skeletonStyles.hero} height={380} borderRadius={radius['3xl']} />
+      <Skeleton style={skeletonStyles.hero} height={380} borderRadius={radius['3xl']} backgroundColor={theme.muted} />
       <View style={skeletonStyles.rail}>
-        <Skeleton width={140} height={24} borderRadius={8} style={skeletonStyles.railTitle} />
+        <Skeleton width={140} height={24} borderRadius={8} style={skeletonStyles.railTitle} backgroundColor={theme.muted} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} width={CARD_WIDTH} height={220} borderRadius={radius['2xl']} style={skeletonStyles.railCard} />
+            <Skeleton key={i} width={CARD_WIDTH} height={220} borderRadius={radius['2xl']} style={skeletonStyles.railCard} backgroundColor={theme.muted} />
           ))}
         </ScrollView>
       </View>
@@ -490,7 +590,17 @@ export default function EventsListScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [locationDismissed, setLocationDismissed] = useState(false);
-  const [showLocationPrompt] = useState(false); // Set true to show; no profile location check in this pass
+  const { data: profileLocation } = useQuery({
+    queryKey: ['profile-location', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data } = await supabase.from('profiles').select('location_data').eq('id', user.id).maybeSingle();
+      return data as { location_data?: { lat?: number; lng?: number } | null } | null;
+    },
+    enabled: !!user?.id,
+  });
+  const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
+  const showLocationPrompt = !hasLocation;
 
   const now = useMemo(() => new Date(), []);
 
@@ -522,6 +632,8 @@ export default function EventsListScreen() {
   const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
   const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
   const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
+  const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
+  const { data: featuredAttendees = [] } = useEventAttendees(featuredEvent?.id);
 
   const toggleFilter = (filter: string) => {
     if (activeFilters.includes(filter)) {
@@ -544,8 +656,8 @@ export default function EventsListScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ErrorState
-          title="Failed to load events"
-          message="Check your connection and try again."
+          title="Couldn't load events"
+          message="Check your connection, then tap Retry."
           actionLabel="Retry"
           onActionPress={() => refetch()}
         />
@@ -565,19 +677,25 @@ export default function EventsListScreen() {
       }
     >
       {/* Header */}
-      <GlassSurface style={[styles.header, { paddingTop: insets.top + spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.md }]}>
-        <View style={[styles.headerIconBox, { backgroundColor: theme.accentSoft }]}>
-          <Ionicons name="calendar" size={24} color={theme.tint} />
+      <GlassHeaderBar insets={insets}>
+        <View style={styles.header}>
+          <View style={[styles.headerIconBox, { backgroundColor: theme.accentSoft }]}>
+            <Ionicons name="calendar" size={24} color={theme.tint} />
+          </View>
+          <View>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Discover Events</Text>
+            <Text style={[styles.headerSub, { color: theme.textSecondary }]}>Find your next vibe match</Text>
+          </View>
         </View>
-        <View>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Discover Events</Text>
-          <Text style={[styles.headerSub, { color: theme.textSecondary }]}>Find your next vibe match</Text>
-        </View>
-      </GlassSurface>
+      </GlassHeaderBar>
 
-      {/* Location prompt (shell) */}
+      {/* Location prompt: show when profile has no location and not dismissed; Set location opens web */}
       {showLocationPrompt && !locationDismissed && (
-        <LocationPromptBanner theme={theme} onDismiss={() => setLocationDismissed(true)} />
+        <LocationPromptBanner
+          theme={theme}
+          onDismiss={() => setLocationDismissed(true)}
+          onEnable={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})}
+        />
       )}
 
       {/* Filter bar */}
@@ -634,8 +752,8 @@ export default function EventsListScreen() {
         </ScrollView>
       </View>
 
-      {/* Content */}
-      <View style={styles.content}>
+      {/* Content — max width for tablet parity */}
+      <View style={[styles.content, { maxWidth: layout.contentWidth, alignSelf: 'center', width: '100%' }]}>
         {isLoading && !events.length ? (
           <EventsSkeleton />
         ) : isFiltering ? (
@@ -659,6 +777,7 @@ export default function EventsListScreen() {
               </ScrollView>
             ) : (
               <EmptyState
+                showIllustration={false}
                 title="No events found"
                 message="Try adjusting your filters or search terms"
               />
@@ -671,6 +790,8 @@ export default function EventsListScreen() {
                 event={featuredEvent}
                 theme={theme}
                 onPress={() => handleEventPress(featuredEvent.id)}
+                isRegistered={!!isRegisteredForFeatured}
+                attendees={featuredAttendees}
               />
             )}
 
@@ -698,8 +819,9 @@ export default function EventsListScreen() {
 
             {events.length === 0 && !isLoading && (
               <EmptyState
+                showIllustration={false}
                 title="No events near you yet 💫"
-                message="But there are events happening in other cities!"
+                message="Check back later or go Premium to explore events in other cities."
                 actionLabel="Go Premium to explore"
                 onActionPress={() => router.push('/premium')}
               />
@@ -714,7 +836,7 @@ export default function EventsListScreen() {
               <Text style={[styles.elsewhereSub, { color: theme.textSecondary }]}>
                 Events in cities you can explore with Premium
               </Text>
-              <Card style={[styles.premiumCard, { borderColor: 'rgba(139,92,246,0.2)', backgroundColor: 'rgba(139,92,246,0.06)' }]}>
+              <Card variant="glass" style={[styles.premiumCard, { borderColor: theme.glassBorder }]}>
                 <View style={styles.premiumCardInner}>
                   <Text style={styles.premiumEmoji}>💎</Text>
                   <View style={styles.premiumCardCopy}>
@@ -722,13 +844,13 @@ export default function EventsListScreen() {
                     <Text style={[styles.premiumCardDesc, { color: theme.textSecondary }]}>
                       Explore events in any city, match with people worldwide, and never miss a vibe.
                     </Text>
-                    <Pressable
-                      style={[styles.premiumCardCta, { backgroundColor: theme.tint }]}
+                    <VibelyButton
+                      label="Explore with Premium →"
                       onPress={() => router.push('/premium')}
-                    >
-                      <Ionicons name="sparkles" size={16} color="#fff" />
-                      <Text style={styles.premiumCardCtaLabel}>Explore with Premium →</Text>
-                    </Pressable>
+                      variant="primary"
+                      size="sm"
+                      style={styles.premiumCardCta}
+                    />
                   </View>
                 </View>
               </Card>
@@ -737,14 +859,13 @@ export default function EventsListScreen() {
         )}
       </View>
 
-      <View style={styles.bottomSpacer} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { paddingBottom: 24 },
+  scrollContent: { paddingBottom: layout.scrollContentPaddingBottomTab },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -774,7 +895,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     height: 48,
-    borderRadius: radius['2xl'],
+    borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     marginBottom: spacing.md,
   },
@@ -796,7 +917,7 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: '500' },
   clearChips: { paddingVertical: 8, paddingHorizontal: spacing.sm },
   clearChipsText: { fontSize: 14, fontWeight: '500' },
-  content: { paddingTop: spacing.xl },
+  content: { paddingTop: layout.mainContentPaddingTop },
   filteredContent: { paddingHorizontal: spacing.lg },
   filteredHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
   filteredCount: { fontSize: 14 },
@@ -805,21 +926,11 @@ const styles = StyleSheet.create({
   elsewhereHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },
   elsewhereTitle: { fontSize: 16, fontWeight: '700' },
   elsewhereSub: { fontSize: 12, marginBottom: spacing.md },
-  premiumCard: { padding: spacing.lg, borderWidth: 1 },
+  premiumCard: { padding: spacing.lg },
   premiumCardInner: { flexDirection: 'row', gap: spacing.md },
   premiumEmoji: { fontSize: 24 },
   premiumCardCopy: { flex: 1 },
   premiumCardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
   premiumCardDesc: { fontSize: 14, marginBottom: spacing.md },
-  premiumCardCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
-    borderRadius: radius.lg,
-  },
-  premiumCardCtaLabel: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  bottomSpacer: { height: 96 },
+  premiumCardCta: { alignSelf: 'flex-start' },
 });

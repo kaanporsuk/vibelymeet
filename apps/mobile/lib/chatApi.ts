@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { uploadVoiceMessage, uploadChatVideoMessage } from '@/lib/chatMediaUpload';
@@ -12,7 +12,11 @@ export type MatchListItem = {
   lastMessage: string | null;
   time: string;
   unread: boolean;
+  /** True if matched within last 24h (web parity for "new" pill) */
+  isNew: boolean;
   matchId: string;
+  /** When set, match is archived (hidden from main list unless showing archived) */
+  archived_at: string | null;
 };
 
 export function useMatches(userId: string | null | undefined) {
@@ -44,7 +48,7 @@ export function useMatches(userId: string | null | undefined) {
       if (!userId) return [];
       const { data: matches, error } = await supabase
         .from('matches')
-        .select('id, matched_at, last_message_at, profile_id_1, profile_id_2')
+        .select('id, matched_at, last_message_at, profile_id_1, profile_id_2, archived_at')
         .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
@@ -75,11 +79,14 @@ export function useMatches(userId: string | null | undefined) {
         return d.toLocaleDateString();
       };
 
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
       return matches.map((match) => {
         const otherId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
         const profile = profiles.find((p) => p.id === otherId);
         const lastMsg = lastMessages[match.id];
         const photo = (profile as { photos?: string[] })?.photos?.[0] || (profile as { avatar_url?: string })?.avatar_url || '';
+        const matchedAt = match.matched_at ? new Date(match.matched_at).getTime() : 0;
+        const isNew = Date.now() - matchedAt < ONE_DAY_MS;
         return {
           id: otherId,
           name: (profile as { name?: string })?.name || 'Unknown',
@@ -88,13 +95,18 @@ export function useMatches(userId: string | null | undefined) {
           lastMessage: lastMsg?.content ?? null,
           time: lastMsg ? formatTime(lastMsg.created_at) : 'new',
           unread: lastMsg ? !lastMsg.read_at && lastMsg.sender_id !== userId : false,
+          isNew,
           matchId: match.id,
+          archived_at: (match as { archived_at?: string | null }).archived_at ?? null,
         };
       });
     },
     enabled: !!userId,
   });
 }
+
+export type MessageStatusType = 'sending' | 'sent' | 'delivered' | 'read';
+export type ReactionEmoji = '❤️' | '🔥' | '🤣' | '😮' | '👎';
 
 export type ChatMessage = {
   id: string;
@@ -105,31 +117,65 @@ export type ChatMessage = {
   audio_duration_seconds?: number | null;
   video_url?: string | null;
   video_duration_seconds?: number | null;
+  read_at?: string | null;
+  status?: MessageStatusType;
+  reaction?: ReactionEmoji | null;
+};
+
+export type ChatOtherUser = {
+  id: string;
+  name: string;
+  age: number;
+  avatar_url: string | null;
+  photos: string[] | null;
+  last_seen_at: string | null;
 };
 
 export function useMessages(otherUserId: string | undefined, currentUserId: string | null | undefined) {
   return useQuery({
     queryKey: ['messages', otherUserId, currentUserId],
-    queryFn: async (): Promise<{ messages: ChatMessage[]; matchId: string | null }> => {
-      if (!currentUserId || !otherUserId) return { messages: [], matchId: null };
+    queryFn: async (): Promise<{ messages: ChatMessage[]; matchId: string | null; otherUser: ChatOtherUser | null }> => {
+      if (!currentUserId || !otherUserId) return { messages: [], matchId: null, otherUser: null };
       const { data: match, error: matchError } = await supabase
         .from('matches')
         .select('id')
         .or(`and(profile_id_1.eq.${currentUserId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${currentUserId})`)
         .maybeSingle();
       if (matchError) throw matchError;
-      if (!match) return { messages: [], matchId: null };
+      if (!match) return { messages: [], matchId: null, otherUser: null };
 
-      const { data: messages, error: msgError } = await supabase
-        .from('messages')
-        .select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds')
-        .eq('match_id', match.id)
-        .order('created_at', { ascending: true });
-      if (msgError) throw msgError;
+      const [messagesRes, otherUserRes] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds')
+          .eq('match_id', match.id)
+          .order('created_at', { ascending: true }),
+        supabase.from('profiles').select('id, name, age, avatar_url, photos, last_seen_at').eq('id', otherUserId).maybeSingle(),
+      ]);
+      if (messagesRes.error) throw messagesRes.error;
+      const messages = messagesRes.data || [];
+      const otherRow = otherUserRes.data as { id: string; name?: string; age?: number; avatar_url?: string | null; photos?: string[] | null; last_seen_at?: string | null } | null;
+
+      const otherUser: ChatOtherUser | null = otherRow
+        ? {
+            id: otherRow.id,
+            name: otherRow.name ?? 'Unknown',
+            age: otherRow.age ?? 0,
+            avatar_url: otherRow.avatar_url ?? null,
+            photos: otherRow.photos ?? null,
+            last_seen_at: otherRow.last_seen_at ?? null,
+          }
+        : null;
+
+      const mapStatus = (m: { sender_id: string; read_at: string | null }): MessageStatusType => {
+        if (m.sender_id !== currentUserId) return 'sent';
+        return m.read_at ? 'read' : 'delivered';
+      };
 
       return {
         matchId: match.id,
-        messages: (messages || []).map((m) => ({
+        otherUser,
+        messages: messages.map((m) => ({
           id: m.id,
           text: m.content,
           sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
@@ -138,6 +184,8 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           audio_duration_seconds: m.audio_duration_seconds ?? undefined,
           video_url: m.video_url ?? undefined,
           video_duration_seconds: m.video_duration_seconds ?? undefined,
+          read_at: m.read_at ?? undefined,
+          status: mapStatus(m),
         })),
       };
     },
@@ -179,6 +227,57 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [matchId, enabled, invalidate]);
+}
+
+/** Typing indicator: broadcast when local user types, subscribe for partner typing. */
+export function useTypingBroadcast(
+  matchId: string | null,
+  currentUserId: string | null | undefined,
+  isTyping: boolean,
+  enabled: boolean
+) {
+  const [partnerTyping, setPartnerTyping] = useState(false);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  useEffect(() => {
+    if (!matchId || !currentUserId || !enabled) {
+      setPartnerTyping(false);
+      return;
+    }
+    const channelName = `chat-typing-${matchId}`;
+    const channel = supabase.channel(channelName);
+    channelRef.current = channel;
+    channel
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const { userId, typing } = (payload.payload as { userId?: string; typing?: boolean }) ?? {};
+        if (userId && userId !== currentUserId) setPartnerTyping(typing === true);
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && isTyping) {
+          channel.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, typing: true } });
+        }
+      });
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+      setPartnerTyping(false);
+    };
+  }, [matchId, currentUserId, enabled]);
+
+  const sendTyping = useCallback(
+    (typing: boolean) => {
+      if (!matchId || !currentUserId || !channelRef.current) return;
+      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, typing } });
+    },
+    [matchId, currentUserId]
+  );
+
+  useEffect(() => {
+    if (!enabled) return;
+    sendTyping(isTyping);
+  }, [isTyping, enabled, sendTyping]);
+
+  return { partnerTyping };
 }
 
 /** Send voice message: upload via upload-voice EF then insert (same as web). */

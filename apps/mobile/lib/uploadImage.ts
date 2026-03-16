@@ -27,6 +27,10 @@ export async function uploadProfilePhoto(
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
+  if (!SUPABASE_URL) {
+    throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
+  }
+
   const formData = new FormData();
   // React Native FormData accepts { uri, type, name } for file uploads (not in TS lib)
   formData.append(

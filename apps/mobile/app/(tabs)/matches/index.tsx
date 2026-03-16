@@ -1,32 +1,172 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, View as RNView, Text as RNText, TextInput, Linking, Share, Platform } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Linking, Share, Platform, Image, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { ScreenContainer, SectionHeader, Card, EmptyState, ErrorState, LoadingState, VibelyButton, GlassSurface, MatchListRow, SettingsRow } from '@/components/ui';
-import { spacing, typography } from '@/constants/theme';
+import {
+  ScreenContainer,
+  Card,
+  EmptyState,
+  ErrorState,
+  VibelyButton,
+  GlassHeaderBar,
+  MatchListRow,
+  MatchListRowSkeleton,
+  MatchAvatarSkeleton,
+  SettingsRow,
+  VibelyText,
+} from '@/components/ui';
+import { spacing, typography, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useMatches } from '@/lib/chatApi';
+import { useUndoableUnmatch } from '@/lib/useUnmatch';
+import { useBlockUser } from '@/lib/useBlockUser';
+import { useArchiveMatch } from '@/lib/useArchiveMatch';
+import { useMuteMatch } from '@/lib/useMuteMatch';
+import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
+import { ReportFlowModal } from '@/components/match/ReportFlowModal';
+import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
+import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
+import { DropsTabContent } from '@/components/matches/DropsTabContent';
+import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 
 export default function MatchesListScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const { isPremium } = useBackendSubscription(user?.id);
   const { data: matches = [], isLoading, error, refetch } = useMatches(user?.id);
   const [activeTab, setActiveTab] = useState<'conversations' | 'drops'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
 
+  const activeMatches = useMemo(() => matches.filter((m) => !m.archived_at), [matches]);
+  const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
+  const newVibes = useMemo(
+    () => activeMatches.filter((m) => m.isNew && !openedVibeIds.has(m.matchId)),
+    [activeMatches, openedVibeIds]
+  );
+
   const filteredMatches = useMemo(() => {
-    if (!searchQuery.trim()) return matches;
+    if (!searchQuery.trim()) return activeMatches;
     const q = searchQuery.toLowerCase();
-    return matches.filter(
+    return activeMatches.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
         (m.lastMessage ?? '').toLowerCase().includes(q)
     );
-  }, [matches, searchQuery]);
+  }, [activeMatches, searchQuery]);
+
+  const [pendingUnmatchMatchId, setPendingUnmatchMatchId] = useState<string | null>(null);
+  const [pendingUnmatchName, setPendingUnmatchName] = useState<string>('');
+  const [profileSheetMatch, setProfileSheetMatch] = useState<{ id: string; name: string; age: number; image: string } | null>(null);
+  const { initiateUnmatch, cancelPending } = useUndoableUnmatch({
+    onUnmatchComplete: () => {
+      setPendingUnmatchMatchId(null);
+      setPendingUnmatchName('');
+    },
+  });
+  const { blockUser, isUserBlocked, isBlocking } = useBlockUser(user?.id);
+  const { archiveMatch, unarchiveMatch, isArchiving } = useArchiveMatch(user?.id);
+  const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
+  const [actionsMatch, setActionsMatch] = useState<(typeof matches)[0] | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ id: string; name: string } | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const handleUnmatch = useCallback(
+    (matchId: string, name: string) => {
+      Alert.alert('Unmatch?', `Remove ${name} from your matches? You can undo within 5 seconds.`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unmatch',
+          style: 'destructive',
+          onPress: () => {
+            setPendingUnmatchMatchId(matchId);
+            setPendingUnmatchName(name);
+            initiateUnmatch(matchId);
+            setActionsMatch(null);
+          },
+        },
+      ]);
+    },
+    [initiateUnmatch]
+  );
+
+  const handleBlock = useCallback(
+    (blockedId: string, name: string, matchId: string) => {
+      Alert.alert('Block?', `Block ${name}? They won't be able to contact you or see your profile.`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            setActionLoading('block');
+            try {
+              await blockUser({ blockedId, matchId });
+              setActionsMatch(null);
+            } finally {
+              setActionLoading(null);
+            }
+          },
+        },
+      ]);
+    },
+    [blockUser]
+  );
+
+  const handleArchive = useCallback(
+    async (matchId: string, name: string) => {
+      setActionLoading('archive');
+      try {
+        await archiveMatch({ matchId });
+        setActionsMatch(null);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [archiveMatch]
+  );
+
+  const handleUnarchive = useCallback(
+    async (matchId: string) => {
+      setActionLoading('unarchive');
+      try {
+        await unarchiveMatch({ matchId });
+        setActionsMatch(null);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [unarchiveMatch]
+  );
+
+  const handleMute = useCallback(
+    async (matchId: string, name: string) => {
+      setActionLoading('mute');
+      try {
+        await muteMatch({ matchId, duration: '1day' });
+        setActionsMatch(null);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [muteMatch]
+  );
+
+  const handleUnmute = useCallback(
+    async (matchId: string) => {
+      setActionLoading('unmute');
+      try {
+        await unmuteMatch({ matchId });
+        setActionsMatch(null);
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [unmuteMatch]
+  );
 
   const handleRefresh = useCallback(async () => {
     await refetch();
@@ -45,50 +185,109 @@ export default function MatchesListScreen() {
     }
   }, [user?.id]);
 
-  if (isLoading && !matches.length) {
-    return <LoadingState title="Loading matches" message="Finding people you’ve vibed with at events." />;
-  }
-
   if (error) {
     return (
-      <ErrorState
+      <RNView style={[styles.centeredError, { backgroundColor: theme.background }]}>
+        <ErrorState
         title="We couldn’t load your matches"
         message="Check your connection and try again."
         actionLabel="Retry"
         onActionPress={() => refetch()}
-      />
+        />
+      </RNView>
     );
   }
 
-  if (!matches.length) {
+  if (!matches.length && !isLoading) {
     return (
       <ScreenContainer>
-        <GlassSurface style={styles.matchesHeader}>
+        <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
+          <RNView style={styles.headerTitleRow}>
+            <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
+            <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
+          </RNView>
+        </GlassHeaderBar>
+        <ScrollView
+          style={styles.emptyStateScroll}
+          contentContainerStyle={styles.emptyStateScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <EmptyState
+            showIllustration={true}
+            title="Your vibe circle awaits"
+            message="Join a video speed dating event to meet people who match your energy. No swiping, just real conversations."
+            actionLabel="Find your next event"
+            onActionPress={() => router.push('/(tabs)/events')}
+          />
+          <Pressable
+            onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works')}
+            style={({ pressed }) => [styles.howItWorksLink, pressed && { opacity: 0.8 }]}
+          >
+            <VibelyText variant="body" style={[styles.howItWorksText, { color: theme.textSecondary }]}>
+              How does Vibely work? →
+            </VibelyText>
+          </Pressable>
+        </ScrollView>
+      </ScreenContainer>
+    );
+  }
+
+  if (isLoading && !matches.length) {
+    return (
+      <ScreenContainer>
+        <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
           <RNView style={styles.headerTopRow}>
             <RNView style={styles.headerTitleRow}>
               <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
               <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
             </RNView>
           </RNView>
-        </GlassSurface>
-        <Card style={styles.heroCard}>
-          <RNText style={[styles.heroTitle, { color: theme.text }]}>Your vibe circle awaits</RNText>
-          <RNText style={[styles.heroBody, { color: theme.textSecondary }]}>
-            Join a video speed dating event to meet people who match your energy. No swiping, just real conversations.
-          </RNText>
-        </Card>
-        <EmptyState
-          title="No matches yet"
-          message="Join a Vibely event to start connecting. Your matches will appear here after you vibe with someone."
-          actionLabel="Find your next event"
-          onActionPress={() => router.push('/(tabs)/events')}
-        />
+          <RNView style={styles.tabsRow}>
+            <RNView style={[styles.tab, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.tint} />
+              <RNText style={[styles.tabLabel, { color: theme.tint }]}>Chat</RNText>
+            </RNView>
+            <RNView style={styles.tab}>
+              <Ionicons name="water-outline" size={16} color={theme.textSecondary} />
+              <RNText style={[styles.tabLabel, { color: theme.textSecondary }]}>Daily Drop</RNText>
+            </RNView>
+          </RNView>
+        </GlassHeaderBar>
+        <ScrollView
+          style={styles.skeletonScroll}
+          contentContainerStyle={styles.skeletonContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Card variant="glass" style={styles.newVibesSkeletonCard}>
+            <RNView style={styles.newVibesSkeletonHeader}>
+              <RNView style={[styles.newVibesSkeletonIcon, { backgroundColor: theme.tintSoft }]} />
+              <RNView>
+                <RNView style={[styles.newVibesSkeletonTitle, { backgroundColor: theme.muted }]} />
+                <RNView style={[styles.newVibesSkeletonSub, { backgroundColor: theme.muted }]} />
+              </RNView>
+            </RNView>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.newVibesSkeletonRail}>
+              {[1, 2, 3, 4].map((i) => (
+                <MatchAvatarSkeleton key={i} />
+              ))}
+            </ScrollView>
+          </Card>
+          <RNView style={styles.conversationsDivider}>
+            <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+            <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
+            <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+          </RNView>
+          {[1, 2, 3, 4, 5].map((i) => (
+            <MatchListRowSkeleton key={i} />
+          ))}
+        </ScrollView>
       </ScreenContainer>
     );
   }
 
   const handleMatchPress = useCallback(
     (item: (typeof matches)[0]) => {
+      if (item.isNew) setOpenedVibeIds((prev) => new Set(prev).add(item.matchId));
       if (item.unread) {
         const params = new URLSearchParams({
           otherUserId: item.id,
@@ -103,25 +302,27 @@ export default function MatchesListScreen() {
     [router]
   );
 
-  const renderItem: ListRenderItem<(typeof matches)[0]> = ({ item }) => {
-    const isNew = item.time === 'now' || item.time?.endsWith('m');
-    return (
-      <Pressable onPress={() => handleMatchPress(item)} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
-        <MatchListRow
-          imageUri={item.image}
-          name={item.name}
-          time={item.time}
-          lastMessage={item.lastMessage}
-          unread={item.unread}
-          isNew={isNew}
-        />
-      </Pressable>
-    );
-  };
+  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = ({ item }) => (
+    <Pressable
+      onPress={() => handleMatchPress(item)}
+      onLongPress={() => !isUserBlocked(item.id) && setActionsMatch(item)}
+      style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+    >
+      <MatchListRow
+        imageUri={item.image}
+        name={item.name}
+        age={item.age}
+        time={item.time}
+        lastMessage={item.lastMessage}
+        unread={item.unread}
+        isNew={item.isNew}
+      />
+    </Pressable>
+  );
 
   return (
     <ScreenContainer>
-      <GlassSurface style={styles.matchesHeader}>
+      <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
         <RNView style={styles.headerTopRow}>
           <RNView style={styles.headerTitleRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
@@ -138,13 +339,14 @@ export default function MatchesListScreen() {
         <RNView style={styles.tabsRow}>
           <Pressable
             onPress={() => setActiveTab('conversations')}
-            style={[
+            style={({ pressed }) => [
               styles.tab,
               activeTab === 'conversations' && {
-                backgroundColor: theme.accentSoft,
+                backgroundColor: theme.tintSoft,
                 borderWidth: 1,
                 borderColor: theme.tint,
               },
+              pressed && { opacity: 0.9 },
             ]}
           >
             <Ionicons
@@ -163,13 +365,14 @@ export default function MatchesListScreen() {
           </Pressable>
           <Pressable
             onPress={() => setActiveTab('drops')}
-            style={[
+            style={({ pressed }) => [
               styles.tab,
               activeTab === 'drops' && {
-                backgroundColor: theme.accentSoft,
+                backgroundColor: theme.tintSoft,
                 borderWidth: 1,
                 borderColor: theme.tint,
               },
+              pressed && { opacity: 0.9 },
             ]}
           >
             <Ionicons
@@ -208,7 +411,7 @@ export default function MatchesListScreen() {
             </RNView>
           </RNView>
         )}
-      </GlassSurface>
+      </GlassHeaderBar>
 
       {activeTab === 'conversations' ? (
         <FlatList
@@ -217,17 +420,68 @@ export default function MatchesListScreen() {
           keyExtractor={(item) => item.matchId}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />}
+          ListEmptyComponent={
+            searchQuery.trim() ? (
+              <RNView style={styles.searchEmpty}>
+                <Ionicons name="search-outline" size={40} color={theme.textSecondary} />
+                <VibelyText variant="titleSM" style={[styles.searchEmptyTitle, { color: theme.text }]}>No matches found</VibelyText>
+                <VibelyText variant="bodySecondary" style={[styles.searchEmptySub, { color: theme.textSecondary }]}>Try a different search term</VibelyText>
+              </RNView>
+            ) : null
+          }
           ListHeaderComponent={
             <>
+              {newVibes.length > 0 && !isPremium ? (
+                <WhoLikedYouGate count={newVibes.length} />
+              ) : newVibes.length > 0 && isPremium ? (
+                <Card variant="glass" style={styles.newVibesCard}>
+                  <RNView style={styles.newVibesHeader}>
+                    <RNView style={[styles.newVibesIconWrap, { backgroundColor: theme.tint }]}>
+                      <Ionicons name="sparkles" size={18} color="#fff" />
+                    </RNView>
+                    <RNView>
+                      <VibelyText variant="titleSM" style={[styles.newVibesTitle, { color: theme.text }]}>
+                        New Vibes
+                      </VibelyText>
+                      <VibelyText variant="caption" style={[styles.newVibesSub, { color: theme.textSecondary }]}>
+                        {newVibes.length} new connection{newVibes.length !== 1 ? 's' : ''}
+                      </VibelyText>
+                    </RNView>
+                  </RNView>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.newVibesRail}
+                  >
+                    {newVibes.map((vibe) => (
+                      <Pressable
+                        key={vibe.matchId}
+                        onPress={() => handleMatchPress(vibe)}
+                        style={({ pressed }) => [styles.newVibeItem, pressed && { opacity: 0.9 }]}
+                      >
+                        <RNView style={[styles.newVibeAvatarWrap, vibe.unread && { borderWidth: 2, borderColor: theme.tint }]}>
+                          {vibe.image ? (
+                            <Image source={{ uri: vibe.image }} style={styles.newVibeAvatar} />
+                          ) : (
+                            <RNView style={[styles.newVibeAvatarFallback, { backgroundColor: theme.muted }]}>
+                              <VibelyText variant="body" style={{ color: theme.textSecondary }}>{vibe.name?.[0] ?? '?'}</VibelyText>
+                            </RNView>
+                          )}
+                          {vibe.unread && <RNView style={[styles.newVibeUnreadDot, { backgroundColor: theme.accent }]} />}
+                        </RNView>
+                        <VibelyText variant="body" numberOfLines={1} style={[styles.newVibeName, { color: theme.text }]}>
+                          {vibe.name?.split(' ')[0] ?? vibe.name}
+                        </VibelyText>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </Card>
+              ) : null}
               <RNView style={styles.conversationsDivider}>
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
                 <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
               </RNView>
-              <SectionHeader
-                title="Conversations"
-              subtitle="Keep talking with people you’ve met at events."
-              />
             </>
           }
           ListFooterComponent={
@@ -253,32 +507,75 @@ export default function MatchesListScreen() {
           }
         />
       ) : (
-        <RNView style={styles.dropsShell}>
-          <RNText style={[styles.dropsTitle, { color: theme.text }]}>Daily Drop</RNText>
-          <RNText style={[styles.dropsSubtitle, { color: theme.textSecondary }]}>
-            Daily Drop is coming to mobile soon. For now, you can use it on web.
-          </RNText>
-          <VibelyButton
-            label="Open on web"
-            onPress={() => {
-              Linking.openURL('https://vibelymeet.com/matches');
-            }}
-            variant="secondary"
-            style={{ marginTop: spacing.md }}
-          />
-        </RNView>
+        <DropsTabContent userId={user?.id} />
+      )}
+
+      <MatchActionsSheet
+        visible={!!actionsMatch}
+        onClose={() => setActionsMatch(null)}
+        matchName={actionsMatch?.name ?? ''}
+        isArchived={!!actionsMatch?.archived_at}
+        isMuted={actionsMatch ? isMatchMuted(actionsMatch.matchId) : false}
+        onViewProfile={
+          actionsMatch
+            ? () => {
+                setProfileSheetMatch({
+                  id: actionsMatch.id,
+                  name: actionsMatch.name,
+                  age: actionsMatch.age,
+                  image: actionsMatch.image,
+                });
+                setActionsMatch(null);
+              }
+            : undefined
+        }
+        onUnmatch={() => actionsMatch && handleUnmatch(actionsMatch.matchId, actionsMatch.name)}
+        onArchive={() => actionsMatch && handleArchive(actionsMatch.matchId, actionsMatch.name)}
+        onUnarchive={() => actionsMatch && handleUnarchive(actionsMatch.matchId)}
+        onBlock={() => actionsMatch && handleBlock(actionsMatch.id, actionsMatch.name, actionsMatch.matchId)}
+        onMute={() => actionsMatch && handleMute(actionsMatch.matchId, actionsMatch.name)}
+        onUnmute={() => actionsMatch && handleUnmute(actionsMatch.matchId)}
+        onReport={() => {
+          if (actionsMatch) {
+            setReportTarget({ id: actionsMatch.id, name: actionsMatch.name });
+            setActionsMatch(null);
+          }
+        }}
+        loading={actionLoading}
+      />
+
+      <ProfileDetailSheet
+        visible={!!profileSheetMatch}
+        onClose={() => setProfileSheetMatch(null)}
+        match={profileSheetMatch}
+      />
+
+      <UnmatchSnackbar
+        visible={!!pendingUnmatchMatchId}
+        name={pendingUnmatchName}
+        onUndo={() => {
+          cancelPending();
+          setPendingUnmatchMatchId(null);
+          setPendingUnmatchName('');
+        }}
+      />
+
+      {reportTarget && user?.id && (
+        <ReportFlowModal
+          visible={!!reportTarget}
+          onClose={() => setReportTarget(null)}
+          onSuccess={() => setReportTarget(null)}
+          reportedId={reportTarget.id}
+          reportedName={reportTarget.name}
+          reporterId={user.id}
+        />
       )}
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  matchesHeader: {
-    borderRadius: 20,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.md,
-  },
+  matchesHeaderBar: { marginBottom: spacing.md },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -347,19 +644,17 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
   },
   conversationsLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
+    ...typography.overline,
   },
   list: {
-    paddingBottom: spacing.sm,
+    paddingBottom: layout.scrollContentPaddingBottomTab,
   },
   footerCards: {
     marginTop: spacing.lg,
     gap: spacing.md,
   },
   proTipCard: {
-    padding: spacing.md + 2,
+    padding: spacing.lg,
     marginBottom: spacing.sm,
   },
   proTipRow: {
@@ -377,7 +672,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   inviteCard: {
-    padding: spacing.md + 2,
+    padding: spacing.lg,
     marginBottom: spacing.sm,
   },
   heroCard: {
@@ -391,13 +686,164 @@ const styles = StyleSheet.create({
     ...typography.bodySecondary,
   },
   dropsShell: {
-    paddingTop: spacing.lg,
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    alignItems: 'center',
+  },
+  dropsCard: {
+    maxWidth: 400,
+    width: '100%',
+    padding: spacing.xl,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  dropsIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
   dropsTitle: {
     ...typography.titleMD,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
   },
   dropsSubtitle: {
     ...typography.bodySecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
+  dropsCta: {
+    alignSelf: 'stretch',
+  },
+  newVibesCard: {
+    marginHorizontal: layout.containerPadding,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  newVibesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  newVibesIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newVibesTitle: { marginBottom: 2 },
+  newVibesSub: { fontSize: 12 },
+  newVibesRail: {
+    flexDirection: 'row',
+    gap: spacing.lg,
+    paddingLeft: spacing.sm,
+    paddingRight: spacing.md,
+  },
+  newVibeItem: {
+    alignItems: 'center',
+    minWidth: 64,
+  },
+  newVibeAvatarWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+    marginBottom: spacing.xs,
+    padding: 2,
+  },
+  newVibeAvatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
+  },
+  newVibeAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newVibeUnreadDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  newVibeName: {
+    fontSize: 12,
+    fontWeight: '600',
+    maxWidth: 64,
+  },
+  skeletonScroll: { flex: 1 },
+  skeletonContent: {
+    paddingHorizontal: layout.containerPadding,
+    paddingBottom: layout.scrollContentPaddingBottomTab,
+  },
+  newVibesSkeletonCard: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  newVibesSkeletonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  newVibesSkeletonIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  newVibesSkeletonTitle: {
+    width: 100,
+    height: 16,
+    borderRadius: 4,
+  },
+  newVibesSkeletonSub: {
+    width: 80,
+    height: 12,
+    borderRadius: 4,
+    marginTop: 4,
+  },
+  newVibesSkeletonRail: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  howItWorksLink: {
+    alignSelf: 'center',
+    marginTop: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  howItWorksText: {
+    fontSize: 14,
+  },
+  centeredError: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  emptyStateScroll: { flex: 1 },
+  emptyStateScrollContent: {
+    paddingBottom: layout.scrollContentPaddingBottomTab,
+  },
+  searchEmpty: {
+    alignItems: 'center',
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: layout.containerPadding,
+  },
+  searchEmptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  searchEmptySub: {
+    fontSize: 14,
   },
 });

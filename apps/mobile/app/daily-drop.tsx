@@ -6,18 +6,27 @@ import {
   TextInput,
   Pressable,
   ScrollView,
-  ActivityIndicator,
   Image,
   Alert,
 } from 'react-native';
 import { Link } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useDailyDrop } from '@/lib/dailyDropApi';
 import { avatarUrl } from '@/lib/imageUrl';
+import Colors from '@/constants/Colors';
+import { GlassHeaderBar, Card, VibelyButton, LoadingState } from '@/components/ui';
+import { spacing, radius, layout, typography } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
+import { useColorScheme } from '@/components/useColorScheme';
 
 const OPENER_MAX = 140;
 
 export default function DailyDropScreen() {
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { user } = useAuth();
   const {
     drop,
@@ -92,33 +101,44 @@ export default function DailyDropScreen() {
 
   if (isLoading && !drop) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <LoadingState title="Loading your drop…" message="Finding today's match." />
       </View>
     );
   }
 
   if (!hasDrop || !drop) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.title}>Daily Drop</Text>
-        <Text style={styles.empty}>No drop for today</Text>
-        <Text style={styles.emptySub}>Check back tomorrow for a new match.</Text>
-        <Pressable style={styles.button} onPress={() => refetch()}>
-          <Text style={styles.buttonText}>Refresh</Text>
-        </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <GlassHeaderBar insets={insets} style={styles.headerBar}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        </GlassHeaderBar>
+        <View style={styles.centered}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.38), borderColor: withAlpha(theme.tint, 0.25) }]}>
+            <Ionicons name="gift-outline" size={40} color={theme.tint} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>No drop for today</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>Check back tomorrow for a new match.</Text>
+          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+        </View>
       </View>
     );
   }
 
   if (isExpired) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.title}>Daily Drop</Text>
-        <Text style={styles.empty}>This drop has expired</Text>
-        <Pressable style={styles.button} onPress={() => refetch()}>
-          <Text style={styles.buttonText}>Refresh</Text>
-        </Pressable>
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <GlassHeaderBar insets={insets} style={styles.headerBar}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        </GlassHeaderBar>
+        <View style={styles.centered}>
+          <View style={[styles.emptyIconWrap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="time-outline" size={40} color={theme.textSecondary} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>This drop has expired</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>You'll get a new match tomorrow.</Text>
+          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+        </View>
       </View>
     );
   }
@@ -128,99 +148,193 @@ export default function DailyDropScreen() {
   const timerSecs = timeRemaining % 60;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Daily Drop</Text>
-      <Text style={styles.timer}>Time left: {timerMins}:{String(timerSecs).padStart(2, '0')}</Text>
-
-      {partner && (
-        <View style={styles.card}>
-          <Image source={{ uri: avatarUrl(photo) }} style={styles.avatar} />
-          <Text style={styles.name}>{partner.name}, {partner.age}</Text>
-          {partner.bio ? <Text style={styles.bio}>{partner.bio}</Text> : null}
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <GlassHeaderBar insets={insets} style={styles.headerBar}>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        <View style={[styles.timerPill, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+          <Ionicons name="time-outline" size={16} color={theme.textSecondary} />
+          <Text style={[styles.timerText, { color: theme.textSecondary }]}>
+            {timerMins}:{String(timerSecs).padStart(2, '0')} left
+          </Text>
         </View>
-      )}
+      </GlassHeaderBar>
 
-      {chatUnlocked && matchId && partnerId ? (
-        <View style={styles.section}>
-          <Text style={styles.status}>You're connected! Chat unlocked.</Text>
-          <Link href={`/chat/${partnerId}`} asChild>
-            <Pressable style={styles.button}>
-              <Text style={styles.buttonText}>Open chat</Text>
-            </Pressable>
-          </Link>
-        </View>
-      ) : openerText ? (
-        <View style={styles.section}>
-          <Text style={styles.label}>First message</Text>
-          <Text style={styles.messageBubble}>{openerText}</Text>
-          {replyText ? (
-            <Text style={styles.messageBubbleReply}>{replyText}</Text>
-          ) : !openerSentByMe && user?.id ? (
-            <>
-              <TextInput
-                style={styles.input}
-                placeholder="Reply..."
-                value={replyInput}
-                onChangeText={setReplyInput}
-                multiline
-                editable={!sending}
-              />
-              <Pressable style={[styles.button, (!canSendReply || sending) && styles.buttonDisabled]} onPress={handleSendReply} disabled={!canSendReply || sending}>
-                {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send reply</Text>}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {partner && (
+          <Card variant="glass" style={[styles.partnerCard, { borderColor: theme.glassBorder }]}>
+            <View style={[styles.avatarWrap, { backgroundColor: theme.surfaceSubtle }]}>
+              {photo ? (
+                <Image source={{ uri: avatarUrl(photo) }} style={styles.avatar} />
+              ) : (
+                <Ionicons name="person" size={48} color={theme.textSecondary} />
+              )}
+            </View>
+            <Text style={[styles.partnerName, { color: theme.text }]}>{partner.name}, {partner.age}</Text>
+            {partner.bio ? <Text style={[styles.partnerBio, { color: theme.textSecondary }]}>{partner.bio}</Text> : null}
+          </Card>
+        )}
+
+        {chatUnlocked && matchId && partnerId ? (
+          <View style={styles.section}>
+            <View style={[styles.connectedCue, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
+              <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
+              <Text style={[styles.connectedText, { color: theme.text }]}>You're connected! Chat is unlocked.</Text>
+            </View>
+            <Link href={`/chat/${partnerId}`} asChild>
+              <Pressable>
+                <VibelyButton label="Open chat" variant="primary" style={styles.cta} onPress={() => {}} />
               </Pressable>
-            </>
-          ) : null}
-        </View>
-      ) : !drop.opener_sender_id ? (
-        <View style={styles.section}>
-          <Text style={styles.label}>Send an opener (max {OPENER_MAX} chars)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Say hi..."
-            value={openerInput}
-            onChangeText={setOpenerInput}
-            maxLength={OPENER_MAX}
-            multiline
-            editable={!sending}
-          />
-          <Text style={styles.charCount}>{openerInput.length}/{OPENER_MAX}</Text>
-          <Pressable style={[styles.button, (!canSendOpener || sending) && styles.buttonDisabled]} onPress={handleSendOpener} disabled={!canSendOpener || sending}>
-            {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send opener</Text>}
-          </Pressable>
-        </View>
-      ) : null}
+            </Link>
+          </View>
+        ) : openerText ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>First message</Text>
+            <View style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.bubbleText, { color: theme.text }]}>{openerText}</Text>
+            </View>
+            {replyText ? (
+              <View style={[styles.bubble, styles.bubbleMe, { backgroundColor: withAlpha(theme.tint, 0.6) }]}>
+                <Text style={[styles.bubbleText, { color: '#fff' }]}>{replyText}</Text>
+              </View>
+            ) : !openerSentByMe && user?.id ? (
+              <>
+                <TextInput
+                  style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                  placeholder="Reply..."
+                  placeholderTextColor={theme.textSecondary}
+                  value={replyInput}
+                  onChangeText={setReplyInput}
+                  multiline
+                  editable={!sending}
+                />
+                <VibelyButton
+                  label={sending ? 'Sending…' : 'Send reply'}
+                  onPress={handleSendReply}
+                  loading={sending}
+                  disabled={!canSendReply || sending}
+                  variant="primary"
+                  style={styles.cta}
+                />
+              </>
+            ) : null}
+          </View>
+        ) : !drop.opener_sender_id ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Send an opener (max {OPENER_MAX} characters)</Text>
+            <TextInput
+              style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+              placeholder="Say hi..."
+              placeholderTextColor={theme.textSecondary}
+              value={openerInput}
+              onChangeText={setOpenerInput}
+              maxLength={OPENER_MAX}
+              multiline
+              editable={!sending}
+            />
+            <Text style={[styles.charCount, { color: theme.textSecondary }]}>{openerInput.length}/{OPENER_MAX}</Text>
+            <VibelyButton
+              label={sending ? 'Sending…' : 'Send opener'}
+              onPress={handleSendOpener}
+              loading={sending}
+              disabled={!canSendOpener || sending}
+              variant="primary"
+              style={styles.cta}
+            />
+          </View>
+        ) : null}
 
-      {!chatUnlocked && (
-        <Pressable style={styles.passBtn} onPress={handlePass}>
-          <Text style={styles.passBtnText}>Pass on this drop</Text>
-        </Pressable>
-      )}
-    </ScrollView>
+        {!chatUnlocked && (
+          <Pressable onPress={handlePass} style={({ pressed }) => [styles.passWrap, pressed && { opacity: 0.8 }]}>
+            <Text style={[styles.passText, { color: theme.textSecondary }]}>Pass on this drop</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 24, paddingBottom: 48 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 8 },
-  timer: { fontSize: 14, opacity: 0.8, marginBottom: 16 },
-  empty: { fontSize: 18, fontWeight: '600', marginTop: 8 },
-  emptySub: { fontSize: 14, opacity: 0.8, marginTop: 4 },
-  card: { marginBottom: 24, alignItems: 'center' },
-  avatar: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#eee', marginBottom: 12 },
-  name: { fontSize: 20, fontWeight: '600', marginBottom: 4 },
-  bio: { fontSize: 14, opacity: 0.9, textAlign: 'center' },
-  section: { marginBottom: 24 },
-  label: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  messageBubble: { backgroundColor: '#e5e5e5', padding: 12, borderRadius: 12, marginBottom: 8 },
-  messageBubbleReply: { backgroundColor: '#2f95dc', padding: 12, borderRadius: 12, marginBottom: 8 },
-  status: { fontSize: 16, marginBottom: 12 },
-  input: { borderWidth: 1, padding: 12, borderRadius: 8, marginBottom: 8, minHeight: 80, textAlignVertical: 'top' },
-  charCount: { fontSize: 12, opacity: 0.7, marginBottom: 8 },
-  button: { backgroundColor: '#2f95dc', padding: 14, borderRadius: 8, alignItems: 'center' },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  passBtn: { marginTop: 16, padding: 12, alignItems: 'center' },
-  passBtnText: { color: '#6b7280', fontSize: 14 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  headerBar: { marginBottom: 0 },
+  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
+  timerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  timerText: { fontSize: 13, fontWeight: '600' },
+  scroll: { flex: 1 },
+  content: { padding: spacing.lg, paddingTop: layout.mainContentPaddingTop },
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm, textAlign: 'center' },
+  emptySub: { fontSize: 14, textAlign: 'center', marginBottom: spacing.xl },
+  emptyRefresh: { marginTop: spacing.sm },
+  partnerCard: {
+    padding: spacing.xl,
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  avatarWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  avatar: { width: '100%', height: '100%' },
+  partnerName: { ...typography.titleLG, marginBottom: spacing.sm },
+  partnerBio: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  section: { marginBottom: spacing.xl },
+  sectionLabel: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.sm },
+  connectedCue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  connectedText: { fontSize: 15, fontWeight: '600' },
+  bubble: {
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  bubbleThem: {},
+  bubbleMe: {},
+  bubbleText: { fontSize: 14, lineHeight: 20 },
+  input: {
+    borderWidth: 1,
+    padding: spacing.md,
+    borderRadius: radius.input,
+    minHeight: 88,
+    textAlignVertical: 'top',
+    fontSize: 14,
+    marginBottom: spacing.sm,
+  },
+  charCount: { fontSize: 12, marginBottom: spacing.sm },
+  cta: { marginTop: spacing.md },
+  passWrap: { marginTop: spacing.xl, paddingVertical: spacing.sm, alignItems: 'center' },
+  passText: { fontSize: 14 },
 });

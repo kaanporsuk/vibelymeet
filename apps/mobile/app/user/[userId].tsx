@@ -1,19 +1,23 @@
 /**
- * Public profile — view another user's profile (same core info as web UserProfile).
- * Entry: chat header "View profile", or matches (future).
+ * Public profile — view another user's profile; actions: Message, Report, Block, Unmatch.
  */
-import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Image, useWindowDimensions } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, Image, useWindowDimensions, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { GlassSurface, Card, LoadingState, ErrorState } from '@/components/ui';
+import { GlassSurface, Card, LoadingState, ErrorState, VibelyButton } from '@/components/ui';
 import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { fetchPublicProfile } from '@/lib/publicProfileApi';
 import { getImageUrl } from '@/lib/imageUrl';
+import { useAuth } from '@/context/AuthContext';
+import { useMatches } from '@/lib/chatApi';
+import { useUnmatch } from '@/lib/useUnmatch';
+import { useBlockUser } from '@/lib/useBlockUser';
+import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 
 const LOOKING_FOR_LABELS: Record<string, string> = {
   'long-term': 'Long-term partner',
@@ -29,12 +33,60 @@ export default function PublicProfileScreen() {
   const { width } = useWindowDimensions();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { user } = useAuth();
   const { data: profile, isLoading, error, refetch } = useQuery({
     queryKey: ['public-profile', userId],
     queryFn: () => fetchPublicProfile(userId ?? ''),
     enabled: !!userId,
   });
+  const { data: matches = [] } = useMatches(user?.id);
+  // MatchListItem.id = other participant's profile id, matchId = match table primary key (chatApi)
+  const matchRow = userId && user?.id ? matches.find((m) => m.id === userId) : null;
+  const { mutateAsync: unmatch } = useUnmatch();
+  const { blockUser, isUserBlocked } = useBlockUser(user?.id);
   const [photoIndex, setPhotoIndex] = React.useState(0);
+  const [showReport, setShowReport] = useState(false);
+
+  const handleUnmatch = useCallback(() => {
+    if (!matchRow) return;
+    Alert.alert('Unmatch?', `Remove ${profile?.name ?? 'this user'} from your matches? This cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Unmatch',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await unmatch({ matchId: matchRow.matchId });
+            router.back();
+          } catch (err) {
+            if (__DEV__) console.warn('[UserProfile] unmatch failed:', err);
+            Alert.alert('Unmatch failed', 'Something went wrong. Please try again.');
+          }
+        },
+      },
+    ]);
+  }, [matchRow, profile?.name, unmatch, router]);
+
+  const handleBlock = useCallback(() => {
+    if (!userId) return;
+    const displayName = profile?.name || 'this user';
+    Alert.alert('Block?', `Block ${displayName}? They won't be able to contact you or see your profile.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Block',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await blockUser({ blockedId: userId, matchId: matchRow?.matchId });
+            router.back();
+          } catch (err) {
+            if (__DEV__) console.warn('[UserProfile] block failed:', err);
+            Alert.alert('Block failed', 'Something went wrong. Please try again.');
+          }
+        },
+      },
+    ]);
+  }, [userId, profile?.name, matchRow?.matchId, blockUser, router]);
 
   if (!userId) {
     return (
@@ -141,8 +193,46 @@ export default function PublicProfileScreen() {
               </View>
             </Card>
           ) : null}
+
+          {user?.id && userId && !isUserBlocked(userId) && (
+            <View style={[styles.actionsCard, { borderColor: theme.border }]}>
+              {matchRow && (
+                <VibelyButton
+                  label="Message"
+                  onPress={() => (router as any).push(`/chat/${userId}`)}
+                  variant="primary"
+                  style={styles.actionBtn}
+                />
+              )}
+              <Pressable onPress={() => setShowReport(true)} style={[styles.actionRow, { borderTopColor: theme.border }]}>
+                <Ionicons name="flag-outline" size={20} color={theme.textSecondary} />
+                <Text style={[styles.actionLabel, { color: theme.text }]}>Report</Text>
+              </Pressable>
+              <Pressable onPress={handleBlock} style={[styles.actionRow, { borderTopColor: theme.border }]}>
+                <Ionicons name="ban-outline" size={20} color={theme.danger} />
+                <Text style={[styles.actionLabel, { color: theme.danger }]}>Block</Text>
+              </Pressable>
+              {matchRow && (
+                <Pressable onPress={handleUnmatch} style={[styles.actionRow, { borderTopColor: theme.border }]}>
+                  <Ionicons name="person-remove-outline" size={20} color={theme.danger} />
+                  <Text style={[styles.actionLabel, { color: theme.danger }]}>Unmatch</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
+
+      {user?.id && showReport && (
+        <ReportFlowModal
+          visible={showReport}
+          onClose={() => setShowReport(false)}
+          onSuccess={() => setShowReport(false)}
+          reportedId={userId!}
+          reportedName={profile?.name ?? 'User'}
+          reporterId={user.id}
+        />
+      )}
     </View>
   );
 }
@@ -172,4 +262,8 @@ const styles = StyleSheet.create({
   vibeChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   vibeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
   vibeChipText: { fontSize: 14 },
+  actionsCard: { marginTop: spacing.xl, padding: spacing.lg, borderRadius: 12, borderWidth: 1 },
+  actionBtn: { marginBottom: spacing.md },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  actionLabel: { fontSize: 15, fontWeight: '500' },
 });

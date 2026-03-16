@@ -4,23 +4,32 @@ import {
   View,
   Text,
   Pressable,
-  ActivityIndicator,
   Image,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useReadyGate } from '@/lib/readyGateApi';
 import { avatarUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
+import Colors from '@/constants/Colors';
+import { GlassHeaderBar, Card, VibelyButton, ErrorState } from '@/components/ui';
+import { spacing, radius, typography } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
+import { useColorScheme } from '@/components/useColorScheme';
 
 const GATE_TIMEOUT_SEC = 30;
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const { user } = useAuth();
   const {
-    status,
     iAmReady,
     partnerReady,
     partnerName,
@@ -32,7 +41,6 @@ export default function ReadyGateScreen() {
     isBothReady,
     isForfeited,
     isSnoozed,
-    refetch,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
@@ -109,7 +117,7 @@ export default function ReadyGateScreen() {
   }, [isSnoozed, forfeit]);
 
   const handleSkip = () => {
-    Alert.alert('Step away?', 'You’ll go back to the lobby.', [
+    Alert.alert('Step away?', "You'll go back to the lobby. Your match can continue with others.", [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Step away', style: 'destructive', onPress: () => forfeit() },
     ]);
@@ -117,62 +125,191 @@ export default function ReadyGateScreen() {
 
   if (!sessionId || !user?.id) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.error}>Invalid session</Text>
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="Invalid session"
+          message="This ready gate link may have expired or isn't valid."
+          actionLabel="Go back"
+          onActionPress={() => router.replace('/(tabs)')}
+        />
       </View>
     );
   }
 
+  if (transitioning) {
+    return (
+      <View style={[styles.transitioningWrap, { backgroundColor: theme.background }]}>
+        <View style={[styles.transitioningIconWrap, { backgroundColor: theme.tintSoft }]}>
+          <Ionicons name="sparkles" size={40} color={theme.tint} />
+        </View>
+        <Text style={[styles.transitioningTitle, { color: theme.text }]}>Connecting your vibe date...</Text>
+        <Text style={[styles.transitioningSub, { color: theme.textSecondary }]}>Get ready to shine ✨</Text>
+      </View>
+    );
+  }
+
+  const statusLine = isSnoozed
+    ? `${partnerName ?? 'Partner'} needs a moment — back in ${Math.floor(snoozeTimeLeft / 60)}:${String(snoozeTimeLeft % 60).padStart(2, '0')}`
+    : iAmReady
+      ? `Waiting for ${partnerName ?? 'partner'}...`
+      : partnerReady
+        ? `${partnerName ?? 'Your match'} is ready! Tap when you're ready.`
+        : `Join in ${timeLeft}s`;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Ready for your date?</Text>
-      <Text style={styles.subtitle}>{partnerName ?? 'Your match'}</Text>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <GlassHeaderBar insets={insets} style={styles.headerBar}>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
+        </Pressable>
+        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>Ready to vibe?</Text>
+      </GlassHeaderBar>
 
-      {partnerAvatar ? (
-        <Image source={{ uri: avatarUrl(partnerAvatar) }} style={styles.avatar} />
-      ) : (
-        <View style={styles.avatarPlaceholder} />
-      )}
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
+          <Text style={[styles.partnerLabel, { color: theme.textSecondary }]}>Your match</Text>
+          <View style={[styles.avatarWrap, { backgroundColor: theme.surfaceSubtle, borderColor: withAlpha(theme.tint, 0.25) }]}>
+            {partnerAvatar ? (
+              <Image source={{ uri: avatarUrl(partnerAvatar) }} style={styles.avatarImg} />
+            ) : (
+              <Ionicons name="person" size={48} color={theme.textSecondary} />
+            )}
+          </View>
+          <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName ?? 'Your match'}</Text>
 
-      {transitioning ? (
-        <Text style={styles.status}>Connecting...</Text>
-      ) : isSnoozed ? (
-        <Text style={styles.status}>Partner stepped away. Back in {snoozeTimeLeft}s</Text>
-      ) : (
-        <>
-          <Text style={styles.status}>
-            {iAmReady && partnerReady ? "Both ready! Starting date..." : iAmReady ? "Waiting for partner..." : partnerReady ? "Partner is ready — tap when you're ready" : `Time to join: ${timeLeft}s`}
-          </Text>
-          {!iAmReady && (
-            <Pressable style={styles.primaryBtn} onPress={() => markReady()}>
-              <Text style={styles.primaryBtnText}>I'm ready</Text>
-            </Pressable>
+          <View style={[styles.statusPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Ionicons name="time-outline" size={16} color={theme.textSecondary} />
+            <Text style={[styles.statusText, { color: theme.text }]}>{statusLine}</Text>
+          </View>
+
+          {partnerReady && !iAmReady && (
+            <View style={[styles.readyCue, { backgroundColor: theme.successSoft ?? theme.tintSoft, borderColor: theme.success ?? withAlpha(theme.tint, 0.31) }]}>
+              <Ionicons name="checkmark-circle" size={20} color={theme.success || theme.tint} />
+              <Text style={[styles.readyCueText, { color: theme.text }]}>{partnerName ?? 'Partner'} is ready and waiting!</Text>
+            </View>
           )}
-          <Pressable style={styles.secondaryBtn} onPress={() => snooze()}>
-            <Text style={styles.secondaryBtnText}>Snooze (2 min)</Text>
-          </Pressable>
-          <Pressable style={styles.skipBtn} onPress={handleSkip}>
-            <Text style={styles.skipBtnText}>Step away</Text>
-          </Pressable>
-        </>
-      )}
+
+          {snoozedByPartner && (
+            <View style={[styles.snoozeCue, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Ionicons name="time-outline" size={20} color={theme.textSecondary} />
+              <Text style={[styles.snoozeCueText, { color: theme.textSecondary }]}>{partnerName ?? 'Partner'} needs a moment — they'll be right back!</Text>
+            </View>
+          )}
+        </Card>
+
+        <View style={styles.actions}>
+          {!iAmReady ? (
+            <>
+              <VibelyButton label="I'm Ready ✨" onPress={() => markReady()} variant="primary" size="lg" style={styles.primaryBtn} />
+              <View style={styles.secondaryRow}>
+                <Pressable onPress={() => snooze()} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
+                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Snooze — give me 2 min</Text>
+                </Pressable>
+                <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
+                <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
+                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Not ready? Step away</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={[styles.waitingPill, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
+                <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
+                <Text style={[styles.waitingText, { color: theme.text }]}>You're ready! Waiting for {partnerName ?? 'partner'}...</Text>
+              </View>
+              <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
+                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Cancel & go back</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 4 },
-  subtitle: { fontSize: 16, opacity: 0.9, marginBottom: 24 },
-  avatar: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#eee', marginBottom: 24 },
-  avatarPlaceholder: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#eee', marginBottom: 24 },
-  status: { fontSize: 16, textAlign: 'center', marginBottom: 24 },
-  error: { color: '#dc2626' },
-  primaryBtn: { backgroundColor: '#2f95dc', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 8, marginBottom: 12 },
-  primaryBtnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  secondaryBtn: { paddingVertical: 12, paddingHorizontal: 24, marginBottom: 8 },
-  secondaryBtnText: { color: '#2f95dc', fontSize: 15 },
-  skipBtn: { paddingVertical: 12 },
-  skipBtnText: { color: '#6b7280', fontSize: 14 },
+  container: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  headerBar: { marginBottom: 0 },
+  backBtn: { padding: spacing.xs },
+  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
+  scrollContent: { padding: spacing.lg, paddingBottom: spacing.xl * 2 },
+  card: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.xl },
+  partnerLabel: { fontSize: 12, marginBottom: spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5 },
+  avatarWrap: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  avatarImg: { width: '100%', height: '100%' },
+  partnerName: { ...typography.titleLG, marginBottom: spacing.lg },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.sm,
+  },
+  statusText: { fontSize: 14 },
+  readyCue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginTop: spacing.sm,
+  },
+  readyCueText: { fontSize: 14, fontWeight: '600' },
+  snoozeCue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: spacing.sm,
+  },
+  snoozeCueText: { fontSize: 14 },
+  actions: { alignItems: 'center', gap: spacing.lg },
+  primaryBtn: { alignSelf: 'stretch' },
+  secondaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  ghostBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  ghostBtnText: { fontSize: 13 },
+  dot: { fontSize: 14 },
+  waitingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  waitingText: { fontSize: 15, fontWeight: '600' },
+  transitioningWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  transitioningIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  transitioningTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.xs },
+  transitioningSub: { fontSize: 14 },
 });

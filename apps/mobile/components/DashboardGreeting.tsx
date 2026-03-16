@@ -65,8 +65,8 @@ export function DashboardGreeting() {
     return (
       <View style={styles.wrapper}>
         <View style={styles.skeletonBlock}>
-          <Skeleton height={14} width={80} borderRadius={4} />
-          <Skeleton height={22} width={100} borderRadius={4} style={{ marginTop: 6 }} />
+          <Skeleton height={14} width={80} borderRadius={4} backgroundColor={theme.muted} />
+          <Skeleton height={22} width={100} borderRadius={4} backgroundColor={theme.muted} style={{ marginTop: 6 }} />
         </View>
       </View>
     );
@@ -84,7 +84,7 @@ export function DashboardGreeting() {
           style={[styles.chip, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}
         >
           <Text style={[styles.chipText, { color: theme.accent }]} numberOfLines={1}>
-            Complete your profile
+            Complete your profile for better matches
           </Text>
           <Ionicons name="chevron-forward" size={12} color={theme.accent} />
         </Pressable>

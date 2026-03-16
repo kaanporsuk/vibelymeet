@@ -5,6 +5,7 @@
 import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+/** Origin for redirect URLs (create-credits-checkout uses req.headers.get('origin')). Web sends it automatically; mobile must set it so success/cancel URLs point to the web app. */
 const APP_ORIGIN = process.env.EXPO_PUBLIC_APP_ORIGIN ?? 'https://vibelymeet.com';
 
 export type CreditPackId = 'extra_time_3' | 'extended_vibe_3' | 'bundle_3_3';
@@ -12,6 +13,10 @@ export type CreditPackId = 'extra_time_3' | 'extended_vibe_3' | 'bundle_3_3';
 export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
+
+  if (!SUPABASE_URL) {
+    throw new Error('[creditsCheckout] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
+  }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/create-credits-checkout`, {
     method: 'POST',
@@ -22,7 +27,13 @@ export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<strin
     },
     body: JSON.stringify({ packId }),
   });
-  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error ?? `Checkout failed (HTTP ${res.status})`);
+  }
+
+  const data = await res.json();
   if (!data.success || !data.url) throw new Error(data.error ?? 'Could not start checkout');
   return data.url;
 }

@@ -6,6 +6,8 @@ import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
+import { spacing, radius, layout } from '@/constants/theme';
+import { trackEvent } from '@/lib/analytics';
 
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
@@ -25,6 +27,7 @@ export default function SignUpScreen() {
       Alert.alert('Sign up failed', error.message);
       return;
     }
+    trackEvent('signup_completed', { method: 'email' });
     router.replace('/(tabs)');
   };
 
@@ -64,10 +67,10 @@ export default function SignUpScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 24 },
-  input: { borderWidth: 1, padding: 12, marginBottom: 12, borderRadius: 8 },
-  button: { padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 8 },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.xl },
+  input: { borderWidth: 1, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.input, minHeight: layout.inputHeight },
+  button: { paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.button, alignItems: 'center', marginTop: spacing.sm },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  link: { marginTop: 16 },
+  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  link: { marginTop: spacing.lg },
 });
