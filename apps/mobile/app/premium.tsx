@@ -1,6 +1,6 @@
 /**
  * Premium / subscription screen. Reads canonical state from backend; purchases via RevenueCat when configured.
- * Visual parity: glass header, card treatment, upgrade CTAs, theme-driven.
+ * Stage 2: hero, feature callouts, entitlement states, resilient no-offerings/unavailable UX.
  */
 
 import { useEffect, useState } from 'react';
@@ -11,15 +11,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { GlassSurface, Card, LoadingState, VibelyButton } from '@/components/ui';
-import { spacing, radius, typography } from '@/constants/theme';
-
-const PREMIUM_FEATURES = [
-  'Unlimited swipes & matches',
-  'See who liked you',
-  'Priority in event lobbies',
-  'Exclusive premium-only events',
-];
+import { GlassHeaderBar, Card, LoadingState, VibelyButton } from '@/components/ui';
+import { spacing, radius, layout } from '@/constants/theme';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import {
   getOfferings,
@@ -56,11 +49,13 @@ export default function PremiumScreen() {
     }
   }, [user?.id]);
 
+  // Fetch offerings when RC is configured; refetch when user is set so offerings are after logIn
   useEffect(() => {
     if (!isRevenueCatConfigured()) {
       setOfferingsLoading(false);
       return;
     }
+    setOfferingsLoading(true);
     let cancelled = false;
     getOfferings()
       .then((o) => {
@@ -72,7 +67,7 @@ export default function PremiumScreen() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user?.id]);
 
   const handlePurchase = async (pkg: PurchasesPackage) => {
     setPurchaseLoading(true);
@@ -81,7 +76,7 @@ export default function PremiumScreen() {
       const result = await purchasePackage(pkg);
       if (result.success) {
         await refetch();
-        Alert.alert('Success', 'You now have Premium. Enjoy!');
+        Alert.alert('You\'re Premium ✨', 'Enjoy unlimited swipes, who liked you, and more.');
       } else if (result.error && !result.error.includes('cancelled') && !result.error.includes('Cancel')) {
         setError(result.error);
       }
@@ -97,7 +92,7 @@ export default function PremiumScreen() {
       const result = await restorePurchases();
       await refetch();
       if (result.success) {
-        Alert.alert('Restored', 'Your purchases have been restored.');
+        Alert.alert('Restored', 'Your Premium subscription is restored.');
       } else if (result.error) {
         setError(result.error);
       }
@@ -109,23 +104,17 @@ export default function PremiumScreen() {
   if (subLoading) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading…" message="Checking your subscription." />
+        <LoadingState title="Checking subscription…" message="Just a sec…" />
       </View>
     );
   }
 
+  const hasOfferings = isRevenueCatConfigured() && (offerings?.current?.availablePackages?.length ?? 0) > 0;
+  const showUnavailable = !hasOfferings && !offeringsLoading;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <GlassSurface
-        style={[
-          styles.header,
-          {
-            paddingTop: insets.top + spacing.sm,
-            paddingBottom: spacing.md,
-            paddingHorizontal: spacing.lg,
-          },
-        ]}
-      >
+      <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Pressable
           onPress={() => router.back()}
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
@@ -134,19 +123,19 @@ export default function PremiumScreen() {
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Premium</Text>
-      </GlassSurface>
+      </GlassHeaderBar>
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: 48 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
         showsVerticalScrollIndicator={false}
       >
         {isPremium ? (
-          <Card style={[styles.card, { borderColor: theme.border, borderWidth: 1 }]}>
-            <View style={[styles.cardIconWrap, { backgroundColor: theme.tintSoft }]}>
-              <Ionicons name="sparkles" size={32} color={theme.tint} />
+          <Card variant="glass" style={[styles.entitlementCard, { borderColor: theme.glassBorder }]}>
+            <View style={[styles.entitlementIconWrap, { backgroundColor: theme.tintSoft }]}>
+              <Ionicons name="sparkles" size={36} color={theme.tint} />
             </View>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>You're already Premium 🎉</Text>
+            <Text style={[styles.entitlementTitle, { color: theme.text }]}>You're already Premium 🎉</Text>
             {plan && (
               <Text style={[styles.planText, { color: theme.text }]}>
                 Plan: {plan === 'annual' ? 'Annual' : 'Monthly'}
@@ -157,7 +146,7 @@ export default function PremiumScreen() {
                 Renews {format(new Date(currentPeriodEnd), 'MMMM d, yyyy')}
               </Text>
             )}
-            <Text style={[styles.body, { color: theme.textSecondary }]}>
+            <Text style={[styles.entitlementBody, { color: theme.textSecondary }]}>
               Thanks for supporting Vibely. You have full access to premium features.
             </Text>
             <VibelyButton
@@ -171,7 +160,7 @@ export default function PremiumScreen() {
           <>
             <View style={styles.heroBlock}>
               <View style={[styles.heroIconWrap, { backgroundColor: theme.tintSoft }]}>
-                <Ionicons name="sparkles" size={36} color={theme.tint} />
+                <Ionicons name="sparkles" size={40} color={theme.tint} />
               </View>
               <Text style={[styles.heroTitle, { color: theme.text }]}>Unlock Your Full Vibe</Text>
               <Text style={[styles.heroSub, { color: theme.textSecondary }]}>
@@ -179,78 +168,79 @@ export default function PremiumScreen() {
               </Text>
             </View>
 
-            <View style={styles.featureList}>
+            <Card variant="glass" style={[styles.featuresCard, { borderColor: theme.glassBorder }]}>
+              <Text style={[styles.featuresCardTitle, { color: theme.text }]}>What you get</Text>
               {PREMIUM_FEATURES.map((feature) => (
                 <View key={feature} style={styles.featureRow}>
-                  <Ionicons name="checkmark-circle" size={20} color={theme.tint} />
+                  <View style={[styles.featureCheckWrap, { backgroundColor: theme.tintSoft + '80' }]}>
+                    <Ionicons name="checkmark" size={16} color={theme.tint} />
+                  </View>
                   <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
                 </View>
               ))}
-            </View>
+            </Card>
 
             {error ? (
-              <View style={[styles.errorBar, { backgroundColor: theme.dangerSoft }]}>
+              <View style={[styles.errorBar, { backgroundColor: theme.dangerSoft, borderColor: theme.danger + '40' }]}>
                 <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
               </View>
             ) : null}
 
-            {isRevenueCatConfigured() && offeringsLoading ? (
-              <LoadingState title="Loading plans…" />
-            ) : isRevenueCatConfigured() && offerings?.current?.availablePackages?.length ? (
+            {offeringsLoading ? (
+              <View style={styles.offeringLoadWrap}>
+                <LoadingState title="Loading plans…" message="Checking what's available." />
+              </View>
+            ) : hasOfferings ? (
               <View style={styles.packages}>
-                {offerings.current.availablePackages.map((pkg) => (
-                  <Pressable
-                    key={pkg.identifier}
-                    onPress={() => handlePurchase(pkg)}
-                    disabled={purchaseLoading}
-                    style={({ pressed }) => [
-                      styles.packageCard,
-                      { backgroundColor: theme.surface, borderColor: theme.border, borderWidth: 1 },
-                      pressed && { opacity: 0.9 },
-                    ]}
-                  >
+                {offerings!.current!.availablePackages.map((pkg) => (
+                  <Card key={pkg.identifier} variant="glass" style={[styles.packageCard, { borderColor: theme.glassBorder }]}>
                     <Text style={[styles.packageLabel, { color: theme.text }]}>
                       {pkg.packageType === 'ANNUAL' ? 'Annual' : pkg.packageType === 'MONTHLY' ? 'Monthly' : pkg.packageType}
                     </Text>
                     <Text style={[styles.packagePrice, { color: theme.tint }]}>
                       {pkg.product.priceString}
+                      {pkg.packageType === 'MONTHLY' ? '/month' : '/year'}
                     </Text>
                     <VibelyButton
-                      label={purchaseLoading ? '…' : 'Subscribe'}
+                      label={purchaseLoading ? '…' : 'Get Premium'}
                       onPress={() => handlePurchase(pkg)}
                       loading={purchaseLoading}
                       disabled={purchaseLoading}
                       variant="primary"
+                      size="lg"
                       style={styles.packageCta}
                     />
-                  </Pressable>
+                  </Card>
                 ))}
               </View>
-            ) : isRevenueCatConfigured() ? (
-              <Card style={styles.card}>
-                <Text style={[styles.muted, { color: theme.textSecondary }]}>
-                  No offerings available. Configure products in RevenueCat dashboard.
+            ) : showUnavailable ? (
+              <Card variant="glass" style={[styles.unavailableCard, { borderColor: theme.glassBorder }]}>
+                <View style={[styles.unavailableIconWrap, { backgroundColor: theme.surface }]}>
+                  <Ionicons name="card-outline" size={32} color={theme.textSecondary} />
+                </View>
+                <Text style={[styles.unavailableTitle, { color: theme.text }]}>Premium isn't available here yet</Text>
+                <Text style={[styles.unavailableBody, { color: theme.textSecondary }]}>
+                  Subscribe on the web to unlock premium, or check back later for in-app options.
                 </Text>
-                <Text style={[styles.mutedSmall, { color: theme.textSecondary, marginTop: spacing.sm }]}>
-                  This is expected until products and offerings are set up. Premium state still comes from the backend.
-                </Text>
+                <VibelyButton
+                  label="Back"
+                  variant="secondary"
+                  onPress={() => router.back()}
+                  style={styles.cta}
+                />
               </Card>
-            ) : (
-              <Card style={styles.card}>
-                <Text style={[styles.muted, { color: theme.textSecondary }]}>
-                  In-app purchases are not configured for this build. Subscribe on the web or contact support.
-                </Text>
-              </Card>
-            )}
+            ) : null}
 
             {isRevenueCatConfigured() && (
-              <VibelyButton
-                label={restoreLoading ? 'Restoring…' : 'Restore purchases'}
+              <Pressable
                 onPress={handleRestore}
                 disabled={restoreLoading}
-                variant="ghost"
-                style={styles.restoreButton}
-              />
+                style={({ pressed }) => [styles.restoreWrap, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={[styles.restoreText, { color: theme.textSecondary }]}>
+                  {restoreLoading ? 'Restoring…' : 'Restore purchases'}
+                </Text>
+              </Pressable>
             )}
           </>
         )}
@@ -259,34 +249,23 @@ export default function PremiumScreen() {
   );
 }
 
+const PREMIUM_FEATURES = [
+  'Unlimited swipes & matches',
+  'See who liked you',
+  'Priority in event lobbies',
+  'Exclusive premium-only events',
+];
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
+  headerBar: { marginBottom: 0 },
   backBtn: { padding: spacing.xs },
-  headerTitle: { fontSize: 20, fontWeight: '700', flex: 1 },
+  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
   scroll: { flex: 1 },
-  content: { padding: spacing.lg },
-  card: { marginBottom: spacing.lg, alignItems: 'center' },
-  cardIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  cardTitle: { ...typography.titleLG, marginBottom: spacing.sm },
-  planText: { fontSize: 16, marginBottom: 4 },
-  periodText: { fontSize: 14, marginBottom: spacing.sm },
-  body: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
-  cta: { marginTop: spacing.sm },
-  heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
-  heroIconWrap: {
+  content: { padding: spacing.lg, paddingTop: layout.mainContentPaddingTop },
+  entitlementCard: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.lg },
+  entitlementIconWrap: {
     width: 72,
     height: 72,
     borderRadius: 36,
@@ -294,23 +273,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: spacing.md,
   },
-  heroTitle: { fontSize: 26, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },
-  heroSub: { fontSize: 16, textAlign: 'center' },
-  featureList: { marginBottom: spacing.xl, gap: spacing.md },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  featureText: { fontSize: 15 },
-  errorBar: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.lg },
-  errorText: { fontSize: 14 },
-  packages: { gap: spacing.lg, marginBottom: spacing.lg },
-  packageCard: {
-    padding: spacing.lg,
-    borderRadius: radius['2xl'],
-    borderWidth: 1,
+  entitlementTitle: { fontSize: 22, fontWeight: '700', marginBottom: spacing.sm, textAlign: 'center' },
+  planText: { fontSize: 16, marginBottom: 4 },
+  periodText: { fontSize: 14, marginBottom: spacing.sm },
+  entitlementBody: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
+  cta: { marginTop: spacing.sm, alignSelf: 'stretch' },
+  heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
+  heroIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
+  heroTitle: { fontSize: 28, fontWeight: '800', textAlign: 'center', marginBottom: spacing.sm },
+  heroSub: { fontSize: 16, textAlign: 'center' },
+  featuresCard: { padding: spacing.xl, marginBottom: spacing.xl },
+  featuresCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: spacing.md },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
+  featureCheckWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureText: { fontSize: 15, flex: 1 },
+  errorBar: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.lg, borderWidth: 1 },
+  errorText: { fontSize: 14 },
+  offeringLoadWrap: { marginBottom: spacing.lg },
+  packages: { gap: spacing.lg, marginBottom: spacing.lg },
+  packageCard: { padding: spacing.xl, marginBottom: 0 },
   packageLabel: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   packagePrice: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
-  packageCta: { marginTop: spacing.sm },
-  muted: { fontSize: 14, textAlign: 'center' },
-  mutedSmall: { fontSize: 12, textAlign: 'center', opacity: 0.9 },
-  restoreButton: { marginTop: spacing.sm },
+  packageCta: { marginTop: spacing.sm, alignSelf: 'stretch' },
+  unavailableCard: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.lg },
+  unavailableIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  unavailableTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm, textAlign: 'center' },
+  unavailableBody: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
+  restoreWrap: { alignSelf: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  restoreText: { fontSize: 13 },
 });

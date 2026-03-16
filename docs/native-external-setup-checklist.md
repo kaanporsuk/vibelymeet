@@ -137,6 +137,12 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 5. **Send test:** In OneSignal dashboard → Messages, send a test notification to that user (or by player ID). Device should receive it.
 6. **Sign out:** Sign out in app; optionally verify in OneSignal that the subscription is no longer tied to that user (app calls `OneSignal.logout()`).
 
+### 3.5 OneSignal web (production — release-readiness caveat)
+
+- [ ] **Production service-worker:** OneSignal v16 web push requires the OneSignal service-worker script to be served **from the production domain root** so the browser can register it and it does not 404. Ensure your production site serves the required path (see OneSignal web SDK docs and `_cursor_context/vibely_rebuild_runbook.md` / provider sheet).
+- [ ] **OneSignal dashboard (web):** In the OneSignal project used for web, configure the **site origin** and **service-worker** settings to match your production domain. Without this, production web push may fail or be untested.
+- This is part of the **release-readiness picture** (Phase 7 Stage 5) and must not be forgotten when moving to submission. Native mobile push is separate (iOS/Android apps in same or linked OneSignal project).
+
 ---
 
 ## 4. Daily

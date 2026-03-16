@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Vibration,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +28,7 @@ import {
 } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
-import { GlassSurface, LoadingState, ErrorState } from '@/components/ui';
+import { GlassHeaderBar, LoadingState, ErrorState } from '@/components/ui';
 import { spacing, radius, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -37,9 +38,29 @@ import {
   useSendVoiceMessage,
   useSendChatVideoMessage,
   useRealtimeMessages,
+  useTypingBroadcast,
   useMatches,
   type ChatMessage,
+  type ReactionEmoji,
 } from '@/lib/chatApi';
+import { useUnmatch } from '@/lib/useUnmatch';
+import { useBlockUser } from '@/lib/useBlockUser';
+import { useArchiveMatch } from '@/lib/useArchiveMatch';
+import { useMuteMatch } from '@/lib/useMuteMatch';
+import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
+import { ReportFlowModal } from '@/components/match/ReportFlowModal';
+import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
+import { TypingIndicator } from '@/components/chat/TypingIndicator';
+import { MessageStatus } from '@/components/chat/MessageStatus';
+import { ReactionPicker } from '@/components/chat/ReactionPicker';
+import { DateSuggestionSheet } from '@/components/chat/DateSuggestionSheet';
+import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
+import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
+import { useCreateDateProposal } from '@/lib/dateProposalsApi';
+import { useMatchCall } from '@/lib/useMatchCall';
+import { useIsOffline } from '@/lib/useNetworkStatus';
+import { avatarUrl } from '@/lib/imageUrl';
+import { Linking } from 'react-native';
 
 function VoiceMessageBubble({
   uri,
@@ -95,14 +116,71 @@ export default function ChatThreadScreen() {
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
 
   const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { partnerTyping } = useTypingBroadcast(
+    data?.matchId ?? null,
+    user?.id ?? null,
+    isTyping,
+    !!data?.matchId && !!user?.id
+  );
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
+  const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const isSending = sending || sendingVoice || sendingVideo;
+  const { mutateAsync: createDateProposal } = useCreateDateProposal();
+
+  const {
+    isRinging,
+    isInCall,
+    callType,
+    callDuration,
+    incomingCall,
+    isMuted,
+    isVideoOff,
+    localParticipant,
+    remoteParticipant,
+    getTrack,
+    startCall,
+    acceptCall,
+    declineCall,
+    endCall,
+    toggleMute,
+    toggleVideo,
+  } = useMatchCall({
+    matchId: data?.matchId ?? null,
+    currentUserId: user?.id ?? null,
+  });
+
+  const isOffline = useIsOffline();
+
+  const handleInputChange = useCallback((text: string) => {
+    setInput(text);
+    setIsTyping(!!text.trim());
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 3000);
+  }, []);
+  useEffect(() => () => { if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); }, []);
 
   const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
+  const [showActions, setShowActions] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const { mutateAsync: unmatch } = useUnmatch();
+  const { blockUser } = useBlockUser(user?.id);
+  const { archiveMatch, unarchiveMatch } = useArchiveMatch(user?.id);
+  const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const currentMatchRow = data?.matchId ? matches.find((m) => m.matchId === data.matchId) : null;
+  const matchForActions =
+    data?.matchId && otherUserId
+      ? { matchId: data.matchId, id: otherUserId, name: otherName, archived_at: currentMatchRow?.archived_at ?? null }
+      : null;
 
   useEffect(() => {
     if (data?.messages?.length) {
@@ -113,7 +191,16 @@ export default function ChatThreadScreen() {
   const handleSend = async () => {
     const text = input.trim();
     if (!text || !data?.matchId || isSending) return;
+    if (isOffline) {
+      Alert.alert("Can't send", 'Check your connection.');
+      return;
+    }
     setInput('');
+    setIsTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
     try {
       await sendMessage({ matchId: data.matchId, content: text });
     } catch {
@@ -139,6 +226,11 @@ export default function ChatThreadScreen() {
   const stopVoiceRecordingAndSend = async () => {
     if (!data?.matchId || !user?.id) {
       setRecording(false);
+      return;
+    }
+    if (isOffline) {
+      setRecording(false);
+      Alert.alert("Can't send", 'Check your connection.');
       return;
     }
     setRecording(false);
@@ -244,24 +336,53 @@ export default function ChatThreadScreen() {
     );
   }
 
-  const otherAvatarUri = otherUserId ? (matches.find((m) => m.id === otherUserId)?.image ?? null) : null;
+  const otherUser = data?.otherUser ?? null;
+  const otherAvatarUri = otherUser
+    ? (otherUser.photos?.[0] ?? otherUser.avatar_url) ? avatarUrl(otherUser.photos?.[0] ?? otherUser.avatar_url ?? null) : null
+    : otherUserId
+      ? (matches.find((m) => m.id === otherUserId)?.image ?? null)
+      : null;
+  const lastSeenAt = otherUser?.last_seen_at ? new Date(otherUser.last_seen_at).getTime() : null;
+  const now = Date.now();
+  const diffMinutes = lastSeenAt != null ? (now - lastSeenAt) / 60000 : Infinity;
+  const isOnline = diffMinutes <= 5;
+  const lastSeenText =
+    isOnline ? undefined
+      : diffMinutes <= 60 ? 'Recently active'
+      : lastSeenAt != null ? `Active ${Math.round(diffMinutes / 60)}h ago`
+      : undefined;
 
-  const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string) => {
+  const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string, isMe: boolean) => {
+    const reaction = localReactions[item.id] ?? item.reaction ?? null;
+    const statusOrTime = isMe ? (
+      <MessageStatus status={item.status ?? 'delivered'} time={item.time} isMyMessage />
+    ) : (
+      <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+    );
     if (item.audio_url) {
-      return <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />;
+      return (
+        <View>
+          <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />
+          {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+          {isMe ? statusOrTime : null}
+        </View>
+      );
     }
     if (item.video_url) {
       return (
         <View>
           <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
           <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+          {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+          {isMe ? statusOrTime : null}
         </View>
       );
     }
     return (
       <>
         <Text style={[styles.bubbleText, { color: textColor }]}>{item.text}</Text>
-        <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
+        {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+        {statusOrTime}
       </>
     );
   };
@@ -276,7 +397,24 @@ export default function ChatThreadScreen() {
     const bubbleMarginBottom = isLastInGroup ? spacing.sm : 2;
     const textColor = isMe ? '#fff' : theme.text;
     const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
-    const content = renderBubbleContent(item, textColor, timeColor);
+    const content = renderBubbleContent(item, textColor, timeColor, isMe);
+
+    const bubbleWrap = (
+      <Pressable
+        onLongPress={() => {
+          Vibration.vibrate(30);
+          setReactionPickerMessageId(item.id);
+        }}
+        delayLongPress={400}
+        style={[
+          styles.bubble,
+          { marginBottom: bubbleMarginBottom },
+          isMe ? [styles.bubbleMe, { backgroundColor: theme.tint }] : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
+        ]}
+      >
+        {content}
+      </Pressable>
+    );
 
     if (!isMe && isFirstInGroup) {
       return (
@@ -288,36 +426,23 @@ export default function ChatThreadScreen() {
               <Text style={[styles.themAvatarFallback, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
             )}
           </View>
-          <View style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }]}>{content}</View>
+          <Pressable
+            onLongPress={() => { Vibration.vibrate(30); setReactionPickerMessageId(item.id); }}
+            delayLongPress={400}
+            style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }]}
+          >
+            {content}
+          </Pressable>
         </View>
       );
     }
 
-    return (
-      <View
-        style={[
-          styles.bubble,
-          { marginBottom: bubbleMarginBottom },
-          isMe ? [styles.bubbleMe, { backgroundColor: theme.tint }] : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
-        ]}
-      >
-        {content}
-      </View>
-    );
+    return bubbleWrap;
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <GlassSurface
-        style={[
-          styles.header,
-          {
-            paddingTop: insets.top + spacing.sm,
-            paddingBottom: spacing.md,
-            paddingHorizontal: spacing.lg,
-          },
-        ]}
-      >
+      <GlassHeaderBar insets={insets} style={styles.chatHeaderBar}>
         <Pressable
           onPress={() => router.back()}
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
@@ -325,17 +450,202 @@ export default function ChatThreadScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {otherName}
-        </Text>
         <Pressable
-          onPress={() => otherUserId && (router as { push: (p: string) => void }).push(`/user/${otherUserId}`)}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
-          accessibilityLabel="View profile"
+          onPress={() => setShowProfileSheet(true)}
+          style={({ pressed }) => [styles.headerCenter, pressed && { opacity: 0.9 }]}
         >
-          <Ionicons name="person-outline" size={22} color={theme.text} />
+          {otherAvatarUri ? (
+            <Image source={{ uri: otherAvatarUri }} style={styles.headerAvatar} />
+          ) : (
+            <View style={[styles.headerAvatar, styles.headerAvatarFallback, { backgroundColor: theme.muted }]}>
+              <Text style={[styles.headerAvatarLetter, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
+            </View>
+          )}
+          {isOnline && <View style={[styles.onlineDot, { backgroundColor: theme.success }]} />}
+          <View style={styles.headerTextWrap}>
+            <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>{otherName}</Text>
+            <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
+              {partnerTyping ? 'Vibing...' : isOnline ? 'Online now' : lastSeenText ?? 'Offline'}
+            </Text>
+          </View>
         </Pressable>
-      </GlassSurface>
+        <View style={styles.headerRightRow}>
+          <Pressable
+            onPress={() => {
+              if (isOffline) {
+                Alert.alert("Can't start a call", 'Check your connection.');
+                return;
+              }
+              if (data?.matchId) startCall('voice');
+            }}
+            style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+            accessibilityLabel="Voice call"
+          >
+            <Ionicons name="call" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              if (isOffline) {
+                Alert.alert("Can't start a call", 'Check your connection.');
+                return;
+              }
+              if (data?.matchId) startCall('video');
+            }}
+            style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+            accessibilityLabel="Video call"
+          >
+            <Ionicons name="videocam" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
+            onPress={() => setShowActions(true)}
+            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+            accessibilityLabel="Actions"
+          >
+            <Ionicons name="ellipsis-horizontal" size={22} color={theme.text} />
+          </Pressable>
+        </View>
+      </GlassHeaderBar>
+
+      <ProfileDetailSheet
+        visible={showProfileSheet}
+        onClose={() => setShowProfileSheet(false)}
+        match={
+          otherUserId && (otherUser || matches.find((m) => m.id === otherUserId))
+            ? {
+                id: otherUserId,
+                name: otherUser?.name ?? otherName,
+                age: otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0,
+                image: otherAvatarUri ?? '',
+              }
+            : null
+        }
+      />
+
+      {incomingCall && (
+        <IncomingCallOverlay
+          incomingCall={incomingCall}
+          callerAvatarUri={incomingCall.callerId === otherUserId ? otherAvatarUri : null}
+          onAnswer={acceptCall}
+          onDecline={declineCall}
+        />
+      )}
+
+      <ActiveCallOverlay
+        visible={isRinging || isInCall}
+        isRinging={isRinging}
+        isInCall={isInCall}
+        callType={callType}
+        isMuted={isMuted}
+        isVideoOff={isVideoOff}
+        callDuration={callDuration}
+        partnerName={otherName}
+        partnerAvatarUri={otherAvatarUri}
+        localParticipant={localParticipant}
+        remoteParticipant={remoteParticipant}
+        getTrack={getTrack}
+        onToggleMute={toggleMute}
+        onToggleVideo={toggleVideo}
+        onEndCall={endCall}
+      />
+
+      {matchForActions && (
+        <>
+          <MatchActionsSheet
+            visible={showActions}
+            onClose={() => setShowActions(false)}
+            matchName={matchForActions.name}
+            isArchived={!!matchForActions.archived_at}
+            isMuted={isMatchMuted(matchForActions.matchId)}
+            onUnarchive={async () => {
+              setActionLoading('unarchive');
+              try {
+                await unarchiveMatch({ matchId: matchForActions.matchId });
+                setShowActions(false);
+              } finally {
+                setActionLoading(null);
+              }
+            }}
+            onUnmatch={() => {
+              Alert.alert('Unmatch?', `Remove ${matchForActions.name} from your matches? This cannot be undone.`, [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Unmatch',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setActionLoading('unmatch');
+                    try {
+                      await unmatch({ matchId: matchForActions.matchId });
+                      setShowActions(false);
+                      router.back();
+                    } finally {
+                      setActionLoading(null);
+                    }
+                  },
+                },
+              ]);
+            }}
+            onArchive={async () => {
+              setActionLoading('archive');
+              try {
+                await archiveMatch({ matchId: matchForActions.matchId });
+                setShowActions(false);
+              } finally {
+                setActionLoading(null);
+              }
+            }}
+            onBlock={() => {
+              Alert.alert('Block?', `Block ${matchForActions.name}? They won't be able to contact you.`, [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Block',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setActionLoading('block');
+                    try {
+                      await blockUser({ blockedId: matchForActions.id, matchId: matchForActions.matchId });
+                      setShowActions(false);
+                      router.back();
+                    } finally {
+                      setActionLoading(null);
+                    }
+                  },
+                },
+              ]);
+            }}
+            onMute={async () => {
+              setActionLoading('mute');
+              try {
+                await muteMatch({ matchId: matchForActions.matchId, duration: '1day' });
+                setShowActions(false);
+              } finally {
+                setActionLoading(null);
+              }
+            }}
+            onUnmute={async () => {
+              setActionLoading('unmute');
+              try {
+                await unmuteMatch({ matchId: matchForActions.matchId });
+                setShowActions(false);
+              } finally {
+                setActionLoading(null);
+              }
+            }}
+            onReport={() => {
+              setShowActions(false);
+              setShowReport(true);
+            }}
+            loading={actionLoading}
+          />
+          <ReportFlowModal
+            visible={showReport}
+            onClose={() => setShowReport(false)}
+            onSuccess={() => setShowReport(false)}
+            reportedId={matchForActions.id}
+            reportedName={matchForActions.name}
+            reporterId={user?.id ?? ''}
+          />
+        </>
+      )}
 
       <KeyboardAvoidingView
         style={styles.keyboard}
@@ -353,14 +663,40 @@ export default function ChatThreadScreen() {
               No messages yet. Say hi!
             </Text>
           }
+          ListFooterComponent={
+            partnerTyping ? (
+              <View style={styles.typingWrap}>
+                <TypingIndicator />
+              </View>
+            ) : null
+          }
         />
-        <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
+        <View style={[styles.quickActions, { borderTopColor: theme.border }]}>
+          <Pressable onPress={() => setShowDateSheet(true)} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
+            <Ionicons name="calendar-outline" size={18} color={theme.tint} />
+            <Text style={[styles.quickActionLabel, { color: theme.tint }]}>Suggest a date</Text>
+          </Pressable>
+          <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/matches').catch(() => {})} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
+            <Ionicons name="game-controller-outline" size={18} color={theme.textSecondary} />
+            <Text style={[styles.quickActionLabel, { color: theme.textSecondary }]}>Games</Text>
+          </Pressable>
+        </View>
+        <View
+          style={[
+            styles.footer,
+            {
+              borderTopColor: theme.border,
+              backgroundColor: theme.background,
+              paddingBottom: Platform.OS === 'ios' ? (insets.bottom || spacing.lg) + spacing.sm : spacing.lg,
+            },
+          ]}
+        >
           <TextInput
             style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.surfaceSubtle }]}
             placeholder="Message..."
             placeholderTextColor={theme.textSecondary}
             value={input}
-            onChangeText={setInput}
+            onChangeText={handleInputChange}
             multiline
             maxLength={2000}
             editable={!isSending}
@@ -408,6 +744,51 @@ export default function ChatThreadScreen() {
           <Text style={[styles.recordingHint, { color: theme.textSecondary }]}>Recording… Tap mic to send</Text>
         ) : null}
       </KeyboardAvoidingView>
+
+      <ReactionPicker
+        visible={!!reactionPickerMessageId}
+        onClose={() => setReactionPickerMessageId(null)}
+        onSelect={(emoji) => {
+          if (reactionPickerMessageId) {
+            setLocalReactions((prev) => ({ ...prev, [reactionPickerMessageId]: emoji }));
+            setReactionPickerMessageId(null);
+          }
+        }}
+        anchorRight={!!reactionPickerMessageId && (data?.messages?.find((m) => m.id === reactionPickerMessageId)?.sender === 'me')}
+      />
+
+      <DateSuggestionSheet
+        visible={showDateSheet}
+        onClose={() => setShowDateSheet(false)}
+        matchName={otherName}
+        matchId={data?.matchId ?? ''}
+        proposerId={user?.id ?? ''}
+        recipientId={otherUserId ?? ''}
+        onCreate={async (proposedDate, timeBlock, activity) => {
+          if (!data?.matchId || !user?.id || !otherUserId) return;
+          if (isOffline) {
+            Alert.alert("Can't send", 'Check your connection.');
+            return;
+          }
+          try {
+            await createDateProposal({
+              matchId: data.matchId,
+              proposerId: user.id,
+              recipientId: otherUserId,
+              proposedDate,
+              timeBlock,
+              activity,
+            });
+            const timeLabel = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', night: 'Night' }[timeBlock] ?? timeBlock;
+            await sendMessage({
+              matchId: data.matchId,
+              content: `📅 Suggested ${proposedDate} (${timeLabel}): ${activity}`,
+            });
+          } catch {
+            Alert.alert('Error', 'Could not send date proposal.');
+          }
+        }}
+      />
     </View>
   );
 }
@@ -415,15 +796,32 @@ export default function ChatThreadScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  chatHeaderBar: { marginBottom: 0 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
   },
   backBtn: { padding: spacing.xs },
-  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  headerIconBtn: { padding: spacing.xs },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minWidth: 0 },
+  headerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  headerAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  headerAvatarLetter: { fontSize: 16, fontWeight: '600' },
+  onlineDot: { position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: 'hsl(240, 10%, 4%)' },
+  headerTextWrap: { flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 18, fontWeight: '600' },
+  headerSubtitle: { fontSize: 12, marginTop: 2 },
+  typingWrap: { paddingVertical: spacing.sm },
+  reactionBadge: { fontSize: 14, marginTop: 4 },
   keyboard: { flex: 1 },
-  list: { padding: spacing.lg, paddingBottom: spacing.sm },
+  list: {
+    paddingHorizontal: layout.containerPadding,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
   empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
   themRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, gap: spacing.xs },
   themAvatarWrap: {
@@ -449,14 +847,15 @@ const styles = StyleSheet.create({
   footer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: spacing.sm,
-    paddingBottom: Platform.OS === 'ios' ? 24 : spacing.lg,
+    paddingHorizontal: layout.containerPadding,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   input: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: radius.xl,
+    borderRadius: radius.input,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     marginRight: spacing.sm,
@@ -466,7 +865,7 @@ const styles = StyleSheet.create({
   sendBtn: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderRadius: radius.xl,
+    borderRadius: radius.button,
     justifyContent: 'center',
     minWidth: 60,
   },
@@ -485,4 +884,7 @@ const styles = StyleSheet.create({
   chatVideo: { width: 200, height: 120, borderRadius: radius.lg },
   voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
   recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
+  quickActions: { flexDirection: 'row', gap: spacing.lg, paddingHorizontal: layout.containerPadding, paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth },
+  quickActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  quickActionLabel: { fontSize: 13, fontWeight: '500' },
 });

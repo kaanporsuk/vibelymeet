@@ -10,6 +10,8 @@ export default function Index() {
   if (!session) {
     return <Redirect href="/(auth)/sign-in" />;
   }
+  // Wait for onboarding resolution so we don't flash tabs for users who need onboarding
+  if (onboardingComplete === null) return null;
   if (onboardingComplete === false) {
     return <Redirect href="/(onboarding)" />;
   }
