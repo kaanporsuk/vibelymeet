@@ -81,8 +81,8 @@ export function useCreateDateProposal() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_, v) => {
-      qc.invalidateQueries({ queryKey: ['date-proposals', v.matchId] });
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['date-proposals'] });
       qc.invalidateQueries({ queryKey: ['messages'] });
     },
   });

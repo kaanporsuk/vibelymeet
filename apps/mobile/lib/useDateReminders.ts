@@ -52,9 +52,13 @@ function formatCountdown(t: DateReminder['timeUntil']): string {
 export function useDateReminders(upcomingDates: DateProposal[]) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
+    const hasRelevant = upcomingDates.some(
+      (p) => p.status === 'accepted' && p.date.getTime() > Date.now() - 2 * 60 * 1000,
+    );
+    if (!hasRelevant) return;
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [upcomingDates]);
 
   const reminders = useMemo(() => {
     const list = upcomingDates

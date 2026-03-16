@@ -42,13 +42,31 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
         setIsSearching(false);
         setIsWaiting(true);
         intervalRef.current = setInterval(async () => {
-          const { data: retryData } = await supabase.rpc('find_mystery_match', {
-            p_event_id: eventId,
-            p_user_id: user.id,
-          });
-          const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
-          if (retryResult?.success && retryResult.session_id) {
-            onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
+          try {
+            const { data: retryData, error: retryError } = await supabase.rpc('find_mystery_match', {
+              p_event_id: eventId,
+              p_user_id: user.id,
+            });
+            if (retryError) {
+              if (__DEV__) console.warn('[useMysteryMatch] retry failed:', retryError.message);
+              setIsWaiting(false);
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
+              return;
+            }
+            const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
+            if (retryResult?.success && retryResult.session_id) {
+              onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
+              setIsWaiting(false);
+              if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+              }
+            }
+          } catch (err) {
+            if (__DEV__) console.warn('[useMysteryMatch] retry error:', err);
             setIsWaiting(false);
             if (intervalRef.current) {
               clearInterval(intervalRef.current);

@@ -3,7 +3,6 @@
  */
 import React, { useState, useEffect } from 'react';
 import { View, Text, Modal, Pressable, TextInput, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
@@ -57,8 +56,6 @@ export function PromptEditSheet({
     }
     onClose();
   };
-
-  const canAdd = mode === 'add' ? question.trim().length > 0 : true;
   const remaining = AVAILABLE_PROMPTS.filter((p) => !existingQuestions.includes(p));
 
   if (!visible) return null;

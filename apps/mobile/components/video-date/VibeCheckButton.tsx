@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import { Pressable, Text, View, StyleSheet, Animated, Vibration } from 'react-native';
-import { typography, radius, spacing, fonts } from '@/constants/theme';
+import { radius, spacing, fonts } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 
