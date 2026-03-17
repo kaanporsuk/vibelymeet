@@ -31,6 +31,7 @@ import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 
 export default function EventDetailScreen() {
+  // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -44,10 +45,17 @@ export default function EventDetailScreen() {
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
-
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
+      if (data?.gender) setUserGender(String(data.gender).toLowerCase());
+    })();
+  }, [user?.id]);
 
   const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
     id: a.id,
@@ -96,14 +104,6 @@ export default function EventDetailScreen() {
     },
     [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
   );
-
-  useEffect(() => {
-    if (!user?.id) return;
-    (async () => {
-      const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
-      if (data?.gender) setUserGender(String(data.gender).toLowerCase());
-    })();
-  }, [user?.id]);
 
   // Derived values for callbacks (event may be undefined until loaded)
   const ev = event as EventDetailsRow | undefined;
