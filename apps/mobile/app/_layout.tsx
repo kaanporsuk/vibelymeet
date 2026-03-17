@@ -28,7 +28,7 @@ import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 
-// ─── Sentry (matches web src/main.tsx)
+// ─── Sentry: init at module level so it runs before Sentry.wrap() below (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
 if (SENTRY_DSN) {
   Sentry.init({
@@ -166,9 +166,10 @@ function RootLayoutNav() {
     </ThemeProvider>
   );
 
+  // AuthProvider must wrap the entire Stack (including index) so useAuth() is never called outside it.
   const navContent = (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
+    <AuthProvider>
+      <QueryClientProvider client={queryClient}>
         <PushRegistration />
         <ActivityHeartbeat />
         <View style={{ flex: 1 }}>
@@ -184,8 +185,8 @@ function RootLayoutNav() {
           </View>
           <OfflineBanner />
         </View>
-      </AuthProvider>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </AuthProvider>
   );
 
   return navContent;

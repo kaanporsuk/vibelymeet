@@ -97,14 +97,6 @@ export default function EventDetailScreen() {
     [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
   );
 
-  if (isLoading && !event) {
-    return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading event…" message="Just a sec…" />
-      </View>
-    );
-  }
-
   useEffect(() => {
     if (!user?.id) return;
     (async () => {
@@ -113,51 +105,29 @@ export default function EventDetailScreen() {
     })();
   }, [user?.id]);
 
-  if (error || !event) {
-    return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Event not found"
-          message="This event may have been removed or doesn't exist."
-          actionLabel="Back to Events"
-          onActionPress={() => router.push('/(tabs)/events')}
-        />
-      </View>
-    );
-  }
-
-  const ev = event as EventDetailsRow;
-  const eventDate = new Date(event.event_date);
-  const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const isVirtual = !ev.is_location_specific;
-  const isFree = ev.is_free !== false;
-  const priceAmount = ev.price_amount ?? 0;
+  // Derived values for callbacks (event may be undefined until loaded)
+  const ev = event as EventDetailsRow | undefined;
+  const isFree = ev?.is_free !== false;
+  const priceAmount = ev?.price_amount ?? 0;
   const isFemale = userGender === 'female' || userGender === 'woman';
-  const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
-  const maxMen = ev.max_male_attendees ?? Math.floor((ev.max_attendees ?? 50) / 2);
-  const maxWomen = ev.max_female_attendees ?? Math.ceil((ev.max_attendees ?? 50) / 2);
-  const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
-  const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
-  const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
-  const capacityStatus: 'available' | 'filling' | 'almostFull' =
-    spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
-  const genderLabel = isFemale ? 'Female' : 'Male';
+  const userPrice = !event || isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
 
   const handleRegister = useCallback(async () => {
+    if (!event) return;
     const ok = await registerForEvent(event.id);
     if (ok) {
       trackEvent('event_registered', {
         event_id: event.id,
         event_title: event.title,
-        is_free: ev.is_free !== false,
+        is_free: ev?.is_free !== false,
       });
     } else {
       Alert.alert("Couldn't register", 'Check your connection and try again.');
     }
-  }, [event.id, event.title, ev.is_free, registerForEvent]);
+  }, [event, ev?.is_free, registerForEvent]);
 
   const handlePurchase = useCallback(async () => {
+    if (!event) return;
     if (isFree || userPrice === 0) {
       await handleRegister();
       return;
@@ -181,9 +151,10 @@ export default function EventDetailScreen() {
     } finally {
       setIsPurchasing(false);
     }
-  }, [event.id, event.title, isFree, userPrice, handleRegister]);
+  }, [event, isFree, userPrice, handleRegister]);
 
   const handleUnregister = useCallback(async () => {
+    if (!event) return;
     const ok = await unregisterFromEvent(event.id);
     if (ok) {
       refetchRegistration();
@@ -193,9 +164,10 @@ export default function EventDetailScreen() {
     } else {
       Alert.alert("Couldn't cancel", 'Check your connection and try again.');
     }
-  }, [event.id, unregisterFromEvent, refetchRegistration, queryClient, id]);
+  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id]);
 
   const openCancelConfirm = useCallback(() => {
+    if (!event) return;
     setShowManageBooking(false);
     Alert.alert(
       'Cancel your spot?',
@@ -205,7 +177,46 @@ export default function EventDetailScreen() {
         { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
       ]
     );
-  }, [event.title, handleUnregister]);
+  }, [event, handleUnregister]);
+
+  // Conditional returns — after ALL hooks
+  if (isLoading && !event) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <LoadingState title="Loading event…" message="Just a sec…" />
+      </View>
+    );
+  }
+
+  if (error || !event) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <ErrorState
+          title="Event not found"
+          message="This event may have been removed or doesn't exist."
+          actionLabel="Back to Events"
+          onActionPress={() => router.push('/(tabs)/events')}
+        />
+      </View>
+    );
+  }
+
+  const evResolved = event as EventDetailsRow;
+  const eventDate = new Date(event.event_date);
+  const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const isVirtual = !evResolved.is_location_specific;
+  const isFreeResolved = evResolved.is_free !== false;
+  const priceAmountResolved = evResolved.price_amount ?? 0;
+  const userPriceResolved = isFreeResolved ? 0 : (isFemale ? priceAmountResolved * 0.6 : priceAmountResolved);
+  const maxMen = evResolved.max_male_attendees ?? Math.floor((evResolved.max_attendees ?? 50) / 2);
+  const maxWomen = evResolved.max_female_attendees ?? Math.ceil((evResolved.max_attendees ?? 50) / 2);
+  const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
+  const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
+  const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
+  const capacityStatus: 'available' | 'filling' | 'almostFull' =
+    spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
+  const genderLabel = isFemale ? 'Female' : 'Male';
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
@@ -255,11 +266,11 @@ export default function EventDetailScreen() {
               {durationMin} min · {goingCount} going
             </Text>
           </View>
-          {(event as EventDetailsRow).location_name ? (
+          {evResolved.location_name ? (
             <View style={styles.venueRow}>
               <Ionicons name="location-outline" size={18} color={theme.textSecondary} />
               <Text style={[styles.venueText, { color: theme.textSecondary }]}>
-                {(event as EventDetailsRow).location_name}
+                {evResolved.location_name}
               </Text>
             </View>
           ) : null}
@@ -296,8 +307,8 @@ export default function EventDetailScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>The Venue</Text>
         <VenueCard
           isVirtual={isVirtual}
-          venueName={ev.location_name ?? undefined}
-          address={ev.location_address ?? undefined}
+          venueName={evResolved.location_name ?? undefined}
+          address={evResolved.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventId={event.id}
@@ -342,7 +353,7 @@ export default function EventDetailScreen() {
       {/* Sticky bottom: pricing when not registered */}
       {!isRegistered && (
         <PricingBar
-          price={userPrice}
+          price={userPriceResolved}
           capacityStatus={capacityStatus}
           spotsLeft={Math.max(0, spotsLeft)}
           genderLabel={genderLabel}
@@ -360,9 +371,9 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (evResolved.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
-        price={userPrice}
+        price={userPriceResolved}
         isVirtual={isVirtual}
       />
 
@@ -372,7 +383,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (evResolved.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
       />

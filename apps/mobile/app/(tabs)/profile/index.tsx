@@ -54,11 +54,34 @@ import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
-function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
+function VibeVideoPlayer({ playbackUrl, thumbnailUrl, style }: { playbackUrl: string; thumbnailUrl?: string | null; style?: object }) {
+  const [playbackError, setPlaybackError] = useState(false);
   const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
+
+  useEffect(() => {
+    const sub = player.addListener?.('statusChange', (payload: { status?: string }) => {
+      if (payload?.status === 'error') setPlaybackError(true);
+    });
+    return () => sub?.remove?.();
+  }, [player]);
+
+  if (playbackError) {
+    return (
+      <View style={[styles.vibeVideoUnavailable, style]}>
+        {thumbnailUrl ? (
+          <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : null}
+        <View style={styles.vibeVideoUnavailableOverlay}>
+          <Ionicons name="videocam-off-outline" size={32} color="#fff" />
+          <Text style={styles.vibeVideoUnavailableText}>Video unavailable</Text>
+        </View>
+      </View>
+    );
+  }
+
   return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 
@@ -1241,7 +1264,11 @@ export default function ProfileScreen() {
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowVibeVideoFullscreen(false)} />
         <View style={styles.vibeVideoFullscreenContent} pointerEvents="box-none">
           {getVibeVideoPlaybackUrl(profile?.bunny_video_uid) && (
-            <VibeVideoPlayer playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!} style={styles.vibeVideoFullscreenPlayer} />
+            <VibeVideoPlayer
+              playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
+              thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
+              style={styles.vibeVideoFullscreenPlayer}
+            />
           )}
           <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
             <Ionicons name="close" size={28} color="#fff" />
@@ -1882,6 +1909,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  vibeVideoUnavailable: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  vibeVideoUnavailableOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  vibeVideoUnavailableText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   vibeVideoCopy: {
     fontSize: 14,

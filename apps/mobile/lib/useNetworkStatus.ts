@@ -1,9 +1,9 @@
 /**
  * Network status detection for React Native. Mirrors web useNetworkStatus (navigator.onLine).
- * Uses @react-native-community/netinfo.
+ * Uses expo-network (Expo-managed, no native linking required).
  */
 import { useState, useEffect } from 'react';
-import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
+import * as Network from 'expo-network';
 
 export type NetworkStatus = {
   isConnected: boolean;
@@ -18,18 +18,27 @@ export function useNetworkStatus(): NetworkStatus {
 
   useEffect(() => {
     let isMounted = true;
-    const safeHandleState = (netState: NetInfoState) => {
-      if (!isMounted) return;
-      setState({
-        isConnected: netState.isConnected ?? false,
-        isInternetReachable: netState.isInternetReachable ?? null,
-      });
+
+    const check = async () => {
+      try {
+        const networkState = await Network.getNetworkStateAsync();
+        if (isMounted) {
+          setState({
+            isConnected: networkState.isConnected ?? true,
+            isInternetReachable: networkState.isInternetReachable ?? null,
+          });
+        }
+      } catch {
+        // assume connected on error
+      }
     };
-    NetInfo.fetch().then(safeHandleState);
-    const unsubscribe = NetInfo.addEventListener(safeHandleState);
+
+    check();
+    const interval = setInterval(check, 10000);
+
     return () => {
       isMounted = false;
-      unsubscribe();
+      clearInterval(interval);
     };
   }, []);
 
@@ -39,7 +48,5 @@ export function useNetworkStatus(): NetworkStatus {
 /** Returns true if we should treat the user as offline (no connection or internet unreachable). */
 export function useIsOffline(): boolean {
   const { isConnected, isInternetReachable } = useNetworkStatus();
-  if (!isConnected) return true;
-  if (isInternetReachable === false) return true;
-  return false;
+  return !isConnected || isInternetReachable === false;
 }
