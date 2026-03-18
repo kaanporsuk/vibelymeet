@@ -53,6 +53,7 @@ export function ManageBookingModal({
     <Modal visible transparent animationType="slide">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.glassSurface }]} onPress={(e) => e.stopPropagation()}>
+          <View style={[styles.sheetHandle, { backgroundColor: theme.muted }]} />
           <View style={[styles.header, { borderBottomColor: theme.glassBorder }]}>
             <Pressable onPress={onClose} style={styles.closeBtn} accessibilityLabel="Close">
               <Ionicons name="close" size={22} color={theme.text} />
@@ -112,12 +113,20 @@ export function ManageBookingModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   sheet: {
     borderTopLeftRadius: radius['2xl'],
     borderTopRightRadius: radius['2xl'],
     paddingBottom: spacing['3xl'],
     maxHeight: '90%',
+  },
+  sheetHandle: {
+    width: 100,
+    height: 8,
+    borderRadius: 999,
+    alignSelf: 'center',
+    marginTop: 16,
+    marginBottom: 12,
   },
   header: { padding: spacing.lg, borderBottomWidth: 1 },
   closeBtn: { position: 'absolute', top: spacing.lg, right: spacing.lg, zIndex: 1, padding: spacing.xs },

@@ -45,7 +45,7 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
     <Modal transparent visible animationType="slide">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
-          <View style={[styles.handle, { backgroundColor: theme.mutedForeground }]} />
+          <View style={[styles.handle, { backgroundColor: theme.muted }]} />
           <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>Help & Feedback</VibelyText>
 
           <VibelyText variant="caption" style={[styles.label, { color: theme.textSecondary }]}>Subject</VibelyText>
@@ -90,9 +90,9 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: radius['2xl'], borderTopRightRadius: radius['2xl'], paddingHorizontal: spacing.lg, paddingBottom: spacing['2xl'] },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md },
+  handle: { width: 100, height: 8, borderRadius: 999, alignSelf: 'center', marginTop: 16, marginBottom: 12 },
   title: { marginBottom: spacing.lg },
   label: { marginBottom: spacing.sm },
   subjectRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },

@@ -20,6 +20,7 @@ import Colors from '@/constants/Colors';
 import { border, button, layout, radius, spacing, typography, shadows } from '@/constants/theme';
 import { useColorScheme } from './useColorScheme';
 import { GradientSurface } from './GradientSurface';
+import { LinearGradient } from 'expo-linear-gradient';
 
 /** Reusable input styles for forms (profile edit, search, etc.) — web parity */
 export const inputStyles = {
@@ -359,7 +360,7 @@ export function Card({ children, variant = 'default', style, onPress }: CardProp
   return content;
 }
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'gradient';
 
 type ButtonSize = 'sm' | 'default' | 'lg';
 
@@ -374,7 +375,15 @@ type ButtonProps = {
   textStyle?: StyleProp<TextStyle>;
 };
 
-/** Primary/secondary/ghost/destructive button — web parity h-12 rounded-2xl, uses Stage 2 button tokens. */
+const GRADIENT_BTN_SHADOW: ViewStyle = {
+  shadowColor: 'hsl(263, 70%, 66%)',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.25,
+  shadowRadius: 12,
+  elevation: 8,
+};
+
+/** Primary / secondary / ghost / destructive / gradient — web parity; gradient + press scale. */
 export function VibelyButton({
   label,
   onPress,
@@ -388,6 +397,14 @@ export function VibelyButton({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const isDisabled = disabled || loading;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () => {
+    Animated.timing(scaleAnim, { toValue: 0.95, duration: 100, useNativeDriver: true }).start();
+  };
+  const onPressOut = () => {
+    Animated.timing(scaleAnim, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+  };
 
   const height = button.height[size];
   const borderRadius = button.radius[size];
@@ -401,6 +418,7 @@ export function VibelyButton({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: spacing.sm,
+    overflow: 'hidden',
   };
 
   let backgroundColor: string = theme.tint;
@@ -421,32 +439,70 @@ export function VibelyButton({
     labelColor = theme.primaryForeground;
   }
 
-  const borderWidth = variant === 'ghost' ? 0 : border.width.thin;
+  const borderWidth = variant === 'ghost' || variant === 'gradient' ? 0 : border.width.thin;
+
+  const labelEl = (
+    <Text
+      style={[
+        {
+          color: variant === 'gradient' ? theme.primaryForeground : labelColor,
+          fontWeight: '600',
+          fontSize: 14,
+        },
+        textStyle as TextStyle,
+      ]}
+    >
+      {label}
+    </Text>
+  );
+
+  if (variant === 'gradient') {
+    return (
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        disabled={isDisabled}
+        style={{ opacity: isDisabled ? 0.6 : 1 }}
+      >
+        <Animated.View style={[{ transform: [{ scale: scaleAnim }] }, GRADIENT_BTN_SHADOW, style]}>
+          <LinearGradient
+            colors={['hsl(263, 70%, 66%)', 'hsl(330, 81%, 60%)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[base, { backgroundColor: 'transparent' }]}
+          >
+            {loading ? <ActivityIndicator color={theme.primaryForeground} /> : null}
+            {labelEl}
+          </LinearGradient>
+        </Animated.View>
+      </Pressable>
+    );
+  }
 
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       disabled={isDisabled}
-      style={({ pressed }) => [
-        base,
-        {
-          backgroundColor,
-          borderWidth,
-          borderColor,
-          opacity: isDisabled ? 0.6 : pressed ? 0.9 : 1,
-        },
-        style,
-      ]}
+      style={{ opacity: isDisabled ? 0.6 : 1 }}
     >
-      {loading ? <ActivityIndicator color={labelColor} /> : null}
-      <Text
+      <Animated.View
         style={[
-          { color: labelColor, fontWeight: '600', fontSize: 14 },
-          textStyle as TextStyle,
+          { transform: [{ scale: scaleAnim }] },
+          base,
+          {
+            backgroundColor,
+            borderWidth,
+            borderColor,
+          },
+          style,
         ]}
       >
-        {label}
-      </Text>
+        {loading ? <ActivityIndicator color={labelColor} /> : null}
+        {labelEl}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -702,6 +758,7 @@ export function VibelyInput({
     inputStyles,
     {
       borderColor: theme.border,
+      backgroundColor: theme.background,
       color: theme.text,
       minHeight: multiline ? 96 : layout.inputHeight,
       textAlignVertical: multiline ? 'top' : 'center',
@@ -843,7 +900,7 @@ const styles = StyleSheet.create({
   chip: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 2,
     borderRadius: radius.pill,
   },
   chipLabel: {

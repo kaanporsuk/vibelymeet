@@ -55,7 +55,7 @@ export function ReactionPicker({ visible, onClose, onSelect, anchorRight = false
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', paddingBottom: 120 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end', paddingBottom: 120 },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',

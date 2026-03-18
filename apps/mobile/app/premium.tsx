@@ -207,7 +207,7 @@ export default function PremiumScreen() {
                       onPress={() => handlePurchase(pkg)}
                       loading={purchaseLoading}
                       disabled={purchaseLoading}
-                      variant="primary"
+                      variant="gradient"
                       size="lg"
                       style={styles.packageCta}
                     />

@@ -899,7 +899,7 @@ export default function EventsListScreen() {
                       <VibelyButton
                         label="Explore with Premium →"
                         onPress={() => router.push('/premium')}
-                        variant="primary"
+                        variant="gradient"
                         size="sm"
                         style={styles.premiumCardCta}
                       />

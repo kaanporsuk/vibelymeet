@@ -353,7 +353,7 @@ export default function EventDetailScreen() {
             ) : eventLive ? (
               <VibelyButton
                 label="Enter Lobby →"
-                variant="primary"
+                variant="gradient"
                 onPress={() => router.push(`/event/${event.id}/lobby` as const)}
                 style={styles.cta}
               />

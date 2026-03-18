@@ -315,6 +315,7 @@ export default function DashboardScreen() {
                 <View style={[styles.eventCardBody, { paddingTop: spacing.lg }]}>
                   <VibelyButton
                     label="Enter Lobby →"
+                    variant="gradient"
                     onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
                     style={styles.ctaFull}
                   />
@@ -338,7 +339,7 @@ export default function DashboardScreen() {
                   <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} resizeMode="cover" />
                   <View style={[styles.eventCardOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
                   {isRegistered && (
-                    <View style={[styles.registeredBadge, { backgroundColor: 'rgba(0,229,255,0.2)', borderColor: theme.neonCyan }]}>
+                    <View style={styles.registeredBadge}>
                       <Text style={[styles.registeredText, { color: theme.neonCyan }]}>✓ Registered</Text>
                     </View>
                   )}
@@ -444,7 +445,7 @@ export default function DashboardScreen() {
               </View>
               <Pressable onPress={() => router.push('/matches')} style={styles.seeAll}>
                 <Text style={[styles.seeAllText, { color: theme.tint }]}>See all</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                <Ionicons name="chevron-forward" size={14} color={theme.tint} />
               </Pressable>
             </View>
             {loading ? (
@@ -513,7 +514,7 @@ export default function DashboardScreen() {
               action={
                 <Pressable onPress={() => router.push('/events')} style={styles.seeAll}>
                   <Text style={[styles.seeAllText, { color: theme.tint }]}>All events</Text>
-                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                  <Ionicons name="chevron-forward" size={14} color={theme.tint} />
                 </Pressable>
               }
             />
@@ -628,7 +629,7 @@ const styles = StyleSheet.create({
     padding: 2,
     alignSelf: 'center',
   },
-  seeAllText: { fontSize: 12, fontWeight: '600' },
+  seeAllText: { fontSize: 14, fontWeight: '500' },
   upcomingEmpty: {
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
@@ -689,14 +690,18 @@ const styles = StyleSheet.create({
   },
   registeredBadge: {
     position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    paddingHorizontal: spacing.sm,
+    top: 12,
+    right: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     borderWidth: 1,
+    backgroundColor: 'hsla(187, 94%, 43%, 0.2)',
+    borderColor: 'hsla(187, 94%, 43%, 0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  registeredText: { fontSize: 12, fontWeight: '600' },
+  registeredText: { fontSize: 12, fontWeight: '500' },
   liveBadge: {
     position: 'absolute',
     top: spacing.md,
@@ -722,9 +727,9 @@ const styles = StyleSheet.create({
   ctaFull: { alignSelf: 'stretch' },
   countdownRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   countdownBlock: {
-    minWidth: 56,
+    width: 56,
     height: 56,
-    borderRadius: 12,
+    borderRadius: radius.xl,
     alignItems: 'center',
     justifyContent: 'center',
   },
