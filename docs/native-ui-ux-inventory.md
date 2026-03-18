@@ -71,7 +71,7 @@
 
 | Token | Value |
 |-------|-------|
-| glassSurface | `rgba(20,20,24,0.92)` |
+| glassSurface | `rgba(20,20,24,0.6)` (web bg-card/60) |
 | glassBorder | `rgba(255,255,255,0.1)` |
 
 **Semantic**
@@ -96,11 +96,11 @@
 
 | Variant | fontFamily | fontSize | fontWeight (implicit) | lineHeight | letterSpacing | Other |
 |---------|------------|----------|------------------------|------------|---------------|-------|
-| titleXL | SpaceGrotesk_700Bold | 28 | Bold (file) | default | 0.3 | — |
-| titleLG | SpaceGrotesk_700Bold | 22 | Bold | default | 0.2 | — |
+| titleXL | SpaceGrotesk_700Bold | 24 | Bold (file) | default | 0.3 | web text-2xl |
+| titleLG | SpaceGrotesk_700Bold | 20 | Bold | default | 0.2 | web text-xl |
 | titleMD | SpaceGrotesk_600SemiBold | 18 | SemiBold | default | — | — |
 | titleSM | SpaceGrotesk_600SemiBold | 16 | SemiBold | default | — | — |
-| body | Inter_400Regular | 14 | Regular | default | — | — |
+| body | Inter_400Regular | 16 | Regular | default | — | web text-base |
 | bodySecondary | Inter_400Regular | 14 | Regular | default | — | opacity 0.8 |
 | caption | Inter_400Regular | 12 | Regular | default | — | opacity 0.75 |
 | overline | Inter_600SemiBold | 11 | SemiBold | default | 1 | opacity 0.9 |
@@ -131,12 +131,12 @@
 | md | 14 |
 | lg | 16 |
 | base | 16 |
-| xl | 20 |
+| xl | 12 (web rounded-xl) |
 | 2xl | 24 |
 | 3xl | 32 |
 | pill | 999 |
 | button | 24 |
-| input | 16 |
+| input | 14 (web Input rounded-md) |
 
 ### 1.5 Shadows
 
@@ -166,11 +166,11 @@
 | screenPadding.default | 20 |
 | screenPadding.compact | 16 |
 | contentWidth | 512 |
-| inputHeight | 44 |
-| tabBarScrollPadding | 80 |
-| scrollContentPaddingBottomTab | 104 (80+24) |
-| tabBarContentHeightIos | 56 |
-| tabBarContentHeightAndroid | 52 |
+| inputHeight | 40 |
+| tabBarScrollPadding | 88 |
+| scrollContentPaddingBottomTab | 112 (88+24) |
+| tabBarContentHeightIos | 64 |
+| tabBarContentHeightAndroid | 60 |
 | tabBarPaddingTop | 8 |
 | tabBarPaddingBottomAndroid | 10 |
 | headerPaddingTopExtra | 8 |
@@ -182,13 +182,13 @@
 
 | Size | height | radius |
 |------|--------|--------|
-| sm | 40 | 16 |
+| sm | 40 | 12 |
 | default | 48 | 24 |
 | lg | 56 | 24 |
 
 **border.width:** hairline 1, thin 1, medium 2.
 
-**inputStyles (ui.tsx):** height `layout.inputHeight` (44), borderRadius `radius.input` (16), paddingH `spacing.md` (12), paddingV `spacing.sm` (8), borderWidth 1, **fontSize 15** (raw, not typography token).
+**inputStyles (ui.tsx):** height `layout.inputHeight` (40), borderRadius `radius.input` (14), paddingH `spacing.md` (12), paddingV `spacing.sm` (8), borderWidth 1, **fontSize 16** (web text-base).
 
 ---
 
@@ -495,7 +495,7 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 | ScreenContainer | ui.tsx | title, footer | screenTitle titleLG |
 | SectionHeader | ui.tsx | title, subtitle, action | titleMD, bodySecondary |
 | Card | ui.tsx | variant default/glass | radius 2xl, border, shadows.card |
-| VibelyButton | ui.tsx | label, variant, size, loading | heights 40/48/56; radius 16/24; label **fontSize 15 fontWeight 600** (raw) |
+| VibelyButton | ui.tsx | label, variant, size, loading | heights 40/48/56; radius 12/24; label **fontSize 14 fontWeight 600** (web text-sm) |
 | Avatar | ui.tsx | size default 56 | circle; accentSoft fallback |
 | MediaTile | ui.tsx | aspectRatio 16/9 | radius 2xl |
 | EmptyState / ErrorState / LoadingState | ui.tsx | — | stateTitle titleMD; GradientSurface 48 circle |
@@ -530,8 +530,8 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 
 | Location | Label | Type | Width | Height | BorderRadius | Font | BG | Text | Icon | Action |
 |----------|-------|------|-------|--------|--------------|------|-----|------|------|--------|
-| ui VibelyButton | * | primary/secondary/ghost/destructive | min full from style | 40/48/56 | 16/24 | 15/600 | tint/surface/transparent/danger | see variant | optional ActivityIndicator | onPress |
-| ReadyGateOverlay | I'm Ready ✨ | primary | — | default | 24 | 15/600 | tint | primaryFg | — | onReady |
+| ui VibelyButton | * | primary/secondary/ghost/destructive | min full from style | 40/48/56 | 12/24 | 14/600 | tint/surface/transparent/danger | see variant | optional ActivityIndicator | onPress |
+| ReadyGateOverlay | I'm Ready ✨ | primary | — | default | 24 | 14/600 | tint | primaryFg | — | onReady |
 | VenueCard | Enter Lobby / Event Ended / … | primary/secondary/ghost | style.cta | 48 | 24 | — | — | — | — | lobby / disabled |
 | VenueCard | Get Directions | secondary | — | 48 | — | — | — | — | — | maps stub |
 | events/index | Explore with Premium → | primary | — | — | — | — | — | — | — | premium |
@@ -572,22 +572,22 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 
 | Location | Placeholder | Height | BorderRadius | FontSize | BG | Border | PaddingH/V | Keyboard |
 |----------|-------------|--------|--------------|----------|-----|--------|------------|----------|
-| VibelyInput default | * | 44 | 16 | 15 | transparent | theme.border | 12/8 | default |
-| VibelyInput multiline | * | min 96 | 16 | 15 | — | — | — | multiline |
-| sign-in | Email / •••••••• | ~44 | 16 | 15 | theme.surface | theme.border | custom | email / secure |
+| VibelyInput default | * | 40 | 14 | 16 | transparent | theme.border | 12/8 | default |
+| VibelyInput multiline | * | min 96 | 14 | 16 | — | — | — | multiline |
+| sign-in | Email / •••••••• | ~40 | 14 | 16 | theme.surface | theme.border | custom | email / secure |
 | sign-up | Email / Password | same | — | — | — | — | — | — |
-| chat/[id] | Type a message… | ~44– | 16+ | 15 | theme | border | — | default |
+| chat/[id] | Type a message… | ~40+ | 14+ | 16 | theme | border | — | default |
 | DateSuggestionSheet | YYYY-MM-DD / Coffee… | varies | — | — | — | — | — | — |
 | FeedbackSheet | Describe… | multiline | — | — | — | — | — | — |
 | DropsTabContent | Reply… / Say something… | — | — | — | — | — | — | — |
-| matches/index search | Search by name or vibe… | 44 | 16 | 15 | — | — | — | search |
+| matches/index search | Search by name or vibe… | 40 | 14 | 16 | — | — | — | search |
 | PromptEditSheet | Tap to add… | multiline | — | — | — | — | — | — |
 | ReportFlowModal | Anything else… | multiline | — | — | — | — | — | — |
-| events/index search | Search events… | 44 | 16 | 15 | — | — | — | search |
+| events/index search | Search events… | 40 | 14 | 16 | — | — | — | search |
 | onboarding | name/tagline/job/bio | native TextInput | — | — | — | — | — | default |
 | daily-drop | Reply / Say hi | — | — | — | — | — | — | — |
 | PhoneVerificationFlow | Phone number | — | — | — | — | — | — | phone |
-| profile edit | name/tagline/job/bio | VibelyInput | 44/96 | 16 | 15 | — | — | — | default |
+| profile edit | name/tagline/job/bio | VibelyInput | 40/96 | 14 | 16 | — | — | — | default |
 
 ---
 
@@ -725,17 +725,17 @@ Root Stack
 | Property | Value |
 |----------|-------|
 | Tab count | 4 |
-| Height | iOS: `56 + safeArea.bottom`; Android: `52 + max(safeArea.bottom, 10)` |
-| Background | `theme.glassSurface` → `rgba(20,20,24,0.92)` |
+| Height | iOS: `64 + safeArea.bottom`; Android: `60 + max(safeArea.bottom, 10)` |
+| Background | `theme.glassSurface` → `rgba(20,20,24,0.6)` |
 | Border | top `theme.glassBorder`, width 1 |
 | Shadow | `shadowColor: theme.tint`, offset {0,-2}, opacity 0.12, radius 8, elevation 6 |
 | Active tint | `theme.tint` `hsl(263,70%,66%)` |
 | Inactive tint | `theme.tabIconDefault` `hsl(240,5%,60%)` |
 | Active tab bg | `theme.tintSoft` |
 | Inactive tab bg | transparent |
-| Label | fontSize **11**, fontWeight **600** |
-| Item | paddingVertical 4, borderRadius 20, marginHorizontal 3; Android minHeight 48 |
-| Icon | SymbolView **24**; names: house/home, list, heart/favorite, person |
+| Label | fontSize **12**, fontWeight **500** |
+| Item | paddingVertical 4, borderRadius 12, marginHorizontal 3; Android minHeight 48 |
+| Icon | SymbolView **20**; names: house/home, list, heart/favorite, person |
 | Safe area | paddingBottom = iOS inset bottom else max(inset, 10) |
 
 ---
@@ -745,14 +745,14 @@ Root Stack
 | Pattern | Usage |
 |---------|--------|
 | **Typography tokens** | `VibelyText variant=*`; `styles` spreading `typography.titleMD/LG/XL`; SectionHeader, ScreenContainer title, EmptyState titles, chip label 12/600 (raw size) |
-| **Raw fontSize common** | VibelyButton label **15/600**; MatchListRow name **15/600**, time **11**, preview **13**; settingsRowTitle **16** with titleMD; inputStyles **15**; screenHeaderTitle uses titleMD (18 Space Grotesk) |
+| **Raw fontSize common** | VibelyButton label **14/600**; MatchListRow name **15/600**, time **11**, preview **13**; settingsRowTitle **16** with titleMD; inputStyles **16**; screenHeaderTitle uses titleMD (18 Space Grotesk) |
 | **Mixed** | Many screens use `Text` + `{ color: theme.text }` + ad-hoc fontSize 13–17 |
 
 **Sample audit rows**
 
 | File | Text (truncated) | Token? | Token or raw |
 |------|------------------|--------|--------------|
-| ui VibelyButton | label | No | 15 / 600 |
+| ui VibelyButton | label | No | 14 / 600 |
 | ui VibelyText | children | Yes | variant key |
 | ui ScreenHeader title | title | Partial | titleMD |
 | ui MatchListRow | name | No | 15/600 |
@@ -761,7 +761,7 @@ Root Stack
 | profile/index | body copy | Mixed | 14–16 raw + theme colors |
 | chat/[id] | bubbles | Mostly raw | 15–16 |
 
-**Flag:** Prefer migrating stray `Text` to `VibelyText` + tokens for parity; buttons intentionally use 15/600 outside typography scale.
+**Flag:** Prefer migrating stray `Text` to `VibelyText` + tokens for parity; VibelyButton uses 14/600 (web text-sm / semibold).
 
 ---
 

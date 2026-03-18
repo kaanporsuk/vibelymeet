@@ -27,7 +27,7 @@ export const inputStyles = {
   paddingHorizontal: spacing.md,
   paddingVertical: spacing.sm,
   borderWidth: border.width.thin,
-  fontSize: 15,
+  fontSize: 16,
 } as const;
 
 // ─── Typography primitives (apply theme typography + color; reuse in screens)
@@ -429,7 +429,7 @@ export function VibelyButton({
       {loading ? <ActivityIndicator color={labelColor} /> : null}
       <Text
         style={[
-          { color: labelColor, fontWeight: '600', fontSize: 15 },
+          { color: labelColor, fontWeight: '600', fontSize: 14 },
           textStyle as TextStyle,
         ]}
       >

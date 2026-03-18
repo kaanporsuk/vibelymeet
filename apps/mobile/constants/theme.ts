@@ -21,14 +21,15 @@ export const radius = {
   sm: 12, // web rounded-sm (--radius - 4px)
   md: 14, // web rounded-md (--radius - 2px)
   lg: 16, // web rounded-lg
-  xl: 20,
+  /** Web Tailwind rounded-xl default (0.75rem) */
+  xl: 12,
   '2xl': 24, // web rounded-2xl (glass-card, cards)
   '3xl': 32, // web rounded-3xl
   pill: 999,
   /** Button default (web: rounded-2xl) */
   button: 24,
-  /** Input / form control (web: rounded-xl / rounded-lg) */
-  input: 16,
+  /** Web shadcn Input: rounded-md = calc(--radius - 2px) = 14 */
+  input: 14,
 } as const;
 
 // ─── Border (web: border-border, border width 1 / 2)
@@ -56,11 +57,14 @@ export const fonts = {
 // ─── Typography scale (web: font-sans Inter, font-display Space Grotesk)
 // Each style uses a specific font file so weight is baked in; no fontWeight needed.
 export const typography = {
-  titleXL: { fontSize: 28, letterSpacing: 0.3, fontFamily: fonts.displayBold },
-  titleLG: { fontSize: 22, letterSpacing: 0.2, fontFamily: fonts.displayBold },
+  /** Web text-2xl */
+  titleXL: { fontSize: 24, letterSpacing: 0.3, fontFamily: fonts.displayBold },
+  /** Web text-xl */
+  titleLG: { fontSize: 20, letterSpacing: 0.2, fontFamily: fonts.displayBold },
   titleMD: { fontSize: 18, fontFamily: fonts.display },
   titleSM: { fontSize: 16, fontFamily: fonts.display },
-  body: { fontSize: 14, fontFamily: fonts.body },
+  /** Web text-base */
+  body: { fontSize: 16, fontFamily: fonts.body },
   bodySecondary: { fontSize: 14, opacity: 0.8, fontFamily: fonts.body },
   caption: { fontSize: 12, opacity: 0.75, fontFamily: fonts.body },
   overline: { fontSize: 11, letterSpacing: 1, opacity: 0.9, fontFamily: fonts.bodySemiBold },
@@ -107,16 +111,16 @@ export const layout = {
     compact: 16,
   },
   contentWidth: 512,
-  inputHeight: 44,
-  /** Extra padding below scroll content when tab bar is visible */
-  tabBarScrollPadding: 80,
-  /** Recommended paddingBottom for scroll content on tab screens (tabBarScrollPadding + vertical rhythm) */
-  scrollContentPaddingBottomTab: 80 + spacing.xl,
+  /** Web shadcn Input h-10 */
+  inputHeight: 40,
+  /** Extra padding below scroll when tab bar visible (web h-16 content + rhythm) */
+  tabBarScrollPadding: 88,
+  /** tabBarScrollPadding + vertical rhythm */
+  scrollContentPaddingBottomTab: 88 + spacing.xl,
 
-  // ─── Shell (navigation chrome parity)
-  /** Tab bar: content height without safe area (platform-specific in layout) */
-  tabBarContentHeightIos: 56,
-  tabBarContentHeightAndroid: 52,
+  // ─── Shell (navigation chrome parity; web BottomNav h-16 = 64px)
+  tabBarContentHeightIos: 64,
+  tabBarContentHeightAndroid: 60,
   tabBarPaddingTop: 8,
   tabBarPaddingBottomAndroid: 10,
   /** Header: extra padding above first row (add to insets.top); bottom padding of header bar */
@@ -136,7 +140,7 @@ export const button = {
     lg: 56,
   },
   radius: {
-    sm: 16, // rounded-xl
+    sm: 12, // web Button sm rounded-xl (Tailwind default 12px)
     default: 24, // rounded-2xl
     lg: 24,
   },

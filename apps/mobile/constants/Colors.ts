@@ -59,8 +59,8 @@ const base = {
   neonCyan: vibelyCyan,
   neonYellow: vibelyYellow,
 
-  // Glass (web: --glass-bg, --glass-border; native uses opaque equivalent)
-  glassSurface: 'rgba(20,20,24,0.92)',
+  // Glass (web: glass-card bg-card/60 ≈ hsl(240,10%,8%) @ 60%)
+  glassSurface: 'rgba(20,20,24,0.6)',
   glassBorder: 'rgba(255,255,255,0.1)',
 } as const;
 

@@ -37,8 +37,8 @@ export default function TabLayout() {
           elevation: 6,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
+          fontSize: 12,
+          fontWeight: '500',
         },
         tabBarItemStyle: {
           paddingVertical: spacing.xs,
@@ -54,7 +54,7 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={24} />
+            <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={20} />
           ),
         }}
       />
@@ -63,7 +63,7 @@ export default function TabLayout() {
         options={{
           title: 'Events',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'list.bullet', android: 'list', web: 'list' }} tintColor={color} size={24} />
+            <SymbolView name={{ ios: 'list.bullet', android: 'list', web: 'list' }} tintColor={color} size={20} />
           ),
         }}
       />
@@ -72,7 +72,7 @@ export default function TabLayout() {
         options={{
           title: 'Matches',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'heart.fill', android: 'favorite', web: 'favorite' }} tintColor={color} size={24} />
+            <SymbolView name={{ ios: 'heart.fill', android: 'favorite', web: 'favorite' }} tintColor={color} size={20} />
           ),
         }}
       />
@@ -81,7 +81,7 @@ export default function TabLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'person.circle', android: 'person', web: 'person' }} tintColor={color} size={24} />
+            <SymbolView name={{ ios: 'person.circle', android: 'person', web: 'person' }} tintColor={color} size={20} />
           ),
         }}
       />
