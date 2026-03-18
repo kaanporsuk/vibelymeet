@@ -106,54 +106,6 @@ export default function EventDetailScreen() {
     })();
   }, [user?.id]);
 
-  const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
-    id: a.id,
-    name: a.name,
-    avatarUrl: avatarUrl(a.avatar_url ?? a.photos?.[0] ?? null),
-  }));
-
-  const mutualVibes: EventVibeMutual[] = receivedVibes
-    .filter((r) => sentVibeIds.includes(r.sender_id))
-    .map((r) => ({
-      id: r.sender_id,
-      name: r.sender?.name ?? 'Unknown',
-      avatar: r.sender?.avatar_url ? avatarUrl(r.sender.avatar_url) : null,
-      age: r.sender?.age ?? 0,
-    }));
-
-  const hasSentVibe = (profileId: string) => sentVibeIds.includes(profileId);
-
-  const handleAttendeePress = useCallback(
-    async (attendee: AttendeeDisplay) => {
-      if (!user?.id || !id) return;
-      if (hasSentVibe(attendee.id)) {
-        Alert.alert(attendee.name, 'You already sent a vibe to this person.');
-        return;
-      }
-      Alert.alert(
-        'Send vibe',
-        `Send a vibe to ${attendee.name}? They'll see your interest before the event.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Send vibe',
-            onPress: async () => {
-              const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
-              if (ok) {
-                refetchSentVibes();
-                refetchReceivedVibes();
-                Alert.alert('Vibe sent! 💫', "They'll see your interest before the event.");
-              } else {
-                Alert.alert('Couldn\'t send vibe', error ?? 'Try again.');
-              }
-            },
-          },
-        ]
-      );
-    },
-    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
-  );
-
   // Derived values for callbacks (event may be undefined until loaded)
   const ev = event as EventDetailsRow | undefined;
   const isFree = ev?.is_free !== false;
@@ -237,94 +189,6 @@ export default function EventDetailScreen() {
     );
   }
 
-  useEffect(() => {
-    if (!user?.id) return;
-    (async () => {
-      const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
-      if (data?.gender) setUserGender(String(data.gender).toLowerCase());
-    })();
-  }, [user?.id]);
-
-  const handleRegister = useCallback(async () => {
-    if (!event) return;
-    const ok = await registerForEvent(event.id);
-    if (ok) {
-      trackEvent('event_registered', {
-        event_id: event.id,
-        event_title: event.title,
-        is_free: (event as EventDetailsRow).is_free !== false,
-      });
-    } else {
-      Alert.alert("Couldn't register", 'Check your connection and try again.');
-    }
-  }, [event, registerForEvent]);
-
-  const handlePurchase = useCallback(async () => {
-    if (!event) return;
-    const ev = event as EventDetailsRow;
-    const isFree = ev.is_free !== false;
-    const priceAmount = ev.price_amount ?? 0;
-    const isFemale = userGender === 'female' || userGender === 'woman';
-    const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
-    if (isFree || userPrice === 0) {
-      await handleRegister();
-      return;
-    }
-    setIsPurchasing(true);
-    try {
-      const { data: authData } = await supabase.auth.getSession();
-      if (!authData?.session) {
-        Alert.alert('Sign in required', 'Please sign in to continue.');
-        return;
-      }
-      const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
-        body: { eventId: event.id, eventTitle: event.title, price: userPrice, currency: 'eur' },
-      });
-      const result = checkout as { success?: boolean; url?: string; error?: string } | null;
-      if (checkoutError || !result?.success) {
-        Alert.alert('Payment error', result?.error ?? 'Payment failed. Try again.');
-        return;
-      }
-      if (result?.url) await Linking.openURL(result.url);
-    } finally {
-      setIsPurchasing(false);
-    }
-  }, [event, userGender, handleRegister]);
-
-  const handleUnregister = useCallback(async () => {
-    if (!event) return;
-    const ok = await unregisterFromEvent(event.id);
-    if (ok) {
-      refetchRegistration();
-      queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
-      queryClient.invalidateQueries({ queryKey: ['event-details', id] });
-      setShowManageBooking(false);
-    } else {
-      Alert.alert("Couldn't cancel", 'Check your connection and try again.');
-    }
-  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id]);
-
-  const openCancelConfirm = useCallback(() => {
-    if (!event) return;
-    setShowManageBooking(false);
-    Alert.alert(
-      'Cancel your spot?',
-      `Release your spot for ${event.title}?`,
-      [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
-      ]
-    );
-  }, [event, handleUnregister]);
-
-  if (isLoading && !event) {
-    return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading event…" message="Just a sec…" />
-      </View>
-    );
-  }
-
   if (error || !event) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -338,17 +202,13 @@ export default function EventDetailScreen() {
     );
   }
 
-  const ev = event as EventDetailsRow;
+  const eventRow = event as EventDetailsRow;
   const eventDate = new Date(event.event_date);
   const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const isVirtual = !ev.is_location_specific;
-  const isFree = ev.is_free !== false;
-  const priceAmount = ev.price_amount ?? 0;
-  const isFemale = userGender === 'female' || userGender === 'woman';
-  const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
-  const maxMen = ev.max_male_attendees ?? Math.floor((ev.max_attendees ?? 50) / 2);
-  const maxWomen = ev.max_female_attendees ?? Math.ceil((ev.max_attendees ?? 50) / 2);
+  const isVirtual = !eventRow.is_location_specific;
+  const maxMen = eventRow.max_male_attendees ?? Math.floor((eventRow.max_attendees ?? 50) / 2);
+  const maxWomen = eventRow.max_female_attendees ?? Math.ceil((eventRow.max_attendees ?? 50) / 2);
   const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
   const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
   const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
@@ -404,11 +264,11 @@ export default function EventDetailScreen() {
               {durationMin} min · {goingCount} going
             </Text>
           </View>
-          {(event as EventDetailsRow).location_name ? (
+          {eventRow.location_name ? (
             <View style={styles.venueRow}>
               <Ionicons name="location-outline" size={18} color={theme.textSecondary} />
               <Text style={[styles.venueText, { color: theme.textSecondary }]}>
-                {(event as EventDetailsRow).location_name}
+                {eventRow.location_name}
               </Text>
             </View>
           ) : null}
@@ -445,8 +305,8 @@ export default function EventDetailScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>The Venue</Text>
         <VenueCard
           isVirtual={isVirtual}
-          venueName={ev.location_name ?? undefined}
-          address={ev.location_address ?? undefined}
+          venueName={eventRow.location_name ?? undefined}
+          address={eventRow.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventId={event.id}
@@ -509,7 +369,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         price={userPrice}
         isVirtual={isVirtual}
@@ -521,7 +381,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
       />
