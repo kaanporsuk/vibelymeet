@@ -29,7 +29,12 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
   const hasDeclinedRef = useRef(false);
 
   useEffect(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     hasDeclinedRef.current = false;
+    setCountdown(30);
     intervalRef.current = setInterval(() => {
       setCountdown((p) => {
         if (p <= 1) {
@@ -52,7 +57,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
         intervalRef.current = null;
       }
     };
-  }, [onDecline]);
+  }, [onDecline, incomingCall.callId]);
 
   useEffect(() => {
     const loops = ringAnims.map((anim, i) =>
