@@ -54,62 +54,35 @@ import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
-function VibeVideoPlaybackFallback({
-  thumbnailUrl,
-  style,
-  theme,
-}: {
-  thumbnailUrl?: string | null;
-  style?: object;
-  theme?: { textSecondary: string; surface: string };
-}) {
-  return (
-    <View style={[style, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme?.surface ?? '#1a1a1a' }]}>
-      {thumbnailUrl ? (
-        <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      ) : null}
-      <View style={{ padding: 12, alignItems: 'center' }}>
-        <Text style={{ color: theme?.textSecondary ?? '#999', fontSize: 13 }}>Video preview unavailable</Text>
-      </View>
-    </View>
-  );
-}
-
-class VibeVideoErrorBoundary extends React.Component<
-  { thumbnailUrl?: string | null; style?: object; theme?: { textSecondary: string; surface: string }; children: React.ReactNode },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-  static getDerivedStateFromError = () => ({ hasError: true });
-  render() {
-    if (this.state.hasError) {
-      return <VibeVideoPlaybackFallback thumbnailUrl={this.props.thumbnailUrl} style={this.props.style} theme={this.props.theme} />;
-    }
-    return this.props.children;
-  }
-}
-
-function VibeVideoPlayer({
-  playbackUrl,
-  thumbnailUrl,
-  style,
-  theme,
-}: {
-  playbackUrl: string;
-  thumbnailUrl?: string | null;
-  style?: object;
-  theme?: { textSecondary: string; surface: string };
-}) {
+function VibeVideoPlayer({ playbackUrl, thumbnailUrl, style }: { playbackUrl: string; thumbnailUrl?: string | null; style?: object }) {
+  const [playbackError, setPlaybackError] = useState(false);
   const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
 
-  return (
-    <VibeVideoErrorBoundary thumbnailUrl={thumbnailUrl} style={style} theme={theme}>
-      <VideoView style={style} player={player} nativeControls contentFit="contain" />
-    </VibeVideoErrorBoundary>
-  );
+  useEffect(() => {
+    const sub = player.addListener?.('statusChange', (payload: { status?: string }) => {
+      if (payload?.status === 'error') setPlaybackError(true);
+    });
+    return () => sub?.remove?.();
+  }, [player]);
+
+  if (playbackError) {
+    return (
+      <View style={[styles.vibeVideoUnavailable, style]}>
+        {thumbnailUrl ? (
+          <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : null}
+        <View style={styles.vibeVideoUnavailableOverlay}>
+          <Ionicons name="videocam-off-outline" size={32} color="#fff" />
+          <Text style={styles.vibeVideoUnavailableText}>Video unavailable</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 
 // Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
