@@ -9,6 +9,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyText } from '@/components/ui';
+import { withAlpha } from '@/lib/colorUtils';
 
 const VERIFY_PHOTO_WEB_URL = 'https://vibelymeet.com/profile';
 
@@ -33,7 +34,7 @@ export function VerificationBadgesRow({
   return (
     <View style={styles.wrap}>
       {phoneVerified ? (
-        <View style={[styles.badge, { backgroundColor: `${verifiedColor}20` }]}>
+        <View style={[styles.badge, { backgroundColor: withAlpha(verifiedColor, 0.125) }]}>
           <Ionicons name="checkmark-circle" size={16} color={verifiedColor} />
           <VibelyText variant="caption" style={[styles.badgeLabel, { color: verifiedColor }]}>Phone</VibelyText>
         </View>
@@ -48,7 +49,7 @@ export function VerificationBadgesRow({
         </Pressable>
       )}
       {emailVerified ? (
-        <View style={[styles.badge, { backgroundColor: `${verifiedColor}20` }]}>
+        <View style={[styles.badge, { backgroundColor: withAlpha(verifiedColor, 0.125) }]}>
           <Ionicons name="checkmark-circle" size={16} color={verifiedColor} />
           <VibelyText variant="caption" style={[styles.badgeLabel, { color: verifiedColor }]}>Email</VibelyText>
         </View>
@@ -63,7 +64,7 @@ export function VerificationBadgesRow({
         </Pressable>
       )}
       {photoVerified ? (
-        <View style={[styles.badge, { backgroundColor: `${verifiedColor}20` }]}>
+        <View style={[styles.badge, { backgroundColor: withAlpha(verifiedColor, 0.125) }]}>
           <Ionicons name="checkmark-circle" size={16} color={verifiedColor} />
           <VibelyText variant="caption" style={[styles.badgeLabel, { color: verifiedColor }]}>Photo</VibelyText>
         </View>

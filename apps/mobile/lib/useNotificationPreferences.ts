@@ -60,7 +60,7 @@ export function useNotificationPreferences(userId: string | null | undefined) {
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      qc.invalidateQueries({ queryKey: ['notification-preferences', userId] });
     },
   });
 
