@@ -12,9 +12,11 @@ Both **Stripe** (web checkout) and **RevenueCat** (iOS/Android) write subscripti
 ## How clients read premium
 
 - **Web** may use `check_premium_status` RPC and/or UI that reflects Stripe session state.
-- **Native** uses `useBackendSubscription` (`apps/mobile/lib/subscriptionApi.ts`): loads `subscriptions` for the user (active/trialing wins), then falls back to `profiles.is_premium`.
+- **Native** uses `useBackendSubscription` (`apps/mobile/lib/subscriptionApi.ts`):
+  1. **Primary:** Load `subscriptions` for the user and treat **active** or **trialing** as premium. This is the main signal—both `stripe-webhook` and `revenuecat-webhook` upsert this table.
+  2. **Fallback:** If no qualifying subscription row exists, read **`profiles.is_premium`**. Use this only as a secondary flag (e.g. admin grants, legacy data, or a short window before webhooks write a row). It is **not** a second billing source of truth; prefer ensuring `subscriptions` is populated.
 
-Premium gating for **event visibility** on mobile uses `useBackendSubscription().isPremium` when calling `get_visible_events` (same as web’s `p_is_premium` intent).
+Premium gating for **event visibility** on mobile passes `useBackendSubscription().isPremium` into `get_visible_events` as `p_is_premium` (same intent as web).
 
 ## Cross-platform consistency
 

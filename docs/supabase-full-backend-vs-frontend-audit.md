@@ -114,7 +114,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 | RPC | Web | Native |
 |-----|-----|--------|
-| get_visible_events | useVisibleEvents | **—** |
+| get_visible_events | useVisibleEvents | eventsApi (`useEvents`, `fetchVisibleEventsList`) |
 | get_other_city_events | useVisibleEvents | useOtherCityEvents |
 | generate_recurring_events | Admin panels | **—** |
 | check_premium_status | usePremium | **—** (native: RevenueCat / subscriptionApi) |
@@ -136,11 +136,11 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 | Issue | Severity |
 |-------|----------|
-| Native skips `get_visible_events` — uses raw `from('events').select(...)` + client filter | **HIGH** — may show wrong scope (city/radius/premium) vs web if RLS differs from RPC logic |
+| ~~Native skips `get_visible_events`~~ **RESOLVED** — native now calls `get_visible_events` RPC in `eventsApi.ts` (aligned with web) | **RESOLVED** |
 | Native skips `check_premium_status` | **MEDIUM** — intentional if RevenueCat is source of truth; ensure `subscriptions` / RPC stay aligned |
 | `generate_recurring_events` web-only | **LOW** (admin) |
 
-**Recommendations:** Call `get_visible_events` from mobile with same params as web (user id, lat/lng, premium flag) or document that RLS + client filter is equivalent (verify with security review).
+**RESOLVED:** Native now uses `get_visible_events` in `apps/mobile/lib/eventsApi.ts` with the same params as web (user id, lat/lng, premium flag).
 
 ---
 
@@ -161,7 +161,7 @@ Then `grep -rn "from('TABLENAME')" src/` and `apps/mobile/`.
 | **profiles** | Full editor (name, photos, vibes, prompts, lifestyle, geo, etc.) | profileApi updates subset; many reads are partial selects | **MEDIUM:** confirm every web-editable field exists on native edit screen |
 | **matches** | useMatches + realtime | chatApi match channels + lists | Compare archived/expired handling |
 | **messages** | useRealtimeMessages, send-message EF | chatApi + send-message EF | Align reactions, read receipts, video/voice types |
-| **events** | get_visible_events RPC | Direct select + `isEventVisible` | **HIGH** |
+| **events** | get_visible_events RPC | Same RPC in `eventsApi` for browse list; detail/registered paths may still use direct `events` selects where appropriate | **RESOLVED** (browse list) |
 | **event_registrations** | Web lobby flows | lobby.tsx + eventsApi | Compare queue_status updates |
 | **video_sessions** | VideoDate + realtime | videoDateApi + realtime | Parity generally good |
 | **daily_drops** | useDailyDrop + EF + RPC | dailyDropApi | Web has more RPC paths for transitions |
@@ -334,7 +334,7 @@ SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public
 | Severity | Count (approx.) | Themes |
 |----------|-----------------|--------|
 | **CRITICAL** | 0 | None identified without live RLS/publication SQL |
-| **HIGH** | 1–2 | Events listing: native bypasses `get_visible_events` |
+| **HIGH** | 0–1 | ~~Events listing~~ — resolved; remaining HIGH items need live SQL verification |
 | **MEDIUM** | 4–6 | Premium source split; profile field parity; delete-account/pause native; realtime gaps; date_proposals |
 | **LOW** | 10+ | Admin-only functions; fetch vs invoke; webhook-only functions |
 
@@ -342,9 +342,9 @@ SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public
 
 ## Top 10 action items
 
-1. **Align event discovery:** Native should use `get_visible_events` (or prove RLS + client filter equals RPC). **HIGH**
-2. **Document subscription truth:** Stripe (web) vs RevenueCat (mobile) vs `subscriptions` table. **MEDIUM**
-3. **Native account lifecycle:** delete-account, pause, resume. **MEDIUM**
+1. ~~**Align event discovery**~~ **DONE** — native uses `get_visible_events`. Next: run live SQL verification (RLS, publication).
+2. **Document subscription truth:** See `docs/subscription-architecture.md`. **MEDIUM** (doc added; keep in sync with product)
+3. **Native account lifecycle:** Pause/resume + scheduled deletion documented in app; immediate `delete-account` still web-only if needed. **LOW–MEDIUM**
 4. **Realtime parity:** match queue, session timer, ice-breakers where product requires. **MEDIUM**
 5. **Messages:** read receipts / reactions parity web vs native. **MEDIUM**
 6. **Run live SQL pack:** RPC list, publication tables, RLS dump, indexes — attach diff to this doc. **HIGH** (process)
@@ -355,7 +355,7 @@ SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public
 
 **Immediate vs deferred**
 
-- **Immediate:** Event listing parity + live SQL verification (RLS + publication).
+- **Immediate:** Live SQL verification (RLS + publication). Event listing parity with web is **done**.
 - **Deferred:** Admin-only gaps, LOVABLE key, nice-to-have realtime on mobile.
 
 ---
