@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, TextInput, Pressable, Alert, View } from 'react-native';
+import { StyleSheet, TextInput, Pressable, View, ActivityIndicator } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Themed';
@@ -8,6 +8,18 @@ import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { spacing } from '@/constants/theme';
 import { trackEvent } from '@/lib/analytics';
+import { Ionicons } from '@expo/vector-icons';
+
+const GLOW_STYLE = {
+  position: 'absolute' as const,
+  width: 300,
+  height: 300,
+  borderRadius: 150,
+  backgroundColor: 'hsla(263, 70%, 66%, 0.15)',
+  alignSelf: 'center' as const,
+  top: '20%' as const,
+  opacity: 0.6,
+};
 
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
@@ -17,18 +29,24 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [fieldError, setFieldError] = useState('');
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) return;
+    setFieldError('');
     setLoading(true);
     const { error } = await signIn(email.trim(), password);
     setLoading(false);
     if (error) {
-      Alert.alert('Sign in failed', error.message);
+      setFieldError(error.message ?? 'Sign in failed');
       return;
     }
     trackEvent('login', { method: 'email' });
-    router.replace('/(tabs)');
+    setSuccess(true);
+    setTimeout(() => {
+      router.replace('/(tabs)');
+    }, 1200);
   };
 
   return (

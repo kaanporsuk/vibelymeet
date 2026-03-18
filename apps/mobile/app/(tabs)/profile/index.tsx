@@ -30,12 +30,14 @@ import {
   VibelyButton,
   VibelyInput,
   LoadingState,
+  ErrorState,
   SettingsRow,
   DestructiveRow,
   VibelyText,
 } from '@/components/ui';
 import { GradientSurface } from '@/components/GradientSurface';
-import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
+import { spacing, radius, typography, layout, shadows, fonts } from '@/constants/theme';
+import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
@@ -106,19 +108,41 @@ function getVibeScoreLabel(score: number): string {
   return 'Ghost Mode';
 }
 
-// Simple Vibe Score display (mirrors web VibeScore copy; no SVG ring on native)
+/** Web parity: circular progress ring (tint stroke, muted track), Space Grotesk bold % */
 function VibeScoreDisplay({
   score,
-  size = 90,
+  size = 100,
   theme,
 }: {
   score: number;
   size?: number;
-  theme: { text: string; textSecondary: string; tint: string };
+  theme: { text: string; textSecondary: string; tint: string; muted: string };
 }) {
   const label = getVibeScoreLabel(score);
+  const stroke = 6;
+  const r = (size - stroke) / 2;
+  const c = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const progress = Math.min(100, Math.max(0, score)) / 100;
+  const strokeDashoffset = circumference * (1 - progress);
+
   return (
-    <View style={[vibeScoreStyles.ring, { width: size, height: size, borderRadius: size / 2, borderColor: theme.tint }]}>
+    <View style={[vibeScoreStyles.wrap, { width: size, height: size }]}>
+      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+        <Circle cx={c} cy={c} r={r} stroke={theme.muted} strokeWidth={stroke} fill="none" />
+        <Circle
+          cx={c}
+          cy={c}
+          r={r}
+          stroke={theme.tint}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${c} ${c})`}
+        />
+      </Svg>
       <Text style={[vibeScoreStyles.scoreText, { color: theme.text }]}>{score}%</Text>
       <Text style={[vibeScoreStyles.scoreLabel, { color: theme.textSecondary }]}>{label}</Text>
     </View>
@@ -126,18 +150,14 @@ function VibeScoreDisplay({
 }
 
 const vibeScoreStyles = StyleSheet.create({
-  ring: {
-    borderWidth: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  wrap: { alignItems: 'center', justifyContent: 'center' },
   scoreText: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 22,
+    fontFamily: fonts.displayBold,
   },
   scoreLabel: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11,
+    marginTop: 2,
     fontWeight: '600',
   },
 });
@@ -146,7 +166,8 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width: winWidth } = useWindowDimensions();
   const [photoGridWidth, setPhotoGridWidth] = useState<number | null>(null);
-  const photoGridGap = spacing.sm; // web gap-2 = 8px
+  /** Photo grid: 3-column bento (2×2 main + row of 3); web Profile uses similar masonry — aspect 4/5 on hero tile */
+  const photoGridGap = spacing.sm;
   const effectiveGridWidth = photoGridWidth ?? Math.max(0, winWidth - layout.containerPadding * 2);
   const photoCellSize = effectiveGridWidth > 0 ? (effectiveGridWidth - photoGridGap * 2) / 3 : 80;
   const photoMainSize = photoCellSize * 2 + photoGridGap;
@@ -156,7 +177,7 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
-  const { data: profile, isLoading, isRefetching, refetch } = useQuery({
+  const { data: profile, isLoading, isError, error, isRefetching, refetch } = useQuery({
     queryKey: ['my-profile'],
     queryFn: fetchMyProfile,
     enabled: !!user?.id,
@@ -517,6 +538,17 @@ export default function ProfileScreen() {
     );
   }
 
+  if (isError && !profile) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+        <ErrorState
+          message={error instanceof Error ? error.message : "We couldn't load your profile."}
+          onActionPress={() => refetch()}
+        />
+      </View>
+    );
+  }
+
   // Match web ProfilePhoto: primary is first photo, avatar_url fallback
   const photoUrl = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayUrl = photoUrl ? avatarUrl(photoUrl, 'profile_photo') : null;
@@ -538,7 +570,8 @@ export default function ProfileScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
-          onRefresh={refetch}
+          onRefresh={() => refetch()}
+          tintColor={theme.tint}
         />
       }
     >
@@ -654,7 +687,7 @@ export default function ProfileScreen() {
         {/* Vibe Score card — web parity glass-card */}
         <Card variant="glass" style={styles.vibeScoreCard}>
           <View style={styles.vibeScoreRow}>
-            <VibeScoreDisplay score={vibeScore} size={90} theme={theme} />
+            <VibeScoreDisplay score={vibeScore} size={100} theme={theme} />
             <View style={styles.vibeScoreCopy}>
               <Text style={[styles.vibeScoreTitle, { color: theme.text }]}>
                 Your Vibe Score

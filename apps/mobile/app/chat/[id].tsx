@@ -395,9 +395,21 @@ export default function ChatThreadScreen() {
     const isFirstInGroup = !prev || prev.sender !== item.sender;
     const isLastInGroup = !next || next.sender !== item.sender;
     const bubbleMarginBottom = isLastInGroup ? spacing.sm : 2;
-    const textColor = isMe ? '#fff' : theme.text;
+    const textColor = isMe ? theme.primaryForeground : theme.text;
     const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
     const content = renderBubbleContent(item, textColor, timeColor, isMe);
+    const bubbleRadiusMe = {
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      borderBottomLeftRadius: radius.lg,
+      borderBottomRightRadius: 4,
+    };
+    const bubbleRadiusThem = {
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      borderBottomLeftRadius: 4,
+      borderBottomRightRadius: radius.lg,
+    };
 
     const bubbleWrap = (
       <Pressable
@@ -409,7 +421,9 @@ export default function ChatThreadScreen() {
         style={[
           styles.bubble,
           { marginBottom: bubbleMarginBottom },
-          isMe ? [styles.bubbleMe, { backgroundColor: theme.tint }] : [styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }],
+          isMe
+            ? [styles.bubbleMe, { backgroundColor: theme.tint }, bubbleRadiusMe]
+            : [styles.bubbleThem, { backgroundColor: theme.surface }, bubbleRadiusThem],
         ]}
       >
         {content}
@@ -419,7 +433,7 @@ export default function ChatThreadScreen() {
     if (!isMe && isFirstInGroup) {
       return (
         <View style={[styles.themRow, { marginBottom: bubbleMarginBottom }]}>
-          <View style={[styles.themAvatarWrap, { backgroundColor: theme.surfaceSubtle }]}>
+          <View style={[styles.themAvatarWrap, { backgroundColor: theme.muted }]}>
             {otherAvatarUri ? (
               <Image source={{ uri: otherAvatarUri }} style={styles.themAvatar} />
             ) : (
@@ -429,7 +443,7 @@ export default function ChatThreadScreen() {
           <Pressable
             onLongPress={() => { Vibration.vibrate(30); setReactionPickerMessageId(item.id); }}
             delayLongPress={400}
-            style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surfaceSubtle }]}
+            style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surface }, bubbleRadiusThem]}
           >
             {content}
           </Pressable>
@@ -702,9 +716,18 @@ export default function ChatThreadScreen() {
             editable={!isSending}
           />
           <Pressable
-            style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
+            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
+            onPress={() => Alert.alert('Coming soon', 'Photo messages will be available in a future update.')}
+            disabled={isSending}
+            accessibilityLabel="Attach photo"
+          >
+            <Ionicons name="camera-outline" size={22} color={theme.tint} />
+          </Pressable>
+          <Pressable
+            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
             onPress={handleVideoPick}
             disabled={isSending}
+            accessibilityLabel="Send video"
           >
             {sendingVideo ? (
               <ActivityIndicator size="small" color={theme.tint} />
@@ -713,14 +736,17 @@ export default function ChatThreadScreen() {
             )}
           </Pressable>
           <Pressable
-            style={[styles.voiceBtn, { backgroundColor: theme.surfaceSubtle }]}
+            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
             onPress={handleVoicePress}
             disabled={isSending}
+            accessibilityLabel="Voice message"
           >
             {sendingVoice ? (
               <ActivityIndicator size="small" color={theme.tint} />
+            ) : recording ? (
+              <Ionicons name="stop" size={22} color={theme.danger} />
             ) : (
-              <Ionicons name={recording ? 'stop' : 'mic'} size={22} color={theme.tint} />
+              <Ionicons name="mic-outline" size={22} color={theme.tint} />
             )}
           </Pressable>
           <Pressable
@@ -732,7 +758,7 @@ export default function ChatThreadScreen() {
             onPress={handleSend}
             disabled={!input.trim() || isSending}
           >
-            <Text style={styles.sendBtnText}>
+            <Text style={[styles.sendBtnText, { color: theme.primaryForeground }]}>
               {isSending ? '…' : 'Send'}
             </Text>
           </Pressable>
@@ -838,7 +864,6 @@ const styles = StyleSheet.create({
     maxWidth: '78%',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm + 2,
-    borderRadius: radius['2xl'],
   },
   bubbleMe: { alignSelf: 'flex-end' },
   bubbleThem: { alignSelf: 'flex-start', flex: 0 },
@@ -870,14 +895,14 @@ const styles = StyleSheet.create({
     minWidth: 60,
   },
   sendBtnDisabled: { opacity: 0.5 },
-  sendBtnText: { color: '#fff', fontWeight: '600' },
-  voiceBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+  sendBtnText: { fontWeight: '600' },
+  footerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
+    marginRight: spacing.xs,
   },
   voiceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   voiceLabel: { fontSize: 15 },

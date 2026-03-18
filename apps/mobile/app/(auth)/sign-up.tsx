@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, TextInput, Pressable, Alert, View } from 'react-native';
+import { StyleSheet, TextInput, Pressable, View, ActivityIndicator } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/Themed';
@@ -9,6 +9,17 @@ import Colors from '@/constants/Colors';
 import { spacing } from '@/constants/theme';
 import { trackEvent } from '@/lib/analytics';
 
+const GLOW_STYLE = {
+  position: 'absolute' as const,
+  width: 300,
+  height: 300,
+  borderRadius: 150,
+  backgroundColor: 'hsla(263, 70%, 66%, 0.15)',
+  alignSelf: 'center' as const,
+  top: '20%' as const,
+  opacity: 0.6,
+};
+
 export default function SignUpScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -17,14 +28,16 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fieldError, setFieldError] = useState('');
 
   const handleSignUp = async () => {
     if (!email.trim() || !password) return;
+    setFieldError('');
     setLoading(true);
     const { error } = await signUp(email.trim(), password);
     setLoading(false);
     if (error) {
-      Alert.alert('Sign up failed', error.message);
+      setFieldError(error.message ?? 'Sign up failed');
       return;
     }
     trackEvent('signup_completed', { method: 'email' });
@@ -40,7 +53,10 @@ export default function SignUpScreen() {
         placeholder="Email"
         placeholderTextColor={theme.textSecondary}
         value={email}
-        onChangeText={setEmail}
+        onChangeText={(t) => {
+          setEmail(t);
+          if (fieldError) setFieldError('');
+        }}
         autoCapitalize="none"
         keyboardType="email-address"
         editable={!loading}
@@ -50,7 +66,10 @@ export default function SignUpScreen() {
         placeholder="Password"
         placeholderTextColor={theme.textSecondary}
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(t) => {
+          setPassword(t);
+          if (fieldError) setFieldError('');
+        }}
         secureTextEntry
         editable={!loading}
       />
@@ -58,7 +77,7 @@ export default function SignUpScreen() {
         <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
       </Pressable>
       <Link href="/(auth)/sign-in" asChild>
-        <Pressable>
+        <Pressable disabled={loading}>
           <Text style={[styles.link, { color: theme.tint }]}>Already have an account? Sign in</Text>
         </Pressable>
       </Link>

@@ -29,6 +29,7 @@ import { MutualVibesSection } from '@/components/events/MutualVibesSection';
 import { TicketStub } from '@/components/events/TicketStub';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
+import { format } from 'date-fns';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -45,6 +46,7 @@ export default function EventDetailScreen() {
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
+  const [showFullDesc, setShowFullDesc] = useState(false);
 
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
@@ -204,21 +206,27 @@ export default function EventDetailScreen() {
 
   const eventRow = event as EventDetailsRow;
   const eventDate = new Date(event.event_date);
-  const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const dateStr = format(eventDate, 'EEEE, MMMM d');
+  const timeStr = format(eventDate, 'h:mm a');
   const isVirtual = !eventRow.is_location_specific;
   const maxMen = eventRow.max_male_attendees ?? Math.floor((eventRow.max_attendees ?? 50) / 2);
   const maxWomen = eventRow.max_female_attendees ?? Math.ceil((eventRow.max_attendees ?? 50) / 2);
   const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
   const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
   const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
+  const soldOut = spotsLeft <= 0;
   const capacityStatus: 'available' | 'filling' | 'almostFull' =
     spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
   const genderLabel = isFemale ? 'Female' : 'Male';
+  const durationMin = event.duration_minutes ?? 60;
+  const eventEndMs = eventDate.getTime() + durationMin * 60 * 1000;
+  const nowMs = Date.now();
+  const eventEnded = nowMs > eventEndMs;
+  const eventLive = nowMs >= eventDate.getTime() && nowMs <= eventEndMs;
+  const descText = event.description?.trim() ?? '';
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
-  const durationMin = event.duration_minutes ?? 60;
   const goingCount = event.current_attendees ?? 0;
   const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
 
@@ -282,8 +290,22 @@ export default function EventDetailScreen() {
             </View>
           )}
           <Text style={[styles.sectionTitle, { color: theme.text }]}>About This Event</Text>
-          {event.description ? (
-            <Text style={[styles.description, { color: theme.textSecondary }]}>{event.description}</Text>
+          {descText.length > 0 ? (
+            <>
+              <Text
+                style={[styles.description, { color: theme.textSecondary }]}
+                numberOfLines={showFullDesc ? undefined : 3}
+              >
+                {descText}
+              </Text>
+              {descText.length > 150 ? (
+                <Pressable onPress={() => setShowFullDesc(!showFullDesc)} style={{ marginTop: 4 }}>
+                  <Text style={{ color: theme.tint, fontSize: 14, fontWeight: '600' }}>
+                    {showFullDesc ? 'Show less' : 'Read more'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </>
           ) : (
             <Text style={[styles.description, { color: theme.textSecondary }]}>
               Join us for an exciting video speed dating event! Meet new people in a fun, safe environment.
@@ -324,24 +346,32 @@ export default function EventDetailScreen() {
                 <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
               </View>
             </View>
-            <VibelyButton
-              label="Enter Lobby"
-              variant="primary"
-              onPress={() => router.push(`/event/${event.id}/lobby` as const)}
-              style={styles.cta}
-            />
+            {eventEnded ? (
+              <VibelyButton label="Event Ended" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
+            ) : eventLive ? (
+              <VibelyButton
+                label="Enter Lobby →"
+                variant="primary"
+                onPress={() => router.push(`/event/${event.id}/lobby` as const)}
+                style={styles.cta}
+              />
+            ) : (
+              <VibelyButton label="Registered ✓" variant="primary" disabled style={styles.cta} onPress={() => {}} />
+            )}
             <VibelyButton
               label="View Ticket"
               variant="secondary"
               onPress={() => setShowTicket(true)}
               style={styles.cta}
             />
-            <VibelyButton
-              label="Manage Booking"
-              variant="secondary"
-              onPress={() => setShowManageBooking(true)}
-              style={styles.cta}
-            />
+            {!eventEnded ? (
+              <VibelyButton
+                label="Manage Booking"
+                variant="secondary"
+                onPress={() => setShowManageBooking(true)}
+                style={styles.cta}
+              />
+            ) : null}
           </>
         ) : (
           <View style={styles.spacerForPricingBar} />
@@ -357,6 +387,7 @@ export default function EventDetailScreen() {
           genderLabel={genderLabel}
           onPurchase={handlePurchase}
           isPurchasing={isPurchasing || isRegistering}
+          soldOut={soldOut}
         />
       )}
 

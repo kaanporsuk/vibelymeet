@@ -12,13 +12,14 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EmptyState, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText } from '@/components/ui';
+import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText, ErrorState } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -78,6 +79,7 @@ export default function DashboardScreen() {
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
+  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const nextEvent = nextEventData?.event ?? null;
   const isRegistered = nextEventData?.isRegistered ?? false;
@@ -194,7 +196,10 @@ export default function DashboardScreen() {
           <DashboardGreeting />
           <View style={styles.headerRight}>
           {nextReminder && nextReminder.urgency !== 'none' && (
-            <MiniDateCountdown reminder={nextReminder} onPress={() => router.push('/matches')} />
+            <MiniDateCountdown
+              reminder={nextReminder}
+              onPress={() => Linking.openURL('https://vibelymeet.com/schedule')}
+            />
           )}
           <Pressable
             onPress={handleNotificationPress}
@@ -251,7 +256,7 @@ export default function DashboardScreen() {
                 <DateReminderCard
                   key={reminder.id}
                   reminder={reminder}
-                  onJoinDate={() => router.push('/matches')}
+                  onJoinDate={() => Linking.openURL('https://vibelymeet.com/video-date')}
                   onEnableNotifications={() => router.push('/settings/notifications')}
                   notificationsEnabled={pushGranted}
                 />
@@ -260,10 +265,12 @@ export default function DashboardScreen() {
           )}
           {/* Error banner — minimal, calm */}
           {hasError && (
-            <Card variant="glass" style={styles.errorBanner}>
-              <Text style={[styles.errorBannerText, { color: theme.textSecondary }]}>Something went wrong loading your feed. Tap Retry.</Text>
-              <VibelyButton label="Retry" onPress={handleRetry} variant="secondary" size="sm" />
-            </Card>
+            <View style={styles.section}>
+              <ErrorState
+                message="We couldn't load your feed. Check your connection and try again."
+                onActionPress={handleRetry}
+              />
+            </View>
           )}
 
           {/* Live event — web SECTION 1: dedicated card, pulsing LIVE, gradient CTA (not merged with countdown) */}
@@ -387,6 +394,42 @@ export default function DashboardScreen() {
             </Card>
           )}
 
+          {otherCities.length > 0 && (
+            <View
+              style={[
+                styles.otherCitiesCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: withAlpha(theme.tint, 0.2) },
+              ]}
+            >
+              <View style={styles.otherCitiesRow}>
+                <Text style={styles.otherCitiesEmoji}>💎</Text>
+                <View style={styles.otherCitiesCopy}>
+                  <Text style={[styles.otherCitiesTitle, { color: theme.text }]}>
+                    {otherCities.reduce((sum, c) => sum + Number(c.event_count), 0)} events in {otherCities.length}{' '}
+                    {otherCities.length === 1 ? 'city' : 'cities'}
+                  </Text>
+                  <Text style={[styles.otherCitiesSub, { color: theme.textSecondary }]}>
+                    {otherCities
+                      .slice(0, 3)
+                      .map((c) => c.city)
+                      .join(' · ')}
+                    {otherCities.length > 3 ? ` + ${otherCities.length - 3} more` : ''}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => router.push('/events')}
+                  style={({ pressed }) => [
+                    styles.otherCitiesCta,
+                    { borderColor: withAlpha(theme.tint, 0.3) },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={[styles.otherCitiesCtaText, { color: theme.tint }]}>Go Premium →</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
           {/* Your Matches — web parity: horizontal avatars + "X new" pill + See all */}
           <View style={styles.section}>
             <View style={styles.sectionRow}>
@@ -417,13 +460,30 @@ export default function DashboardScreen() {
                     onPress={() => router.push(`/chat/${m.id}` as const)}
                     style={({ pressed }) => [styles.matchItem, pressed && { opacity: 0.8 }]}
                   >
-                    <View style={[styles.matchAvatarWrap, m.isNew && { borderColor: theme.tint, borderWidth: 2 }]}>
-                      <Avatar
-                        size={52}
-                        image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
-                        fallbackInitials={m.name?.[0]}
-                      />
-                    </View>
+                    {m.isNew ? (
+                      <LinearGradient
+                        colors={[...gradient.primary]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.matchAvatarGradientRing}
+                      >
+                        <View style={[styles.matchAvatarInnerCutout, { backgroundColor: theme.background }]}>
+                          <Avatar
+                            size={52}
+                            image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
+                            fallbackInitials={m.name?.[0]}
+                          />
+                        </View>
+                      </LinearGradient>
+                    ) : (
+                      <View style={[styles.matchAvatarPlainRing, { borderColor: theme.border }]}>
+                        <Avatar
+                          size={52}
+                          image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
+                          fallbackInitials={m.name?.[0]}
+                        />
+                      </View>
+                    )}
                     <VibelyText variant="body" color={theme.text} style={styles.matchName} numberOfLines={1}>
                       {m.name?.split(' ')[0] ?? 'Match'}
                     </VibelyText>
@@ -469,6 +529,7 @@ export default function DashboardScreen() {
                       styles.discoverCard,
                       { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
                       shadows.card,
+                      { minWidth: 260 },
                     ]}
                   >
                     <Image source={{ uri: eventCoverUrl(event.image) }} style={styles.discoverImage} resizeMode="cover" />
@@ -538,14 +599,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-  },
-  errorBannerText: { fontSize: 14 },
   section: { gap: spacing.md + 2 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -558,7 +611,20 @@ const styles = StyleSheet.create({
   },
   newPillText: { fontSize: 12, fontWeight: '600' },
   seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  matchAvatarWrap: { borderRadius: 999, padding: 2 },
+  matchAvatarGradientRing: { borderRadius: 999, padding: 2, alignSelf: 'center' },
+  matchAvatarInnerCutout: {
+    borderRadius: 999,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  matchAvatarPlainRing: {
+    borderRadius: 999,
+    borderWidth: 1,
+    padding: 2,
+    alignSelf: 'center',
+  },
   seeAllText: { fontSize: 12, fontWeight: '600' },
   upcomingEmpty: {
     paddingVertical: spacing.lg,

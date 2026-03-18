@@ -16,13 +16,14 @@ import {
   VibelyText,
   VibelyButton,
 } from '@/components/ui';
-import { spacing, typography, layout, radius } from '@/constants/theme';
+import { spacing, layout, radius } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { supabase } from '@/lib/supabase';
 import { FeedbackSheet } from '@/components/settings/FeedbackSheet';
+import Constants from 'expo-constants';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -86,6 +87,8 @@ export default function SettingsScreen() {
     router.push('/settings/account');
   };
 
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
@@ -103,7 +106,7 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.main}>
-          {/* Group 1: Premium — web parity stateful card (Premium status vs Upgrade CTA) */}
+          <Text style={[styles.sectionHeader, styles.sectionHeaderFirst, { color: theme.mutedForeground }]}>Account</Text>
           <Card variant="glass" style={styles.navCard}>
             {!subLoading && isPremium ? (
               <View style={styles.premiumCardInner}>
@@ -132,7 +135,6 @@ export default function SettingsScreen() {
             )}
           </Card>
 
-          {/* Group 2: Credits — dynamic subtitle */}
           <Card variant="glass" style={styles.navCard}>
             <SettingsRow
               icon={<Ionicons name="flash" size={20} color={theme.tint} />}
@@ -148,47 +150,6 @@ export default function SettingsScreen() {
             />
           </Card>
 
-          {/* Group 3: Notifications */}
-          <Card variant="glass" style={styles.navCard}>
-            <SettingsRow
-              icon={<Ionicons name="notifications-outline" size={20} color={theme.tint} />}
-              title="Notifications"
-              subtitle="Manage alerts and sounds"
-              onPress={() => router.push('/settings/notifications')}
-            />
-          </Card>
-
-          {/* Group 4: Privacy & legal */}
-          <Card variant="glass" style={styles.navCard}>
-            <SettingsRow
-              icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
-              title="Privacy"
-              subtitle="Visibility, blocked users, data"
-              onPress={() => router.push('/(app)/settings/privacy' as import('expo-router').Href)}
-            />
-            <SettingsRow
-              icon={<Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />}
-              title="Privacy Policy"
-              onPress={() => Linking.openURL('https://vibelymeet.com/privacy').catch(() => {})}
-            />
-            <SettingsRow
-              icon={<Ionicons name="document-text-outline" size={18} color={theme.textSecondary} />}
-              title="Terms of Service"
-              onPress={() => Linking.openURL('https://vibelymeet.com/terms').catch(() => {})}
-            />
-          </Card>
-
-          {/* Safety Hub */}
-          <Card variant="glass" style={styles.navCard}>
-            <SettingsRow
-              icon={<Ionicons name="shield-checkmark" size={20} color={theme.neonCyan} />}
-              title="Safety Center"
-              subtitle="Report, tips, emergency resources"
-              onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
-            />
-          </Card>
-
-          {/* Group 5: Account */}
           <Card variant="glass" style={styles.navCard}>
             <SettingsRow
               icon={<Ionicons name="person-outline" size={20} color={theme.accent} />}
@@ -198,15 +159,25 @@ export default function SettingsScreen() {
             />
           </Card>
 
-          {/* Section break: Quick links — web parity pt-4 then outline-style group */}
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Quick links</Text>
-          <Card variant="glass" style={styles.quickCard}>
+          <Text style={[styles.sectionHeader, { color: theme.mutedForeground }]}>Preferences</Text>
+          <Card variant="glass" style={styles.navCard}>
+            <SettingsRow
+              icon={<Ionicons name="notifications-outline" size={20} color={theme.tint} />}
+              title="Notifications"
+              subtitle="Manage alerts and sounds"
+              onPress={() => router.push('/settings/notifications')}
+            />
+            <SettingsRow
+              icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
+              title="Privacy"
+              subtitle="Visibility, blocked users, data"
+              onPress={() => router.push('/settings/privacy')}
+            />
+          </Card>
+
+          <Text style={[styles.sectionHeader, { color: theme.mutedForeground }]}>Support</Text>
+          <Card variant="glass" style={styles.navCard}>
             <View style={styles.quickSection}>
-              <SettingsRow
-                icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
-                title="How Vibely Works"
-                onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works').catch(() => {})}
-              />
               <SettingsRow
                 icon={<Ionicons name="chatbubble-outline" size={18} color={theme.tint} />}
                 title="Help & Feedback"
@@ -216,6 +187,27 @@ export default function SettingsScreen() {
                 icon={<Ionicons name="people-outline" size={18} color={theme.textSecondary} />}
                 title="Community Guidelines"
                 onPress={() => Linking.openURL('https://vibelymeet.com/community-guidelines').catch(() => {})}
+              />
+              <SettingsRow
+                icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
+                title="How Vibely Works"
+                onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works').catch(() => {})}
+              />
+              <SettingsRow
+                icon={<Ionicons name="shield-checkmark" size={20} color={theme.neonCyan} />}
+                title="Safety Center"
+                subtitle="Report, tips, emergency resources"
+                onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
+              />
+              <SettingsRow
+                icon={<Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />}
+                title="Privacy Policy"
+                onPress={() => Linking.openURL('https://vibelymeet.com/privacy').catch(() => {})}
+              />
+              <SettingsRow
+                icon={<Ionicons name="document-text-outline" size={18} color={theme.textSecondary} />}
+                title="Terms of Service"
+                onPress={() => Linking.openURL('https://vibelymeet.com/terms').catch(() => {})}
               />
             </View>
           </Card>
@@ -229,9 +221,8 @@ export default function SettingsScreen() {
             />
           </View>
 
-          {/* Danger Zone — contained, with helper */}
+          <Text style={[styles.sectionHeader, { color: theme.danger, marginTop: spacing.xl }]}>Danger Zone</Text>
           <View style={[styles.dangerZone, { borderTopColor: withAlpha(theme.danger, 0.2) }]}>
-            <Text style={[styles.dangerZoneTitle, { color: theme.danger }]}>Danger Zone</Text>
             <Text style={[styles.dangerZoneHelper, { color: theme.textSecondary }]}>
               Account deletion is permanent after the grace period.
             </Text>
@@ -241,6 +232,18 @@ export default function SettingsScreen() {
               onPress={handleDeleteAccount}
             />
           </View>
+
+          <Text
+            style={{
+              textAlign: 'center',
+              color: theme.mutedForeground,
+              fontSize: 12,
+              marginTop: 24,
+              marginBottom: 16,
+            }}
+          >
+            Vibely v{appVersion}
+          </Text>
         </View>
       </ScrollView>
 
@@ -265,26 +268,21 @@ const styles = StyleSheet.create({
   backBtn: { padding: spacing.xs },
   headerTitle: { flex: 1 },
   navCard: { marginBottom: spacing.lg },
-  quickCard: { marginBottom: 0 },
   quickSection: { gap: spacing.sm },
-  sectionLabel: {
-    ...typography.overline,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
-    textTransform: 'none',
+  sectionHeader: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginTop: 24,
+    marginBottom: 8,
   },
+  sectionHeaderFirst: { marginTop: 4 },
   logoutWrap: { marginTop: spacing.lg },
   dangerZone: {
-    marginTop: spacing.xl,
+    marginTop: spacing.sm,
     paddingTop: spacing.lg,
     borderTopWidth: 1,
-  },
-  dangerZoneTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: spacing.xs,
   },
   dangerZoneHelper: {
     fontSize: 12,

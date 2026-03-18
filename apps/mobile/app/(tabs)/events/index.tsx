@@ -20,7 +20,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { Card, GlassHeaderBar, ErrorState, EmptyState, Skeleton, VibelyButton } from '@/components/ui';
+import { Card, GlassHeaderBar, ErrorState, Skeleton, VibelyButton } from '@/components/ui';
 import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -30,6 +30,7 @@ import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Linking } from 'react-native';
+import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
 
 const DATE_FILTERS = ['Tonight', 'This Weekend', 'This Week', 'Upcoming'] as const;
 
@@ -222,6 +223,9 @@ function FeaturedEventCard({
         <Text style={[featuredStyles.title, { color: theme.text }]} numberOfLines={2}>
           {event.title}
         </Text>
+        <Text style={[featuredStyles.metaDate, { color: theme.textSecondary }]}>
+          {event.date} · {event.time}
+        </Text>
         {event.description ? (
           <Text style={[featuredStyles.desc, { color: theme.textSecondary }]} numberOfLines={2}>
             {event.description}
@@ -341,7 +345,8 @@ const featuredStyles = StyleSheet.create({
     borderWidth: 1,
   },
   tagText: { fontSize: 14, fontWeight: '500' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 6 },
+  title: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  metaDate: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
   desc: { fontSize: 15, marginBottom: spacing.md, lineHeight: 20 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   attendees: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -413,7 +418,7 @@ function EventRailCard({
           {event.title}
         </Text>
         <Text style={[railCardStyles.meta, { color: theme.textSecondary }]}>
-          {event.date} • {event.time}
+          {event.date} · {event.time}
         </Text>
         <View style={railCardStyles.row}>
           <View style={railCardStyles.avatars}>
@@ -586,6 +591,7 @@ export default function EventsListScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null);
+  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
@@ -656,9 +662,7 @@ export default function EventsListScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ErrorState
-          title="Couldn't load events"
-          message="Check your connection, then tap Retry."
-          actionLabel="Retry"
+          message="We couldn't load events. Check your connection and try again."
           onActionPress={() => refetch()}
         />
       </View>
@@ -672,7 +676,8 @@ export default function EventsListScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
-          onRefresh={refetch}
+          onRefresh={() => refetch()}
+          tintColor={theme.tint}
         />
       }
     >
@@ -776,11 +781,15 @@ export default function EventsListScreen() {
                 ))}
               </ScrollView>
             ) : (
-              <EmptyState
-                showIllustration={false}
-                title="No events found"
-                message="Try adjusting your filters or search terms"
-              />
+              <View style={styles.filteredEmpty}>
+                <View style={[styles.filteredEmptyIcon, { backgroundColor: theme.surfaceSubtle }]}>
+                  <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
+                </View>
+                <Text style={[styles.filteredEmptyTitle, { color: theme.text }]}>No events found</Text>
+                <Text style={[styles.filteredEmptyMessage, { color: theme.textSecondary }]}>
+                  Try adjusting your filters or search terms
+                </Text>
+              </View>
             )}
           </View>
         ) : (
@@ -818,43 +827,87 @@ export default function EventsListScreen() {
             )}
 
             {events.length === 0 && !isLoading && (
-              <EmptyState
-                showIllustration={false}
-                title="No events near you yet 💫"
-                message="Check back later or go Premium to explore events in other cities."
-                actionLabel="Go Premium to explore"
-                onActionPress={() => router.push('/premium')}
-              />
+              <View style={styles.emptyLocalWrap}>
+                <View style={[styles.emptyLocalIcon, { backgroundColor: theme.surfaceSubtle }]}>
+                  <Ionicons name="calendar-outline" size={32} color={theme.textSecondary} />
+                </View>
+                <Text style={[styles.emptyLocalTitle, { color: theme.text }]}>No events near you yet 💫</Text>
+                <Text style={[styles.emptyLocalSub, { color: theme.textSecondary }]}>
+                  But there are events happening in other cities!
+                </Text>
+                <Pressable
+                  onPress={() => router.push('/premium')}
+                  style={({ pressed }) => [styles.emptyLocalCta, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
+                >
+                  <Ionicons name="sparkles" size={16} color="#fff" />
+                  <Text style={styles.emptyLocalCtaText}>Go Premium to explore →</Text>
+                </Pressable>
+              </View>
             )}
 
-            {/* Happening Elsewhere shell (premium upsell) */}
-            <View style={styles.elsewhere}>
-              <View style={styles.elsewhereHeader}>
-                <Ionicons name="sparkles" size={18} color={theme.tint} />
-                <Text style={[styles.elsewhereTitle, { color: theme.text }]}>Happening Elsewhere</Text>
-              </View>
-              <Text style={[styles.elsewhereSub, { color: theme.textSecondary }]}>
-                Events in cities you can explore with Premium
-              </Text>
-              <Card variant="glass" style={[styles.premiumCard, { borderColor: theme.glassBorder }]}>
-                <View style={styles.premiumCardInner}>
-                  <Text style={styles.premiumEmoji}>💎</Text>
-                  <View style={styles.premiumCardCopy}>
-                    <Text style={[styles.premiumCardTitle, { color: theme.text }]}>Unlock Vibely Premium</Text>
-                    <Text style={[styles.premiumCardDesc, { color: theme.textSecondary }]}>
-                      Explore events in any city, match with people worldwide, and never miss a vibe.
-                    </Text>
-                    <VibelyButton
-                      label="Explore with Premium →"
-                      onPress={() => router.push('/premium')}
-                      variant="primary"
-                      size="sm"
-                      style={styles.premiumCardCta}
-                    />
-                  </View>
+            {/* Happening Elsewhere — web parity: only when otherCities.length > 0 */}
+            {otherCities.length > 0 && (
+              <View style={styles.elsewhere}>
+                <View style={styles.elsewhereHeader}>
+                  <Ionicons name="sparkles" size={16} color={theme.tint} />
+                  <Text style={[styles.elsewhereTitle, { color: theme.text }]}>Happening Elsewhere</Text>
                 </View>
-              </Card>
-            </View>
+                <Text style={[styles.elsewhereSub, { color: theme.textSecondary }]}>
+                  Events in cities you can explore with Premium
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.elsewhereRail}
+                >
+                  {otherCities.map((city) => (
+                    <View
+                      key={city.city}
+                      style={[styles.elsewhereCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+                    >
+                      {city.sample_cover ? (
+                        <Image
+                          source={{ uri: city.sample_cover }}
+                          style={styles.elsewhereCardImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View style={[styles.elsewhereCardPlaceholder, { backgroundColor: theme.surface }]}>
+                          <Ionicons name="globe-outline" size={32} color={theme.textSecondary} />
+                        </View>
+                      )}
+                      <View style={styles.elsewhereCardOverlay} />
+                      <View style={styles.elsewhereCardCaption}>
+                        <Text style={[styles.elsewhereCardCity, { color: theme.text }]} numberOfLines={1}>
+                          🔒 {city.city}
+                        </Text>
+                        <Text style={[styles.elsewhereCardCount, { color: theme.textSecondary }]}>
+                          {city.event_count} events
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+                <Card variant="glass" style={[styles.premiumCard, { borderColor: withAlpha(theme.tint, 0.2) }]}>
+                  <View style={styles.premiumCardInner}>
+                    <Text style={styles.premiumEmoji}>💎</Text>
+                    <View style={styles.premiumCardCopy}>
+                      <Text style={[styles.premiumCardTitle, { color: theme.text }]}>Unlock Vibely Premium</Text>
+                      <Text style={[styles.premiumCardDesc, { color: theme.textSecondary }]}>
+                        Explore events in any city, match with people worldwide, and never miss a vibe.
+                      </Text>
+                      <VibelyButton
+                        label="Explore with Premium →"
+                        onPress={() => router.push('/premium')}
+                        variant="primary"
+                        size="sm"
+                        style={styles.premiumCardCta}
+                      />
+                    </View>
+                  </View>
+                </Card>
+              </View>
+            )}
           </>
         )}
       </View>
@@ -922,10 +975,28 @@ const styles = StyleSheet.create({
   filteredHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.lg },
   filteredCount: { fontSize: 14 },
   filteredScroll: { paddingBottom: spacing.md, paddingHorizontal: spacing.lg },
+  filteredEmpty: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: spacing.lg },
+  filteredEmptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  filteredEmptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm },
+  filteredEmptyMessage: { fontSize: 14, textAlign: 'center' },
+  emptyLocalWrap: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: spacing.lg },
+  emptyLocalIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  emptyLocalTitle: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
+  emptyLocalSub: { fontSize: 14, marginBottom: spacing.lg, textAlign: 'center' },
+  emptyLocalCta: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.pill },
+  emptyLocalCtaText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   elsewhere: { paddingHorizontal: spacing.lg, marginTop: spacing.lg },
-  elsewhereHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: 4 },
+  elsewhereHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   elsewhereTitle: { fontSize: 16, fontWeight: '700' },
   elsewhereSub: { fontSize: 12, marginBottom: spacing.md },
+  elsewhereRail: { flexDirection: 'row', gap: spacing.md, paddingBottom: spacing.md },
+  elsewhereCard: { width: 160, borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, position: 'relative' },
+  elsewhereCardImage: { width: '100%', height: 96 },
+  elsewhereCardPlaceholder: { width: '100%', height: 96, alignItems: 'center', justifyContent: 'center' },
+  elsewhereCardOverlay: { position: 'absolute', top: 0, left: 0, right: 0, height: 96, backgroundColor: 'rgba(0,0,0,0.35)' },
+  elsewhereCardCaption: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 10 },
+  elsewhereCardCity: { fontSize: 12, fontWeight: '600' },
+  elsewhereCardCount: { fontSize: 10, marginTop: 2 },
   premiumCard: { padding: spacing.lg },
   premiumCardInner: { flexDirection: 'row', gap: spacing.md },
   premiumEmoji: { fontSize: 24 },

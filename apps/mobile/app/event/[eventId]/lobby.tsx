@@ -473,10 +473,12 @@ export default function EventLobbyScreen() {
                 </>
               ) : (
                 <>
-                  <Text style={styles.emptyEmoji}>🎉</Text>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>You've seen everyone for now!</Text>
+                  <View style={[styles.emptyIconWrap, { backgroundColor: theme.accentSoft }]}>
+                    <Ionicons name="people-outline" size={40} color={theme.tint} />
+                  </View>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No more profiles</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    Feeling adventurous? Try a Mystery Match — a random 60-second date with someone compatible.
+                    Check back soon or try Mystery Match
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
@@ -486,25 +488,24 @@ export default function EventLobbyScreen() {
                     {isSearching ? (
                       <Text style={styles.emptyPrimaryLabel}>Finding match...</Text>
                     ) : (
-                      <>
-                        <Ionicons name="sparkles" size={18} color="#fff" />
-                        <Text style={styles.emptyPrimaryLabel}>I'm feeling adventurous ✨</Text>
-                      </>
+                      <Text style={styles.emptyPrimaryLabel}>Try Mystery Match 🎲</Text>
                     )}
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [styles.emptySecondaryBtn, pressed && { opacity: 0.8 }]}
-                    onPress={() => { cancelSearch(); refetchDeck(); }}
+                    onPress={() => {
+                      cancelSearch();
+                      refetchDeck();
+                    }}
                   >
-                    <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
-                    <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>No thanks, I'll wait</Text>
+                    <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>I'll wait</Text>
                   </Pressable>
                   <Pressable
                     style={({ pressed }) => [styles.emptyRefreshBtn, { borderColor: theme.border }, pressed && { opacity: 0.8 }]}
                     onPress={() => refetchDeck()}
                   >
                     <Ionicons name="refresh" size={18} color={theme.textSecondary} />
-                    <Text style={[styles.emptyRefreshLabel, { color: theme.textSecondary }]}>Refresh Now</Text>
+                    <Text style={[styles.emptyRefreshLabel, { color: theme.textSecondary }]}>Refresh</Text>
                   </Pressable>
                 </>
               )}
@@ -819,10 +820,9 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: spacing.sm, textAlign: 'center' },
   emptyMessage: { fontSize: 14, textAlign: 'center', marginBottom: spacing.md, paddingHorizontal: spacing.sm },

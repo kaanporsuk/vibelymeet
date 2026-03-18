@@ -21,6 +21,16 @@ function isEventVisible(event: {
   return graceEnd > new Date();
 }
 
+/** Web parity: "Sat, Mar 22" */
+function formatEventDate(d: Date): string {
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/** Web parity: "8:00 PM" */
+function formatEventTime(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
 export type EventRow = {
   id: string;
   title: string;
@@ -77,8 +87,8 @@ export function useEvents(userId: string | null | undefined) {
             title: e.title,
             description: e.description,
             image: e.cover_image,
-            date: eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            time: eventDate.toLocaleTimeString(undefined, { hour: 'numeric' }),
+            date: formatEventDate(eventDate),
+            time: formatEventTime(eventDate),
             attendees: e.current_attendees ?? 0,
             tags: e.tags ?? [],
             status: isLive ? 'live' : (e.status || 'upcoming'),
@@ -215,8 +225,8 @@ function rowToEventListItem(
     title: e.title,
     description: e.description,
     image: e.cover_image,
-    date: eventDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-    time: eventDate.toLocaleTimeString(undefined, { hour: 'numeric' }),
+    date: formatEventDate(eventDate),
+    time: formatEventTime(eventDate),
     attendees: e.current_attendees ?? 0,
     tags: e.tags ?? [],
     status: isLive ? 'live' : (e.status || 'upcoming'),
