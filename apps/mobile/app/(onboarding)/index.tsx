@@ -11,15 +11,36 @@ import {
   View as RNView,
 } from 'react-native';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { createProfile } from '@/lib/profileApi';
+import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { Card } from '@/components/ui';
-import { spacing, radius } from '@/constants/theme';
+import { spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+
+function calculateAge(day: number, month: number, year: number): number {
+  const today = new Date();
+  const birthDate = new Date(year, month - 1, day);
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+
+function isValidDateOfBirth(day: number, month: number, year: number): boolean {
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return false;
+  if (year < 1900 || year > new Date().getFullYear()) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(year, month - 1, day);
+  return dt.getFullYear() === year && dt.getMonth() === month - 1 && dt.getDate() === day;
+}
 
 const GENDERS = [
   { label: 'Woman', value: 'woman' },
@@ -29,34 +50,60 @@ const GENDERS = [
 ];
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
-const TOTAL_STEPS = 3;
 
 export default function OnboardingScreen() {
   const theme = Colors[useColorScheme()];
   const { refreshOnboarding } = useAuth();
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
+  const [dobDay, setDobDay] = useState('');
+  const [dobMonth, setDobMonth] = useState('');
+  const [dobYear, setDobYear] = useState('');
+  const [ageBlocked, setAgeBlocked] = useState(false);
   const [gender, setGender] = useState('');
   const [tagline, setTagline] = useState('');
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const canNext = step === 1 ? name.trim().length >= 2 : true;
-  const canSubmit = step === 2 && name.trim() && gender && !loading;
+  const dobFilled = dobDay.length > 0 && dobMonth.length > 0 && dobYear.length === 4;
+  const d = dobFilled ? Number(dobDay) : NaN;
+  const m = dobFilled ? Number(dobMonth) : NaN;
+  const y = dobFilled ? Number(dobYear) : NaN;
+  const dobValid = dobFilled && isValidDateOfBirth(d, m, y);
+  const dobAge = dobValid ? calculateAge(d, m, y) : null;
+  const step1AgeOk = dobAge !== null && dobAge >= 18;
+
+  const canNext =
+    step === 0 ? true : step === 1 ? name.trim().length >= 2 && dobFilled && dobValid && step1AgeOk : true;
+  const canSubmit = step === 2 && name.trim() && gender && dobFilled && dobValid && step1AgeOk && !loading;
 
   const handleNext = () => {
     if (step === 0) setStep(1);
-    else if (step === 1 && canNext) setStep(2);
+    else if (step === 1) {
+      if (!(dobDay && dobMonth && dobYear)) return;
+      const day = Number(dobDay);
+      const month = Number(dobMonth);
+      const year = Number(dobYear);
+      if (!isValidDateOfBirth(day, month, year)) return;
+      const age = calculateAge(day, month, year);
+      if (age < 18) {
+        setAgeBlocked(true);
+        return;
+      }
+      if (name.trim().length >= 2) setStep(2);
+    }
   };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setLoading(true);
     try {
+      const birth_date = `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`;
       await createProfile({
         name: name.trim(),
         gender,
+        birth_date,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
         about_me: aboutMe.trim() || null,
@@ -71,7 +118,42 @@ export default function OnboardingScreen() {
     }
   };
 
-  const progress = ((step + 1) / TOTAL_STEPS) * 100;
+  if (ageBlocked) {
+    return (
+      <RNView
+        style={[
+          styles.ageBlockedRoot,
+          { backgroundColor: theme.background, justifyContent: 'center', alignItems: 'center', padding: 32 },
+        ]}
+      >
+        <Ionicons name="alert-circle" size={64} color={theme.danger} />
+        <Text style={[styles.welcomeTitle, { color: theme.text, marginTop: 24, textAlign: 'center' }]}>
+          You must be 18 or older
+        </Text>
+        <Text style={[styles.welcomeSub, { color: theme.textSecondary, marginTop: 12, textAlign: 'center' }]}>
+          Vibely is only available to users who are 18 years of age or older.
+        </Text>
+        <VibelyButton
+          label="Close"
+          variant="destructive"
+          onPress={async () => {
+            try {
+              await supabase.auth.signOut();
+            } catch {
+              /* ignore */
+            }
+            try {
+              await AsyncStorage.clear();
+            } catch {
+              /* ignore */
+            }
+            router.replace('/(auth)/sign-in');
+          }}
+          style={{ width: '100%', maxWidth: 400, marginTop: 32 }}
+        />
+      </RNView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -130,6 +212,44 @@ export default function OnboardingScreen() {
               autoCapitalize="words"
               editable={!loading}
             />
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Date of Birth</Text>
+            <RNView style={styles.dobRow}>
+              <TextInput
+                placeholder="DD"
+                value={dobDay}
+                onChangeText={(t) => setDobDay(t.replace(/\D/g, '').slice(0, 2))}
+                keyboardType="number-pad"
+                maxLength={2}
+                style={[styles.dobInput, { borderColor: theme.border, color: theme.text }]}
+                placeholderTextColor={theme.mutedForeground}
+              />
+              <TextInput
+                placeholder="MM"
+                value={dobMonth}
+                onChangeText={(t) => setDobMonth(t.replace(/\D/g, '').slice(0, 2))}
+                keyboardType="number-pad"
+                maxLength={2}
+                style={[styles.dobInput, { borderColor: theme.border, color: theme.text }]}
+                placeholderTextColor={theme.mutedForeground}
+              />
+              <TextInput
+                placeholder="YYYY"
+                value={dobYear}
+                onChangeText={(t) => setDobYear(t.replace(/\D/g, '').slice(0, 4))}
+                keyboardType="number-pad"
+                maxLength={4}
+                style={[styles.dobInput, styles.dobInputYear, { borderColor: theme.border, color: theme.text }]}
+                placeholderTextColor={theme.mutedForeground}
+              />
+            </RNView>
+            {dobFilled && !dobValid ? (
+              <Text style={[styles.dobHint, { color: theme.danger }]}>Enter a valid date.</Text>
+            ) : null}
+            {dobValid && dobAge !== null && dobAge < 18 ? (
+              <Text style={[styles.dobHint, { color: theme.danger }]}>
+                You must be 18 or older to use Vibely.
+              </Text>
+            ) : null}
             <VibelyButton label="Continue" onPress={handleNext} disabled={!canNext} variant="primary" style={styles.button} />
           </>
         )}
@@ -220,8 +340,21 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
+  ageBlockedRoot: { flex: 1 },
   kav: { flex: 1 },
   scroll: { padding: spacing.lg, paddingBottom: 48 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
+  dobRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  dobInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  dobInputYear: { flex: 2 },
+  dobHint: { fontSize: 13, marginTop: 8, fontWeight: '500' },
   title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
   stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
