@@ -693,7 +693,7 @@ export default function ChatThreadScreen() {
         >
           <TextInput
             style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.surfaceSubtle }]}
-            placeholder="Message..."
+            placeholder="Type a message..."
             placeholderTextColor={theme.textSecondary}
             value={input}
             onChangeText={handleInputChange}

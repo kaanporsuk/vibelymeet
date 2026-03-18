@@ -57,14 +57,14 @@ export function getImageUrl(
     const url = `${BUNNY_CDN}/${pathPart}?${params.toString()}`;
     if (__DEV__ && traceLabel && tracedLabels && !tracedLabels.has(traceLabel)) {
       tracedLabels.add(traceLabel);
-      console.log(`[Vibely photo URL] ${traceLabel}: ${url}`);
+      if (__DEV__) console.log(`[Vibely photo URL] ${traceLabel}: ${url}`);
     }
     return url;
   }
   const url = `${SUPABASE_URL}/storage/v1/object/public/${p}`;
   if (__DEV__ && traceLabel && tracedLabels && !tracedLabels.has(traceLabel)) {
     tracedLabels.add(traceLabel);
-    console.log(`[Vibely photo URL] ${traceLabel}: ${url}`);
+    if (__DEV__) console.log(`[Vibely photo URL] ${traceLabel}: ${url}`);
   }
   return url;
 }

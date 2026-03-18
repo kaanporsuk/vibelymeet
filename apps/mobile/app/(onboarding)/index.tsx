@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   Alert,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Linking,
@@ -20,6 +19,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { Card } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
 
 const GENDERS = [
   { label: 'Woman', value: 'woman' },
@@ -29,6 +29,7 @@ const GENDERS = [
 ];
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
+const TOTAL_STEPS = 3;
 
 export default function OnboardingScreen() {
   const theme = Colors[useColorScheme()];
@@ -41,11 +42,12 @@ export default function OnboardingScreen() {
   const [aboutMe, setAboutMe] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const canNext = step === 0 ? name.trim().length >= 2 : true;
-  const canSubmit = step === 1 && name.trim() && gender && !loading;
+  const canNext = step === 1 ? name.trim().length >= 2 : true;
+  const canSubmit = step === 2 && name.trim() && gender && !loading;
 
   const handleNext = () => {
-    if (step === 0 && canNext) setStep(1);
+    if (step === 0) setStep(1);
+    else if (step === 1 && canNext) setStep(2);
   };
 
   const handleSubmit = async () => {
@@ -69,34 +71,91 @@ export default function OnboardingScreen() {
     }
   };
 
+  const progress = ((step + 1) / TOTAL_STEPS) * 100;
+
   return (
     <KeyboardAvoidingView
       style={[styles.kav, { backgroundColor: theme.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={80}
     >
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: theme.text }]}>
-          {step === 0 ? "What's your name?" : 'Tell us a bit about you'}
-        </Text>
+      {/* Progress bar + Back — web parity */}
+      <View style={[styles.progressWrap, { backgroundColor: theme.background }]}>
+        <View style={styles.progressRow}>
+          {step > 0 && (
+            <Pressable onPress={() => setStep(step - 1)} style={styles.backBtnTop} accessibilityLabel="Back">
+              <Ionicons name="chevron-back" size={24} color={theme.text} />
+            </Pressable>
+          )}
+          <View style={[styles.progressBarBg, { backgroundColor: theme.surfaceSubtle }]}>
+            <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: theme.tint }]} />
+          </View>
+        </View>
+      </View>
 
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        {/* Step 0: Welcome — web parity */}
         {step === 0 && (
+          <View style={styles.welcomeBlock}>
+            <View style={[styles.welcomeIcon, { backgroundColor: theme.tint }]}>
+              <Ionicons name="sparkles" size={48} color="#fff" />
+            </View>
+            <Text style={[styles.welcomeTitle, { color: theme.text }]}>Welcome to Vibely</Text>
+            <Text style={[styles.welcomeSub, { color: theme.textSecondary }]}>
+              Find your vibe. Make real connections through live video events.
+            </Text>
+            <View style={[styles.welcomeBullets, { borderColor: theme.border }]}>
+              <View style={styles.welcomeBullet}>
+                <View style={[styles.bulletIcon, { backgroundColor: theme.accentSoft }]}>
+                  <Text style={styles.bulletEmoji}>🎯</Text>
+                </View>
+                <Text style={[styles.bulletText, { color: theme.text }]}>Match by vibe, not just looks</Text>
+              </View>
+              <View style={styles.welcomeBullet}>
+                <View style={[styles.bulletIcon, { backgroundColor: theme.accentSoft }]}>
+                  <Text style={styles.bulletEmoji}>📹</Text>
+                </View>
+                <Text style={[styles.bulletText, { color: theme.text }]}>Live video speed dating</Text>
+              </View>
+              <View style={styles.welcomeBullet}>
+                <View style={[styles.bulletIcon, { backgroundColor: theme.accentSoft }]}>
+                  <Text style={styles.bulletEmoji}>✨</Text>
+                </View>
+                <Text style={[styles.bulletText, { color: theme.text }]}>Curated events for your interests</Text>
+              </View>
+            </View>
+            <VibelyButton label="Let's Go" onPress={handleNext} variant="primary" style={styles.button} />
+          </View>
+        )}
+
+        {/* Step 1: Identity — web "Let's get to know you" */}
+        {step === 1 && (
           <>
+            <Text style={[styles.title, { color: theme.text }]}>Let's get to know you</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              The basics first, then the fun stuff
+            </Text>
+            <Text style={[styles.label, { color: theme.text, marginTop: 8 }]}>First Name</Text>
             <TextInput
               style={[styles.input, { borderColor: theme.border, color: theme.text }]}
-              placeholder="Your name"
+              placeholder="Your first name"
               placeholderTextColor={theme.textSecondary}
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
               editable={!loading}
             />
-            <VibelyButton label="Next" onPress={handleNext} disabled={!canNext} variant="primary" style={styles.button} />
+            <VibelyButton label="Continue" onPress={handleNext} disabled={!canNext} variant="primary" style={styles.button} />
           </>
         )}
 
-        {step === 1 && (
+        {/* Step 2: Details + Complete — web "Tell us a bit more" + Complete Profile */}
+        {step === 2 && (
           <>
+            <Text style={[styles.title, { color: theme.text }]}>Tell us a bit more</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              Optional details — you can edit these anytime
+            </Text>
             <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
             <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (
@@ -158,14 +217,14 @@ export default function OnboardingScreen() {
               />
             </Card>
             <VibelyButton
-              label={loading ? '' : 'Complete'}
+              label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
               disabled={!gender || loading}
               loading={loading}
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(0)} disabled={loading}>
+            <Pressable style={styles.backBtn} onPress={() => setStep(1)} disabled={loading}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
@@ -177,13 +236,28 @@ export default function OnboardingScreen() {
 
 const styles = StyleSheet.create({
   kav: { flex: 1 },
-  scroll: { padding: spacing.lg, paddingBottom: 48 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 24 },
+  scroll: { padding: spacing.lg, paddingTop: 8, paddingBottom: 48 },
+  progressWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  backBtnTop: { padding: 4, marginRight: 4 },
+  progressBarBg: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', borderRadius: 3 },
+  welcomeBlock: { alignItems: 'center', paddingVertical: spacing.lg },
+  welcomeIcon: { width: 96, height: 96, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
+  welcomeTitle: { fontSize: 28, fontWeight: '800', marginBottom: spacing.sm, textAlign: 'center' },
+  welcomeSub: { fontSize: 16, lineHeight: 24, marginBottom: spacing.xl, textAlign: 'center', maxWidth: 320 },
+  welcomeBullets: { width: '100%', borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.xl },
+  welcomeBullet: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  bulletIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  bulletEmoji: { fontSize: 18 },
+  bulletText: { fontSize: 15, flex: 1 },
+  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
+  stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
-  input: { borderWidth: 1, padding: 12, borderRadius: radius.lg, marginBottom: 12 },
+  input: { borderWidth: 1, padding: 12, borderRadius: 16, marginBottom: 12, minHeight: 56 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
-  genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: radius.lg },
-  genderBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: radius.lg, borderWidth: 1 },
+  genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: 16 },
+  genderBtn: { paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1 },
   genderBtnText: {},
   genderBtnTextActive: { color: '#fff', fontWeight: '600' },
   button: { marginTop: 24 },
