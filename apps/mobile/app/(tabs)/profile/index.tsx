@@ -54,11 +54,34 @@ import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
-function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
+function VibeVideoPlayer({ playbackUrl, thumbnailUrl, style }: { playbackUrl: string; thumbnailUrl?: string | null; style?: object }) {
+  const [playbackError, setPlaybackError] = useState(false);
   const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
+
+  useEffect(() => {
+    const sub = player.addListener?.('statusChange', (payload: { status?: string }) => {
+      if (payload?.status === 'error') setPlaybackError(true);
+    });
+    return () => sub?.remove?.();
+  }, [player]);
+
+  if (playbackError) {
+    return (
+      <View style={[styles.vibeVideoUnavailable, style]}>
+        {thumbnailUrl ? (
+          <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : null}
+        <View style={styles.vibeVideoUnavailableOverlay}>
+          <Ionicons name="videocam-off-outline" size={32} color="#fff" />
+          <Text style={styles.vibeVideoUnavailableText}>Video unavailable</Text>
+        </View>
+      </View>
+    );
+  }
+
   return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 
