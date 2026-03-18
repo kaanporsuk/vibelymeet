@@ -30,8 +30,8 @@ import {
   DiscoverCardSkeleton,
   VibelyText,
   ErrorState,
-  EmptyState,
 } from '@/components/ui';
+import { EmptyState } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography, layout, shadows, gradient } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -92,7 +92,10 @@ export default function DashboardScreen() {
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const { isPremium } = useBackendSubscription(user?.id);
-  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id ?? null, isPremium);
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(
+    user?.id ?? null,
+    isPremium ?? false,
+  );
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, isPremium);
   const { data: proposals = [] } = useDateProposals(user?.id);
@@ -774,18 +777,18 @@ const styles = StyleSheet.create({
   discoverAttendeesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   discoverAttendees: { fontSize: 12 },
   otherCitiesCard: { padding: 16, borderRadius: 16, borderWidth: 1 },
-  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  otherCitiesRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12 },
   otherCitiesEmoji: { fontSize: 28 },
   otherCitiesCopy: { flex: 1 },
-  otherCitiesTitle: { fontSize: 15, fontWeight: '600' },
+  otherCitiesTitle: { fontSize: 15, fontWeight: '600' as const },
   otherCitiesSub: { fontSize: 12, marginTop: 2 },
   otherCitiesCta: {
     marginTop: 12,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 12,
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-start' as const,
     borderWidth: 1,
   },
-  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
+  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' as const },
 });
