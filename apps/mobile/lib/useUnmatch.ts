@@ -7,16 +7,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 async function deleteMatchCascade(matchId: string) {
-  const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
-  if (messagesError) throw messagesError;
-  const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
-  if (dateProposalsError) throw dateProposalsError;
-  const { error: matchMutesError } = await supabase.from('match_mutes').delete().eq('match_id', matchId);
-  if (matchMutesError) throw matchMutesError;
-  const { error: notifMutesError } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId);
-  if (notifMutesError) throw notifMutesError;
-  const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
-  if (matchError) throw matchError;
+  // DB foreign keys with ON DELETE CASCADE handle cleanup of:
+  // messages, date_proposals, match_mutes, match_notification_mutes
+  const { error } = await supabase.from('matches').delete().eq('id', matchId);
+  if (error) throw error;
   return { success: true };
 }
 

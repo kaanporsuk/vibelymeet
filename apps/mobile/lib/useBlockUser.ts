@@ -40,18 +40,7 @@ export function useBlockUser(userId: string | null | undefined) {
       }
 
       if (matchId) {
-        const { error: msgErr } = await supabase.from('messages').delete().eq('match_id', matchId);
-        if (msgErr) throw msgErr;
-
-        const { error: dpErr } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
-        if (dpErr) throw dpErr;
-
-        const { error: mmErr } = await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-        if (mmErr) throw mmErr;
-
-        const { error: mnmErr } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-        if (mnmErr) throw mnmErr;
-
+        // DB foreign keys with ON DELETE CASCADE handle related table cleanup
         const { error: matchErr } = await supabase.from('matches').delete().eq('id', matchId);
         if (matchErr) throw matchErr;
       }
