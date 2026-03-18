@@ -223,6 +223,9 @@ function FeaturedEventCard({
         <Text style={[featuredStyles.title, { color: theme.text }]} numberOfLines={2}>
           {event.title}
         </Text>
+        <Text style={[featuredStyles.metaDate, { color: theme.textSecondary }]}>
+          {event.date} · {event.time}
+        </Text>
         {event.description ? (
           <Text style={[featuredStyles.desc, { color: theme.textSecondary }]} numberOfLines={2}>
             {event.description}
@@ -342,7 +345,8 @@ const featuredStyles = StyleSheet.create({
     borderWidth: 1,
   },
   tagText: { fontSize: 14, fontWeight: '500' },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 6 },
+  title: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  metaDate: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
   desc: { fontSize: 15, marginBottom: spacing.md, lineHeight: 20 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   attendees: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
@@ -658,9 +662,7 @@ export default function EventsListScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ErrorState
-          title="Couldn't load events"
-          message="Check your connection, then tap Retry."
-          actionLabel="Retry"
+          message="We couldn't load events. Check your connection and try again."
           onActionPress={() => refetch()}
         />
       </View>
@@ -674,7 +676,8 @@ export default function EventsListScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
-          onRefresh={refetch}
+          onRefresh={() => refetch()}
+          tintColor={theme.tint}
         />
       }
     >

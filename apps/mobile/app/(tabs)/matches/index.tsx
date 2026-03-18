@@ -38,7 +38,7 @@ export default function MatchesListScreen() {
   const theme = Colors[colorScheme];
   const { user } = useAuth();
   const { isPremium } = useBackendSubscription(user?.id);
-  const { data: matches = [], isLoading, error, refetch } = useMatches(user?.id);
+  const { data: matches = [], isLoading, isRefetching, error, refetch } = useMatches(user?.id);
   const [activeTab, setActiveTab] = useState<'conversations' | 'drops'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -189,10 +189,8 @@ export default function MatchesListScreen() {
     return (
       <RNView style={[styles.centeredError, { backgroundColor: theme.background }]}>
         <ErrorState
-        title="We couldn’t load your matches"
-        message="Check your connection and try again."
-        actionLabel="Retry"
-        onActionPress={() => refetch()}
+          message="We couldn't load your matches. Check your connection and try again."
+          onActionPress={() => refetch()}
         />
       </RNView>
     );
@@ -439,7 +437,13 @@ export default function MatchesListScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.matchId}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={handleRefresh} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching && !isLoading}
+              onRefresh={handleRefresh}
+              tintColor={theme.tint}
+            />
+          }
           ListEmptyComponent={
             searchQuery.trim() ? (
               <RNView style={styles.searchEmpty}>

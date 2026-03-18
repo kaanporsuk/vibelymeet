@@ -30,6 +30,7 @@ import {
   VibelyButton,
   VibelyInput,
   LoadingState,
+  ErrorState,
   SettingsRow,
   DestructiveRow,
   VibelyText,
@@ -176,7 +177,7 @@ export default function ProfileScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
-  const { data: profile, isLoading, isRefetching, refetch } = useQuery({
+  const { data: profile, isLoading, isError, error, isRefetching, refetch } = useQuery({
     queryKey: ['my-profile'],
     queryFn: fetchMyProfile,
     enabled: !!user?.id,
@@ -537,6 +538,17 @@ export default function ProfileScreen() {
     );
   }
 
+  if (isError && !profile) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+        <ErrorState
+          message={error instanceof Error ? error.message : "We couldn't load your profile."}
+          onActionPress={() => refetch()}
+        />
+      </View>
+    );
+  }
+
   // Match web ProfilePhoto: primary is first photo, avatar_url fallback
   const photoUrl = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayUrl = photoUrl ? avatarUrl(photoUrl, 'profile_photo') : null;
@@ -558,7 +570,8 @@ export default function ProfileScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
-          onRefresh={refetch}
+          onRefresh={() => refetch()}
+          tintColor={theme.tint}
         />
       }
     >

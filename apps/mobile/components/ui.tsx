@@ -1,6 +1,7 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   Platform,
   Pressable,
@@ -193,10 +194,21 @@ export function Skeleton({ width, height, borderRadius, backgroundColor, style }
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const bg = backgroundColor ?? theme.surfaceSubtle;
+  const opacity = useRef(new Animated.Value(0.5)).current;
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.5, duration: 800, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
   return (
-    <View
+    <Animated.View
       style={[
-        { backgroundColor: bg },
+        { backgroundColor: bg, opacity },
         width !== undefined && { width },
         height !== undefined && { height },
         borderRadius !== undefined && { borderRadius },
@@ -515,6 +527,13 @@ type StateProps = {
   onActionPress?: () => void;
 };
 
+type ErrorStateProps = {
+  title?: string;
+  message?: string;
+  actionLabel?: string;
+  onActionPress?: () => void;
+};
+
 /** Empty state — title, optional message, optional CTA; optional illustration. Set showIllustration={false} for minimal/restrained (e.g. dashboard no-events). */
 export function EmptyState({
   title,
@@ -552,14 +571,20 @@ export function EmptyState({
   );
 }
 
-/** Error state — danger title, message, optional primary CTA. */
-export function ErrorState({ title, message, actionLabel, onActionPress }: StateProps) {
+/** Error state — web parity: alert icon, title, body, Try Again. */
+export function ErrorState({
+  title = 'Something went wrong',
+  message,
+  actionLabel = 'Try Again',
+  onActionPress,
+}: ErrorStateProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
 
   return (
     <View style={styles.stateContainer}>
-      <Text style={[styles.stateTitle, { color: theme.danger }]}>{title}</Text>
+      <Ionicons name="alert-circle-outline" size={48} color={theme.danger} style={{ marginBottom: spacing.md }} />
+      <Text style={[styles.stateTitle, { color: theme.text }]}>{title}</Text>
       {message ? (
         <Text style={[styles.stateMessage, { color: theme.textSecondary }]}>{message}</Text>
       ) : null}

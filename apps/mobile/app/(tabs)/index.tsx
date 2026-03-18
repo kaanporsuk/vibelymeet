@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText } from '@/components/ui';
+import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText, ErrorState } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -268,10 +268,12 @@ export default function DashboardScreen() {
           )}
           {/* Error banner — minimal, calm */}
           {hasError && (
-            <Card variant="glass" style={styles.errorBanner}>
-              <Text style={[styles.errorBannerText, { color: theme.textSecondary }]}>Something went wrong loading your feed. Tap Retry.</Text>
-              <VibelyButton label="Retry" onPress={handleRetry} variant="secondary" size="sm" />
-            </Card>
+            <View style={styles.section}>
+              <ErrorState
+                message="We couldn't load your feed. Check your connection and try again."
+                onActionPress={handleRetry}
+              />
+            </View>
           )}
 
           {/* Live event — web SECTION 1: dedicated card, pulsing LIVE, gradient CTA (not merged with countdown) */}
@@ -600,14 +602,6 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-  },
-  errorBannerText: { fontSize: 14 },
   section: { gap: spacing.md + 2 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

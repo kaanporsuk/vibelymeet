@@ -20,6 +20,7 @@ import { VibelyButton } from '@/components/ui';
 import { Card } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const GENDERS = [
   { label: 'Woman', value: 'woman' },
@@ -87,8 +88,15 @@ export default function OnboardingScreen() {
               <Ionicons name="chevron-back" size={24} color={theme.text} />
             </Pressable>
           )}
-          <View style={[styles.progressBarBg, { backgroundColor: theme.surfaceSubtle }]}>
-            <View style={[styles.progressBarFill, { width: `${progress}%`, backgroundColor: theme.tint }]} />
+          <View style={[styles.progressBarBg, { backgroundColor: theme.surfaceSubtle, overflow: 'hidden' }]}>
+            <View style={[styles.progressBarFill, { width: `${progress}%`, overflow: 'hidden' }]}>
+              <LinearGradient
+                colors={['hsl(263, 70%, 66%)', 'hsl(330, 81%, 60%)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.progressGradientInner}
+              />
+            </View>
           </View>
         </View>
       </View>
@@ -240,8 +248,9 @@ const styles = StyleSheet.create({
   progressWrap: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   backBtnTop: { padding: 4, marginRight: 4 },
-  progressBarBg: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: '100%', borderRadius: 3 },
+  progressBarBg: { flex: 1, height: 6, borderRadius: 4, overflow: 'hidden' },
+  progressBarFill: { height: '100%', borderRadius: 4 },
+  progressGradientInner: { height: '100%', width: '100%', minWidth: 120, borderRadius: 4 },
   welcomeBlock: { alignItems: 'center', paddingVertical: spacing.lg },
   welcomeIcon: { width: 96, height: 96, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
   welcomeTitle: { fontSize: 28, fontWeight: '800', marginBottom: spacing.sm, textAlign: 'center' },
