@@ -186,6 +186,7 @@ export async function createProfile(data: {
   country?: string | null;
   job?: string | null;
   about_me?: string | null;
+  height_cm?: number | null;
   looking_for?: string | null;
   birth_date?: string | null;
 }): Promise<void> {
@@ -207,6 +208,7 @@ export async function createProfile(data: {
     country: countryVal,
     job: data.job ?? null,
     about_me: data.about_me ?? null,
+    height_cm: data.height_cm ?? null,
     looking_for: data.looking_for ?? null,
   });
   if (error) throw error;

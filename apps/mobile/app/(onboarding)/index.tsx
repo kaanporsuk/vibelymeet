@@ -65,6 +65,7 @@ export default function OnboardingScreen() {
   const [tagline, setTagline] = useState('');
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
+  const [heightCm, setHeightCm] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(false);
@@ -85,8 +86,17 @@ export default function OnboardingScreen() {
         : step === 2
           ? true
           : true;
+  const aboutMeTrim = aboutMe.trim();
+  const aboutMeValid = aboutMeTrim.length === 0 || aboutMeTrim.length >= 10;
   const canSubmit =
-    step === 3 && name.trim() && gender && dobFilled && dobValid && step1AgeOk && !loading;
+    step === 3 &&
+    name.trim() &&
+    gender &&
+    dobFilled &&
+    dobValid &&
+    step1AgeOk &&
+    aboutMeValid &&
+    !loading;
 
   const handleNext = () => {
     if (step === 0) setStep(1);
@@ -120,7 +130,8 @@ export default function OnboardingScreen() {
         country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
-        about_me: aboutMe.trim() || null,
+        about_me: aboutMeTrim || undefined,
+        height_cm: heightCm ? Number(heightCm) : undefined,
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
@@ -327,6 +338,50 @@ export default function OnboardingScreen() {
             <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
               Optional details — you can edit these anytime
             </Text>
+            <Text style={[styles.inputLabel, { color: theme.text, marginTop: 0 }]}>About Me</Text>
+            <TextInput
+              placeholder="Tell people about yourself (10-140 characters)"
+              value={aboutMe}
+              onChangeText={(t) => setAboutMe(t.slice(0, 140))}
+              multiline
+              maxLength={140}
+              style={[
+                styles.input,
+                {
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                  minHeight: 80,
+                  textAlignVertical: 'top',
+                },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            <Text style={[{ fontSize: 11, color: theme.mutedForeground, textAlign: 'right', marginTop: 2 }]}>
+              {aboutMe.length}/140
+            </Text>
+            {aboutMe.length > 0 && aboutMe.length < 10 ? (
+              <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>Minimum 10 characters</Text>
+            ) : null}
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height</Text>
+            <TextInput
+              placeholder="Height in cm (e.g., 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/\D/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
+              style={[
+                styles.input,
+                {
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
             <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
             <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (
@@ -363,17 +418,6 @@ export default function OnboardingScreen() {
               onChangeText={setJob}
               editable={!loading}
             />
-            <Text style={[styles.label, { color: theme.text }]}>About you (optional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea, { borderColor: theme.border, color: theme.text }]}
-              placeholder="A bit about you"
-              placeholderTextColor={theme.textSecondary}
-              value={aboutMe}
-              onChangeText={setAboutMe}
-              multiline
-              numberOfLines={3}
-              editable={!loading}
-            />
             <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
               <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
               <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
@@ -390,7 +434,7 @@ export default function OnboardingScreen() {
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
-              disabled={!gender || loading}
+              disabled={!canSubmit}
               loading={loading}
               variant="primary"
               style={styles.button}
