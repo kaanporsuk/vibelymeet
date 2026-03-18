@@ -6,7 +6,7 @@ import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing, radius, layout } from '@/constants/theme';
+import { spacing } from '@/constants/theme';
 import { trackEvent } from '@/lib/analytics';
 
 export default function SignUpScreen() {
@@ -55,13 +55,18 @@ export default function SignUpScreen() {
         editable={!loading}
       />
       <Pressable style={[styles.button, { backgroundColor: theme.tint }, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Sign up'}</Text>
+        <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
       </Pressable>
       <Link href="/(auth)/sign-in" asChild>
         <Pressable>
           <Text style={[styles.link, { color: theme.tint }]}>Already have an account? Sign in</Text>
         </Pressable>
       </Link>
+      <View style={styles.footer}>
+        <Text style={[styles.footerText, { color: theme.textSecondary }]}>
+          By continuing, you agree to our Terms & Privacy Policy
+        </Text>
+      </View>
     </View>
   );
 }
@@ -73,6 +78,8 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.input, minHeight: layout.inputHeight },
   button: { paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.button, alignItems: 'center', marginTop: spacing.sm },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  link: { marginTop: spacing.lg },
+  buttonText: { color: '#fff', fontWeight: '600', fontSize: 18 },
+  link: { marginTop: spacing.sm, fontSize: 14 },
+  footer: { marginTop: spacing.xl, paddingHorizontal: spacing.lg },
+  footerText: { fontSize: 12, textAlign: 'center', lineHeight: 18 },
 });

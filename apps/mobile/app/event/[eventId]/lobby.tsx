@@ -707,14 +707,14 @@ function LobbyProfileCard({
         ) : null}
         {vibeLabels.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.vibeTagsScroll} contentContainerStyle={styles.vibeTagsContent}>
-            {vibeLabels.slice(0, 5).map((tag) => (
+            {vibeLabels.slice(0, 3).map((tag) => (
               <View key={tag} style={[styles.vibeTagChip, { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.12)' }]}>
                 <Text style={styles.vibeTagText}>{tag}</Text>
               </View>
             ))}
-            {vibeLabels.length > 5 && (
+            {vibeLabels.length > 3 && (
               <View style={[styles.vibeTagChip, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                <Text style={[styles.vibeTagText, { opacity: 0.8 }]}>+{vibeLabels.length - 5}</Text>
+                <Text style={[styles.vibeTagText, { opacity: 0.8 }]}>+{vibeLabels.length - 3}</Text>
               </View>
             )}
           </ScrollView>
