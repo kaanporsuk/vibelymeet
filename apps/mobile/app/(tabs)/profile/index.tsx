@@ -1264,11 +1264,7 @@ export default function ProfileScreen() {
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowVibeVideoFullscreen(false)} />
         <View style={styles.vibeVideoFullscreenContent} pointerEvents="box-none">
           {getVibeVideoPlaybackUrl(profile?.bunny_video_uid) && (
-            <VibeVideoPlayer
-              playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
-              thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
-              style={styles.vibeVideoFullscreenPlayer}
-            />
+            <VibeVideoPlayer playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!} style={styles.vibeVideoFullscreenPlayer} />
           )}
           <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
             <Ionicons name="close" size={28} color="#fff" />
@@ -1909,26 +1905,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  vibeVideoUnavailable: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    backgroundColor: '#1a1a1a',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  vibeVideoUnavailableOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  vibeVideoUnavailableText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
   vibeVideoCopy: {
     fontSize: 14,

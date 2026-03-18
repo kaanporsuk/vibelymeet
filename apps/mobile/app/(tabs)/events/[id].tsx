@@ -45,9 +45,58 @@ export default function EventDetailScreen() {
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
+
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
+
+  const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
+    id: a.id,
+    name: a.name,
+    avatarUrl: avatarUrl(a.avatar_url ?? a.photos?.[0] ?? null),
+  }));
+
+  const mutualVibes: EventVibeMutual[] = receivedVibes
+    .filter((r) => sentVibeIds.includes(r.sender_id))
+    .map((r) => ({
+      id: r.sender_id,
+      name: r.sender?.name ?? 'Unknown',
+      avatar: r.sender?.avatar_url ? avatarUrl(r.sender.avatar_url) : null,
+      age: r.sender?.age ?? 0,
+    }));
+
+  const hasSentVibe = (profileId: string) => sentVibeIds.includes(profileId);
+
+  const handleAttendeePress = useCallback(
+    async (attendee: AttendeeDisplay) => {
+      if (!user?.id || !id) return;
+      if (hasSentVibe(attendee.id)) {
+        Alert.alert(attendee.name, 'You already sent a vibe to this person.');
+        return;
+      }
+      Alert.alert(
+        'Send vibe',
+        `Send a vibe to ${attendee.name}? They'll see your interest before the event.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Send vibe',
+            onPress: async () => {
+              const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
+              if (ok) {
+                refetchSentVibes();
+                refetchReceivedVibes();
+                Alert.alert('Vibe sent! 💫', "They'll see your interest before the event.");
+              } else {
+                Alert.alert('Couldn\'t send vibe', error ?? 'Try again.');
+              }
+            },
+          },
+        ]
+      );
+    },
+    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
+  );
 
   useEffect(() => {
     if (!user?.id) return;
@@ -188,6 +237,14 @@ export default function EventDetailScreen() {
     );
   }
 
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
+      if (data?.gender) setUserGender(String(data.gender).toLowerCase());
+    })();
+  }, [user?.id]);
+
   if (error || !event) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -201,22 +258,86 @@ export default function EventDetailScreen() {
     );
   }
 
-  const evResolved = event as EventDetailsRow;
+  const ev = event as EventDetailsRow;
   const eventDate = new Date(event.event_date);
   const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const isVirtual = !evResolved.is_location_specific;
-  const isFreeResolved = evResolved.is_free !== false;
-  const priceAmountResolved = evResolved.price_amount ?? 0;
-  const userPriceResolved = isFreeResolved ? 0 : (isFemale ? priceAmountResolved * 0.6 : priceAmountResolved);
-  const maxMen = evResolved.max_male_attendees ?? Math.floor((evResolved.max_attendees ?? 50) / 2);
-  const maxWomen = evResolved.max_female_attendees ?? Math.ceil((evResolved.max_attendees ?? 50) / 2);
+  const isVirtual = !ev.is_location_specific;
+  const isFree = ev.is_free !== false;
+  const priceAmount = ev.price_amount ?? 0;
+  const isFemale = userGender === 'female' || userGender === 'woman';
+  const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
+  const maxMen = ev.max_male_attendees ?? Math.floor((ev.max_attendees ?? 50) / 2);
+  const maxWomen = ev.max_female_attendees ?? Math.ceil((ev.max_attendees ?? 50) / 2);
   const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
   const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
   const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
   const capacityStatus: 'available' | 'filling' | 'almostFull' =
     spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
   const genderLabel = isFemale ? 'Female' : 'Male';
+
+  const handleRegister = useCallback(async () => {
+    const ok = await registerForEvent(event.id);
+    if (ok) {
+      trackEvent('event_registered', {
+        event_id: event.id,
+        event_title: event.title,
+        is_free: ev.is_free !== false,
+      });
+    } else {
+      Alert.alert("Couldn't register", 'Check your connection and try again.');
+    }
+  }, [event.id, event.title, ev.is_free, registerForEvent]);
+
+  const handlePurchase = useCallback(async () => {
+    if (isFree || userPrice === 0) {
+      await handleRegister();
+      return;
+    }
+    setIsPurchasing(true);
+    try {
+      const { data: authData } = await supabase.auth.getSession();
+      if (!authData?.session) {
+        Alert.alert('Sign in required', 'Please sign in to continue.');
+        return;
+      }
+      const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
+        body: { eventId: event.id, eventTitle: event.title, price: userPrice, currency: 'eur' },
+      });
+      const result = checkout as { success?: boolean; url?: string; error?: string } | null;
+      if (checkoutError || !result?.success) {
+        Alert.alert('Payment error', result?.error ?? 'Payment failed. Try again.');
+        return;
+      }
+      if (result?.url) await Linking.openURL(result.url);
+    } finally {
+      setIsPurchasing(false);
+    }
+  }, [event.id, event.title, isFree, userPrice, handleRegister]);
+
+  const handleUnregister = useCallback(async () => {
+    const ok = await unregisterFromEvent(event.id);
+    if (ok) {
+      refetchRegistration();
+      queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
+      queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+      setShowManageBooking(false);
+    } else {
+      Alert.alert("Couldn't cancel", 'Check your connection and try again.');
+    }
+  }, [event.id, unregisterFromEvent, refetchRegistration, queryClient, id]);
+
+  const openCancelConfirm = useCallback(() => {
+    setShowManageBooking(false);
+    Alert.alert(
+      'Cancel your spot?',
+      `Release your spot for ${event.title}?`,
+      [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
+      ]
+    );
+  }, [event.title, handleUnregister]);
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
@@ -266,11 +387,11 @@ export default function EventDetailScreen() {
               {durationMin} min · {goingCount} going
             </Text>
           </View>
-          {evResolved.location_name ? (
+          {(event as EventDetailsRow).location_name ? (
             <View style={styles.venueRow}>
               <Ionicons name="location-outline" size={18} color={theme.textSecondary} />
               <Text style={[styles.venueText, { color: theme.textSecondary }]}>
-                {evResolved.location_name}
+                {(event as EventDetailsRow).location_name}
               </Text>
             </View>
           ) : null}
@@ -307,8 +428,8 @@ export default function EventDetailScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>The Venue</Text>
         <VenueCard
           isVirtual={isVirtual}
-          venueName={evResolved.location_name ?? undefined}
-          address={evResolved.location_address ?? undefined}
+          venueName={ev.location_name ?? undefined}
+          address={ev.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventId={event.id}
@@ -322,7 +443,7 @@ export default function EventDetailScreen() {
                 <Ionicons name="sparkles" size={22} color="#fff" />
               </View>
               <View style={styles.youreInText}>
-                <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
+                <Text style={[styles.youreInTitle, { color: theme.text }]}>You&apos;re in!</Text>
                 <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
               </View>
             </View>
@@ -353,7 +474,7 @@ export default function EventDetailScreen() {
       {/* Sticky bottom: pricing when not registered */}
       {!isRegistered && (
         <PricingBar
-          price={userPriceResolved}
+          price={userPrice}
           capacityStatus={capacityStatus}
           spotsLeft={Math.max(0, spotsLeft)}
           genderLabel={genderLabel}
@@ -371,9 +492,9 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (evResolved.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
-        price={userPriceResolved}
+        price={userPrice}
         isVirtual={isVirtual}
       />
 
@@ -383,7 +504,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (evResolved.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
       />

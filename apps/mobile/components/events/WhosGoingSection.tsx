@@ -35,7 +35,7 @@ export function WhosGoingSection({ attendees, totalCount, onAttendeePress }: Pro
     <View style={[styles.card, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
       <View style={styles.header}>
         <Ionicons name="people-outline" size={20} color={theme.tint} />
-        <Text style={[styles.title, { color: theme.text }]}>Who's Going</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Who&apos;s Going</Text>
       </View>
       <Text style={[styles.count, { color: theme.textSecondary }]}>{totalCount} attending</Text>
       <ScrollView
