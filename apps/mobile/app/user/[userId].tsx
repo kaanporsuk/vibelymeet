@@ -194,7 +194,7 @@ export default function PublicProfileScreen() {
             </Card>
           ) : null}
 
-          {user?.id && userId && !isUserBlocked(userId) && (
+          {user?.id && userId && userId !== user.id && !isUserBlocked(userId) && (
             <View style={[styles.actionsCard, { borderColor: theme.border }]}>
               {matchRow && (
                 <VibelyButton
