@@ -245,6 +245,86 @@ export default function EventDetailScreen() {
     })();
   }, [user?.id]);
 
+  const handleRegister = useCallback(async () => {
+    if (!event) return;
+    const ok = await registerForEvent(event.id);
+    if (ok) {
+      trackEvent('event_registered', {
+        event_id: event.id,
+        event_title: event.title,
+        is_free: (event as EventDetailsRow).is_free !== false,
+      });
+    } else {
+      Alert.alert("Couldn't register", 'Check your connection and try again.');
+    }
+  }, [event, registerForEvent]);
+
+  const handlePurchase = useCallback(async () => {
+    if (!event) return;
+    const ev = event as EventDetailsRow;
+    const isFree = ev.is_free !== false;
+    const priceAmount = ev.price_amount ?? 0;
+    const isFemale = userGender === 'female' || userGender === 'woman';
+    const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
+    if (isFree || userPrice === 0) {
+      await handleRegister();
+      return;
+    }
+    setIsPurchasing(true);
+    try {
+      const { data: authData } = await supabase.auth.getSession();
+      if (!authData?.session) {
+        Alert.alert('Sign in required', 'Please sign in to continue.');
+        return;
+      }
+      const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
+        body: { eventId: event.id, eventTitle: event.title, price: userPrice, currency: 'eur' },
+      });
+      const result = checkout as { success?: boolean; url?: string; error?: string } | null;
+      if (checkoutError || !result?.success) {
+        Alert.alert('Payment error', result?.error ?? 'Payment failed. Try again.');
+        return;
+      }
+      if (result?.url) await Linking.openURL(result.url);
+    } finally {
+      setIsPurchasing(false);
+    }
+  }, [event, userGender, handleRegister]);
+
+  const handleUnregister = useCallback(async () => {
+    if (!event) return;
+    const ok = await unregisterFromEvent(event.id);
+    if (ok) {
+      refetchRegistration();
+      queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
+      queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+      setShowManageBooking(false);
+    } else {
+      Alert.alert("Couldn't cancel", 'Check your connection and try again.');
+    }
+  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id]);
+
+  const openCancelConfirm = useCallback(() => {
+    if (!event) return;
+    setShowManageBooking(false);
+    Alert.alert(
+      'Cancel your spot?',
+      `Release your spot for ${event.title}?`,
+      [
+        { text: 'Keep', style: 'cancel' },
+        { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
+      ]
+    );
+  }, [event, handleUnregister]);
+
+  if (isLoading && !event) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        <LoadingState title="Loading event…" message="Just a sec…" />
+      </View>
+    );
+  }
+
   if (error || !event) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -275,69 +355,6 @@ export default function EventDetailScreen() {
   const capacityStatus: 'available' | 'filling' | 'almostFull' =
     spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
   const genderLabel = isFemale ? 'Female' : 'Male';
-
-  const handleRegister = useCallback(async () => {
-    const ok = await registerForEvent(event.id);
-    if (ok) {
-      trackEvent('event_registered', {
-        event_id: event.id,
-        event_title: event.title,
-        is_free: ev.is_free !== false,
-      });
-    } else {
-      Alert.alert("Couldn't register", 'Check your connection and try again.');
-    }
-  }, [event.id, event.title, ev.is_free, registerForEvent]);
-
-  const handlePurchase = useCallback(async () => {
-    if (isFree || userPrice === 0) {
-      await handleRegister();
-      return;
-    }
-    setIsPurchasing(true);
-    try {
-      const { data: authData } = await supabase.auth.getSession();
-      if (!authData?.session) {
-        Alert.alert('Sign in required', 'Please sign in to continue.');
-        return;
-      }
-      const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
-        body: { eventId: event.id, eventTitle: event.title, price: userPrice, currency: 'eur' },
-      });
-      const result = checkout as { success?: boolean; url?: string; error?: string } | null;
-      if (checkoutError || !result?.success) {
-        Alert.alert('Payment error', result?.error ?? 'Payment failed. Try again.');
-        return;
-      }
-      if (result?.url) await Linking.openURL(result.url);
-    } finally {
-      setIsPurchasing(false);
-    }
-  }, [event.id, event.title, isFree, userPrice, handleRegister]);
-
-  const handleUnregister = useCallback(async () => {
-    const ok = await unregisterFromEvent(event.id);
-    if (ok) {
-      refetchRegistration();
-      queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
-      queryClient.invalidateQueries({ queryKey: ['event-details', id] });
-      setShowManageBooking(false);
-    } else {
-      Alert.alert("Couldn't cancel", 'Check your connection and try again.');
-    }
-  }, [event.id, unregisterFromEvent, refetchRegistration, queryClient, id]);
-
-  const openCancelConfirm = useCallback(() => {
-    setShowManageBooking(false);
-    Alert.alert(
-      'Cancel your spot?',
-      `Release your spot for ${event.title}?`,
-      [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
-      ]
-    );
-  }, [event.title, handleUnregister]);
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);

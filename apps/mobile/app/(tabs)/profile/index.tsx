@@ -1258,13 +1258,18 @@ export default function ProfileScreen() {
       </Animated.View>
     </Modal>
 
-    {/* Vibe Video fullscreen — tap play on 16:9 card */}
+    {/* Vibe Video fullscreen — tap play on 16:9 card; ErrorBoundary handles Bunny 403 gracefully */}
     <Modal visible={showVibeVideoFullscreen} transparent animationType="fade">
       <View style={styles.vibeVideoFullscreenBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowVibeVideoFullscreen(false)} />
         <View style={styles.vibeVideoFullscreenContent} pointerEvents="box-none">
           {getVibeVideoPlaybackUrl(profile?.bunny_video_uid) && (
-            <VibeVideoPlayer playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!} style={styles.vibeVideoFullscreenPlayer} />
+            <VibeVideoPlayer
+              playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
+              thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
+              style={styles.vibeVideoFullscreenPlayer}
+              theme={theme}
+            />
           )}
           <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
             <Ionicons name="close" size={28} color="#fff" />
