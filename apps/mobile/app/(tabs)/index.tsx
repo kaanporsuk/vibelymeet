@@ -12,13 +12,14 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EmptyState, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText } from '@/components/ui';
+import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText } from '@/components/ui';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -40,6 +41,7 @@ import { NotificationPermissionFlow } from '@/components/notifications/Notificat
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
+import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -78,6 +80,7 @@ export default function DashboardScreen() {
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
+  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const nextEvent = nextEventData?.event ?? null;
   const isRegistered = nextEventData?.isRegistered ?? false;
@@ -194,7 +197,10 @@ export default function DashboardScreen() {
           <DashboardGreeting />
           <View style={styles.headerRight}>
           {nextReminder && nextReminder.urgency !== 'none' && (
-            <MiniDateCountdown reminder={nextReminder} onPress={() => router.push('/matches')} />
+            <MiniDateCountdown
+              reminder={nextReminder}
+              onPress={() => Linking.openURL('https://vibelymeet.com/schedule')}
+            />
           )}
           <Pressable
             onPress={handleNotificationPress}
@@ -251,7 +257,7 @@ export default function DashboardScreen() {
                 <DateReminderCard
                   key={reminder.id}
                   reminder={reminder}
-                  onJoinDate={() => router.push('/matches')}
+                  onJoinDate={() => Linking.openURL('https://vibelymeet.com/video-date')}
                   onEnableNotifications={() => router.push('/settings/notifications')}
                   notificationsEnabled={pushGranted}
                 />
@@ -308,12 +314,6 @@ export default function DashboardScreen() {
                     onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
                     style={styles.ctaFull}
                   />
-                  <Pressable
-                    onPress={() => router.push(`/events/${nextEvent.id}` as const)}
-                    style={({ pressed }) => [styles.liveDetailsLink, pressed && { opacity: 0.75 }]}
-                  >
-                    <Text style={[styles.liveDetailsLinkText, { color: theme.tint }]}>View event details</Text>
-                  </Pressable>
                 </View>
               </View>
             </View>
@@ -361,30 +361,65 @@ export default function DashboardScreen() {
                       </View>
                     ))}
                   </View>
-                  <View style={styles.ctaWrap}>
-                    <VibelyButton
-                      label={isRegistered ? 'View event' : 'View & Register'}
-                      onPress={() => router.push(`/events/${nextEvent.id}` as const)}
-                      variant={isRegistered ? 'primary' : 'secondary'}
-                      size={isRegistered ? 'default' : 'sm'}
-                      style={styles.ctaFull}
-                    />
-                  </View>
+                  {!isRegistered && (
+                    <View style={styles.ctaWrap}>
+                      <VibelyButton
+                        label="View & Register"
+                        onPress={() => router.push(`/events/${nextEvent.id}` as const)}
+                        variant="secondary"
+                        size="sm"
+                        style={styles.ctaFull}
+                      />
+                    </View>
+                  )}
                 </View>
               </Pressable>
             </View>
           ) : null}
 
           {!nextEvent && !loading && (
-            <Card variant="glass" style={styles.emptyCardWrap}>
-              <EmptyState
-                title="No upcoming events"
-                message=""
-                actionLabel="Browse Events"
-                onActionPress={() => router.push('/events')}
-                showIllustration={false}
-              />
+            <Card variant="glass" style={styles.emptyNoEvents}>
+              <Text style={[styles.emptyNoEventsText, { color: theme.textSecondary }]}>No upcoming events</Text>
+              <Pressable onPress={() => router.push('/events')} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
+                <Text style={[styles.emptyNoEventsBtn, { color: theme.tint }]}>Browse Events</Text>
+              </Pressable>
             </Card>
+          )}
+
+          {otherCities.length > 0 && (
+            <View
+              style={[
+                styles.otherCitiesCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: withAlpha(theme.tint, 0.2) },
+              ]}
+            >
+              <View style={styles.otherCitiesRow}>
+                <Text style={styles.otherCitiesEmoji}>💎</Text>
+                <View style={styles.otherCitiesCopy}>
+                  <Text style={[styles.otherCitiesTitle, { color: theme.text }]}>
+                    {otherCities.reduce((sum, c) => sum + Number(c.event_count), 0)} events in {otherCities.length}{' '}
+                    {otherCities.length === 1 ? 'city' : 'cities'}
+                  </Text>
+                  <Text style={[styles.otherCitiesSub, { color: theme.textSecondary }]}>
+                    {otherCities
+                      .slice(0, 3)
+                      .map((c) => c.city)
+                      .join(' · ')}
+                    {otherCities.length > 3 ? ` + ${otherCities.length - 3} more` : ''}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() => router.push('/events')}
+                  style={({ pressed }) => [
+                    styles.otherCitiesCta,
+                    { borderColor: withAlpha(theme.tint, 0.3) },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={[styles.otherCitiesCtaText, { color: theme.tint }]}>Go Premium →</Text>
+                </Pressable>
+              </View>
+            </View>
           )}
 
           {/* Your Matches — web parity: horizontal avatars + "X new" pill + See all */}
@@ -393,8 +428,13 @@ export default function DashboardScreen() {
               <View style={styles.sectionTitleRow}>
                 <VibelyText variant="titleMD" style={styles.sectionTitle}>Your Matches</VibelyText>
                 {!loading && newMatchCount > 0 && (
-                  <View style={[styles.newPill, { backgroundColor: withAlpha(theme.accent, 0.2), borderColor: withAlpha(theme.accent, 0.45) }]}>
-                    <Text style={[styles.newPillText, { color: theme.accent }]}>{newMatchCount} new</Text>
+                  <View
+                  style={[
+                    styles.newPill,
+                    { backgroundColor: withAlpha(theme.neonPink, 0.2), borderColor: withAlpha(theme.neonPink, 0.35) },
+                  ]}
+                >
+                    <Text style={[styles.newPillText, { color: theme.neonPink }]}>{newMatchCount} new</Text>
                   </View>
                 )}
               </View>
@@ -431,15 +471,17 @@ export default function DashboardScreen() {
                 ))}
               </ScrollView>
             ) : (
-              <Card variant="glass" style={styles.emptyCardWrap}>
-                <EmptyState
-                  title="No matches yet"
-                  message="Join an event to start connecting!"
-                  actionLabel="Browse Events →"
-                  onActionPress={() => router.push('/events')}
-                  showIllustration={false}
-                />
-              </Card>
+              <View style={styles.matchesEmpty}>
+                <Text style={[styles.matchesEmptyText, { color: theme.textSecondary }]}>
+                  No matches yet. Join an event to start connecting!
+                </Text>
+                <Pressable
+                  onPress={() => router.push('/events')}
+                  style={({ pressed }) => [styles.matchesEmptyBtn, { borderColor: theme.border }, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={[styles.matchesEmptyBtnText, { color: theme.text }]}>Browse Events →</Text>
+                </Pressable>
+              </View>
             )}
           </View>
 
@@ -588,8 +630,25 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     bottom: spacing.lg,
   },
-  liveDetailsLink: { alignSelf: 'center', marginTop: spacing.md, paddingVertical: spacing.sm },
-  liveDetailsLinkText: { fontSize: 14, fontWeight: '600' },
+  emptyNoEvents: { padding: spacing.xl, alignItems: 'center', borderRadius: radius['2xl'] },
+  emptyNoEventsText: { fontSize: 14, marginBottom: spacing.sm },
+  emptyNoEventsBtn: { fontSize: 14, fontWeight: '600', marginTop: spacing.xs },
+  otherCitiesCard: {
+    padding: spacing.lg,
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+  },
+  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  otherCitiesEmoji: { fontSize: 20 },
+  otherCitiesCopy: { flex: 1, minWidth: 0 },
+  otherCitiesTitle: { fontSize: 14, fontWeight: '600' },
+  otherCitiesSub: { fontSize: 12, marginTop: 2 },
+  otherCitiesCta: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: radius.md, borderWidth: 1 },
+  otherCitiesCtaText: { fontSize: 12, fontWeight: '600' },
+  matchesEmpty: { alignItems: 'center', paddingVertical: spacing.lg, width: '100%' },
+  matchesEmptyText: { fontSize: 14, textAlign: 'center', marginBottom: spacing.sm },
+  matchesEmptyBtn: { paddingVertical: 8, paddingHorizontal: spacing.lg, borderRadius: radius.lg, borderWidth: 1 },
+  matchesEmptyBtnText: { fontSize: 14, fontWeight: '600' },
   eventCard: {
     borderRadius: radius['2xl'],
     borderWidth: 1,
