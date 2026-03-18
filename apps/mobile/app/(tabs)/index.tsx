@@ -19,12 +19,26 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
 import Colors from '@/constants/Colors';
-import { Card, Avatar, VibelyButton, GlassHeaderBar, SectionHeader, EventCardSkeleton, MatchAvatarSkeleton, DiscoverCardSkeleton, VibelyText, ErrorState } from '@/components/ui';
+import {
+  Card,
+  Avatar,
+  VibelyButton,
+  GlassHeaderBar,
+  SectionHeader,
+  EventCardSkeleton,
+  MatchAvatarSkeleton,
+  DiscoverCardSkeleton,
+  VibelyText,
+  ErrorState,
+  EmptyState,
+} from '@/components/ui';
+import { LinearGradient } from 'expo-linear-gradient';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
-import { spacing, radius, typography, layout, shadows } from '@/constants/theme';
+import { spacing, radius, typography, layout, shadows, gradient } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
+import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvents';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl } from '@/lib/imageUrl';
@@ -103,7 +117,6 @@ export default function DashboardScreen() {
     },
     [activeSession?.sessionId, user?.id],
   );
-  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const nextEvent = nextEventData?.event ?? null;
   const isRegistered = nextEventData?.isRegistered ?? false;
@@ -429,13 +442,13 @@ export default function DashboardScreen() {
                 <Text style={styles.otherCitiesEmoji}>💎</Text>
                 <View style={styles.otherCitiesCopy}>
                   <Text style={[styles.otherCitiesTitle, { color: theme.text }]}>
-                    {otherCities.reduce((sum, c) => sum + Number(c.event_count), 0)} events in {otherCities.length}{' '}
-                    {otherCities.length === 1 ? 'city' : 'cities'}
+                    {otherCities.reduce((sum: number, c: OtherCityEvent) => sum + Number(c.event_count), 0)} events in{' '}
+                    {otherCities.length} {otherCities.length === 1 ? 'city' : 'cities'}
                   </Text>
                   <Text style={[styles.otherCitiesSub, { color: theme.textSecondary }]}>
                     {otherCities
                       .slice(0, 3)
-                      .map((c) => c.city)
+                      .map((c: OtherCityEvent) => c.city)
                       .join(' · ')}
                     {otherCities.length > 3 ? ` + ${otherCities.length - 3} more` : ''}
                   </Text>
@@ -486,7 +499,7 @@ export default function DashboardScreen() {
                   >
                     {m.isNew ? (
                       <LinearGradient
-                        colors={[...gradient.primary]}
+                        colors={[gradient.primary[0], gradient.primary[1]]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.matchAvatarGradientRing}
@@ -739,6 +752,24 @@ const styles = StyleSheet.create({
   countdownValue: { fontSize: 20 },
   countdownLabel: { fontSize: 10, marginTop: 2, letterSpacing: 0.5 },
   emptyCardWrap: { paddingVertical: spacing.xl, alignItems: 'center' },
+  otherCitiesCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  otherCitiesEmoji: { fontSize: 28 },
+  otherCitiesCopy: { flex: 1, minWidth: 0 },
+  otherCitiesTitle: { fontSize: 15, fontWeight: '700' },
+  otherCitiesSub: { fontSize: 13, marginTop: 4 },
+  otherCitiesCta: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
   matchRow: { flexDirection: 'row', gap: spacing.lg, paddingVertical: spacing.sm, paddingRight: spacing.lg },
   matchItem: { alignItems: 'center', gap: spacing.sm, minWidth: 64 },
   matchName: { fontWeight: '600', fontSize: 12, maxWidth: 64 },

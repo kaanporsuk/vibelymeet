@@ -6,7 +6,7 @@ import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { spacing } from '@/constants/theme';
+import { spacing, radius, layout } from '@/constants/theme';
 import { trackEvent } from '@/lib/analytics';
 import { Ionicons } from '@expo/vector-icons';
 
