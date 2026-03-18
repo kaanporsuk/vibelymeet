@@ -199,6 +199,7 @@ export async function createProfile(data: {
   /** Onboarding Step 6 values; stored as looking_for. */
   relationship_intent?: string;
   birth_date?: string | null;
+  photos?: string[] | null;
 }): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -224,6 +225,8 @@ export async function createProfile(data: {
     about_me: data.about_me ?? null,
     height_cm: data.height_cm ?? null,
     looking_for: lookingFor,
+    photos: data.photos?.length ? data.photos : null,
+    avatar_url: data.photos?.[0] ?? null,
   });
   if (error) throw error;
   // Initialize user_credits like web onboarding

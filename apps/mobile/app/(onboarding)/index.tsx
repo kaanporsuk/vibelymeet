@@ -9,13 +9,18 @@ import {
   Platform,
   Linking,
   View as RNView,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { createProfile } from '@/lib/profileApi';
 import { supabase } from '@/lib/supabase';
+import { uploadProfilePhoto } from '@/lib/uploadImage';
+import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
@@ -50,7 +55,8 @@ const GENDERS = [
 ];
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
+const MAX_ONBOARDING_PHOTOS = 6;
 
 const INTENT_OPTIONS = [
   { value: 'long_term', label: 'Long-term relationship', emoji: '💕' },
@@ -78,6 +84,8 @@ export default function OnboardingScreen() {
   const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
   const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
   const [relationshipIntent, setRelationshipIntent] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -94,6 +102,8 @@ export default function OnboardingScreen() {
   const dobValid = dobFilled && isValidDateOfBirth(d, m, y);
   const dobAge = dobValid ? calculateAge(d, m, y) : null;
   const step1AgeOk = dobAge !== null && dobAge >= 18;
+  const aboutMeTrim = aboutMe.trim();
+  const aboutMeValid = aboutMeTrim.length === 0 || aboutMeTrim.length >= 10;
 
   const canNext =
     step === 0
@@ -106,18 +116,31 @@ export default function OnboardingScreen() {
             ? selectedVibeIds.length >= 3
             : step === 4
               ? !!relationshipIntent
+              : step === 5
+              ? !!(
+                  name.trim() &&
+                  gender &&
+                  dobFilled &&
+                  dobValid &&
+                  step1AgeOk &&
+                  aboutMeValid
+                )
               : false;
-  const aboutMeTrim = aboutMe.trim();
-  const aboutMeValid = aboutMeTrim.length === 0 || aboutMeTrim.length >= 10;
+  const detailsComplete =
+    !!(
+      name.trim() &&
+      gender &&
+      dobFilled &&
+      dobValid &&
+      step1AgeOk &&
+      aboutMeValid
+    );
   const canSubmit =
-    step === 5 &&
-    name.trim() &&
-    gender &&
-    dobFilled &&
-    dobValid &&
-    step1AgeOk &&
-    aboutMeValid &&
-    !loading;
+    step === 6 &&
+    detailsComplete &&
+    photos.length >= 2 &&
+    !loading &&
+    !uploadingPhoto;
 
   const handleNext = () => {
     if (step === 0) setStep(1);
@@ -139,6 +162,39 @@ export default function OnboardingScreen() {
       setStep(4);
     } else if (step === 4 && relationshipIntent) {
       setStep(5);
+    } else if (step === 5 && canNext) {
+      setStep(6);
+    }
+  };
+
+  const pickAndUploadPhoto = async () => {
+    if (photos.length >= MAX_ONBOARDING_PHOTOS || uploadingPhoto) return;
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow photo library access to add profile photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [3, 4],
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    setUploadingPhoto(true);
+    try {
+      const path = await uploadProfilePhoto({
+        uri: asset.uri,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        fileName: `onboarding_${Date.now()}.jpg`,
+      });
+      setPhotos((prev) => (prev.length >= MAX_ONBOARDING_PHOTOS ? prev : [...prev, path]));
+    } catch {
+      Alert.alert('Upload failed', 'Please try again.');
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -158,6 +214,7 @@ export default function OnboardingScreen() {
         about_me: aboutMeTrim || undefined,
         height_cm: heightCm ? Number(heightCm) : undefined,
         relationship_intent: relationshipIntent || undefined,
+        photos: photos.length > 0 ? photos : undefined,
       });
       const {
         data: { user },
@@ -226,7 +283,7 @@ export default function OnboardingScreen() {
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {step > 0 && step <= 5 && (
+        {step > 0 && step <= 6 && (
           <Text style={[styles.stepProgress, { color: theme.mutedForeground }]}>
             Step {step + 1} of {TOTAL_STEPS}
           </Text>
@@ -565,18 +622,89 @@ export default function OnboardingScreen() {
               editable={!loading}
             />
             <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
-              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
+              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Vibe video on web</Text>
               <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
-                Profile photos, vibes, and vibe video are available on the full site. Finish there for the best experience.
+                Record your vibe video and fine-tune your profile on the full site anytime.
               </Text>
               <VibelyButton
-                label="Complete on web"
+                label="Open web profile"
                 onPress={() => Linking.openURL(WEB_PROFILE_URL)}
                 variant="secondary"
                 size="sm"
                 style={styles.webFallbackBtn}
               />
             </Card>
+            <VibelyButton
+              label="Continue"
+              onPress={handleNext}
+              disabled={!canNext}
+              variant="primary"
+              style={styles.button}
+            />
+            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
+              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
+            </Pressable>
+          </>
+        )}
+
+        {/* Step 6: Photos — web Step 7 parity */}
+        {step === 6 && (
+          <>
+            <Text style={[styles.title, { color: theme.text }]}>Add your photos</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              Add at least 2 photos so people can see the real you.
+            </Text>
+            <RNView style={styles.photoGrid}>
+              {[0, 1, 2, 3, 4, 5].map((i) => {
+                const photoPath = photos[i];
+                const isNextSlot = i === photos.length;
+                const showSpinner = uploadingPhoto && isNextSlot;
+                const canAddHere =
+                  isNextSlot && photos.length < MAX_ONBOARDING_PHOTOS && !uploadingPhoto;
+                return (
+                  <Pressable
+                    key={i}
+                    onPress={() => {
+                      if (canAddHere) pickAndUploadPhoto();
+                    }}
+                    disabled={!photoPath && !canAddHere}
+                    style={[
+                      styles.photoSlot,
+                      {
+                        borderStyle: photoPath ? 'solid' : 'dashed',
+                        borderColor: photoPath ? theme.border : theme.mutedForeground,
+                        backgroundColor: photoPath ? 'transparent' : theme.surfaceSubtle,
+                      },
+                    ]}
+                  >
+                    {photoPath ? (
+                      <Image
+                        source={{ uri: getImageUrl(photoPath, undefined, 'profile_photo') }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="cover"
+                      />
+                    ) : showSpinner ? (
+                      <ActivityIndicator color={theme.tint} />
+                    ) : (
+                      <Ionicons name="add" size={28} color={theme.mutedForeground} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </RNView>
+            <Text
+              style={[
+                styles.photoMinHint,
+                {
+                  color: photos.length >= 2 ? theme.success : theme.mutedForeground,
+                },
+              ]}
+            >
+              {photos.length}/2 minimum added
+            </Text>
+            <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
+              Optional: add up to {MAX_ONBOARDING_PHOTOS} photos. Vibe video is available on web.
+            </Text>
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
@@ -585,7 +713,7 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
+            <Pressable style={styles.backBtn} onPress={() => setStep(5)} disabled={loading || uploadingPhoto}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
@@ -683,4 +811,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 12,
   },
+  photoGrid: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 20,
+  },
+  photoSlot: {
+    width: '30%' as const,
+    aspectRatio: 3 / 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden' as const,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+  },
+  photoMinHint: { fontSize: 12, marginTop: 12 },
 });
