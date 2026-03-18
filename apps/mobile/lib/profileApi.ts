@@ -168,11 +168,22 @@ export async function updateMyProfile(updates: Partial<{
 }
 
 /** Create/upsert profile during onboarding. Same contract as web createProfile. */
+function formatLocationFromCityCountry(city?: string | null, country?: string | null): string | null {
+  const c = (city ?? '').trim();
+  const co = (country ?? '').trim();
+  if (c && co) return `${c}, ${co}`;
+  if (c) return c;
+  if (co) return co;
+  return null;
+}
+
 export async function createProfile(data: {
   name: string;
   gender: string;
   tagline?: string | null;
   location?: string | null;
+  city?: string | null;
+  country?: string | null;
   job?: string | null;
   about_me?: string | null;
   looking_for?: string | null;
@@ -182,6 +193,9 @@ export async function createProfile(data: {
   if (!user) throw new Error('Not authenticated');
   const age = data.birth_date ? calculateAge(new Date(data.birth_date)) : 18;
   if (age < 18) throw new Error('Must be 18 or older');
+  const location =
+    data.location?.trim() || formatLocationFromCityCountry(data.city, data.country);
+  const countryVal = (data.country ?? '').trim() || null;
   const { error } = await supabase.from('profiles').upsert({
     id: user.id,
     name: data.name || '',
@@ -189,7 +203,8 @@ export async function createProfile(data: {
     age,
     birth_date: data.birth_date || null,
     tagline: data.tagline ?? null,
-    location: data.location ?? null,
+    location,
+    country: countryVal,
     job: data.job ?? null,
     about_me: data.about_me ?? null,
     looking_for: data.looking_for ?? null,

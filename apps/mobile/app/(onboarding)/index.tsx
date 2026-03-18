@@ -50,6 +50,7 @@ const GENDERS = [
 ];
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
+const TOTAL_STEPS = 4;
 
 export default function OnboardingScreen() {
   const theme = Colors[useColorScheme()];
@@ -64,6 +65,8 @@ export default function OnboardingScreen() {
   const [tagline, setTagline] = useState('');
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
+  const [city, setCity] = useState('');
+  const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(false);
 
   const dobFilled = dobDay.length > 0 && dobMonth.length > 0 && dobYear.length === 4;
@@ -75,8 +78,15 @@ export default function OnboardingScreen() {
   const step1AgeOk = dobAge !== null && dobAge >= 18;
 
   const canNext =
-    step === 0 ? true : step === 1 ? name.trim().length >= 2 && dobFilled && dobValid && step1AgeOk : true;
-  const canSubmit = step === 2 && name.trim() && gender && dobFilled && dobValid && step1AgeOk && !loading;
+    step === 0
+      ? true
+      : step === 1
+        ? name.trim().length >= 2 && dobFilled && dobValid && step1AgeOk
+        : step === 2
+          ? true
+          : true;
+  const canSubmit =
+    step === 3 && name.trim() && gender && dobFilled && dobValid && step1AgeOk && !loading;
 
   const handleNext = () => {
     if (step === 0) setStep(1);
@@ -92,6 +102,8 @@ export default function OnboardingScreen() {
         return;
       }
       if (name.trim().length >= 2) setStep(2);
+    } else if (step === 2) {
+      setStep(3);
     }
   };
 
@@ -104,6 +116,8 @@ export default function OnboardingScreen() {
         name: name.trim(),
         gender,
         birth_date,
+        city: city.trim() || undefined,
+        country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
         about_me: aboutMe.trim() || null,
@@ -162,6 +176,11 @@ export default function OnboardingScreen() {
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        {step > 0 && step <= 3 && (
+          <Text style={[styles.stepProgress, { color: theme.mutedForeground }]}>
+            Step {step + 1} of {TOTAL_STEPS}
+          </Text>
+        )}
         {step === 0 && (
           <View style={styles.welcomeBlock}>
             <View style={[styles.welcomeIcon, { backgroundColor: theme.tint }]}>
@@ -254,8 +273,55 @@ export default function OnboardingScreen() {
           </>
         )}
 
-        {/* Step 2: Details + Complete — web "Tell us a bit more" + Complete Profile */}
+        {/* Step 2: Location — optional; web Step 2 parity */}
         {step === 2 && (
+          <>
+            <Text style={[styles.title, { color: theme.text }]}>Where are you based?</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              We&apos;ll show you events and people near you.
+            </Text>
+            <TextInput
+              placeholder="City (e.g., London, Istanbul)"
+              value={city}
+              onChangeText={setCity}
+              style={[
+                styles.input,
+                {
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            <TextInput
+              placeholder="Country"
+              value={country}
+              onChangeText={setCountry}
+              style={[
+                styles.input,
+                {
+                  borderColor: theme.border,
+                  color: theme.text,
+                  backgroundColor: theme.background,
+                },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
+              You can update your location anytime in settings.
+            </Text>
+            <VibelyButton label="Continue" onPress={handleNext} variant="primary" style={styles.button} />
+            <Pressable style={styles.backBtn} onPress={() => setStep(1)} disabled={loading}>
+              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
+            </Pressable>
+          </>
+        )}
+
+        {/* Step 3: Details + Complete — web "Tell us a bit more" + Complete Profile */}
+        {step === 3 && (
           <>
             <Text style={[styles.title, { color: theme.text }]}>Tell us a bit more</Text>
             <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
@@ -329,7 +395,7 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(1)} disabled={loading}>
+            <Pressable style={styles.backBtn} onPress={() => setStep(2)} disabled={loading}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
@@ -343,6 +409,7 @@ const styles = StyleSheet.create({
   ageBlockedRoot: { flex: 1 },
   kav: { flex: 1 },
   scroll: { padding: spacing.lg, paddingBottom: 48 },
+  stepProgress: { fontSize: 12, fontWeight: '600', marginBottom: 8 },
   inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   dobRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   dobInput: {
