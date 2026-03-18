@@ -106,6 +106,13 @@ export default function EventDetailScreen() {
     })();
   }, [user?.id]);
 
+  // Derived values for callbacks (event may be undefined until loaded)
+  const ev = event as EventDetailsRow | undefined;
+  const isFree = ev?.is_free !== false;
+  const priceAmount = ev?.price_amount ?? 0;
+  const isFemale = userGender === 'female' || userGender === 'woman';
+  const userPrice = !event || isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
+
   const handleRegister = useCallback(async () => {
     if (!event) return;
     const ok = await registerForEvent(event.id);
@@ -113,20 +120,15 @@ export default function EventDetailScreen() {
       trackEvent('event_registered', {
         event_id: event.id,
         event_title: event.title,
-        is_free: (event as EventDetailsRow).is_free !== false,
+        is_free: ev?.is_free !== false,
       });
     } else {
       Alert.alert("Couldn't register", 'Check your connection and try again.');
     }
-  }, [event, registerForEvent]);
+  }, [event, ev?.is_free, registerForEvent]);
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;
-    const ev = event as EventDetailsRow;
-    const isFree = ev.is_free !== false;
-    const priceAmount = ev.price_amount ?? 0;
-    const isFemale = userGender === 'female' || userGender === 'woman';
-    const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
     if (isFree || userPrice === 0) {
       await handleRegister();
       return;
@@ -150,7 +152,7 @@ export default function EventDetailScreen() {
     } finally {
       setIsPurchasing(false);
     }
-  }, [event, userGender, handleRegister]);
+  }, [event, isFree, userPrice, handleRegister]);
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
@@ -200,17 +202,13 @@ export default function EventDetailScreen() {
     );
   }
 
-  const ev = event as EventDetailsRow;
+  const eventRow = event as EventDetailsRow;
   const eventDate = new Date(event.event_date);
   const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const isVirtual = !ev.is_location_specific;
-  const isFree = ev.is_free !== false;
-  const priceAmount = ev.price_amount ?? 0;
-  const isFemale = userGender === 'female' || userGender === 'woman';
-  const userPrice = isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
-  const maxMen = ev.max_male_attendees ?? Math.floor((ev.max_attendees ?? 50) / 2);
-  const maxWomen = ev.max_female_attendees ?? Math.ceil((ev.max_attendees ?? 50) / 2);
+  const isVirtual = !eventRow.is_location_specific;
+  const maxMen = eventRow.max_male_attendees ?? Math.floor((eventRow.max_attendees ?? 50) / 2);
+  const maxWomen = eventRow.max_female_attendees ?? Math.ceil((eventRow.max_attendees ?? 50) / 2);
   const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
   const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
   const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
@@ -266,11 +264,11 @@ export default function EventDetailScreen() {
               {durationMin} min · {goingCount} going
             </Text>
           </View>
-          {(event as EventDetailsRow).location_name ? (
+          {eventRow.location_name ? (
             <View style={styles.venueRow}>
               <Ionicons name="location-outline" size={18} color={theme.textSecondary} />
               <Text style={[styles.venueText, { color: theme.textSecondary }]}>
-                {(event as EventDetailsRow).location_name}
+                {eventRow.location_name}
               </Text>
             </View>
           ) : null}
@@ -307,8 +305,8 @@ export default function EventDetailScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>The Venue</Text>
         <VenueCard
           isVirtual={isVirtual}
-          venueName={ev.location_name ?? undefined}
-          address={ev.location_address ?? undefined}
+          venueName={eventRow.location_name ?? undefined}
+          address={eventRow.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventId={event.id}
@@ -371,7 +369,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         price={userPrice}
         isVirtual={isVirtual}
@@ -383,7 +381,7 @@ export default function EventDetailScreen() {
         eventTitle={event.title}
         eventDate={dateStr}
         eventTime={timeStr}
-        venue={isVirtual ? 'Digital Lobby' : (ev.location_name ?? 'TBA')}
+        venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
       />
