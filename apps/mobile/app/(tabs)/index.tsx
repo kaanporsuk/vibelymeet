@@ -39,8 +39,28 @@ import { usePushPermission } from '@/lib/usePushPermission';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withAlpha } from '@/lib/colorUtils';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
+
+function PulsingLiveDot({ color }: { color: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.35, duration: 750, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: 750, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [scale]);
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+    </Animated.View>
+  );
+}
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -233,7 +253,7 @@ export default function DashboardScreen() {
                   reminder={reminder}
                   onJoinDate={() => router.push('/matches')}
                   onEnableNotifications={() => router.push('/settings/notifications')}
-                  notificationsEnabled={false}
+                  notificationsEnabled={pushGranted}
                 />
               ))}
             </View>
@@ -246,11 +266,56 @@ export default function DashboardScreen() {
             </Card>
           )}
 
-          {/* Next Event card — web parity: cover, title/date, countdown, CTA */}
+          {/* Live event — web SECTION 1: dedicated card, pulsing LIVE, gradient CTA (not merged with countdown) */}
           {loading && !nextEvent ? (
             <View style={styles.section}>
               <SectionHeader title="Next Event" />
               <EventCardSkeleton />
+            </View>
+          ) : isLiveEvent && isRegistered && nextEvent ? (
+            <View style={styles.section}>
+              <SectionHeader title="Live Now" />
+              <View
+                style={[
+                  styles.liveEventShell,
+                  {
+                    backgroundColor: theme.surfaceSubtle,
+                    borderColor: withAlpha(theme.danger, 0.4),
+                  },
+                  shadows.glowPink,
+                ]}
+              >
+                <View style={styles.liveEventMediaTall}>
+                  <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} resizeMode="cover" />
+                  <View style={styles.liveEventGradient} />
+                  <View style={[styles.liveBadge, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
+                    <PulsingLiveDot color={theme.danger} />
+                    <Text style={[styles.liveBadgeText, { color: theme.danger }]}>Live Now</Text>
+                  </View>
+                  <View style={styles.liveEventTextBlock}>
+                    <VibelyText variant="titleLG" color="#fff" style={[styles.eventCardTitleShadow, { fontSize: 22 }]} numberOfLines={2}>
+                      {nextEvent.title}
+                    </VibelyText>
+                    <View style={styles.liveSubline}>
+                      <Ionicons name="people" size={14} color="rgba(255,255,255,0.9)" />
+                      <Text style={styles.liveSublineText}>People vibing right now</Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={[styles.eventCardBody, { paddingTop: spacing.lg }]}>
+                  <VibelyButton
+                    label="Enter Lobby →"
+                    onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
+                    style={styles.ctaFull}
+                  />
+                  <Pressable
+                    onPress={() => router.push(`/events/${nextEvent.id}` as const)}
+                    style={({ pressed }) => [styles.liveDetailsLink, pressed && { opacity: 0.75 }]}
+                  >
+                    <Text style={[styles.liveDetailsLinkText, { color: theme.tint }]}>View event details</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
           ) : nextEvent ? (
             <View style={styles.section}>
@@ -261,7 +326,6 @@ export default function DashboardScreen() {
                   styles.eventCard,
                   { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
                   shadows.card,
-                  isLiveEvent && isRegistered && shadows.glowPink,
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel={`Next event: ${nextEvent.title}`}
@@ -269,13 +333,7 @@ export default function DashboardScreen() {
                 <View style={styles.eventCardMedia}>
                   <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.eventCardImage} resizeMode="cover" />
                   <View style={[styles.eventCardOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]} />
-                  {isLiveEvent && isRegistered && (
-                    <View style={[styles.liveBadge, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
-                      <Ionicons name="radio" size={14} color={theme.danger} />
-                      <Text style={[styles.liveBadgeText, { color: theme.danger }]}>Live Now</Text>
-                    </View>
-                  )}
-                  {!isLiveEvent && isRegistered && (
+                  {isRegistered && (
                     <View style={[styles.registeredBadge, { backgroundColor: 'rgba(0,229,255,0.2)', borderColor: theme.neonCyan }]}>
                       <Text style={[styles.registeredText, { color: theme.neonCyan }]}>✓ Registered</Text>
                     </View>
@@ -285,47 +343,32 @@ export default function DashboardScreen() {
                       {nextEvent.title}
                     </VibelyText>
                     <Text style={[styles.eventCardDate, { color: 'rgba(255,255,255,0.88)' }]}>{nextEvent.date}</Text>
-                    {isLiveEvent && isRegistered && (
-                      <View style={styles.liveSubline}>
-                        <Ionicons name="people" size={14} color="rgba(255,255,255,0.85)" />
-                        <Text style={styles.liveSublineText}>People vibing right now</Text>
-                      </View>
-                    )}
                   </View>
                 </View>
                 <View style={styles.eventCardBody}>
-                  {!isLiveEvent && (
-                    <View style={styles.countdownRow}>
-                      {[
-                        { value: countdown.days, label: 'DAYS' },
-                        { value: countdown.hours, label: 'HRS' },
-                        { value: countdown.minutes, label: 'MIN' },
-                        { value: countdown.seconds, label: 'SEC' },
-                      ].map((item, i) => (
-                        <View key={i} style={[styles.countdownBlock, { backgroundColor: theme.secondary }]}>
-                          <VibelyText variant="titleMD" color={theme.tint} style={styles.countdownValue}>
-                            {String(item.value).padStart(2, '0')}
-                          </VibelyText>
-                          <Text style={[styles.countdownLabel, { color: theme.textSecondary }]}>{item.label}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+                  <View style={styles.countdownRow}>
+                    {[
+                      { value: countdown.days, label: 'DAYS' },
+                      { value: countdown.hours, label: 'HRS' },
+                      { value: countdown.minutes, label: 'MIN' },
+                      { value: countdown.seconds, label: 'SEC' },
+                    ].map((item, i) => (
+                      <View key={i} style={[styles.countdownBlock, { backgroundColor: theme.secondary }]}>
+                        <VibelyText variant="titleMD" color={theme.tint} style={styles.countdownValue}>
+                          {String(item.value).padStart(2, '0')}
+                        </VibelyText>
+                        <Text style={[styles.countdownLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                      </View>
+                    ))}
+                  </View>
                   <View style={styles.ctaWrap}>
-                    {isLiveEvent && isRegistered ? (
-                      <VibelyButton
-                        label="Enter Lobby →"
-                        onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
-                      />
-                    ) : (
-                      <VibelyButton
-                        label={isRegistered ? 'View event' : 'View & Register'}
-                        onPress={() => router.push(`/events/${nextEvent.id}` as const)}
-                        variant={isRegistered ? 'primary' : 'secondary'}
-                        size={isRegistered ? 'default' : 'sm'}
-                        style={styles.ctaFull}
-                      />
-                    )}
+                    <VibelyButton
+                      label={isRegistered ? 'View event' : 'View & Register'}
+                      onPress={() => router.push(`/events/${nextEvent.id}` as const)}
+                      variant={isRegistered ? 'primary' : 'secondary'}
+                      size={isRegistered ? 'default' : 'sm'}
+                      style={styles.ctaFull}
+                    />
                   </View>
                 </View>
               </Pressable>
@@ -336,8 +379,8 @@ export default function DashboardScreen() {
             <Card variant="glass" style={styles.emptyCardWrap}>
               <EmptyState
                 title="No upcoming events"
-                message="Discover events and register to see them here."
-                actionLabel="Browse Events →"
+                message=""
+                actionLabel="Browse Events"
                 onActionPress={() => router.push('/events')}
                 showIllustration={false}
               />
@@ -350,7 +393,7 @@ export default function DashboardScreen() {
               <View style={styles.sectionTitleRow}>
                 <VibelyText variant="titleMD" style={styles.sectionTitle}>Your Matches</VibelyText>
                 {!loading && newMatchCount > 0 && (
-                  <View style={[styles.newPill, { backgroundColor: theme.accentSoft, borderColor: theme.accent }]}>
+                  <View style={[styles.newPill, { backgroundColor: withAlpha(theme.accent, 0.2), borderColor: withAlpha(theme.accent, 0.45) }]}>
                     <Text style={[styles.newPillText, { color: theme.accent }]}>{newMatchCount} new</Text>
                   </View>
                 )}
@@ -392,7 +435,7 @@ export default function DashboardScreen() {
                 <EmptyState
                   title="No matches yet"
                   message="Join an event to start connecting!"
-                  actionLabel="Browse Events"
+                  actionLabel="Browse Events →"
                   onActionPress={() => router.push('/events')}
                   showIllustration={false}
                 />
@@ -450,7 +493,7 @@ export default function DashboardScreen() {
               <View style={[styles.upcomingEmpty, { borderColor: theme.border }]}>
                 <Text style={[styles.upcomingEmptyText, { color: theme.textSecondary }]}>No upcoming events</Text>
                 <Pressable onPress={() => router.push('/events')} style={styles.upcomingEmptyLink}>
-                  <Text style={[styles.upcomingEmptyLinkText, { color: theme.tint }]}>Browse events</Text>
+                  <Text style={[styles.upcomingEmptyLinkText, { color: theme.tint }]}>Browse Events</Text>
                   <Ionicons name="chevron-forward" size={14} color={theme.tint} />
                 </Pressable>
               </View>
@@ -529,6 +572,24 @@ const styles = StyleSheet.create({
   upcomingEmptyText: { fontSize: 14 },
   upcomingEmptyLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   upcomingEmptyLinkText: { fontSize: 12, fontWeight: '600' },
+  liveEventShell: {
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  liveEventMediaTall: { minHeight: 200, position: 'relative' },
+  liveEventGradient: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  liveEventTextBlock: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.lg,
+  },
+  liveDetailsLink: { alignSelf: 'center', marginTop: spacing.md, paddingVertical: spacing.sm },
+  liveDetailsLinkText: { fontSize: 14, fontWeight: '600' },
   eventCard: {
     borderRadius: radius['2xl'],
     borderWidth: 1,

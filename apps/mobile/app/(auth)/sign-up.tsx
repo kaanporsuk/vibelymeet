@@ -33,7 +33,8 @@ export default function SignUpScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 24 }]}>
-      <Text style={[styles.title, { color: theme.text }]}>Vibely — Sign up</Text>
+      <Text style={[styles.brand, { color: theme.text }]}>Vibely</Text>
+      <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Create your account to get started.</Text>
       <TextInput
         style={[styles.input, { borderColor: theme.border, color: theme.text }]}
         placeholder="Email"
@@ -67,7 +68,8 @@ export default function SignUpScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center' },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: spacing.xl },
+  brand: { fontSize: 28, fontWeight: '800', marginBottom: spacing.sm, textAlign: 'center' },
+  subtitle: { fontSize: 15, marginBottom: spacing.xl, textAlign: 'center', lineHeight: 22 },
   input: { borderWidth: 1, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.input, minHeight: layout.inputHeight },
   button: { paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.button, alignItems: 'center', marginTop: spacing.sm },
   buttonDisabled: { opacity: 0.6 },

@@ -19,6 +19,7 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
+/** Mirrors web DashboardGreeting calculateCompleteness (Profile.tsx checks). */
 function calculateCompleteness(profile: ProfileRow | null): number {
   if (!profile) return 0;
   const checks = [
@@ -28,7 +29,8 @@ function calculateCompleteness(profile: ProfileRow | null): number {
     !!profile.about_me,
     !!profile.job,
     !!profile.location,
-    (profile.interested_in?.length ?? 0) >= 1,
+    (profile.vibes?.length ?? 0) >= 1 || (profile.interested_in?.length ?? 0) >= 1,
+    (profile.prompts?.length ?? 0) >= 1,
     !!profile.looking_for,
     !!profile.tagline,
   ];
