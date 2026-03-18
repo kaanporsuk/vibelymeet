@@ -76,15 +76,16 @@ export default function OnboardingScreen() {
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.title, { color: theme.text }]}>
-          {step === 0 ? "What's your name?" : 'Tell us a bit about you'}
-        </Text>
-
         {step === 0 && (
           <>
+            <Text style={[styles.title, { color: theme.text }]}>Let's get to know you</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              The basics first, then the fun stuff
+            </Text>
+            <Text style={[styles.label, { color: theme.text, marginTop: 8 }]}>First Name</Text>
             <TextInput
               style={[styles.input, { borderColor: theme.border, color: theme.text }]}
-              placeholder="Your name"
+              placeholder="Your first name"
               placeholderTextColor={theme.textSecondary}
               value={name}
               onChangeText={setName}
@@ -97,6 +98,10 @@ export default function OnboardingScreen() {
 
         {step === 1 && (
           <>
+            <Text style={[styles.title, { color: theme.text }]}>Tell us a bit more</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              Optional details — you can edit these anytime
+            </Text>
             <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
             <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (
@@ -178,7 +183,8 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   kav: { flex: 1 },
   scroll: { padding: spacing.lg, paddingBottom: 48 },
-  title: { fontSize: 22, fontWeight: '700', marginBottom: 24 },
+  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
+  stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
   input: { borderWidth: 1, padding: 12, borderRadius: radius.lg, marginBottom: 12 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },

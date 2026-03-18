@@ -320,7 +320,7 @@ export default function EventDetailScreen() {
                 <Ionicons name="sparkles" size={22} color="#fff" />
               </View>
               <View style={styles.youreInText}>
-                <Text style={[styles.youreInTitle, { color: theme.text }]}>You&apos;re in!</Text>
+                <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
                 <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
               </View>
             </View>
