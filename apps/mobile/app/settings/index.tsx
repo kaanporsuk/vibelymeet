@@ -191,7 +191,7 @@ export default function SettingsScreen() {
               <SettingsRow
                 icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
                 title="How Vibely Works"
-                onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works').catch(() => {})}
+                onPress={() => router.push('/how-it-works' as import('expo-router').Href)}
               />
               <SettingsRow
                 icon={<Ionicons name="shield-checkmark" size={20} color={theme.neonCyan} />}

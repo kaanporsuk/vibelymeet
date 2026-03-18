@@ -12,7 +12,6 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
-  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,7 +29,7 @@ import { eventCoverUrl } from '@/lib/imageUrl';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateProposals } from '@/lib/useDateProposals';
-import { useDateReminders } from '@/lib/useDateReminders';
+import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
 import { endVideoDate } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
@@ -82,6 +81,27 @@ export default function DashboardScreen() {
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
+
+  const handleDateJoinReminder = useCallback(
+    async (reminder: DateReminder) => {
+      if (activeSession?.sessionId) {
+        router.push(`/date/${activeSession.sessionId}` as const);
+        return;
+      }
+      if (reminder.matchId && user?.id) {
+        const { data } = await supabase
+          .from('matches')
+          .select('profile_id_1, profile_id_2')
+          .eq('id', reminder.matchId)
+          .maybeSingle();
+        if (data) {
+          const pid = data.profile_id_1 === user.id ? data.profile_id_2 : data.profile_id_1;
+          router.push(`/chat/${pid}` as const);
+        }
+      }
+    },
+    [activeSession?.sessionId, user?.id],
+  );
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const nextEvent = nextEventData?.event ?? null;
@@ -201,7 +221,7 @@ export default function DashboardScreen() {
           {nextReminder && nextReminder.urgency !== 'none' && (
             <MiniDateCountdown
               reminder={nextReminder}
-              onPress={() => Linking.openURL('https://vibelymeet.com/schedule')}
+              onPress={() => router.push('/schedule' as import('expo-router').Href)}
             />
           )}
           <Pressable
@@ -259,7 +279,7 @@ export default function DashboardScreen() {
                 <DateReminderCard
                   key={reminder.id}
                   reminder={reminder}
-                  onJoinDate={() => Linking.openURL('https://vibelymeet.com/video-date')}
+                  onJoinDate={() => handleDateJoinReminder(reminder)}
                   onEnableNotifications={() => router.push('/settings/notifications')}
                   notificationsEnabled={pushGranted}
                 />

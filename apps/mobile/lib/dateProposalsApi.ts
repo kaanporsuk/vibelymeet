@@ -83,6 +83,7 @@ export function useCreateDateProposal() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['date-proposals'] });
+      qc.invalidateQueries({ queryKey: ['schedule-proposals-full'] });
       qc.invalidateQueries({ queryKey: ['messages'] });
     },
   });

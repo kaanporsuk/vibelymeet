@@ -77,7 +77,7 @@ export default function PremiumScreen() {
       const result = await purchasePackage(pkg);
       if (result.success) {
         await refetch();
-        Alert.alert('You\'re Premium ✨', 'Enjoy unlimited swipes, who liked you, and more.');
+        router.push('/subscription-success' as import('expo-router').Href);
       } else if (result.error && !result.error.includes('cancelled') && !result.error.includes('Cancel')) {
         setError(result.error);
       }
