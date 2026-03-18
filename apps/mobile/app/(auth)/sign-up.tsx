@@ -45,13 +45,7 @@ export default function SignUpScreen() {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 24 },
-      ]}
-    >
-      <View style={GLOW_STYLE} pointerEvents="none" />
+    <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 24 }]}>
       <Text style={[styles.brand, { color: theme.text }]}>Vibely</Text>
       <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Create your account to get started.</Text>
       <TextInput
@@ -79,19 +73,8 @@ export default function SignUpScreen() {
         secureTextEntry
         editable={!loading}
       />
-      {fieldError ? (
-        <Text style={[styles.inlineError, { color: theme.danger }]}>{fieldError}</Text>
-      ) : null}
-      <Pressable
-        style={[styles.button, { backgroundColor: theme.tint }, loading && styles.buttonDisabled]}
-        onPress={handleSignUp}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Create Account</Text>
-        )}
+      <Pressable style={[styles.button, { backgroundColor: theme.tint }, loading && styles.buttonDisabled]} onPress={handleSignUp} disabled={loading}>
+        <Text style={styles.buttonText}>{loading ? 'Creating account…' : 'Create Account'}</Text>
       </Pressable>
       <Link href="/(auth)/sign-in" asChild>
         <Pressable disabled={loading}>
@@ -111,17 +94,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, justifyContent: 'center' },
   brand: { fontSize: 28, fontWeight: '800', marginBottom: spacing.sm, textAlign: 'center' },
   subtitle: { fontSize: 15, marginBottom: spacing.xl, textAlign: 'center', lineHeight: 22 },
-  input: { borderWidth: 1, padding: 14, marginBottom: spacing.md, borderRadius: 16, minHeight: 48 },
-  inlineError: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-    marginTop: -spacing.xs,
-  },
-  button: { paddingVertical: 16, paddingHorizontal: spacing.xl, borderRadius: 16, alignItems: 'center', marginTop: spacing.sm, minHeight: 56 },
+  input: { borderWidth: 1, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.input, minHeight: layout.inputHeight },
+  button: { paddingVertical: 14, paddingHorizontal: spacing.xl, borderRadius: radius.button, alignItems: 'center', marginTop: spacing.sm },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 18 },
-  link: { marginTop: spacing.sm, fontSize: 14, textAlign: 'center' },
+  link: { marginTop: spacing.sm, fontSize: 14 },
   footer: { marginTop: spacing.xl, paddingHorizontal: spacing.lg },
   footerText: { fontSize: 12, textAlign: 'center', lineHeight: 18 },
 });
