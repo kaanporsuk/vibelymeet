@@ -1268,7 +1268,6 @@ export default function ProfileScreen() {
               playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
               thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
               style={styles.vibeVideoFullscreenPlayer}
-              theme={theme}
             />
           )}
           <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
@@ -1840,6 +1839,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
+  },
+  vibeVideoUnavailable: {
+    width: '100%',
+    height: 200,
+    borderRadius: 16,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  vibeVideoUnavailableOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  vibeVideoUnavailableText: {
+    fontSize: 13,
+    marginTop: 8,
   },
   vibeVideoPlayOverlay: {
     ...StyleSheet.absoluteFillObject,
