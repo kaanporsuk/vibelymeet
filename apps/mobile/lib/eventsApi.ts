@@ -125,10 +125,42 @@ export async function fetchVisibleEventsList(userId: string, isPremium: boolean)
  */
 export function useEvents(userId: string | null | undefined, isPremium: boolean) {
   return useQuery({
-    queryKey: ['events', userId, isPremium],
-    queryFn: async () => {
-      if (!userId) return [];
-      return fetchVisibleEventsList(userId, isPremium);
+    queryKey: ['events'],
+    queryFn: async (): Promise<EventListItem[]> => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
+        .order('event_date', { ascending: true });
+      if (error) throw error;
+      const rows = (data ?? []) as EventRow[];
+      return rows
+        .filter((e) =>
+          isEventVisible({
+            event_date: e.event_date,
+            duration_minutes: e.duration_minutes,
+            status: e.status,
+          })
+        )
+        .map((e) => {
+          const eventDate = new Date(e.event_date);
+          const durationMs = (e.duration_minutes || 60) * 60 * 1000;
+          const end = new Date(eventDate.getTime() + durationMs);
+          const now = new Date();
+          const isLive = now >= eventDate && now < end;
+          return {
+            id: e.id,
+            title: e.title,
+            description: e.description,
+            image: e.cover_image,
+            date: formatEventDate(eventDate),
+            time: formatEventTime(eventDate),
+            attendees: e.current_attendees ?? 0,
+            tags: e.tags ?? [],
+            status: isLive ? 'live' : (e.status || 'upcoming'),
+            eventDate,
+            duration_minutes: e.duration_minutes ?? 60,
+          };
+        });
     },
     enabled: !!userId,
   });

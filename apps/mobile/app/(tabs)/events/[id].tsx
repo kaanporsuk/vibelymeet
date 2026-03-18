@@ -351,9 +351,7 @@ export default function EventDetailScreen() {
               </View>
               <View style={styles.youreInText}>
                 <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
-                <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                  {eventEnded ? 'This event has ended' : eventLive ? 'Lobby is open' : 'See you there'}
-                </Text>
+                <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
               </View>
             </View>
             {eventEnded ? (
@@ -361,7 +359,7 @@ export default function EventDetailScreen() {
             ) : eventLive ? (
               <VibelyButton
                 label="Enter Lobby →"
-                variant="gradient"
+                variant="primary"
                 onPress={() => router.push(`/event/${event.id}/lobby` as const)}
                 style={styles.cta}
               />

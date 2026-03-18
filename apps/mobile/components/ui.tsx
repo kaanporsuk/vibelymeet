@@ -490,14 +490,8 @@ export function VibelyButton({
     >
       <Animated.View
         style={[
-          { transform: [{ scale: scaleAnim }] },
-          base,
-          {
-            backgroundColor,
-            borderWidth,
-            borderColor,
-          },
-          style,
+          { color: labelColor, fontWeight: '600', fontSize: 14 },
+          textStyle as TextStyle,
         ]}
       >
         {loading ? <ActivityIndicator color={labelColor} /> : null}

@@ -591,8 +591,7 @@ export default function EventsListScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { isPremium } = useBackendSubscription(user?.id);
-  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null, isPremium);
+  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -901,7 +900,7 @@ export default function EventsListScreen() {
                       <VibelyButton
                         label="Explore with Premium →"
                         onPress={() => router.push('/premium')}
-                        variant="gradient"
+                        variant="primary"
                         size="sm"
                         style={styles.premiumCardCta}
                       />
