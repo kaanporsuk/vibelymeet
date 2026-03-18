@@ -72,30 +72,31 @@ export default function EventDetailScreen() {
   const handleAttendeePress = useCallback(
     async (attendee: AttendeeDisplay) => {
       if (!user?.id || !id) return;
+      const viewProfile = () => router.push(`/user/${attendee.id}` as const);
       if (hasSentVibe(attendee.id)) {
-        Alert.alert(attendee.name, 'You already sent a vibe to this person.');
+        Alert.alert(attendee.name, 'You already sent a vibe.', [
+          { text: 'View profile', onPress: viewProfile },
+          { text: 'OK', style: 'cancel' },
+        ]);
         return;
       }
-      Alert.alert(
-        'Send vibe',
-        `Send a vibe to ${attendee.name}? They'll see your interest before the event.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Send vibe',
-            onPress: async () => {
-              const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
-              if (ok) {
-                refetchSentVibes();
-                refetchReceivedVibes();
-                Alert.alert('Vibe sent! 💫', "They'll see your interest before the event.");
-              } else {
-                Alert.alert('Couldn\'t send vibe', error ?? 'Try again.');
-              }
-            },
+      Alert.alert(attendee.name, `Send a vibe or view ${attendee.name}'s profile.`, [
+        { text: 'View profile', onPress: viewProfile },
+        {
+          text: 'Send vibe',
+          onPress: async () => {
+            const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
+            if (ok) {
+              refetchSentVibes();
+              refetchReceivedVibes();
+              Alert.alert('Vibe sent! 💫', "They'll see your interest before the event.");
+            } else {
+              Alert.alert('Couldn\'t send vibe', error ?? 'Try again.');
+            }
           },
-        ]
-      );
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
     },
     [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
   );
@@ -316,7 +317,14 @@ export default function EventDetailScreen() {
         <WhosGoingSection
           attendees={attendeeDisplays}
           totalCount={Math.max(event.current_attendees ?? 0, attendeeDisplays.length)}
-          onAttendeePress={isRegistered ? handleAttendeePress : undefined}
+          onAttendeePress={(attendee) => {
+            if (attendee.id === user?.id) return;
+            if (!isRegistered) {
+              router.push(`/user/${attendee.id}` as const);
+              return;
+            }
+            handleAttendeePress(attendee);
+          }}
         />
 
         {isRegistered && mutualVibes.length > 0 && (

@@ -2164,6 +2164,10 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
+      mark_match_messages_read: {
+        Args: { p_match_id: string }
+        Returns: undefined
+      }
       update_participant_status: {
         Args: { p_event_id: string; p_status: string; p_user_id: string }
         Returns: undefined

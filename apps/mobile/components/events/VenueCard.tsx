@@ -112,7 +112,7 @@ export function VenueCard({
           )}
         </View>
         {eventStatus === 'live' && isRegistered ? (
-          <VibelyButton label="Enter Lobby" onPress={onEnterLobby} variant="primary" style={styles.cta} />
+          <VibelyButton label="Enter Lobby" onPress={onEnterLobby} variant="gradient" style={styles.cta} />
         ) : eventStatus === 'ended' ? (
           <VibelyButton label="Event Ended" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
         ) : isRegistered ? (

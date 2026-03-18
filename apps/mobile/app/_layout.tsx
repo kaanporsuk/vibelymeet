@@ -162,6 +162,11 @@ function RootLayoutNav() {
         <Stack.Screen name="vibe-video-record" options={{ headerShown: false, title: 'Record Vibe Video' }} />
         <Stack.Screen name="user/[userId]" options={{ headerShown: false, title: 'Profile' }} />
         <Stack.Screen name="match-celebration" options={{ headerShown: false, title: "It's a match!" }} />
+        <Stack.Screen name="schedule" options={{ headerShown: false, title: 'Schedule' }} />
+        <Stack.Screen name="subscription-success" options={{ headerShown: false, title: 'Success' }} />
+        <Stack.Screen name="credits-success" options={{ headerShown: false, title: 'Success' }} />
+        <Stack.Screen name="event-payment-success" options={{ headerShown: false, title: 'Success' }} />
+        <Stack.Screen name="how-it-works" options={{ headerShown: false, title: 'How It Works' }} />
       </Stack>
     </ThemeProvider>
   );

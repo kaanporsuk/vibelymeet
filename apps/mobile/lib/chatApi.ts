@@ -212,6 +212,12 @@ export function useSendMessage() {
   });
 }
 
+/** Mark partner's unread messages read (SECURITY DEFINER RPC — RLS blocks direct UPDATE on others' rows). */
+export async function markMatchMessagesRead(matchId: string): Promise<void> {
+  const { error } = await supabase.rpc('mark_match_messages_read', { p_match_id: matchId });
+  if (error) throw error;
+}
+
 export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
   const qc = useQueryClient();
   const invalidate = useCallback(() => {

@@ -26,6 +26,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useIsRegisteredForEvent, useEventAttendees, type EventListItem, type EventAttendee } from '@/lib/eventsApi';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';

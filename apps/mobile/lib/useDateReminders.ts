@@ -9,6 +9,7 @@ import type { DateProposal } from '@/lib/useDateProposals';
 export type DateReminder = {
   id: string;
   proposalId: string;
+  matchId?: string;
   matchName: string;
   matchAvatar?: string;
   date: Date;
@@ -68,6 +69,7 @@ export function useDateReminders(upcomingDates: DateProposal[]) {
         return {
           id: `reminder-${p.id}`,
           proposalId: p.id,
+          matchId: p.matchId,
           matchName: p.senderName ?? 'Your match',
           matchAvatar: p.senderAvatar,
           date: p.date,

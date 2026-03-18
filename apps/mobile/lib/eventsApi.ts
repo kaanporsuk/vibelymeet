@@ -58,7 +58,72 @@ export type EventListItem = {
   duration_minutes: number;
 };
 
-export function useEvents(userId: string | null | undefined) {
+/** Row shape from get_visible_events RPC (web parity). */
+type VisibleEventRpcRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  cover_image: string;
+  event_date: string;
+  duration_minutes: number;
+  max_attendees: number;
+  current_attendees: number;
+  tags: string[] | null;
+  status: string;
+  computed_status?: string | null;
+};
+
+function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
+  const eventDate = new Date(row.event_date);
+  const durationMs = (row.duration_minutes || 60) * 60 * 1000;
+  const now = new Date();
+  const isLive = now >= eventDate && now < new Date(eventDate.getTime() + durationMs);
+  const rawStatus = row.computed_status ?? row.status ?? 'upcoming';
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    image: row.cover_image,
+    date: formatEventDate(eventDate),
+    time: formatEventTime(eventDate),
+    attendees: row.current_attendees ?? 0,
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    status: isLive ? 'live' : rawStatus,
+    eventDate,
+    duration_minutes: row.duration_minutes ?? 60,
+  };
+}
+
+/** Same RPC as web `useVisibleEvents` — used for list + dashboard fallback. */
+export async function fetchVisibleEventsList(userId: string, isPremium: boolean): Promise<EventListItem[]> {
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('location_data')
+    .eq('id', userId)
+    .maybeSingle();
+  if (profileError) {
+    if (__DEV__) console.warn('[eventsApi] profile location fetch failed:', profileError.message);
+  }
+  const loc = profile?.location_data as { lat?: number; lng?: number } | null;
+  const { data, error } = await supabase.rpc('get_visible_events', {
+    p_user_id: userId,
+    p_user_lat: loc?.lat ?? undefined,
+    p_user_lng: loc?.lng ?? undefined,
+    p_is_premium: isPremium,
+    p_browse_lat: null,
+    p_browse_lng: null,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as VisibleEventRpcRow[];
+  return rows
+    .map(visibleRpcRowToListItem)
+    .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime());
+}
+
+/**
+ * Event browse list — same RPC as web (city/radius, premium scope, visibility rules).
+ */
+export function useEvents(userId: string | null | undefined, isPremium: boolean) {
   return useQuery({
     queryKey: ['events'],
     queryFn: async (): Promise<EventListItem[]> => {
@@ -97,7 +162,7 @@ export function useEvents(userId: string | null | undefined) {
           };
         });
     },
-    enabled: true,
+    enabled: !!userId,
   });
 }
 
@@ -154,10 +219,10 @@ export type NextRegisteredEventResult = {
   isRegistered: boolean;
 };
 
-/** Next event for dashboard — web parity: user's next registered event (or first upcoming if none). */
-export function useNextRegisteredEvent(userId: string | null | undefined) {
+/** Next event for dashboard — web parity: user's next registered event (or first visible upcoming if none). */
+export function useNextRegisteredEvent(userId: string | null | undefined, isPremium: boolean) {
   return useQuery({
-    queryKey: ['next-registered-event', userId],
+    queryKey: ['next-registered-event', userId, isPremium],
     enabled: !!userId,
     queryFn: async (): Promise<NextRegisteredEventResult> => {
       if (!userId) return { event: null, isRegistered: false };
@@ -171,7 +236,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined) {
       if (regError) throw regError;
       const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean);
       if (eventIds.length === 0) {
-        const first = await fetchFirstUpcomingEvent();
+        const first = await fetchFirstUpcomingVisibleEvent(userId, isPremium);
         return { event: first, isRegistered: false };
       }
 
@@ -207,7 +272,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined) {
           isRegistered: true,
         };
       }
-      const first = await fetchFirstUpcomingEvent();
+      const first = await fetchFirstUpcomingVisibleEvent(userId, isPremium);
       return { event: first, isRegistered: false };
     },
   });
@@ -235,29 +300,14 @@ function rowToEventListItem(
   };
 }
 
-async function fetchFirstUpcomingEvent(): Promise<EventListItem | null> {
-  const { data, error } = await supabase
-    .from('events')
-    .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
-    .order('event_date', { ascending: true })
-    .limit(20);
-  if (error) throw error;
-  const rows = (data ?? []) as EventRow[];
+async function fetchFirstUpcomingVisibleEvent(userId: string, isPremium: boolean): Promise<EventListItem | null> {
+  const list = await fetchVisibleEventsList(userId, isPremium);
   const now = new Date();
-  const active = rows.filter((e) => {
-    if (e.status === 'cancelled' || e.status === 'draft') return false;
-    const eventDate = new Date(e.event_date);
-    const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
-    const eventEnd = new Date(eventDate.getTime() + durationMs);
-    return now < eventEnd;
-  });
-  if (active.length === 0) return null;
-  const e = active[0];
-  const eventDate = new Date(e.event_date);
-  const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
-  const end = new Date(eventDate.getTime() + durationMs);
-  const isLive = now >= eventDate && now < end;
-  return rowToEventListItem(e, eventDate, isLive);
+  for (const item of list) {
+    const end = new Date(item.eventDate.getTime() + item.duration_minutes * 60 * 1000);
+    if (now < end) return item;
+  }
+  return null;
 }
 
 export function useRegisterForEvent() {

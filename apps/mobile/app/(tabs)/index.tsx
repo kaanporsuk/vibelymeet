@@ -25,12 +25,13 @@ import { spacing, radius, typography, layout, shadows } from '@/constants/theme'
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl } from '@/lib/imageUrl';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateProposals } from '@/lib/useDateProposals';
-import { useDateReminders } from '@/lib/useDateReminders';
+import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
 import { endVideoDate } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
@@ -74,11 +75,34 @@ export default function DashboardScreen() {
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
-  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id);
+  const { isPremium } = useBackendSubscription(user?.id);
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id ?? null, isPremium);
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
-  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id);
+  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, isPremium);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
+  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
+
+  const handleDateJoinReminder = useCallback(
+    async (reminder: DateReminder) => {
+      if (activeSession?.sessionId) {
+        router.push(`/date/${activeSession.sessionId}` as const);
+        return;
+      }
+      if (reminder.matchId && user?.id) {
+        const { data } = await supabase
+          .from('matches')
+          .select('profile_id_1, profile_id_2')
+          .eq('id', reminder.matchId)
+          .maybeSingle();
+        if (data) {
+          const pid = data.profile_id_1 === user.id ? data.profile_id_2 : data.profile_id_1;
+          router.push(`/chat/${pid}` as const);
+        }
+      }
+    },
+    [activeSession?.sessionId, user?.id],
+  );
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const nextEvent = nextEventData?.event ?? null;
@@ -443,7 +467,7 @@ export default function DashboardScreen() {
               </View>
               <Pressable onPress={() => router.push('/matches')} style={styles.seeAll}>
                 <Text style={[styles.seeAllText, { color: theme.tint }]}>See all</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                <Ionicons name="chevron-forward" size={14} color={theme.tint} />
               </Pressable>
             </View>
             {loading ? (
@@ -510,7 +534,7 @@ export default function DashboardScreen() {
               action={
                 <Pressable onPress={() => router.push('/events')} style={styles.seeAll}>
                   <Text style={[styles.seeAllText, { color: theme.tint }]}>All events</Text>
-                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                  <Ionicons name="chevron-forward" size={14} color={theme.tint} />
                 </Pressable>
               }
             />
@@ -669,14 +693,18 @@ const styles = StyleSheet.create({
   },
   registeredBadge: {
     position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    paddingHorizontal: spacing.sm,
+    top: 12,
+    right: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: radius.pill,
+    borderRadius: 999,
     borderWidth: 1,
+    backgroundColor: 'hsla(187, 94%, 43%, 0.2)',
+    borderColor: 'hsla(187, 94%, 43%, 0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  registeredText: { fontSize: 12, fontWeight: '600' },
+  registeredText: { fontSize: 12, fontWeight: '500' },
   liveBadge: {
     position: 'absolute',
     top: spacing.md,
@@ -702,9 +730,9 @@ const styles = StyleSheet.create({
   ctaFull: { alignSelf: 'stretch' },
   countdownRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   countdownBlock: {
-    minWidth: 56,
+    width: 56,
     height: 56,
-    borderRadius: 12,
+    borderRadius: radius.xl,
     alignItems: 'center',
     justifyContent: 'center',
   },

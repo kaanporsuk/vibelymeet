@@ -75,7 +75,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
 
   return (
     <Modal transparent visible animationType="fade">
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.88)' }]}>
+      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]}>
         <View style={styles.content}>
           {/* Pulsing rings */}
           <View style={styles.ringWrap}>

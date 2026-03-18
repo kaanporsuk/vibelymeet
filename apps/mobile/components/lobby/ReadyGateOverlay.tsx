@@ -43,7 +43,7 @@ export function ReadyGateOverlay({ partnerName, partnerImageUri, onReady, onClos
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.72)' }]} pointerEvents="auto">
+      <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]} pointerEvents="auto">
         <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
           <View style={styles.ringWrap}>
             <Svg width={RING_SIZE} height={RING_SIZE} style={styles.ringSvg}>

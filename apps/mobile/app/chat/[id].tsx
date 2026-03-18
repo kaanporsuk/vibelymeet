@@ -38,6 +38,7 @@ import {
   useSendVoiceMessage,
   useSendChatVideoMessage,
   useRealtimeMessages,
+  markMatchMessagesRead,
   useTypingBroadcast,
   useMatches,
   type ChatMessage,
@@ -56,7 +57,13 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { DateSuggestionSheet } from '@/components/chat/DateSuggestionSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
-import { useCreateDateProposal } from '@/lib/dateProposalsApi';
+import {
+  useCreateDateProposal,
+  useChatDateProposals,
+  useRespondToDateProposal,
+  getTimeBlockLabel,
+  type TimeBlock,
+} from '@/lib/dateProposalsApi';
 import { useMatchCall } from '@/lib/useMatchCall';
 import { useIsOffline } from '@/lib/useNetworkStatus';
 import { avatarUrl } from '@/lib/imageUrl';
@@ -135,6 +142,22 @@ export default function ChatThreadScreen() {
   const listRef = useRef<FlatList>(null);
   const isSending = sending || sendingVoice || sendingVideo;
   const { mutateAsync: createDateProposal } = useCreateDateProposal();
+  const { data: chatDateProposals = [] } = useChatDateProposals(data?.matchId ?? null, user?.id, !!data?.matchId && !!user?.id);
+  const { mutateAsync: respondToProposal, isPending: respondingProposal } = useRespondToDateProposal();
+  const pendingDateProposalsForMe = chatDateProposals.filter(
+    (p) => p.recipient_id === user?.id && p.status === 'pending'
+  );
+
+  useEffect(() => {
+    const mid = data?.matchId;
+    if (!mid) return;
+    const t = setTimeout(() => {
+      markMatchMessagesRead(mid)
+        .then(() => refetch())
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [data?.matchId, data?.messages?.length, refetch]);
 
   const {
     isRinging,
@@ -672,6 +695,58 @@ export default function ChatThreadScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          ListHeaderComponent={
+            pendingDateProposalsForMe.length > 0 ? (
+              <View style={styles.proposalBanners}>
+                {pendingDateProposalsForMe.map((p) => (
+                  <View
+                    key={p.id}
+                    style={[styles.proposalBanner, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+                  >
+                    <Text style={[styles.proposalBannerTitle, { color: theme.text }]}>Date suggestion</Text>
+                    <Text style={[styles.proposalBannerMeta, { color: theme.textSecondary }]}>
+                      {new Date(p.proposed_date).toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                      })}{' '}
+                      · {getTimeBlockLabel(p.time_block as TimeBlock)} · {p.activity}
+                    </Text>
+                    <View style={styles.proposalBannerActions}>
+                      <Pressable
+                        onPress={() =>
+                          respondToProposal({ proposalId: p.id, accept: true }).catch(() =>
+                            Alert.alert('Error', 'Could not accept.')
+                          )
+                        }
+                        disabled={respondingProposal}
+                        style={({ pressed }) => [
+                          styles.proposalBtn,
+                          { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
+                        ]}
+                      >
+                        <Text style={styles.proposalBtnLabelLight}>Accept</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() =>
+                          respondToProposal({ proposalId: p.id, accept: false }).catch(() =>
+                            Alert.alert('Error', 'Could not decline.')
+                          )
+                        }
+                        disabled={respondingProposal}
+                        style={({ pressed }) => [
+                          styles.proposalBtnOutline,
+                          { borderColor: theme.border, opacity: pressed ? 0.85 : 1 },
+                        ]}
+                      >
+                        <Text style={[styles.proposalBtnLabel, { color: theme.textSecondary }]}>Decline</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <Text style={[styles.empty, { color: theme.textSecondary }]}>
               No messages yet. Say hi!
@@ -842,6 +917,25 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, marginTop: 2 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
+  proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
+  proposalBanner: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+  },
+  proposalBannerTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  proposalBannerMeta: { fontSize: 13, lineHeight: 18 },
+  proposalBannerActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  proposalBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' },
+  proposalBtnOutline: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  proposalBtnLabelLight: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  proposalBtnLabel: { fontWeight: '600', fontSize: 15 },
   keyboard: { flex: 1 },
   list: {
     paddingHorizontal: layout.containerPadding,

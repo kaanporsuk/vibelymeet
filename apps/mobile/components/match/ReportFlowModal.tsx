@@ -162,7 +162,7 @@ export function ReportFlowModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: spacing.lg },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: spacing.lg },
   card: { borderRadius: radius['2xl'], borderWidth: 1, padding: spacing.lg, maxHeight: '80%' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   title: { fontSize: 18, fontWeight: '700' },

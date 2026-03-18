@@ -167,7 +167,7 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified }: PhoneVer
     <Modal transparent visible animationType="slide">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
-          <View style={[styles.handle, { backgroundColor: theme.mutedForeground }]} />
+          <View style={[styles.handle, { backgroundColor: theme.muted }]} />
           <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
             {step === 'phone' && 'Verify Phone'}
             {step === 'otp' && 'Enter Code'}
@@ -258,9 +258,9 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified }: PhoneVer
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: radius['2xl'], borderTopRightRadius: radius['2xl'], paddingHorizontal: spacing.lg, paddingBottom: spacing['2xl'] },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: spacing.sm, marginBottom: spacing.md },
+  handle: { width: 100, height: 8, borderRadius: 999, alignSelf: 'center', marginTop: 16, marginBottom: 12 },
   title: { marginBottom: spacing.md, textAlign: 'center' },
   iconWrap: { width: 64, height: 64, borderRadius: 32, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   hint: { textAlign: 'center', marginBottom: spacing.md },

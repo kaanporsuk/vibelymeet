@@ -200,12 +200,13 @@ export default function EventLobbyScreen() {
           const old = payload.old as Record<string, unknown> | null;
           const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
           if (!isParticipant) return;
+          void refetchDeck();
+          refreshQueueAndSuperVibe();
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
           if (newStatus === 'ready' && oldStatus === 'queued') {
             await openReadyGateWithSession(session.id as string);
           }
-          refreshQueueAndSuperVibe();
         }
       )
       .on(
@@ -215,17 +216,18 @@ export default function EventLobbyScreen() {
           const session = payload.new as Record<string, unknown>;
           const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
           if (!isParticipant) return;
+          void refetchDeck();
+          refreshQueueAndSuperVibe();
           if ((session.ready_gate_status as string) === 'ready') {
             await openReadyGateWithSession(session.id as string);
           }
-          refreshQueueAndSuperVibe();
         }
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck]);
 
   const eventEndTime = useMemo(
     () => (event ? getEventEndTime(event.event_date, event.duration_minutes) : null),

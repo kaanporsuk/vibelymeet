@@ -40,6 +40,7 @@ export function TicketStub({
     <Modal visible transparent animationType="slide">
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
+          <View style={[styles.sheetHandle, { backgroundColor: theme.muted }]} />
           <View style={[styles.header, { backgroundColor: theme.tintSoft }]}>
             <View style={[styles.ticketIcon, { backgroundColor: theme.tint }]}>
               <Ionicons name="ticket" size={24} color="#fff" />
@@ -82,7 +83,7 @@ export function TicketStub({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'flex-end',
     padding: spacing.lg,
   },
@@ -92,6 +93,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.xl,
     paddingBottom: spacing['3xl'],
+  },
+  sheetHandle: {
+    width: 100,
+    height: 8,
+    borderRadius: 999,
+    alignSelf: 'center',
+    marginTop: 16,
+    marginBottom: 12,
   },
   header: {
     flexDirection: 'row',
