@@ -54,12 +54,62 @@ import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
-function VibeVideoPlayer({ playbackUrl, style }: { playbackUrl: string; style?: object }) {
+function VibeVideoPlaybackFallback({
+  thumbnailUrl,
+  style,
+  theme,
+}: {
+  thumbnailUrl?: string | null;
+  style?: object;
+  theme?: { textSecondary: string; surface: string };
+}) {
+  return (
+    <View style={[style, { justifyContent: 'center', alignItems: 'center', backgroundColor: theme?.surface ?? '#1a1a1a' }]}>
+      {thumbnailUrl ? (
+        <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      ) : null}
+      <View style={{ padding: 12, alignItems: 'center' }}>
+        <Text style={{ color: theme?.textSecondary ?? '#999', fontSize: 13 }}>Video preview unavailable</Text>
+      </View>
+    </View>
+  );
+}
+
+class VibeVideoErrorBoundary extends React.Component<
+  { thumbnailUrl?: string | null; style?: object; theme?: { textSecondary: string; surface: string }; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError = () => ({ hasError: true });
+  render() {
+    if (this.state.hasError) {
+      return <VibeVideoPlaybackFallback thumbnailUrl={this.props.thumbnailUrl} style={this.props.style} theme={this.props.theme} />;
+    }
+    return this.props.children;
+  }
+}
+
+function VibeVideoPlayer({
+  playbackUrl,
+  thumbnailUrl,
+  style,
+  theme,
+}: {
+  playbackUrl: string;
+  thumbnailUrl?: string | null;
+  style?: object;
+  theme?: { textSecondary: string; surface: string };
+}) {
   const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
-  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
+
+  return (
+    <VibeVideoErrorBoundary thumbnailUrl={thumbnailUrl} style={style} theme={theme}>
+      <VideoView style={style} player={player} nativeControls contentFit="contain" />
+    </VibeVideoErrorBoundary>
+  );
 }
 
 // Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
@@ -1235,13 +1285,18 @@ export default function ProfileScreen() {
       </Animated.View>
     </Modal>
 
-    {/* Vibe Video fullscreen — tap play on 16:9 card */}
+    {/* Vibe Video fullscreen — tap play on 16:9 card; ErrorBoundary handles Bunny 403 gracefully */}
     <Modal visible={showVibeVideoFullscreen} transparent animationType="fade">
       <View style={styles.vibeVideoFullscreenBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowVibeVideoFullscreen(false)} />
         <View style={styles.vibeVideoFullscreenContent} pointerEvents="box-none">
           {getVibeVideoPlaybackUrl(profile?.bunny_video_uid) && (
-            <VibeVideoPlayer playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!} style={styles.vibeVideoFullscreenPlayer} />
+            <VibeVideoPlayer
+              playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
+              thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
+              style={styles.vibeVideoFullscreenPlayer}
+              theme={theme}
+            />
           )}
           <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
             <Ionicons name="close" size={28} color="#fff" />
