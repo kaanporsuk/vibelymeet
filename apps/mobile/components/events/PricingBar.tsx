@@ -18,6 +18,8 @@ type PricingBarProps = {
   genderLabel: string;
   onPurchase: () => void;
   isPurchasing?: boolean;
+  /** Web: Sold Out when no spots */
+  soldOut?: boolean;
 };
 
 export function PricingBar({
@@ -27,11 +29,20 @@ export function PricingBar({
   genderLabel,
   onPurchase,
   isPurchasing = false,
+  soldOut = false,
 }: PricingBarProps) {
   const theme = Colors[useColorScheme()];
   const statusText =
     capacityStatus === 'almostFull' ? `Only ${spotsLeft} left!` : capacityStatus === 'filling' ? 'Filling Fast' : 'Spots Available';
   const statusColor = capacityStatus === 'almostFull' ? theme.danger : capacityStatus === 'filling' ? theme.neonYellow : theme.success;
+  const isFree = price === 0;
+  const ctaLabel = soldOut
+    ? 'Sold Out'
+    : isPurchasing
+      ? 'Processing…'
+      : isFree
+        ? 'Register'
+        : `Purchase Ticket — €${Number(price).toFixed(2)}`;
 
   return (
     <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderTopColor: theme.glassBorder }]}>
@@ -41,17 +52,21 @@ export function PricingBar({
             <Text style={[styles.price, { color: theme.text }]}>
               {price === 0 ? 'Free' : `€${Number(price).toFixed(2)}`}
             </Text>
-            <View style={[styles.badge, { backgroundColor: withAlpha(statusColor, 0.19) }]}>
-              <Text style={[styles.badgeText, { color: statusColor }]}>{statusText}</Text>
-            </View>
+            {!soldOut && (
+              <View style={[styles.badge, { backgroundColor: withAlpha(statusColor, 0.19) }]}>
+                <Text style={[styles.badgeText, { color: statusColor }]}>{statusText}</Text>
+              </View>
+            )}
           </View>
-          <Text style={[styles.genderLabel, { color: theme.textSecondary }]}>Ticket price for {genderLabel}</Text>
+          <Text style={[styles.genderLabel, { color: theme.textSecondary }]}>
+            {soldOut ? 'No spots left' : `Ticket price for ${genderLabel}`}
+          </Text>
         </View>
         <VibelyButton
-          label={isPurchasing ? 'Processing…' : 'Purchase Ticket'}
-          onPress={onPurchase}
-          loading={isPurchasing}
-          disabled={isPurchasing}
+          label={ctaLabel}
+          onPress={soldOut ? () => {} : onPurchase}
+          loading={isPurchasing && !soldOut}
+          disabled={isPurchasing || soldOut}
           variant="primary"
           size="lg"
         />

@@ -1,15 +1,19 @@
 import { Tabs } from 'expo-router';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { border, layout, radius, spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { user } = useAuth();
+  const showDailyDropDot = useDailyDropTabBadge(user?.id);
   const insets = useSafeAreaInsets();
   const tabBarContentHeight =
     Platform.OS === 'ios' ? layout.tabBarContentHeightIos : layout.tabBarContentHeightAndroid;
@@ -54,7 +58,22 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={20} />
+            <View style={{ width: 28, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+              <SymbolView name={{ ios: 'house', android: 'home', web: 'home' }} tintColor={color} size={20} />
+              {showDailyDropDot ? (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -2,
+                    right: 0,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: theme.accent,
+                  }}
+                />
+              ) : null}
+            </View>
           ),
         }}
       />

@@ -242,14 +242,14 @@ export default function MatchesListScreen() {
               <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
             </RNView>
           </RNView>
-          <RNView style={styles.tabsRow}>
-            <RNView style={[styles.tab, { backgroundColor: theme.tintSoft }]}>
-              <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.tint} />
-              <RNText style={[styles.tabLabel, { color: theme.tint }]}>Chat</RNText>
+          <RNView style={[styles.tabsContainer, { backgroundColor: theme.muted }]}>
+            <RNView style={[styles.tabTrigger, styles.tabTriggerActive, { backgroundColor: theme.background }]}>
+              <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.text} />
+              <RNText style={[styles.tabLabel, { color: theme.text, fontWeight: '600' }]}>Chat</RNText>
             </RNView>
-            <RNView style={styles.tab}>
-              <Ionicons name="water-outline" size={16} color={theme.textSecondary} />
-              <RNText style={[styles.tabLabel, { color: theme.textSecondary }]}>Daily Drop</RNText>
+            <RNView style={styles.tabTrigger}>
+              <Ionicons name="water-outline" size={16} color={theme.mutedForeground} />
+              <RNText style={[styles.tabLabel, { color: theme.mutedForeground, fontWeight: '500' }]}>Daily Drop</RNText>
             </RNView>
           </RNView>
         </GlassHeaderBar>
@@ -335,29 +335,39 @@ export default function MatchesListScreen() {
           )}
         </RNView>
 
-        {/* Tabs — web parity pill styling */}
-        <RNView style={styles.tabsRow}>
+        {/* Tabs — web shadcn TabsList (bg-muted rounded-md) + active trigger (bg-background shadow) */}
+        <RNView style={[styles.tabsContainer, { backgroundColor: theme.muted }]}>
           <Pressable
             onPress={() => setActiveTab('conversations')}
             style={({ pressed }) => [
-              styles.tab,
-              activeTab === 'conversations' && {
-                backgroundColor: theme.tintSoft,
-                borderWidth: 1,
-                borderColor: theme.tint,
-              },
-              pressed && { opacity: 0.9 },
+              styles.tabTrigger,
+              activeTab === 'conversations' && [
+                styles.tabTriggerActive,
+                { backgroundColor: theme.background },
+                Platform.OS === 'ios'
+                  ? {
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 2,
+                    }
+                  : { elevation: 2 },
+              ],
+              pressed && { opacity: 0.92 },
             ]}
           >
             <Ionicons
               name="chatbubble-ellipses-outline"
               size={16}
-              color={activeTab === 'conversations' ? theme.tint : theme.textSecondary}
+              color={activeTab === 'conversations' ? theme.text : theme.mutedForeground}
             />
             <RNText
               style={[
                 styles.tabLabel,
-                { color: activeTab === 'conversations' ? theme.tint : theme.textSecondary },
+                {
+                  color: activeTab === 'conversations' ? theme.text : theme.mutedForeground,
+                  fontWeight: activeTab === 'conversations' ? '600' : '500',
+                },
               ]}
             >
               Chat
@@ -366,24 +376,34 @@ export default function MatchesListScreen() {
           <Pressable
             onPress={() => setActiveTab('drops')}
             style={({ pressed }) => [
-              styles.tab,
-              activeTab === 'drops' && {
-                backgroundColor: theme.tintSoft,
-                borderWidth: 1,
-                borderColor: theme.tint,
-              },
-              pressed && { opacity: 0.9 },
+              styles.tabTrigger,
+              activeTab === 'drops' && [
+                styles.tabTriggerActive,
+                { backgroundColor: theme.background },
+                Platform.OS === 'ios'
+                  ? {
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 2,
+                    }
+                  : { elevation: 2 },
+              ],
+              pressed && { opacity: 0.92 },
             ]}
           >
             <Ionicons
               name="water-outline"
               size={16}
-              color={activeTab === 'drops' ? theme.tint : theme.textSecondary}
+              color={activeTab === 'drops' ? theme.text : theme.mutedForeground}
             />
             <RNText
               style={[
                 styles.tabLabel,
-                { color: activeTab === 'drops' ? theme.tint : theme.textSecondary },
+                {
+                  color: activeTab === 'drops' ? theme.text : theme.mutedForeground,
+                  fontWeight: activeTab === 'drops' ? '600' : '500',
+                },
               ]}
             >
               Daily Drop
@@ -404,7 +424,7 @@ export default function MatchesListScreen() {
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search by name or vibe..."
+                placeholder="Search by name or vibe…"
                 placeholderTextColor={theme.textSecondary}
                 style={[styles.searchInput, { color: theme.text }]}
               />
@@ -599,24 +619,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
-  tabsRow: {
+  tabsContainer: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 4,
     marginTop: spacing.sm,
+    padding: 4,
+    borderRadius: 14,
+    minHeight: 40,
+    alignItems: 'center',
   },
-  tab: {
+  tabTrigger: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 10,
   },
+  tabTriggerActive: {},
   tabLabel: {
-    fontSize: 13,
+    fontSize: 14,
     marginLeft: spacing.xs,
-    fontWeight: '600',
   },
   searchRow: {
     marginTop: spacing.sm,

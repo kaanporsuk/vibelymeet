@@ -42,6 +42,8 @@ import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
 import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
+import { LinearGradient } from 'expo-linear-gradient';
+import { gradient } from '@/constants/theme';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -457,13 +459,30 @@ export default function DashboardScreen() {
                     onPress={() => router.push(`/chat/${m.id}` as const)}
                     style={({ pressed }) => [styles.matchItem, pressed && { opacity: 0.8 }]}
                   >
-                    <View style={[styles.matchAvatarWrap, m.isNew && { borderColor: theme.tint, borderWidth: 2 }]}>
-                      <Avatar
-                        size={52}
-                        image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
-                        fallbackInitials={m.name?.[0]}
-                      />
-                    </View>
+                    {m.isNew ? (
+                      <LinearGradient
+                        colors={[...gradient.primary]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.matchAvatarGradientRing}
+                      >
+                        <View style={[styles.matchAvatarInnerCutout, { backgroundColor: theme.background }]}>
+                          <Avatar
+                            size={52}
+                            image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
+                            fallbackInitials={m.name?.[0]}
+                          />
+                        </View>
+                      </LinearGradient>
+                    ) : (
+                      <View style={[styles.matchAvatarPlainRing, { borderColor: theme.border }]}>
+                        <Avatar
+                          size={52}
+                          image={<Image source={{ uri: m.image }} style={styles.avatarImg} />}
+                          fallbackInitials={m.name?.[0]}
+                        />
+                      </View>
+                    )}
                     <VibelyText variant="body" color={theme.text} style={styles.matchName} numberOfLines={1}>
                       {m.name?.split(' ')[0] ?? 'Match'}
                     </VibelyText>
@@ -511,6 +530,7 @@ export default function DashboardScreen() {
                       styles.discoverCard,
                       { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
                       shadows.card,
+                      { minWidth: 260 },
                     ]}
                   >
                     <Image source={{ uri: eventCoverUrl(event.image) }} style={styles.discoverImage} resizeMode="cover" />
@@ -600,7 +620,20 @@ const styles = StyleSheet.create({
   },
   newPillText: { fontSize: 12, fontWeight: '600' },
   seeAll: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  matchAvatarWrap: { borderRadius: 999, padding: 2 },
+  matchAvatarGradientRing: { borderRadius: 999, padding: 2, alignSelf: 'center' },
+  matchAvatarInnerCutout: {
+    borderRadius: 999,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  matchAvatarPlainRing: {
+    borderRadius: 999,
+    borderWidth: 1,
+    padding: 2,
+    alignSelf: 'center',
+  },
   seeAllText: { fontSize: 12, fontWeight: '600' },
   upcomingEmpty: {
     paddingVertical: spacing.lg,
