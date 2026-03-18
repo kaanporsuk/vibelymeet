@@ -267,4 +267,13 @@ const styles = StyleSheet.create({
   webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
   webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
   webFallbackBtn: { alignSelf: 'flex-start' },
+  welcomeBlock: { alignItems: 'center', paddingTop: 40, paddingBottom: 24, gap: 16 },
+  welcomeIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  welcomeTitle: { fontSize: 28, fontWeight: '700', textAlign: 'center', letterSpacing: 0.3 },
+  welcomeSub: { fontSize: 16, textAlign: 'center', lineHeight: 24, paddingHorizontal: 16 },
+  welcomeBullets: { width: '100%', borderTopWidth: 1, paddingTop: 20, gap: 16, marginTop: 8 },
+  welcomeBullet: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  bulletIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  bulletEmoji: { fontSize: 20 },
+  bulletText: { fontSize: 15, fontWeight: '500', flex: 1 },
 });
