@@ -50,7 +50,14 @@ const GENDERS = [
 ];
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 6;
+
+const INTENT_OPTIONS = [
+  { value: 'long_term', label: 'Long-term relationship', emoji: '💕' },
+  { value: 'short_term', label: 'Short-term / casual', emoji: '🌶️' },
+  { value: 'friends', label: 'New friends', emoji: '🤝' },
+  { value: 'not_sure', label: 'Not sure yet', emoji: '🤷' },
+];
 
 export default function OnboardingScreen() {
   const theme = Colors[useColorScheme()];
@@ -70,6 +77,7 @@ export default function OnboardingScreen() {
   const [country, setCountry] = useState('');
   const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
   const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
+  const [relationshipIntent, setRelationshipIntent] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -96,11 +104,13 @@ export default function OnboardingScreen() {
           ? true
           : step === 3
             ? selectedVibeIds.length >= 3
-            : false;
+            : step === 4
+              ? !!relationshipIntent
+              : false;
   const aboutMeTrim = aboutMe.trim();
   const aboutMeValid = aboutMeTrim.length === 0 || aboutMeTrim.length >= 10;
   const canSubmit =
-    step === 4 &&
+    step === 5 &&
     name.trim() &&
     gender &&
     dobFilled &&
@@ -127,6 +137,8 @@ export default function OnboardingScreen() {
       setStep(3);
     } else if (step === 3 && selectedVibeIds.length >= 3) {
       setStep(4);
+    } else if (step === 4 && relationshipIntent) {
+      setStep(5);
     }
   };
 
@@ -145,6 +157,7 @@ export default function OnboardingScreen() {
         job: job.trim() || null,
         about_me: aboutMeTrim || undefined,
         height_cm: heightCm ? Number(heightCm) : undefined,
+        relationship_intent: relationshipIntent || undefined,
       });
       const {
         data: { user },
@@ -213,7 +226,7 @@ export default function OnboardingScreen() {
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {step > 0 && step <= 4 && (
+        {step > 0 && step <= 5 && (
           <Text style={[styles.stepProgress, { color: theme.mutedForeground }]}>
             Step {step + 1} of {TOTAL_STEPS}
           </Text>
@@ -414,8 +427,58 @@ export default function OnboardingScreen() {
           </>
         )}
 
-        {/* Step 4: Details + Complete — web "Tell us a bit more" + Complete Profile */}
+        {/* Step 4: Relationship intent — web Step 6 parity */}
         {step === 4 && (
+          <>
+            <Text style={[styles.title, { color: theme.text }]}>What are you looking for?</Text>
+            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
+              This helps us match you with people who want the same things.
+            </Text>
+            <RNView style={styles.intentOptionList}>
+              {INTENT_OPTIONS.map((opt) => {
+                const selected = relationshipIntent === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    onPress={() => setRelationshipIntent(opt.value)}
+                    style={[
+                      styles.intentOptionRow,
+                      {
+                        borderColor: selected ? theme.tint : theme.border,
+                        backgroundColor: selected ? theme.tintSoft : 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 24 }}>{opt.emoji}</Text>
+                    <Text
+                      style={{
+                        fontSize: 16,
+                        fontWeight: selected ? '600' : '400',
+                        color: selected ? theme.tint : theme.text,
+                        flex: 1,
+                      }}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </RNView>
+            <VibelyButton
+              label="Continue"
+              onPress={handleNext}
+              disabled={!canNext}
+              variant="primary"
+              style={styles.button}
+            />
+            <Pressable style={styles.backBtn} onPress={() => setStep(3)} disabled={loading}>
+              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
+            </Pressable>
+          </>
+        )}
+
+        {/* Step 5: Details + Complete — web "Tell us a bit more" + Complete Profile */}
+        {step === 5 && (
           <>
             <Text style={[styles.title, { color: theme.text }]}>Tell us a bit more</Text>
             <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
@@ -522,7 +585,7 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(3)} disabled={loading}>
+            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
@@ -611,4 +674,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   vibeMinHint: { fontSize: 12, marginTop: 12 },
+  intentOptionList: { gap: 12, marginTop: 20 },
+  intentOptionRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+  },
 });

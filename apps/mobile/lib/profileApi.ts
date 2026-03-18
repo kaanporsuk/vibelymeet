@@ -177,6 +177,14 @@ function formatLocationFromCityCountry(city?: string | null, country?: string | 
   return null;
 }
 
+/** Onboarding intent keys → profiles.looking_for (web RelationshipIntent ids). */
+const RELATIONSHIP_INTENT_TO_LOOKING_FOR: Record<string, string> = {
+  long_term: 'long-term',
+  short_term: 'something-casual',
+  friends: 'new-friends',
+  not_sure: 'figuring-out',
+};
+
 export async function createProfile(data: {
   name: string;
   gender: string;
@@ -188,6 +196,8 @@ export async function createProfile(data: {
   about_me?: string | null;
   height_cm?: number | null;
   looking_for?: string | null;
+  /** Onboarding Step 6 values; stored as looking_for. */
+  relationship_intent?: string;
   birth_date?: string | null;
 }): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -197,6 +207,10 @@ export async function createProfile(data: {
   const location =
     data.location?.trim() || formatLocationFromCityCountry(data.city, data.country);
   const countryVal = (data.country ?? '').trim() || null;
+  const lookingFor =
+    (data.relationship_intent && RELATIONSHIP_INTENT_TO_LOOKING_FOR[data.relationship_intent]) ||
+    data.looking_for ||
+    null;
   const { error } = await supabase.from('profiles').upsert({
     id: user.id,
     name: data.name || '',
@@ -209,7 +223,7 @@ export async function createProfile(data: {
     job: data.job ?? null,
     about_me: data.about_me ?? null,
     height_cm: data.height_cm ?? null,
-    looking_for: data.looking_for ?? null,
+    looking_for: lookingFor,
   });
   if (error) throw error;
   // Initialize user_credits like web onboarding
