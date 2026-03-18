@@ -120,30 +120,48 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
 export async function updateMyProfile(updates: Partial<{
   name: string;
   gender: string;
+  interested_in: string[];
   tagline: string;
   location: string;
   job: string;
+  company: string;
   about_me: string;
   looking_for: string;
   photos: string[];
   avatar_url: string | null;
   prompts: { question: string; answer: string }[] | null;
   lifestyle: Record<string, string> | null;
+  vibe_caption: string | null;
+  birth_date: string | null;
+  height_cm: number | null;
+  location_data: { lat: number; lng: number } | null;
 }>): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
   const db: Record<string, unknown> = {};
   if (updates.name !== undefined) db.name = updates.name;
   if (updates.gender !== undefined) db.gender = updates.gender;
+  if (updates.interested_in !== undefined) db.interested_in = updates.interested_in;
   if (updates.tagline !== undefined) db.tagline = updates.tagline;
   if (updates.location !== undefined) db.location = updates.location;
   if (updates.job !== undefined) db.job = updates.job;
+  if (updates.company !== undefined) db.company = updates.company;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
   if (updates.looking_for !== undefined) db.looking_for = updates.looking_for;
   if (updates.photos !== undefined) db.photos = updates.photos;
   if (updates.avatar_url !== undefined) db.avatar_url = updates.avatar_url;
   if (updates.prompts !== undefined) db.prompts = updates.prompts;
   if (updates.lifestyle !== undefined) db.lifestyle = updates.lifestyle;
+  if (updates.vibe_caption !== undefined) db.vibe_caption = updates.vibe_caption;
+  if (updates.birth_date !== undefined) {
+    db.birth_date = updates.birth_date;
+    if (updates.birth_date) {
+      const d = new Date(updates.birth_date);
+      db.age = calculateAge(d);
+    }
+  }
+  if (updates.height_cm !== undefined) db.height_cm = updates.height_cm;
+  if (updates.location_data !== undefined) db.location_data = updates.location_data;
   if (Object.keys(db).length === 0) return;
   const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
   if (error) throw error;

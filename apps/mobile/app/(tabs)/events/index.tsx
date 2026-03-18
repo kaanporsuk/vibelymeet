@@ -26,6 +26,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useIsRegisteredForEvent, useEventAttendees, type EventListItem, type EventAttendee } from '@/lib/eventsApi';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -590,7 +591,8 @@ export default function EventsListScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null);
+  const { isPremium } = useBackendSubscription(user?.id);
+  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null, isPremium);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');

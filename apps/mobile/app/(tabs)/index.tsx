@@ -24,6 +24,7 @@ import { spacing, radius, typography, layout, shadows } from '@/constants/theme'
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl } from '@/lib/imageUrl';
 import { useActiveSession } from '@/lib/useActiveSession';
@@ -76,9 +77,10 @@ export default function DashboardScreen() {
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
-  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id);
+  const { isPremium } = useBackendSubscription(user?.id);
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id ?? null, isPremium);
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
-  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id);
+  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, isPremium);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
 

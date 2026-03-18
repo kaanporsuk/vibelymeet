@@ -88,3 +88,25 @@ export function useCreateDateProposal() {
     },
   });
 }
+
+/** Recipient accepts or declines (RLS: recipient only). */
+export function useRespondToDateProposal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ proposalId, accept }: { proposalId: string; accept: boolean }) => {
+      const { error } = await supabase
+        .from('date_proposals')
+        .update({
+          status: accept ? 'accepted' : 'declined',
+          responded_at: new Date().toISOString(),
+        })
+        .eq('id', proposalId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['date-proposals'] });
+      qc.invalidateQueries({ queryKey: ['schedule-proposals-full'] });
+      qc.invalidateQueries({ queryKey: ['messages'] });
+    },
+  });
+}

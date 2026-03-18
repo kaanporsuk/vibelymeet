@@ -1,5 +1,9 @@
 /**
- * Account settings — email, verification state, native phone/email verify flows, native delete-account flow.
+ * Account settings — email, verification, phone/email verify, pause/resume, scheduled deletion.
+ *
+ * Deletion: Native uses `request-account-deletion` (30-day grace) — same contract as web
+ * (`email`, optional `reason`, `source: 'native'`). `cancel-deletion` revokes the schedule.
+ * After 30 days the server runs final deletion (`delete-account`); no in-app immediate delete on native.
  */
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
@@ -32,11 +36,66 @@ export default function AccountSettingsScreen() {
     queryKey: ['profile-account', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const { data } = await supabase.from('profiles').select('phone_verified, email_verified, photo_verified').eq('id', user.id).maybeSingle();
-      return data as { phone_verified?: boolean; email_verified?: boolean; photo_verified?: boolean } | null;
+      const { data } = await supabase
+        .from('profiles')
+        .select('phone_verified, email_verified, photo_verified, is_paused')
+        .eq('id', user.id)
+        .maybeSingle();
+      return data as {
+        phone_verified?: boolean;
+        email_verified?: boolean;
+        photo_verified?: boolean;
+        is_paused?: boolean;
+      } | null;
     },
     enabled: !!user?.id,
   });
+  const [pauseLoading, setPauseLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
+
+  const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
+    setPauseLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('account-pause', { body: { duration } });
+      if (error || (data as { success?: boolean })?.success !== true) {
+        Alert.alert('Error', 'Could not pause your account. Try again.');
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
+      Alert.alert('Account paused', 'Your profile is hidden from events and matches. You can resume anytime.');
+    } finally {
+      setPauseLoading(false);
+    }
+  };
+
+  const resumeAccount = async () => {
+    setResumeLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('account-resume', { body: {} });
+      if (error || (data as { success?: boolean })?.success !== true) {
+        Alert.alert('Error', 'Could not resume. Try again.');
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
+  const confirmPause = () => {
+    Alert.alert(
+      'Pause account',
+      'Your profile will be hidden from events and matches. Choose how long.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: '24 hours', onPress: () => pauseAccount('day') },
+        { text: '1 week', onPress: () => pauseAccount('week') },
+        { text: 'Until I resume', style: 'destructive', onPress: () => pauseAccount('indefinite') },
+      ]
+    );
+  };
   const { pendingDeletion, cancelDeletion, isCancelling, refetchDeletionState } = useDeletionRecovery(user?.id);
 
   const requestAccountDeletion = async () => {
@@ -144,13 +203,36 @@ export default function AccountSettingsScreen() {
               </View>
             </View>
             <Text style={[styles.body, { color: theme.textSecondary }]}>
-              Change password, pause or resume account, and manage other account settings on web.
+              Change password and other settings on web. Pause or resume below.
             </Text>
+            {profile?.is_paused ? (
+              <View style={[styles.pausedBanner, { backgroundColor: withAlpha(theme.tint, 0.12), borderColor: theme.tint }]}>
+                <Ionicons name="pause-circle" size={22} color={theme.tint} />
+                <Text style={[styles.pausedText, { color: theme.text }]}>Your account is paused</Text>
+              </View>
+            ) : null}
+            {profile?.is_paused ? (
+              <VibelyButton
+                label={resumeLoading ? 'Resuming…' : 'Resume account'}
+                onPress={() => resumeAccount()}
+                variant="primary"
+                style={styles.cta}
+                disabled={resumeLoading}
+              />
+            ) : (
+              <VibelyButton
+                label={pauseLoading ? 'Pausing…' : 'Pause account'}
+                onPress={confirmPause}
+                variant="secondary"
+                style={styles.cta}
+                disabled={pauseLoading}
+              />
+            )}
             <VibelyButton
               label="Open account settings on web"
               onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
-              variant="primary"
-              style={styles.cta}
+              variant="secondary"
+              style={styles.ctaSecondary}
             />
           </Card>
 
@@ -209,6 +291,17 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '600' },
   body: { fontSize: 14, lineHeight: 20, marginBottom: spacing.md },
   cta: { marginTop: spacing.sm },
+  ctaSecondary: { marginTop: spacing.sm },
+  pausedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: spacing.md,
+  },
+  pausedText: { fontSize: 15, fontWeight: '600', flex: 1 },
   deleteBtn: {
     flexDirection: 'row',
     alignItems: 'center',

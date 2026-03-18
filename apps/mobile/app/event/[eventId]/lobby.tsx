@@ -188,6 +188,37 @@ export default function EventLobbyScreen() {
     };
   }, [id, user?.id, openReadyGateWithSession]);
 
+  // Web parity: match-queue channel — refresh deck when video_sessions change for this user
+  useEffect(() => {
+    if (!id || !user?.id) return;
+    const channel = supabase
+      .channel(`match-queue-${id}-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter: `event_id=eq.${id}` },
+        (payload) => {
+          const session = payload.new as Record<string, unknown>;
+          if (session.participant_1_id !== user.id && session.participant_2_id !== user.id) return;
+          void refetchDeck();
+          refreshQueueAndSuperVibe();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'video_sessions', filter: `event_id=eq.${id}` },
+        (payload) => {
+          const session = payload.new as Record<string, unknown>;
+          if (session.participant_1_id !== user.id && session.participant_2_id !== user.id) return;
+          void refetchDeck();
+          refreshQueueAndSuperVibe();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, user?.id, refetchDeck, refreshQueueAndSuperVibe]);
+
   useEffect(() => {
     if (!user?.id || !id) return;
     const channel = supabase
@@ -203,6 +234,7 @@ export default function EventLobbyScreen() {
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
           if (newStatus === 'ready' && oldStatus === 'queued') {
+            void refetchDeck();
             await openReadyGateWithSession(session.id as string);
           }
           refreshQueueAndSuperVibe();
@@ -215,6 +247,7 @@ export default function EventLobbyScreen() {
           const session = payload.new as Record<string, unknown>;
           const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
           if (!isParticipant) return;
+          void refetchDeck();
           if ((session.ready_gate_status as string) === 'ready') {
             await openReadyGateWithSession(session.id as string);
           }
