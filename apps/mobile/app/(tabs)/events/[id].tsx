@@ -29,6 +29,7 @@ import { MutualVibesSection } from '@/components/events/MutualVibesSection';
 import { TicketStub } from '@/components/events/TicketStub';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
+import { format } from 'date-fns';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -204,8 +205,8 @@ export default function EventDetailScreen() {
 
   const eventRow = event as EventDetailsRow;
   const eventDate = new Date(event.event_date);
-  const dateStr = eventDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  const timeStr = eventDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const dateStr = format(eventDate, 'EEEE, MMMM d');
+  const timeStr = format(eventDate, 'h:mm a');
   const isVirtual = !eventRow.is_location_specific;
   const maxMen = eventRow.max_male_attendees ?? Math.floor((eventRow.max_attendees ?? 50) / 2);
   const maxWomen = eventRow.max_female_attendees ?? Math.ceil((eventRow.max_attendees ?? 50) / 2);
