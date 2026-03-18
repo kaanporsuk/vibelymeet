@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { StyleSheet, TextInput, Pressable, View, ActivityIndicator } from 'react-native';
 import { Link, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,13 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [fieldError, setFieldError] = useState('');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) return;
@@ -44,7 +51,8 @@ export default function SignInScreen() {
     }
     trackEvent('login', { method: 'email' });
     setSuccess(true);
-    setTimeout(() => {
+    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
       router.replace('/(tabs)');
     }, 1200);
   };

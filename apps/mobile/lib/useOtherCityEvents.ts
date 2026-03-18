@@ -16,11 +16,14 @@ export function useOtherCityEvents(userId: string | null | undefined) {
     queryKey: ['other-city-events', userId],
     queryFn: async (): Promise<OtherCityEvent[]> => {
       if (!userId) return [];
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('location_data')
         .eq('id', userId)
         .maybeSingle();
+      if (profileError) {
+        if (__DEV__) console.warn('[useOtherCityEvents] profile location fetch failed:', profileError.message);
+      }
       const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
       const { data, error } = await supabase.rpc('get_other_city_events', {
         p_user_id: userId,
