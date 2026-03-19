@@ -200,6 +200,26 @@ export default function OnboardingScreen() {
               numberOfLines={3}
               editable={!loading}
             />
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
+            <TextInput
+              placeholder="Height in cm (e.g. 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
+              style={[
+                styles.input,
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
             <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
               <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
               <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
@@ -266,6 +286,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
   stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   input: { borderWidth: 1, padding: 12, borderRadius: 16, marginBottom: 12, minHeight: 56 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: 16 },
