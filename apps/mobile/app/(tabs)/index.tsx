@@ -636,7 +636,7 @@ export default function DashboardScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
       >
         <Animated.View style={[{ opacity: fadeAnim }, styles.scrollInner]}>
@@ -883,7 +883,7 @@ const styles = StyleSheet.create({
   },
   avatarBtn: {},
   scroll: { flex: 1 },
-  scrollContent: { paddingTop: 8 },
+  scrollContent: { paddingTop: 8, paddingBottom: 120 },
   scrollInner: {
     paddingHorizontal: layout.containerPadding,
     gap: 24,

@@ -597,7 +597,7 @@ export default function ProfileScreen() {
     <>
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.background }}
-      contentContainerStyle={{ paddingBottom: layout.scrollContentPaddingBottomTab }}
+      contentContainerStyle={{ paddingBottom: 120 }}
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}

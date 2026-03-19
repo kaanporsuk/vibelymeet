@@ -410,7 +410,7 @@ function PastDropsSection({
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { padding: spacing.lg, paddingBottom: 80 },
+  scrollContent: { padding: spacing.lg, paddingBottom: 120 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   stateCard: {
     alignItems: 'center',

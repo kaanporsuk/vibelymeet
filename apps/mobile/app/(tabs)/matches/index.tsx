@@ -675,7 +675,7 @@ const styles = StyleSheet.create({
     ...typography.overline,
   },
   list: {
-    paddingBottom: layout.scrollContentPaddingBottomTab,
+    paddingBottom: 120,
   },
   footerCards: {
     marginTop: spacing.lg,
@@ -815,7 +815,7 @@ const styles = StyleSheet.create({
   skeletonScroll: { flex: 1 },
   skeletonContent: {
     paddingHorizontal: layout.containerPadding,
-    paddingBottom: layout.scrollContentPaddingBottomTab,
+    paddingBottom: 120,
   },
   newVibesSkeletonCard: {
     marginBottom: spacing.md,
@@ -858,7 +858,7 @@ const styles = StyleSheet.create({
   centeredError: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
   emptyStateScroll: { flex: 1 },
   emptyStateScrollContent: {
-    paddingBottom: layout.scrollContentPaddingBottomTab,
+    paddingBottom: 120,
   },
   searchEmpty: {
     alignItems: 'center',
