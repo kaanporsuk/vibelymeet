@@ -1161,6 +1161,35 @@ export default function ProfileScreen() {
           />
         </Card>
 
+        {/* Safety Hub — web parity */}
+        <RNView style={[styles.safetyHubCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Text style={[styles.safetyHubTitle, { color: theme.text }]}>Safety & Privacy</Text>
+          <Pressable
+            onPress={() => router.push('/settings/privacy')}
+            style={[styles.safetyHubRow, { borderBottomColor: theme.border }]}
+          >
+            <Ionicons name="shield-outline" size={20} color={theme.tint} />
+            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Privacy Settings</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/settings/account')}
+            style={[styles.safetyHubRow, { borderBottomColor: theme.border }]}
+          >
+            <Ionicons name="pause-circle-outline" size={20} color={theme.tint} />
+            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Pause Account</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
+          </Pressable>
+          <Pressable
+            onPress={() => Linking.openURL('https://vibelymeet.com/community-guidelines').catch(() => {})}
+            style={styles.safetyHubRowLast}
+          >
+            <Ionicons name="heart-outline" size={20} color={theme.tint} />
+            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Community Guidelines</Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
+          </Pressable>
+        </RNView>
+
         {/* Logout */}
         <DestructiveRow
           icon={<Ionicons name="log-out-outline" size={18} color={theme.danger} />}
@@ -1841,6 +1870,37 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...typography.titleMD,
+  },
+  safetyHubCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginTop: 24,
+  },
+  safetyHubTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    padding: 16,
+    paddingBottom: 8,
+  },
+  safetyHubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+  },
+  safetyHubRowLast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  safetyHubRowLabel: {
+    flex: 1,
+    fontSize: 15,
   },
   promptsEmpty: {
     marginBottom: spacing.md,
