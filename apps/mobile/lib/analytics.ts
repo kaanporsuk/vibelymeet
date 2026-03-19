@@ -38,6 +38,17 @@ export function trackEvent(eventName: string, properties?: Record<string, string
   client?.capture(eventName, sanitize(properties));
 }
 
+/** Update person properties (after profile load / changes). */
+export function setUserProperties(properties: Record<string, string | number | boolean | null>) {
+  const p = sanitize(properties);
+  if (!client || !p) return;
+  const c = client as PostHog & { getDistinctId?: () => string };
+  const id = typeof c.getDistinctId === 'function' ? c.getDistinctId() : null;
+  if (id) {
+    c.identify(id, p);
+  }
+}
+
 export function screen(screenName: string, properties?: Record<string, string | number | boolean | null>) {
   client?.capture('$screen', { $screen_name: screenName, ...sanitize(properties) });
 }

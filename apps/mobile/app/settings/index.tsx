@@ -3,7 +3,7 @@
  */
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -191,7 +191,7 @@ export default function SettingsScreen() {
               <SettingsRow
                 icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
                 title="How Vibely Works"
-                onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works').catch(() => {})}
+                onPress={() => router.push('/how-it-works' as Href)}
               />
               <SettingsRow
                 icon={<Ionicons name="shield-checkmark" size={20} color={theme.neonCyan} />}

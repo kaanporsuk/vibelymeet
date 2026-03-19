@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Linking, Share, Platform, Image, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import {
@@ -218,7 +218,7 @@ export default function MatchesListScreen() {
             onActionPress={() => router.push('/(tabs)/events')}
           />
           <Pressable
-            onPress={() => Linking.openURL('https://vibelymeet.com/how-it-works')}
+            onPress={() => router.push('/how-it-works' as Href)}
             style={({ pressed }) => [styles.howItWorksLink, pressed && { opacity: 0.8 }]}
           >
             <VibelyText variant="body" style={[styles.howItWorksText, { color: theme.textSecondary }]}>

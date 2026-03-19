@@ -12,9 +12,8 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
-  Linking,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
@@ -242,7 +241,7 @@ export default function DashboardScreen() {
           {nextReminder && nextReminder.urgency !== 'none' && (
             <MiniDateCountdown
               reminder={nextReminder}
-              onPress={() => Linking.openURL('https://vibelymeet.com/schedule')}
+              onPress={() => router.push('/schedule' as Href)}
             />
           )}
           <Pressable
@@ -300,7 +299,13 @@ export default function DashboardScreen() {
                 <DateReminderCard
                   key={reminder.id}
                   reminder={reminder}
-                  onJoinDate={() => Linking.openURL('https://vibelymeet.com/video-date')}
+                  onJoinDate={() => {
+                    if (activeSession?.sessionId) {
+                      router.push(`/date/${activeSession.sessionId}` as const);
+                    } else {
+                      router.push('/schedule' as Href);
+                    }
+                  }}
                   onEnableNotifications={() => router.push('/settings/notifications')}
                   notificationsEnabled={pushGranted}
                 />

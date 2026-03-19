@@ -9,6 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
+import { trackEvent } from '@/lib/analytics';
 
 type Step = 'intro' | 'requesting' | 'success' | 'denied';
 
@@ -43,6 +44,7 @@ export function NotificationPermissionFlow({
     const granted = await onRequestPermission();
     setStep(granted ? 'success' : 'denied');
     if (granted) {
+      trackEvent('push_permission_granted');
       if (closeTimeoutRef.current !== null) clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = setTimeout(() => {
         onOpenChange(false);
@@ -52,6 +54,9 @@ export function NotificationPermissionFlow({
   };
 
   const handleClose = () => {
+    if (step === 'intro') {
+      trackEvent('push_permission_deferred');
+    }
     if (closeTimeoutRef.current !== null) {
       clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;

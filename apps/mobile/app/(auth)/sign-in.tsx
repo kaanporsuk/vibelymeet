@@ -42,6 +42,12 @@ export default function SignInScreen() {
       setFieldError(error.message ?? 'Sign in failed');
       return;
     }
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u?.id) {
+      identifyUser(u.id, { email: email.trim() });
+    }
     trackEvent('login', { method: 'email' });
     setSuccess(true);
     setTimeout(() => {

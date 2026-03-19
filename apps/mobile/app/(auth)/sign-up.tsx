@@ -40,6 +40,12 @@ export default function SignUpScreen() {
       setFieldError(error.message ?? 'Sign up failed');
       return;
     }
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u?.id) {
+      identifyUser(u.id, { email: email.trim() });
+    }
     trackEvent('signup_completed', { method: 'email' });
     router.replace('/(tabs)');
   };

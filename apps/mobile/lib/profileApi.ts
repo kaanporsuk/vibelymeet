@@ -168,20 +168,50 @@ export async function updateMyProfile(updates: Partial<{
 }
 
 /** Create/upsert profile during onboarding. Same contract as web createProfile. */
+function formatLocationFromCityCountry(city?: string | null, country?: string | null): string | null {
+  const c = (city ?? '').trim();
+  const co = (country ?? '').trim();
+  if (c && co) return `${c}, ${co}`;
+  if (c) return c;
+  if (co) return co;
+  return null;
+}
+
+/** Onboarding intent keys → profiles.looking_for (web RelationshipIntent ids). */
+const RELATIONSHIP_INTENT_TO_LOOKING_FOR: Record<string, string> = {
+  long_term: 'long-term',
+  short_term: 'something-casual',
+  friends: 'new-friends',
+  not_sure: 'figuring-out',
+};
+
 export async function createProfile(data: {
   name: string;
   gender: string;
   tagline?: string | null;
   location?: string | null;
+  city?: string | null;
+  country?: string | null;
   job?: string | null;
   about_me?: string | null;
+  height_cm?: number | null;
   looking_for?: string | null;
+  /** Onboarding Step 6 values; stored as looking_for. */
+  relationship_intent?: string;
   birth_date?: string | null;
+  photos?: string[] | null;
 }): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
   const age = data.birth_date ? calculateAge(new Date(data.birth_date)) : 18;
   if (age < 18) throw new Error('Must be 18 or older');
+  const location =
+    data.location?.trim() || formatLocationFromCityCountry(data.city, data.country);
+  const countryVal = (data.country ?? '').trim() || null;
+  const lookingFor =
+    (data.relationship_intent && RELATIONSHIP_INTENT_TO_LOOKING_FOR[data.relationship_intent]) ||
+    data.looking_for ||
+    null;
   const { error } = await supabase.from('profiles').upsert({
     id: user.id,
     name: data.name || '',
@@ -189,10 +219,14 @@ export async function createProfile(data: {
     age,
     birth_date: data.birth_date || null,
     tagline: data.tagline ?? null,
-    location: data.location ?? null,
+    location,
+    country: countryVal,
     job: data.job ?? null,
     about_me: data.about_me ?? null,
-    looking_for: data.looking_for ?? null,
+    height_cm: data.height_cm ?? null,
+    looking_for: lookingFor,
+    photos: data.photos?.length ? data.photos : null,
+    avatar_url: data.photos?.[0] ?? null,
   });
   if (error) throw error;
   // Initialize user_credits like web onboarding
