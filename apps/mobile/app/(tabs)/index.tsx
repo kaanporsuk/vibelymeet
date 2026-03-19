@@ -55,10 +55,6 @@ import { NotificationPermissionFlow } from '@/components/notifications/Notificat
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
-
-type OtherCityEvent = { city: string; event_count: number };
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
