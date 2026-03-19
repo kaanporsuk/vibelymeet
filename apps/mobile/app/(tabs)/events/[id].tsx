@@ -52,6 +52,11 @@ export default function EventDetailScreen() {
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
 
+  useEffect(() => {
+    if (!id || !event) return;
+    trackEvent('event_viewed', { event_id: id, event_title: event.title ?? '' });
+  }, [id, event?.id]);
+
   const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
     id: a.id,
     name: a.name,
@@ -290,9 +295,11 @@ export default function EventDetailScreen() {
               ))}
             </View>
           )}
+          {/* Vibe match — wire when backend provides score (e.g. event deck / registration RPC) */}
           <Text style={[styles.sectionTitle, { color: theme.text }]}>About This Event</Text>
           {descText.length > 0 ? (
             <>
+              {/* Read more / Show less when description > 150 chars (web parity) */}
               <Text
                 style={[styles.description, { color: theme.textSecondary }]}
                 numberOfLines={showFullDesc ? undefined : 3}

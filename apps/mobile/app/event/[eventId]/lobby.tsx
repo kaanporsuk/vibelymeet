@@ -93,6 +93,11 @@ export default function EventLobbyScreen() {
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const lastOpenedSessionRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    if (!id) return;
+    trackEvent('lobby_entered', { event_id: id });
+  }, [id]);
+
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
 
   const openReadyGateWithSession = useCallback(

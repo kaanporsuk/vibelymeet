@@ -15,6 +15,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { getCreditsCheckoutUrl, type CreditPackId } from '@/lib/creditsCheckout';
+import { trackEvent } from '@/lib/analytics';
 
 const PACKS: { id: CreditPackId; name: string; description: string; price: string }[] = [
   { id: 'extra_time_3', name: '3× Extra Time', description: '+2 min, 3 times', price: '€2.99' },
@@ -55,6 +56,7 @@ export default function CreditsSettingsScreen() {
   );
 
   const handleBuyPack = async (packId: CreditPackId) => {
+    trackEvent('credit_purchase_initiated', { pack_id: packId });
     setLoadingPackId(packId);
     try {
       const url = await getCreditsCheckoutUrl(packId);

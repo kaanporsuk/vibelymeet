@@ -9,6 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyText, VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { Linking } from 'react-native';
+import { trackEvent } from '@/lib/analytics';
 
 const FEEDBACK_SUBJECTS = [
   { id: 'bug', label: 'Bug report' },
@@ -34,7 +35,7 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
     const subjectLine = FEEDBACK_SUBJECTS.find((s) => s.id === subject)?.label ?? 'Feedback';
     const body = details.trim() ? `\n\n---\n${details.trim()}` : '';
     const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[Vibely App] ${subjectLine}`)}&body=${encodeURIComponent(body)}`;
-    trackEvent('feedback_submitted', { category: subject, subjectLine });
+    trackEvent('feedback_submitted', { category: 'feedback' });
     Linking.openURL(url).catch(() => {});
     setDetails('');
     onClose();
