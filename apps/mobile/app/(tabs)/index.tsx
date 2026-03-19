@@ -134,11 +134,15 @@ export default function DashboardScreen() {
     queryKey: ['unread-home', user?.id],
     queryFn: async () => {
       if (!user?.id) return 0;
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .neq('sender_id', user.id)
         .is('read_at', null);
+      if (error) {
+        if (__DEV__) console.warn('[home] unread messages count error:', error.message);
+        throw error;
+      }
       return count ?? 0;
     },
     enabled: !!user?.id,
@@ -480,7 +484,7 @@ export default function DashboardScreen() {
         icon: 'chatbubble-outline',
         label: `${unreadMessageCount} unread`,
         color: theme.accent,
-        onPress: () => router.push('/matches' as Href),
+        onPress: () => router.push('/(tabs)/matches' as Href),
       });
     }
     if (dropReady) {
@@ -488,7 +492,7 @@ export default function DashboardScreen() {
         icon: 'water-outline',
         label: 'Daily Drop',
         color: theme.neonCyan,
-        onPress: () => router.push('/matches' as Href),
+        onPress: () => router.push('/(tabs)/matches' as Href),
       });
     }
     if (hasUpcomingDate) {
@@ -686,7 +690,7 @@ export default function DashboardScreen() {
           <View style={{ gap: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={[styles.sectionTitle, { color: theme.text, fontFamily: fonts.displayBold }]}>Your Matches</Text>
-              <Pressable onPress={() => router.push('/matches' as Href)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Pressable onPress={() => router.push('/(tabs)/matches' as Href)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <Text style={[styles.seeAll, { color: theme.tint }]}>See all</Text>
                 <Ionicons name="chevron-forward" size={14} color={theme.tint} />
               </Pressable>
@@ -765,7 +769,7 @@ export default function DashboardScreen() {
               </View>
             ) : upcomingEvents.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.eventRail}>
-                {upcomingEvents.map((event) => (
+                {upcomingEvents.slice(0, 5).map((event) => (
                   <Pressable
                     key={event.id}
                     onPress={() => router.push(`/events/${event.id}` as const)}

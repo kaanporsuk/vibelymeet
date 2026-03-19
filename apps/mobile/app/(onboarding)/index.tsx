@@ -203,8 +203,7 @@ export default function OnboardingScreen() {
       let parsedHeight: number | undefined;
       if (heightCm) {
         const h = Number(heightCm);
-        if (isNaN(h) || h < 100 || h > 250) {
-          setLoading(false);
+        if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
           Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
           return;
         }
