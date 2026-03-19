@@ -59,6 +59,19 @@ export function getZodiacEmoji(sign: string): string {
   return ZODIAC_EMOJI[sign] ?? '⭐';
 }
 
+function parseBirthDate(dateStr: string): Date {
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    if (Number.isInteger(year) && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(year, month - 1, day);
+    }
+  }
+  return new Date(dateStr);
+}
+
 function calculateAge(birthDate: Date): number {
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
@@ -203,7 +216,7 @@ export async function createProfile(data: {
 }): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
-  const age = data.birth_date ? calculateAge(new Date(data.birth_date)) : 18;
+  const age = data.birth_date ? calculateAge(parseBirthDate(data.birth_date)) : 18;
   if (age < 18) throw new Error('Must be 18 or older');
   const location =
     data.location?.trim() || formatLocationFromCityCountry(data.city, data.country);
