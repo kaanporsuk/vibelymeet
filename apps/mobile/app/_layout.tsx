@@ -18,6 +18,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { LogBox, View } from 'react-native';
 import { useBadgeCount } from '@/lib/useBadgeCount';
+import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import 'react-native-reanimated';
 
@@ -148,6 +149,7 @@ function BadgeCountUpdater() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  useCurrentRouteTracker();
 
   useEffect(() => {
     initRevenueCat();

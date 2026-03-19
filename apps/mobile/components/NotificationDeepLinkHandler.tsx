@@ -1,10 +1,12 @@
 /**
  * Handles push notification opened (click) and foreground display.
  * Maps OneSignal additionalData.deep_link to Expo Router routes.
+ * Suppresses in-app banner when user is already on the target screen.
  */
 import { useEffect } from 'react';
 import { router } from 'expo-router';
 import type { NotificationClickEvent } from 'react-native-onesignal';
+import { getCurrentRoute } from '@/lib/useCurrentRoute';
 
 let OneSignal: typeof import('react-native-onesignal').OneSignal | null = null;
 try {
@@ -71,9 +73,44 @@ export function NotificationDeepLinkHandler() {
       }
     };
 
-    const handleForegroundWillDisplay = () => {
-      // Let the notification display as system banner (default behavior).
-      // To suppress: event.preventDefault() and show custom in-app UI.
+    const handleForegroundWillDisplay = (event: { getNotification: () => { additionalData?: object }; preventDefault: () => void }) => {
+      const notification = event.getNotification();
+      const data = notification.additionalData as Record<string, string> | undefined;
+      if (!data?.deep_link) return;
+
+      const currentRoute = getCurrentRoute();
+      const deepLink = typeof data.deep_link === 'string' ? data.deep_link : '';
+      if (!deepLink) return;
+
+      // Suppress if user is already on the target screen
+      if (deepLink.startsWith('/chat/') && currentRoute.startsWith('/chat/')) {
+        const targetUser = deepLink.replace(/^\/chat\/?/, '').split('/')[0];
+        const currentUser = currentRoute.replace(/^\/chat\/?/, '').split('/')[0];
+        if (targetUser && currentUser && targetUser === currentUser) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (deepLink.startsWith('/event/') && deepLink.includes('/lobby') && currentRoute.includes('/lobby')) {
+        const parts = deepLink.split('/');
+        const currParts = currentRoute.split('/');
+        const eventIdx = parts.indexOf('event');
+        const currEventIdx = currParts.indexOf('event');
+        const targetEventId = eventIdx >= 0 ? parts[eventIdx + 1] : '';
+        const currentEventId = currEventIdx >= 0 ? currParts[currEventIdx + 1] : '';
+        if (targetEventId && currentEventId && targetEventId === currentEventId) {
+          event.preventDefault();
+          return;
+        }
+      }
+      if (deepLink.startsWith('/date/') && currentRoute.startsWith('/date/')) {
+        const targetSession = deepLink.replace(/^\/date\/?/, '').split('/')[0];
+        const currentSession = currentRoute.replace(/^\/date\/?/, '').split('/')[0];
+        if (targetSession && currentSession && targetSession === currentSession) {
+          event.preventDefault();
+          return;
+        }
+      }
     };
 
     OneSignal.Notifications.addEventListener('click', handleClick);
