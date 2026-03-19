@@ -288,9 +288,22 @@ export default function OnboardingScreen() {
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {step > 0 && step <= 6 && (
-          <Text style={[styles.stepProgress, { color: theme.mutedForeground }]}>
-            Step {step + 1} of {TOTAL_STEPS}
-          </Text>
+          <RNView style={styles.stepProgressWrap}>
+            <RNView style={[styles.progressTrack, { backgroundColor: theme.border }]}>
+              <RNView
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${Math.min(100, ((step + 1) / TOTAL_STEPS) * 100)}%`,
+                    backgroundColor: theme.tint,
+                  },
+                ]}
+              />
+            </RNView>
+            <Text style={[styles.stepProgress, { color: theme.mutedForeground }]}>
+              Step {step + 1} of {TOTAL_STEPS}
+            </Text>
+          </RNView>
         )}
         {step === 0 && (
           <View style={styles.welcomeBlock}>
@@ -721,7 +734,10 @@ const styles = StyleSheet.create({
   ageBlockedRoot: { flex: 1 },
   kav: { flex: 1 },
   scroll: { padding: spacing.lg, paddingBottom: 48 },
-  stepProgress: { fontSize: 12, fontWeight: '600', marginBottom: 8 },
+  stepProgressWrap: { marginBottom: 8 },
+  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 8 },
+  progressFill: { height: '100%', borderRadius: 2 },
+  stepProgress: { fontSize: 12, fontWeight: '600' },
   inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   dobRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   dobInput: {
