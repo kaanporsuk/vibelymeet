@@ -77,16 +77,6 @@ export default function OnboardingScreen() {
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
-<<<<<<< feat/notification-deep-links
-=======
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
-  const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
-  const [relationshipIntent, setRelationshipIntent] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
->>>>>>> main
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -203,30 +193,21 @@ export default function OnboardingScreen() {
     if (!canSubmit) return;
     setLoading(true);
     try {
-<<<<<<< feat/home-redesign
       let parsedHeight: number | undefined;
       if (heightCm) {
         const h = Number(heightCm);
         if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
-=======
-<<<<<<< feat/notification-deep-links
       let parsedHeight: number | undefined;
       if (heightCm) {
         const h = Number(heightCm);
         if (isNaN(h) || h < 100 || h > 250) {
           setLoading(false);
->>>>>>> main
           Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
           return;
         }
         parsedHeight = h;
       }
-<<<<<<< feat/home-redesign
-=======
-=======
->>>>>>> main
       const birth_date = `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`;
->>>>>>> main
       await createProfile({
         name: name.trim(),
         gender,
@@ -235,34 +216,8 @@ export default function OnboardingScreen() {
         country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
-<<<<<<< feat/notification-deep-links
         about_me: aboutMe.trim() || null,
         height_cm: parsedHeight,
-=======
-        about_me: aboutMeTrim || undefined,
-        height_cm: parsedHeight,
-        relationship_intent: relationshipIntent || undefined,
-        photos: photos.length > 0 ? photos : undefined,
-      });
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user && selectedVibeIds.length > 0) {
-        const vibeRows = selectedVibeIds.map((tagId) => ({
-          profile_id: user.id,
-          vibe_tag_id: tagId,
-        }));
-        const { error: vibesError } = await supabase
-          .from('profile_vibes')
-          .upsert(vibeRows, { onConflict: 'profile_id,vibe_tag_id' });
-        if (vibesError) throw vibesError;
-      }
-      trackEvent('onboarding_completed', {
-        has_photo: photos.length > 0,
-        has_bio: !!aboutMeTrim,
-        has_vibes: selectedVibeIds.length > 0,
-        vibe_count: selectedVibeIds.length,
->>>>>>> main
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
@@ -679,7 +634,6 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-<<<<<<< feat/notification-deep-links
             <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
             <TextInput
               placeholder="Height in cm (e.g. 175)"
@@ -713,72 +667,6 @@ export default function OnboardingScreen() {
                 style={styles.webFallbackBtn}
               />
             </Card>
-=======
-            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
-              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
-            </Pressable>
-          </>
-        )}
-
-        {/* Step 6: Photos — web Step 7 parity */}
-        {step === 6 && (
-          <>
-            <Text style={[styles.title, { color: theme.text }]}>Add your photos</Text>
-            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
-              Add at least 2 photos so people can see the real you.
-            </Text>
-            <RNView style={styles.photoGrid}>
-              {[0, 1, 2, 3, 4, 5].map((i) => {
-                const photoPath = photos[i];
-                const isNextSlot = i === photos.length;
-                const showSpinner = uploadingPhoto && isNextSlot;
-                const canAddHere =
-                  isNextSlot && photos.length < MAX_ONBOARDING_PHOTOS && !uploadingPhoto;
-                return (
-                  <Pressable
-                    key={i}
-                    onPress={() => {
-                      if (canAddHere) pickAndUploadPhoto();
-                    }}
-                    disabled={!photoPath && !canAddHere}
-                    style={[
-                      styles.photoSlot,
-                      {
-                        borderStyle: photoPath ? 'solid' : 'dashed',
-                        borderColor: photoPath ? theme.border : theme.mutedForeground,
-                        backgroundColor: photoPath ? 'transparent' : theme.surfaceSubtle,
-                      },
-                    ]}
-                  >
-                    {photoPath ? (
-                      <Image
-                        source={{ uri: getImageUrl(photoPath, undefined, 'profile_photo') }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                      />
-                    ) : showSpinner ? (
-                      <ActivityIndicator color={theme.tint} />
-                    ) : (
-                      <Ionicons name="add" size={28} color={theme.mutedForeground} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </RNView>
-            <Text
-              style={[
-                styles.photoMinHint,
-                {
-                  color: photos.length >= 2 ? theme.success : theme.mutedForeground,
-                },
-              ]}
-            >
-              {photos.length}/2 minimum added
-            </Text>
-            <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
-              Optional: add up to {MAX_ONBOARDING_PHOTOS} photos. Vibe video is available on web.
-            </Text>
->>>>>>> main
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}

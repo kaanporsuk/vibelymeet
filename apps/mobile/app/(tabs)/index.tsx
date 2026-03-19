@@ -51,7 +51,6 @@ import { NotificationPermissionFlow } from '@/components/notifications/Notificat
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
-import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -1041,13 +1040,24 @@ const styles = StyleSheet.create({
   upcomingEmpty: {
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderRadius: radius.lg,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    gap: spacing.sm,
   },
-  upcomingEmptyText: { fontSize: 14 },
-  upcomingEmptyLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  upcomingEmptyLinkText: { fontSize: 12, fontWeight: '600' },
+  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
+  matchRow: { flexDirection: 'row', gap: spacing.lg, paddingVertical: spacing.sm, paddingRight: spacing.lg },
+  matchItem: { alignItems: 'center', gap: spacing.sm, minWidth: 64 },
+  matchName: { fontWeight: '600', fontSize: 12, maxWidth: 64 },
+  eventRail: { flexDirection: 'row', gap: spacing.md + 2, paddingBottom: spacing.lg },
+  discoverCard: {
+    width: 260,
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  discoverImage: { width: '100%', height: 120 },
+  discoverBody: { padding: spacing.md, gap: 6 },
+  discoverTitle: { fontWeight: '600' },
+  discoverMeta: { fontSize: 12 },
+  discoverAttendeesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  discoverAttendees: { fontSize: 12 },
 });
