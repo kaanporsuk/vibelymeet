@@ -35,7 +35,7 @@ export function FeedbackSheet({ visible, onClose }: FeedbackSheetProps) {
     const subjectLine = FEEDBACK_SUBJECTS.find((s) => s.id === subject)?.label ?? 'Feedback';
     const body = details.trim() ? `\n\n---\n${details.trim()}` : '';
     const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`[Vibely App] ${subjectLine}`)}&body=${encodeURIComponent(body)}`;
-    trackEvent('feedback_submitted', { category: 'feedback' });
+    trackEvent('feedback_submitted', { category: subject, subjectLine });
     Linking.openURL(url).catch(() => {});
     setDetails('');
     onClose();

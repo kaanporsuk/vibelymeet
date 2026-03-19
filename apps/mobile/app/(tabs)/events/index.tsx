@@ -701,7 +701,7 @@ export default function EventsListScreen() {
         <LocationPromptBanner
           theme={theme}
           onDismiss={() => setLocationDismissed(true)}
-          onEnable={() => router.push('/(tabs)/profile')}
+          onEnable={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})}
         />
       )}
 

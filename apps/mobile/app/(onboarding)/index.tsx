@@ -200,6 +200,16 @@ export default function OnboardingScreen() {
     if (!canSubmit) return;
     setLoading(true);
     try {
+      let parsedHeight: number | undefined;
+      if (heightCm) {
+        const h = Number(heightCm);
+        if (isNaN(h) || h < 100 || h > 250) {
+          setLoading(false);
+          Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
+          return;
+        }
+        parsedHeight = h;
+      }
       const birth_date = `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`;
       await createProfile({
         name: name.trim(),
@@ -210,7 +220,7 @@ export default function OnboardingScreen() {
         tagline: tagline.trim() || null,
         job: job.trim() || null,
         about_me: aboutMeTrim || undefined,
-        height_cm: heightCm ? Number(heightCm) : undefined,
+        height_cm: parsedHeight,
         relationship_intent: relationshipIntent || undefined,
         photos: photos.length > 0 ? photos : undefined,
       });
