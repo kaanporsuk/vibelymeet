@@ -7,7 +7,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Linking,
   View as RNView,
   Image,
   ActivityIndicator,
@@ -25,7 +24,6 @@ import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
-import { Card } from '@/components/ui';
 import { spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -55,7 +53,6 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
-const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
 const TOTAL_STEPS = 7;
 const MAX_ONBOARDING_PHOTOS = 6;
 
@@ -628,19 +625,9 @@ export default function OnboardingScreen() {
               onChangeText={setJob}
               editable={!loading}
             />
-            <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
-              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Vibe video on web</Text>
-              <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
-                Record your vibe video and fine-tune your profile on the full site anytime.
-              </Text>
-              <VibelyButton
-                label="Open web profile"
-                onPress={() => Linking.openURL(WEB_PROFILE_URL)}
-                variant="secondary"
-                size="sm"
-                style={styles.webFallbackBtn}
-              />
-            </Card>
+            <Text style={[{ fontSize: 13, color: theme.mutedForeground, marginTop: 8, lineHeight: 20 }]}>
+              You can add more photos and record your vibe video later in your profile.
+            </Text>
             <VibelyButton
               label="Continue"
               onPress={handleNext}
@@ -759,10 +746,6 @@ const styles = StyleSheet.create({
   button: { marginTop: 24 },
   backBtn: { marginTop: 16, alignSelf: 'center' },
   link: { fontSize: 14, fontWeight: '500' },
-  webFallbackCard: { marginTop: 20, marginBottom: 12, padding: spacing.lg },
-  webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
-  webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
-  webFallbackBtn: { alignSelf: 'flex-start' },
   welcomeBlock: { alignItems: 'center' as const, paddingTop: 40, paddingBottom: 24, gap: 16 },
   welcomeIcon: {
     width: 72,

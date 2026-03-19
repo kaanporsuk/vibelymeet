@@ -699,12 +699,12 @@ export default function EventsListScreen() {
         </View>
       </GlassHeaderBar>
 
-      {/* Location prompt: show when profile has no location and not dismissed; Set location opens web */}
+      {/* Location prompt: show when profile has no location and not dismissed */}
       {showLocationPrompt && !locationDismissed && (
         <LocationPromptBanner
           theme={theme}
           onDismiss={() => setLocationDismissed(true)}
-          onEnable={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})}
+          onEnable={() => router.push('/(tabs)/profile')}
         />
       )}
 

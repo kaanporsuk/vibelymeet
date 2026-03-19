@@ -765,7 +765,7 @@ export default function ChatThreadScreen() {
             <Ionicons name="calendar-outline" size={18} color={theme.tint} />
             <Text style={[styles.quickActionLabel, { color: theme.tint }]}>Suggest a date</Text>
           </Pressable>
-          <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/matches').catch(() => {})} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
+          <Pressable onPress={() => router.push('/(tabs)/matches')} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
             <Ionicons name="game-controller-outline" size={18} color={theme.textSecondary} />
             <Text style={[styles.quickActionLabel, { color: theme.textSecondary }]}>Games</Text>
           </Pressable>
