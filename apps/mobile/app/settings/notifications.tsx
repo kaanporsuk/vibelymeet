@@ -1,5 +1,5 @@
 /**
- * Notifications settings — permission state, request, Open Settings when denied, link to web for toggles.
+ * Notifications settings — permission state + 8 toggle groups (design spec: 44 notification types).
  */
 import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, Switch } from 'react-native';
@@ -9,13 +9,29 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, VibelyButton } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
-import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { registerPushWithBackend } from '@/lib/onesignal';
 import { useAuth } from '@/context/AuthContext';
-import { useNotificationPreferences } from '@/lib/useNotificationPreferences';
+import { useNotificationPreferences, type NotificationPrefKey } from '@/lib/useNotificationPreferences';
+
+const PREF_GROUPS: Array<{
+  key: NotificationPrefKey;
+  label: string;
+  desc: string;
+  defaultVal: boolean;
+  locked?: boolean;
+}> = [
+  { key: 'pref_messages', label: 'Messages', desc: 'New messages, voice notes, video messages, reactions', defaultVal: true },
+  { key: 'pref_matches', label: 'Matches', desc: 'New matches, mutual vibes, who liked you', defaultVal: true },
+  { key: 'pref_events', label: 'Events', desc: 'Reminders, live alerts, new events in your city', defaultVal: true },
+  { key: 'pref_daily_drop', label: 'Daily Drop', desc: 'Drop available, openers, and replies', defaultVal: true },
+  { key: 'pref_video_dates', label: 'Video Dates', desc: 'Partner ready, date starting, reconnection', defaultVal: true },
+  { key: 'pref_vibes_social', label: 'Vibes & Social', desc: 'Someone vibed you, super vibes', defaultVal: true },
+  { key: 'pref_marketing', label: 'Tips & Recommendations', desc: 'Premium features, weekly summary, re-engagement', defaultVal: false },
+  { key: 'pref_account_safety', label: 'Account & Safety', desc: 'Verification, subscription, credits, security alerts', defaultVal: true, locked: true },
+];
 
 export default function NotificationsSettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -23,7 +39,7 @@ export default function NotificationsSettingsScreen() {
   const { isGranted, isDenied, requestPermission, openSettings, refresh } = usePushPermission();
   const { user } = useAuth();
   const [showFlow, setShowFlow] = useState(false);
-  const { prefs, isLoading: prefsLoading, toggle } = useNotificationPreferences(user?.id);
+  const { prefs, isLoading: prefsLoading, updatePref } = useNotificationPreferences(user?.id);
 
   const handleRequest = async (): Promise<boolean> => {
     const granted = await requestPermission();
@@ -77,18 +93,26 @@ export default function NotificationsSettingsScreen() {
             <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>What to notify</Text>
             {!prefsLoading && (
               <View style={styles.toggles}>
-                {[
-                  { key: 'notify_messages' as const, label: 'New messages' },
-                  { key: 'notify_new_match' as const, label: 'New matches' },
-                  { key: 'notify_date_reminder' as const, label: 'Date reminders' },
-                  { key: 'notify_event_reminder' as const, label: 'Event reminders' },
-                  { key: 'notify_ready_gate' as const, label: 'Ready to date' },
-                  { key: 'notify_daily_drop' as const, label: 'Daily drop' },
-                  { key: 'notify_product_updates' as const, label: 'Product updates' },
-                ].map(({ key, label }) => (
-                  <View key={key} style={[styles.toggleRow, { borderBottomColor: theme.border }]}>
-                    <Text style={[styles.toggleLabel, { color: theme.text }]}>{label}</Text>
-                    <Switch value={prefs[key]} onValueChange={() => toggle(key)} trackColor={{ false: theme.surfaceSubtle, true: withAlpha(theme.tint, 0.6) }} thumbColor={prefs[key] ? theme.tint : theme.textSecondary} />
+                {PREF_GROUPS.map((group) => (
+                  <View key={group.key} style={[styles.row, { borderBottomColor: theme.border }]}>
+                    <View style={styles.rowContent}>
+                      <View style={styles.rowLabelRow}>
+                        <Text style={[styles.rowLabel, { color: theme.text }]}>{group.label}</Text>
+                        {group.locked && (
+                          <Ionicons name="lock-closed" size={14} color={theme.textSecondary} style={styles.lockIcon} />
+                        )}
+                      </View>
+                      <Text style={[styles.rowDesc, { color: theme.textSecondary }]}>
+                        {group.locked ? 'Always on for your safety' : group.desc}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={group.locked ? true : (prefs[group.key] ?? group.defaultVal)}
+                      onValueChange={(val) => { if (!group.locked) updatePref(group.key, val); }}
+                      disabled={group.locked}
+                      trackColor={{ false: theme.surfaceSubtle, true: theme.tint }}
+                      thumbColor={theme.primaryForeground}
+                    />
                   </View>
                 ))}
               </View>
@@ -131,8 +155,12 @@ const styles = StyleSheet.create({
   statusValue: { fontSize: 16, fontWeight: '600', marginBottom: spacing.sm },
   sectionTitle: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5, marginBottom: spacing.sm, textTransform: 'uppercase' },
   toggles: { marginBottom: spacing.md },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth },
-  toggleLabel: { fontSize: 15 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
+  rowContent: { flex: 1, minWidth: 0, marginRight: spacing.md },
+  rowLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  rowLabel: { fontSize: 16, fontWeight: '600' },
+  rowDesc: { fontSize: 13, marginTop: 2, lineHeight: 18 },
+  lockIcon: { marginLeft: 2 },
   body: { fontSize: 14, lineHeight: 20, marginBottom: spacing.md },
   cta: { marginTop: spacing.sm },
 });

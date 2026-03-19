@@ -24,7 +24,7 @@ import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 function calculateAge(day: number, month: number, year: number): number {
@@ -77,13 +77,6 @@ export default function OnboardingScreen() {
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
-  const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
-  const [relationshipIntent, setRelationshipIntent] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -203,6 +196,10 @@ export default function OnboardingScreen() {
       let parsedHeight: number | undefined;
       if (heightCm) {
         const h = Number(heightCm);
+        if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
+      let parsedHeight: number | undefined;
+      if (heightCm) {
+        const h = Number(heightCm);
         if (isNaN(h) || h < 100 || h > 250) {
           setLoading(false);
           Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
@@ -219,29 +216,8 @@ export default function OnboardingScreen() {
         country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
-        about_me: aboutMeTrim || undefined,
+        about_me: aboutMe.trim() || null,
         height_cm: parsedHeight,
-        relationship_intent: relationshipIntent || undefined,
-        photos: photos.length > 0 ? photos : undefined,
-      });
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user && selectedVibeIds.length > 0) {
-        const vibeRows = selectedVibeIds.map((tagId) => ({
-          profile_id: user.id,
-          vibe_tag_id: tagId,
-        }));
-        const { error: vibesError } = await supabase
-          .from('profile_vibes')
-          .upsert(vibeRows, { onConflict: 'profile_id,vibe_tag_id' });
-        if (vibesError) throw vibesError;
-      }
-      trackEvent('onboarding_completed', {
-        has_photo: photos.length > 0,
-        has_bio: !!aboutMeTrim,
-        has_vibes: selectedVibeIds.length > 0,
-        vibe_count: selectedVibeIds.length,
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
@@ -658,70 +634,39 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
-              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
-            </Pressable>
-          </>
-        )}
-
-        {/* Step 6: Photos — web Step 7 parity */}
-        {step === 6 && (
-          <>
-            <Text style={[styles.title, { color: theme.text }]}>Add your photos</Text>
-            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
-              Add at least 2 photos so people can see the real you.
-            </Text>
-            <RNView style={styles.photoGrid}>
-              {[0, 1, 2, 3, 4, 5].map((i) => {
-                const photoPath = photos[i];
-                const isNextSlot = i === photos.length;
-                const showSpinner = uploadingPhoto && isNextSlot;
-                const canAddHere =
-                  isNextSlot && photos.length < MAX_ONBOARDING_PHOTOS && !uploadingPhoto;
-                return (
-                  <Pressable
-                    key={i}
-                    onPress={() => {
-                      if (canAddHere) pickAndUploadPhoto();
-                    }}
-                    disabled={!photoPath && !canAddHere}
-                    style={[
-                      styles.photoSlot,
-                      {
-                        borderStyle: photoPath ? 'solid' : 'dashed',
-                        borderColor: photoPath ? theme.border : theme.mutedForeground,
-                        backgroundColor: photoPath ? 'transparent' : theme.surfaceSubtle,
-                      },
-                    ]}
-                  >
-                    {photoPath ? (
-                      <Image
-                        source={{ uri: getImageUrl(photoPath, undefined, 'profile_photo') }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                      />
-                    ) : showSpinner ? (
-                      <ActivityIndicator color={theme.tint} />
-                    ) : (
-                      <Ionicons name="add" size={28} color={theme.mutedForeground} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </RNView>
-            <Text
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
+            <TextInput
+              placeholder="Height in cm (e.g. 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
               style={[
-                styles.photoMinHint,
-                {
-                  color: photos.length >= 2 ? theme.success : theme.mutedForeground,
-                },
+                styles.input,
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
               ]}
-            >
-              {photos.length}/2 minimum added
-            </Text>
-            <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
-              Optional: add up to {MAX_ONBOARDING_PHOTOS} photos. Vibe video is available on web.
-            </Text>
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
+            <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
+              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
+              <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
+                Profile photos, vibes, and vibe video are available on the full site. Finish there for the best experience.
+              </Text>
+              <VibelyButton
+                label="Complete on web"
+                onPress={() => Linking.openURL(WEB_PROFILE_URL)}
+                variant="secondary"
+                size="sm"
+                style={styles.webFallbackBtn}
+              />
+            </Card>
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
@@ -776,6 +721,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
   stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   input: { borderWidth: 1, padding: 12, borderRadius: 16, marginBottom: 12, minHeight: 56 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: 16 },
@@ -785,17 +731,47 @@ const styles = StyleSheet.create({
   button: { marginTop: 24 },
   backBtn: { marginTop: 16, alignSelf: 'center' },
   link: { fontSize: 14, fontWeight: '500' },
+  stepProgressWrap: { marginBottom: spacing.md, gap: spacing.sm },
+  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', width: '100%' },
+  progressFill: { height: 4, borderRadius: 2 },
+  stepProgress: { fontSize: 12, textAlign: 'center' },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
+  dobRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  dobInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 48,
+    textAlign: 'center' as const,
+  },
+  dobInputYear: { flex: 1.4 },
+  dobHint: { fontSize: 13, marginBottom: 8 },
+  vibeChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  vibeChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
+  vibeMinHint: { fontSize: 13, marginBottom: 8 },
+  intentOptionList: { gap: 10, marginBottom: 8 },
+  intentOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
+  photoSlot: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoMinHint: { fontSize: 13, marginBottom: 4 },
   webFallbackCard: { marginTop: 20, marginBottom: 12, padding: spacing.lg },
   webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
   webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
   webFallbackBtn: { alignSelf: 'flex-start' },
-  welcomeBlock: { alignItems: 'center', paddingTop: 40, paddingBottom: 24, gap: 16 },
-  welcomeIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  welcomeTitle: { fontSize: 28, fontWeight: '700', textAlign: 'center', letterSpacing: 0.3 },
-  welcomeSub: { fontSize: 16, textAlign: 'center', lineHeight: 24, paddingHorizontal: 16 },
-  welcomeBullets: { width: '100%', borderTopWidth: 1, paddingTop: 20, gap: 16, marginTop: 8 },
-  welcomeBullet: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bulletIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  bulletEmoji: { fontSize: 20 },
-  bulletText: { fontSize: 15, fontWeight: '500', flex: 1 },
 });

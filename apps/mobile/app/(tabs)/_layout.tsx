@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SymbolView } from 'expo-symbols';
@@ -7,6 +8,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { border, layout, radius, spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 
 export default function TabLayout() {
@@ -15,6 +17,21 @@ export default function TabLayout() {
   const { user } = useAuth();
   const showDailyDropDot = useDailyDropTabBadge(user?.id);
   const insets = useSafeAreaInsets();
+
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ['unread-message-count', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .neq('sender_id', user.id)
+        .is('read_at', null);
+      return count ?? 0;
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30000,
+  });
   const tabBarContentHeight =
     Platform.OS === 'ios' ? layout.tabBarContentHeightIos : layout.tabBarContentHeightAndroid;
   const tabBarHeight = tabBarContentHeight + insets.bottom;
@@ -90,6 +107,8 @@ export default function TabLayout() {
         name="matches"
         options={{
           title: 'Matches',
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : String(unreadCount)) : undefined,
+          tabBarBadgeStyle: { backgroundColor: theme.accent, fontSize: 10, fontWeight: '600' },
           tabBarIcon: ({ color }) => (
             <SymbolView name={{ ios: 'heart.fill', android: 'favorite', web: 'favorite' }} tintColor={color} size={20} />
           ),
