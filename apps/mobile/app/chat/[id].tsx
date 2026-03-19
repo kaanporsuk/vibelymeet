@@ -281,7 +281,7 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const handleVideoPick = async () => {
+  const pickVideoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || isSending) return;
     setVideoError(null);
     try {
@@ -291,9 +291,9 @@ export default function ChatThreadScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['videos'],
-        allowsEditing: false,
-        quality: 1,
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        quality: 0.7,
+        videoMaxDuration: 30,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -306,9 +306,9 @@ export default function ChatThreadScreen() {
         mimeType: asset.mimeType ?? undefined,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Video send failed';
+      const msg = e instanceof Error ? e.message : 'Could not attach video.';
       setVideoError(msg);
-      Alert.alert('Video failed', msg);
+      Alert.alert('Error', msg);
     }
   };
 
@@ -799,15 +799,19 @@ export default function ChatThreadScreen() {
           />
           <Pressable
             style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={() => Alert.alert('Coming soon', 'Photo messages will be available in a future update.')}
+            onPress={() => void pickVideoFromLibrary()}
             disabled={isSending}
-            accessibilityLabel="Attach photo"
+            accessibilityLabel="Attach video from library"
           >
-            <Ionicons name="camera-outline" size={22} color={theme.tint} />
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="camera-outline" size={22} color={theme.tint} />
+            )}
           </Pressable>
           <Pressable
             style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={handleVideoPick}
+            onPress={() => void pickVideoFromLibrary()}
             disabled={isSending}
             accessibilityLabel="Send video"
           >
