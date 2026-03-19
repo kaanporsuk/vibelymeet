@@ -365,14 +365,7 @@ export default function ProfileScreen() {
   const handlePreviewProfile = () => setShowPreviewModal(true);
 
   const handleSchedulePress = () => {
-    Alert.alert(
-      'My Vibe Schedule',
-      'Set when you\'re open for dates on vibelymeet.com. Schedule management is on web for now.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Open schedule on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
-      ]
-    );
+    router.push('/schedule');
   };
 
   const handleAddPhoto = async () => {
@@ -716,14 +709,23 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {/* My Vibe Schedule — web parity glass-card */}
+        {/* My Vibe Schedule — native parity: teal icon chip, navigates to Schedule screen */}
         <Card variant="glass">
-          <SettingsRow
-            icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
-            title="My Vibe Schedule"
-            subtitle="Manage on web"
+          <Pressable
             onPress={handleSchedulePress}
-          />
+            style={({ pressed }) => [styles.scheduleRow, pressed && { opacity: 0.9 }]}
+          >
+            <View style={styles.scheduleIconChip}>
+              <Ionicons name="calendar-outline" size={20} color="#06B6D4" />
+            </View>
+            <View style={styles.scheduleTextWrap}>
+              <Text style={[styles.scheduleRowTitle, { color: theme.text }]}>My Vibe Schedule</Text>
+              <Text style={[styles.scheduleRowSub, { color: theme.textSecondary }]}>
+                Set when you're open for dates
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </Pressable>
         </Card>
 
         {/* Stats row — web parity glass-card p-3 per cell */}
@@ -1672,7 +1674,9 @@ const styles = StyleSheet.create({
   scheduleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    minHeight: 48,
   },
   scheduleIcon: {
     width: 40,
@@ -1691,6 +1695,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  scheduleIconChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(6, 182, 212, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  scheduleTextWrap: { flex: 1 },
+  scheduleRowTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold },
+  scheduleRowSub: { fontSize: 13, marginTop: 2 },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.lg,

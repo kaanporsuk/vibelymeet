@@ -56,7 +56,6 @@ import { NotificationPermissionFlow } from '@/components/notifications/Notificat
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
-import { LinearGradient } from 'expo-linear-gradient';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -787,19 +786,4 @@ const styles = StyleSheet.create({
   discoverMeta: { fontSize: 12 },
   discoverAttendeesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   discoverAttendees: { fontSize: 12 },
-  otherCitiesCard: { padding: 16, borderRadius: 16, borderWidth: 1 },
-  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  otherCitiesEmoji: { fontSize: 28 },
-  otherCitiesCopy: { flex: 1 },
-  otherCitiesTitle: { fontSize: 15, fontWeight: '600' },
-  otherCitiesSub: { fontSize: 12, marginTop: 2 },
-  otherCitiesCta: {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-  },
-  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
 });

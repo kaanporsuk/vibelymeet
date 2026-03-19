@@ -9,6 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyText, VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { Linking } from 'react-native';
+import { trackEvent } from '@/lib/analytics';
 
 const FEEDBACK_SUBJECTS = [
   { id: 'bug', label: 'Bug report' },
