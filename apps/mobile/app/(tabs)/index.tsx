@@ -14,7 +14,7 @@ import {
   Animated,
   Linking,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds } from 'date-fns';
@@ -455,7 +455,7 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
                 <Pressable
-                  onPress={() => router.push('/events')}
+                  onPress={() => router.push('/premium' as Href)}
                   style={({ pressed }) => [
                     styles.otherCitiesCta,
                     { borderColor: withAlpha(theme.tint, 0.3) },
