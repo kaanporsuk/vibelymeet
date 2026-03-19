@@ -7,7 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { spacing, radius, layout } from '@/constants/theme';
-import { trackEvent } from '@/lib/analytics';
+import { identifyUser, trackEvent } from '@/lib/analytics';
+import { supabase } from '@/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 
 const GLOW_STYLE = {
@@ -41,6 +42,12 @@ export default function SignInScreen() {
     if (error) {
       setFieldError(error.message ?? 'Sign in failed');
       return;
+    }
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u?.id) {
+      identifyUser(u.id, { email: email.trim() });
     }
     trackEvent('login', { method: 'email' });
     setSuccess(true);

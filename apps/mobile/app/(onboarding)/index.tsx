@@ -18,6 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { createProfile } from '@/lib/profileApi';
+import { trackEvent } from '@/lib/analytics';
 import { supabase } from '@/lib/supabase';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { getImageUrl } from '@/lib/imageUrl';
@@ -229,6 +230,12 @@ export default function OnboardingScreen() {
           .upsert(vibeRows, { onConflict: 'profile_id,vibe_tag_id' });
         if (vibesError) throw vibesError;
       }
+      trackEvent('onboarding_completed', {
+        has_photo: photos.length > 0,
+        has_bio: !!aboutMeTrim,
+        has_vibes: selectedVibeIds.length > 0,
+        vibe_count: selectedVibeIds.length,
+      });
       await refreshOnboarding();
       router.replace('/(tabs)');
     } catch (e: unknown) {

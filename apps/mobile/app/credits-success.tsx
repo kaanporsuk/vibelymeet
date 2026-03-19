@@ -1,17 +1,23 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { spacing, typography } from '@/constants/theme';
 import { VibelyButton } from '@/components/ui';
 import { Ionicons } from '@expo/vector-icons';
+import { trackEvent } from '@/lib/analytics';
 
 export default function CreditsSuccessScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { pack } = useLocalSearchParams<{ pack?: string }>();
+
+  useEffect(() => {
+    trackEvent('credit_purchase_completed', { pack: pack ?? 'unknown' });
+  }, [pack]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>

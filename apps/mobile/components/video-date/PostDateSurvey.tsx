@@ -9,6 +9,7 @@ import { View, Text, Pressable, StyleSheet, Image, ActivityIndicator } from 'rea
 import { typography, spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { trackEvent } from '@/lib/analytics';
 
 type Props = {
   sessionId: string;
@@ -23,6 +24,7 @@ type Props = {
 };
 
 export function PostDateSurvey({
+  sessionId,
   partnerName,
   partnerImage,
   onSubmitVerdict,
@@ -48,6 +50,10 @@ export function PostDateSurvey({
     setSubmitting(true);
     try {
       const result = await onSubmitVerdict(liked);
+      trackEvent('post_date_survey_completed', {
+        session_id: sessionId,
+        verdict: liked ? 'vibe' : 'pass',
+      });
       if (result?.mutual) {
         setStep('celebration');
         if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);

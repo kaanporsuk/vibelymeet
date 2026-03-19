@@ -42,6 +42,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { fetchMyProfile, updateMyProfile, getZodiacSign, getZodiacEmoji, type ProfileRow } from '@/lib/profileApi';
+import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
 import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
@@ -182,6 +183,24 @@ export default function ProfileScreen() {
     queryFn: fetchMyProfile,
     enabled: !!user?.id,
   });
+
+  useEffect(() => {
+    if (!profile) return;
+    const isPremium = !!(
+      profile.is_premium &&
+      profile.premium_until &&
+      new Date(profile.premium_until) > new Date()
+    );
+    setUserProperties({
+      name: profile.name ?? '',
+      age: profile.age ?? 0,
+      gender: profile.gender ?? '',
+      location: profile.location ?? '',
+      has_photos: (profile.photos?.length ?? 0) > 0,
+      is_premium: isPremium,
+      is_verified: !!(profile.phone_verified || profile.photo_verified),
+    });
+  }, [profile]);
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [galleryCurrentIndex, setGalleryCurrentIndex] = useState(0);

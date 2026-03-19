@@ -7,7 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { spacing, radius, layout } from '@/constants/theme';
-import { trackEvent } from '@/lib/analytics';
+import { identifyUser, trackEvent } from '@/lib/analytics';
+import { supabase } from '@/lib/supabase';
 
 const GLOW_STYLE = {
   position: 'absolute' as const,
@@ -39,6 +40,12 @@ export default function SignUpScreen() {
     if (error) {
       setFieldError(error.message ?? 'Sign up failed');
       return;
+    }
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u?.id) {
+      identifyUser(u.id, { email: email.trim() });
     }
     trackEvent('signup_completed', { method: 'email' });
     router.replace('/(tabs)');

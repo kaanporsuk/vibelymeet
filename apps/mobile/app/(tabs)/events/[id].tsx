@@ -52,6 +52,11 @@ export default function EventDetailScreen() {
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
 
+  useEffect(() => {
+    if (!id || !event) return;
+    trackEvent('event_viewed', { event_id: id, event_title: event.title ?? '' });
+  }, [id, event?.id]);
+
   const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
     id: a.id,
     name: a.name,

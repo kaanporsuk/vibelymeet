@@ -55,6 +55,7 @@ import { supabase } from '@/lib/supabase';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { trackEvent } from '@/lib/analytics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -115,6 +116,8 @@ export default function VideoDateScreen() {
   const phaseRef = useRef(phase);
   const reconnectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wasConnectedRef = useRef(false);
+  const handshakeAnalyticsRef = useRef(false);
+  const videoDateEndedRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -184,6 +187,13 @@ export default function VideoDateScreen() {
     if (!user?.id) return;
     fetchUserCredits(user.id).then(setCredits);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!sessionId || !isConnected || phase !== 'handshake') return;
+    if (handshakeAnalyticsRef.current) return;
+    handshakeAnalyticsRef.current = true;
+    trackEvent('video_date_started', { session_id: sessionId, phase: 'handshake' });
+  }, [sessionId, isConnected, phase]);
 
   useEffect(() => {
     if (eventId && user?.id) {
@@ -263,6 +273,10 @@ export default function VideoDateScreen() {
   }, [sessionId, eventId, user?.id]);
 
   const handleCallEnd = useCallback(async () => {
+    if (sessionId && !videoDateEndedRef.current) {
+      videoDateEndedRef.current = true;
+      trackEvent('video_date_ended', { session_id: sessionId });
+    }
     Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (user)', level: 'info', data: { sessionId } });
     setShowFeedback(true);
     if (eventId && user?.id) updateParticipantStatus(eventId, user.id, 'in_survey');
@@ -293,6 +307,10 @@ export default function VideoDateScreen() {
       setIsExtending(true);
       const ok = await deductCredit(user.id, type);
       if (ok) {
+        if (sessionId) {
+          trackEvent('video_date_extended', { session_id: sessionId });
+          trackEvent('credit_used', { type, minutes });
+        }
         setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
         setCredits((c) =>
           type === 'extra_time' ? { ...c, extraTime: Math.max(0, c.extraTime - 1) } : { ...c, extendedVibe: Math.max(0, c.extendedVibe - 1) }
@@ -301,7 +319,7 @@ export default function VideoDateScreen() {
       setIsExtending(false);
       return ok;
     },
-    [user?.id]
+    [user?.id, sessionId]
   );
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
