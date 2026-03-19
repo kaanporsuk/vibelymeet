@@ -22,6 +22,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
+import { NotificationDeepLinkHandler } from '@/components/NotificationDeepLinkHandler';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { setPostHogClient } from '@/lib/analytics';
@@ -175,6 +176,7 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <PushRegistration />
+        <NotificationDeepLinkHandler />
         <ActivityHeartbeat />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>

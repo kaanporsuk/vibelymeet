@@ -288,12 +288,15 @@ Deno.serve(async (req) => {
     }
 
     // 11. Send via OneSignal (all registered devices)
+    // deep_link: path for native app to open correct screen (e.g. /chat/USER_ID, /event/EVENT_ID/lobby)
+    const deepLink = (data && typeof data.url === 'string') ? data.url : (data && typeof data.deep_link === 'string') ? data.deep_link : '/'
+    const osData = { ...(data || {}), deep_link: deepLink }
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,
       include_player_ids: playerIds,
       headings: { en: title },
       contents: { en: body },
-      data: data || {},
+      data: osData,
       url: data?.url ? `${APP_URL}${data.url}` : APP_URL,
     }
 
