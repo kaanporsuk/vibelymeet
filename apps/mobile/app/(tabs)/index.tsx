@@ -30,13 +30,15 @@ import {
   DiscoverCardSkeleton,
   VibelyText,
   ErrorState,
+  EmptyState,
 } from '@/components/ui';
-import { EmptyState } from '@/components/ui';
+import { LinearGradient } from 'expo-linear-gradient';
 import { DashboardGreeting } from '@/components/DashboardGreeting';
 import { spacing, radius, typography, layout, shadows, gradient } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
+import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvents';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl } from '@/lib/imageUrl';
@@ -447,11 +449,8 @@ export default function DashboardScreen() {
                 <Text style={styles.otherCitiesEmoji}>💎</Text>
                 <View style={styles.otherCitiesCopy}>
                   <Text style={[styles.otherCitiesTitle, { color: theme.text }]}>
-                    {(otherCities as OtherCityEvent[]).reduce(
-                      (sum: number, c: OtherCityEvent) => sum + Number(c.event_count),
-                      0,
-                    )}{' '}
-                    events in {otherCities.length} {otherCities.length === 1 ? 'city' : 'cities'}
+                    {otherCities.reduce((sum: number, c: OtherCityEvent) => sum + Number(c.event_count), 0)} events in{' '}
+                    {otherCities.length} {otherCities.length === 1 ? 'city' : 'cities'}
                   </Text>
                   <Text style={[styles.otherCitiesSub, { color: theme.textSecondary }]}>
                     {(otherCities as OtherCityEvent[])
@@ -507,7 +506,7 @@ export default function DashboardScreen() {
                   >
                     {m.isNew ? (
                       <LinearGradient
-                        colors={[...gradient.primary]}
+                        colors={[gradient.primary[0], gradient.primary[1]]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.matchAvatarGradientRing}
@@ -760,6 +759,24 @@ const styles = StyleSheet.create({
   countdownValue: { fontSize: 20 },
   countdownLabel: { fontSize: 10, marginTop: 2, letterSpacing: 0.5 },
   emptyCardWrap: { paddingVertical: spacing.xl, alignItems: 'center' },
+  otherCitiesCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  otherCitiesEmoji: { fontSize: 28 },
+  otherCitiesCopy: { flex: 1, minWidth: 0 },
+  otherCitiesTitle: { fontSize: 15, fontWeight: '700' },
+  otherCitiesSub: { fontSize: 13, marginTop: 4 },
+  otherCitiesCta: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
   matchRow: { flexDirection: 'row', gap: spacing.lg, paddingVertical: spacing.sm, paddingRight: spacing.lg },
   matchItem: { alignItems: 'center', gap: spacing.sm, minWidth: 64 },
   matchName: { fontWeight: '600', fontSize: 12, maxWidth: 64 },
@@ -777,18 +794,18 @@ const styles = StyleSheet.create({
   discoverAttendeesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   discoverAttendees: { fontSize: 12 },
   otherCitiesCard: { padding: 16, borderRadius: 16, borderWidth: 1 },
-  otherCitiesRow: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12 },
+  otherCitiesRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   otherCitiesEmoji: { fontSize: 28 },
   otherCitiesCopy: { flex: 1 },
-  otherCitiesTitle: { fontSize: 15, fontWeight: '600' as const },
+  otherCitiesTitle: { fontSize: 15, fontWeight: '600' },
   otherCitiesSub: { fontSize: 12, marginTop: 2 },
   otherCitiesCta: {
     marginTop: 12,
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 12,
-    alignSelf: 'flex-start' as const,
+    alignSelf: 'flex-start',
     borderWidth: 1,
   },
-  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' as const },
+  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
 });
