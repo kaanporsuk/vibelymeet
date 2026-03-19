@@ -17,11 +17,14 @@ import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { LogBox, View } from 'react-native';
+import { useBadgeCount } from '@/lib/useBadgeCount';
+import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
+import { NotificationDeepLinkHandler } from '@/components/NotificationDeepLinkHandler';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { setPostHogClient } from '@/lib/analytics';
@@ -138,8 +141,15 @@ function ActivityHeartbeat() {
   return null;
 }
 
+/** Runs badge count query and sets OneSignal app badge (iOS/Android). */
+function BadgeCountUpdater() {
+  useBadgeCount();
+  return null;
+}
+
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  useCurrentRouteTracker();
 
   useEffect(() => {
     initRevenueCat();
@@ -176,7 +186,9 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <PushRegistration />
+        <NotificationDeepLinkHandler />
         <ActivityHeartbeat />
+        <BadgeCountUpdater />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
             {POSTHOG_KEY ? (

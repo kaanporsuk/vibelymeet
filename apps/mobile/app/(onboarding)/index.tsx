@@ -77,6 +77,8 @@ export default function OnboardingScreen() {
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
+<<<<<<< feat/notification-deep-links
+=======
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
   const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
@@ -84,6 +86,7 @@ export default function OnboardingScreen() {
   const [relationshipIntent, setRelationshipIntent] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+>>>>>>> main
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -200,7 +203,20 @@ export default function OnboardingScreen() {
     if (!canSubmit) return;
     setLoading(true);
     try {
+<<<<<<< feat/notification-deep-links
+      let parsedHeight: number | undefined;
+      if (heightCm) {
+        const h = Number(heightCm);
+        if (isNaN(h) || h < 100 || h > 250) {
+          setLoading(false);
+          Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
+          return;
+        }
+        parsedHeight = h;
+      }
+=======
       const birth_date = `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`;
+>>>>>>> main
       await createProfile({
         name: name.trim(),
         gender,
@@ -209,6 +225,10 @@ export default function OnboardingScreen() {
         country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
+<<<<<<< feat/notification-deep-links
+        about_me: aboutMe.trim() || null,
+        height_cm: parsedHeight,
+=======
         about_me: aboutMeTrim || undefined,
         height_cm: heightCm ? Number(heightCm) : undefined,
         relationship_intent: relationshipIntent || undefined,
@@ -232,6 +252,7 @@ export default function OnboardingScreen() {
         has_bio: !!aboutMeTrim,
         has_vibes: selectedVibeIds.length > 0,
         vibe_count: selectedVibeIds.length,
+>>>>>>> main
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
@@ -648,6 +669,41 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
+<<<<<<< feat/notification-deep-links
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
+            <TextInput
+              placeholder="Height in cm (e.g. 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
+              style={[
+                styles.input,
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
+            <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
+              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
+              <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
+                Profile photos, vibes, and vibe video are available on the full site. Finish there for the best experience.
+              </Text>
+              <VibelyButton
+                label="Complete on web"
+                onPress={() => Linking.openURL(WEB_PROFILE_URL)}
+                variant="secondary"
+                size="sm"
+                style={styles.webFallbackBtn}
+              />
+            </Card>
+=======
             <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
@@ -712,6 +768,7 @@ export default function OnboardingScreen() {
             <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
               Optional: add up to {MAX_ONBOARDING_PHOTOS} photos. Vibe video is available on web.
             </Text>
+>>>>>>> main
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
@@ -766,6 +823,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
   stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   input: { borderWidth: 1, padding: 12, borderRadius: 16, marginBottom: 12, minHeight: 56 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: 16 },
@@ -779,13 +837,4 @@ const styles = StyleSheet.create({
   webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
   webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
   webFallbackBtn: { alignSelf: 'flex-start' },
-  welcomeBlock: { alignItems: 'center', paddingTop: 40, paddingBottom: 24, gap: 16 },
-  welcomeIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  welcomeTitle: { fontSize: 28, fontWeight: '700', textAlign: 'center', letterSpacing: 0.3 },
-  welcomeSub: { fontSize: 16, textAlign: 'center', lineHeight: 24, paddingHorizontal: 16 },
-  welcomeBullets: { width: '100%', borderTopWidth: 1, paddingTop: 20, gap: 16, marginTop: 8 },
-  welcomeBullet: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bulletIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  bulletEmoji: { fontSize: 20 },
-  bulletText: { fontSize: 15, fontWeight: '500', flex: 1 },
 });

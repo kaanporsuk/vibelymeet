@@ -41,6 +41,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { setOneSignalTags } from '@/lib/onesignal';
 import { fetchMyProfile, updateMyProfile, getZodiacSign, getZodiacEmoji, type ProfileRow } from '@/lib/profileApi';
 import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
@@ -173,7 +174,7 @@ export default function ProfileScreen() {
   const photoCellSize = effectiveGridWidth > 0 ? (effectiveGridWidth - photoGridGap * 2) / 3 : 80;
   const photoMainSize = photoCellSize * 2 + photoGridGap;
   const photoMainHeight = photoMainSize * (5 / 4); // web aspect-[4/5] for main tile
-  const { user, signOut, refreshOnboarding } = useAuth();
+  const { user, signOut, refreshOnboarding, onboardingComplete } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -229,13 +230,17 @@ export default function ProfileScreen() {
     }
   }, [showPhotoViewer, galleryBackdropOpacity]);
 
-  // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
+  // Sync OneSignal tags when profile loads or updates (for segmentation: Incomplete Profile, etc.)
   useEffect(() => {
-    const status = profile?.bunny_video_status;
-    if (status !== 'uploading' && status !== 'processing') return;
-    const interval = setInterval(() => refetch(), 5000);
-    return () => clearInterval(interval);
-  }, [profile?.bunny_video_status, refetch]);
+    if (!user?.id || !profile) return;
+    setOneSignalTags({
+      userId: user.id,
+      onboardingComplete: onboardingComplete === true,
+      hasPhotos: (profile.photos?.length ?? 0) > 0,
+      isPremium: profile.is_premium === true,
+      city: profile.location ?? '',
+    });
+  }, [user?.id, profile, onboardingComplete]);
 
   // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
   useEffect(() => {
@@ -379,14 +384,7 @@ export default function ProfileScreen() {
   const handlePreviewProfile = () => setShowPreviewModal(true);
 
   const handleSchedulePress = () => {
-    Alert.alert(
-      'My Vibe Schedule',
-      'Set when you\'re open for dates on vibelymeet.com. Schedule management is on web for now.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Open schedule on web', onPress: () => Linking.openURL('https://vibelymeet.com/schedule').catch(() => {}) },
-      ]
-    );
+    router.push('/schedule');
   };
 
   const handleAddPhoto = async () => {
@@ -730,14 +728,23 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
-        {/* My Vibe Schedule — web parity glass-card */}
+        {/* My Vibe Schedule — native parity: teal icon chip, navigates to Schedule screen */}
         <Card variant="glass">
-          <SettingsRow
-            icon={<Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />}
-            title="My Vibe Schedule"
-            subtitle="Manage on web"
+          <Pressable
             onPress={handleSchedulePress}
-          />
+            style={({ pressed }) => [styles.scheduleRow, pressed && { opacity: 0.9 }]}
+          >
+            <View style={styles.scheduleIconChip}>
+              <Ionicons name="calendar-outline" size={20} color="#06B6D4" />
+            </View>
+            <View style={styles.scheduleTextWrap}>
+              <Text style={[styles.scheduleRowTitle, { color: theme.text }]}>My Vibe Schedule</Text>
+              <Text style={[styles.scheduleRowSub, { color: theme.textSecondary }]}>
+                Set when you're open for dates
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.textSecondary} />
+          </Pressable>
         </Card>
 
         {/* Stats row — web parity glass-card p-3 per cell */}
@@ -1715,7 +1722,9 @@ const styles = StyleSheet.create({
   scheduleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    minHeight: 48,
   },
   scheduleIcon: {
     width: 40,
@@ -1734,6 +1743,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  scheduleIconChip: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(6, 182, 212, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  scheduleTextWrap: { flex: 1 },
+  scheduleRowTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold },
+  scheduleRowSub: { fontSize: 13, marginTop: 2 },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.lg,

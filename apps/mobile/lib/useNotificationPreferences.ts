@@ -1,27 +1,42 @@
 /**
- * Notification preferences — fetch and update notification_preferences (parity with web).
+ * Notification preferences — fetch and update notification_preferences.
+ * Uses 8 toggle groups (pref_*) per design spec; legacy notify_* columns remain for web.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
-export type NotificationPrefs = {
-  notify_new_match: boolean;
-  notify_messages: boolean;
-  notify_date_reminder: boolean;
-  notify_event_reminder: boolean;
-  notify_ready_gate: boolean;
-  notify_daily_drop: boolean;
-  notify_product_updates: boolean;
-};
+export type NotificationPrefKey =
+  | 'pref_messages'
+  | 'pref_matches'
+  | 'pref_events'
+  | 'pref_daily_drop'
+  | 'pref_video_dates'
+  | 'pref_vibes_social'
+  | 'pref_marketing'
+  | 'pref_account_safety';
+
+export type NotificationPrefs = Record<NotificationPrefKey, boolean>;
+
+const PREF_COLUMNS: NotificationPrefKey[] = [
+  'pref_messages',
+  'pref_matches',
+  'pref_events',
+  'pref_daily_drop',
+  'pref_video_dates',
+  'pref_vibes_social',
+  'pref_marketing',
+  'pref_account_safety',
+];
 
 const DEFAULTS: NotificationPrefs = {
-  notify_new_match: true,
-  notify_messages: true,
-  notify_date_reminder: true,
-  notify_event_reminder: true,
-  notify_ready_gate: true,
-  notify_daily_drop: false,
-  notify_product_updates: false,
+  pref_messages: true,
+  pref_matches: true,
+  pref_events: true,
+  pref_daily_drop: true,
+  pref_video_dates: true,
+  pref_vibes_social: true,
+  pref_marketing: false,
+  pref_account_safety: true,
 };
 
 export function useNotificationPreferences(userId: string | null | undefined) {
@@ -33,26 +48,28 @@ export function useNotificationPreferences(userId: string | null | undefined) {
       if (!userId) return DEFAULTS;
       const { data, error } = await supabase
         .from('notification_preferences')
-        .select('notify_new_match, notify_messages, notify_date_reminder, notify_event_reminder, notify_ready_gate, notify_daily_drop, notify_product_updates')
+        .select(PREF_COLUMNS.join(', '))
         .eq('user_id', userId)
         .maybeSingle();
       if (error) throw error;
       if (!data) return DEFAULTS;
+      const row = data as unknown as Record<string, boolean | null>;
       return {
-        notify_new_match: (data as Record<string, boolean>).notify_new_match ?? true,
-        notify_messages: (data as Record<string, boolean>).notify_messages ?? true,
-        notify_date_reminder: (data as Record<string, boolean>).notify_date_reminder ?? true,
-        notify_event_reminder: (data as Record<string, boolean>).notify_event_reminder ?? true,
-        notify_ready_gate: (data as Record<string, boolean>).notify_ready_gate ?? true,
-        notify_daily_drop: (data as Record<string, boolean>).notify_daily_drop ?? false,
-        notify_product_updates: (data as Record<string, boolean>).notify_product_updates ?? false,
+        pref_messages: row.pref_messages ?? DEFAULTS.pref_messages,
+        pref_matches: row.pref_matches ?? DEFAULTS.pref_matches,
+        pref_events: row.pref_events ?? DEFAULTS.pref_events,
+        pref_daily_drop: row.pref_daily_drop ?? DEFAULTS.pref_daily_drop,
+        pref_video_dates: row.pref_video_dates ?? DEFAULTS.pref_video_dates,
+        pref_vibes_social: row.pref_vibes_social ?? DEFAULTS.pref_vibes_social,
+        pref_marketing: row.pref_marketing ?? DEFAULTS.pref_marketing,
+        pref_account_safety: row.pref_account_safety ?? DEFAULTS.pref_account_safety,
       };
     },
     enabled: !!userId,
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ key, value }: { key: keyof NotificationPrefs; value: boolean }) => {
+    mutationFn: async ({ key, value }: { key: NotificationPrefKey; value: boolean }) => {
       if (!userId) throw new Error('Not authenticated');
       const { error } = await supabase
         .from('notification_preferences')
@@ -64,10 +81,20 @@ export function useNotificationPreferences(userId: string | null | undefined) {
     },
   });
 
-  const toggle = (key: keyof NotificationPrefs) => {
+  const updatePref = (key: NotificationPrefKey, value: boolean) => {
+    updateMutation.mutate({ key, value });
+  };
+
+  const toggle = (key: NotificationPrefKey) => {
     const current = prefs?.[key] ?? DEFAULTS[key];
     updateMutation.mutate({ key, value: !current });
   };
 
-  return { prefs: prefs ?? DEFAULTS, isLoading, toggle, isUpdating: updateMutation.isPending };
+  return {
+    prefs: prefs ?? DEFAULTS,
+    isLoading,
+    toggle,
+    updatePref,
+    isUpdating: updateMutation.isPending,
+  };
 }

@@ -212,7 +212,11 @@ export async function createProfile(data: {
   /** Onboarding Step 6 values; stored as looking_for. */
   relationship_intent?: string;
   birth_date?: string | null;
+<<<<<<< feat/notification-deep-links
+  height_cm?: number | null;
+=======
   photos?: string[] | null;
+>>>>>>> main
 }): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -236,10 +240,15 @@ export async function createProfile(data: {
     country: countryVal,
     job: data.job ?? null,
     about_me: data.about_me ?? null,
+<<<<<<< feat/notification-deep-links
+    height_cm: (typeof data.height_cm === 'number' && data.height_cm >= 100 && data.height_cm <= 250) ? data.height_cm : null,
+    looking_for: data.looking_for ?? null,
+=======
     height_cm: data.height_cm ?? null,
     looking_for: lookingFor,
     photos: data.photos?.length ? data.photos : null,
     avatar_url: data.photos?.[0] ?? null,
+>>>>>>> main
   });
   if (error) throw error;
   // Initialize user_credits like web onboarding
