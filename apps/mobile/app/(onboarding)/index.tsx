@@ -40,6 +40,7 @@ export default function OnboardingScreen() {
   const [tagline, setTagline] = useState('');
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
+  const [heightCm, setHeightCm] = useState('');
   const [loading, setLoading] = useState(false);
 
   const canNext = step === 1 ? name.trim().length >= 2 : true;
@@ -54,12 +55,23 @@ export default function OnboardingScreen() {
     if (!canSubmit) return;
     setLoading(true);
     try {
+      let parsedHeight: number | undefined;
+      if (heightCm) {
+        const h = Number(heightCm);
+        if (isNaN(h) || h < 100 || h > 250) {
+          setLoading(false);
+          Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
+          return;
+        }
+        parsedHeight = h;
+      }
       await createProfile({
         name: name.trim(),
         gender,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
         about_me: aboutMe.trim() || null,
+        height_cm: parsedHeight,
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
