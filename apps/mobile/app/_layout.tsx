@@ -164,6 +164,7 @@ function RootLayoutNav() {
         <Stack.Screen name="match-celebration" options={{ headerShown: false, title: "It's a match!" }} />
         <Stack.Screen name="schedule" options={{ headerShown: false, title: 'Schedule' }} />
         <Stack.Screen name="subscription-success" options={{ headerShown: false, title: 'Success' }} />
+        <Stack.Screen name="subscription-cancel" options={{ title: 'Cancelled', headerShown: false }} />
         <Stack.Screen name="credits-success" options={{ headerShown: false, title: 'Success' }} />
         <Stack.Screen name="event-payment-success" options={{ headerShown: false, title: 'Success' }} />
         <Stack.Screen name="how-it-works" options={{ headerShown: false, title: 'How It Works' }} />
