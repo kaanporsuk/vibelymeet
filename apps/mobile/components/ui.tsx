@@ -444,12 +444,8 @@ export function VibelyButton({
   const labelEl = (
     <Text
       style={[
-        {
-          color: variant === 'gradient' ? theme.primaryForeground : labelColor,
-          fontWeight: '600',
-          fontSize: 14,
-        },
-        textStyle as TextStyle,
+        { color: variant === 'gradient' ? theme.primaryForeground : labelColor, fontWeight: '600', fontSize: 14 },
+        textStyle,
       ]}
     >
       {label}
