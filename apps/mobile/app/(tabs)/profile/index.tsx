@@ -41,6 +41,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { setOneSignalTags } from '@/lib/onesignal';
 import { fetchMyProfile, updateMyProfile, getZodiacSign, getZodiacEmoji, type ProfileRow } from '@/lib/profileApi';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
@@ -172,7 +173,7 @@ export default function ProfileScreen() {
   const photoCellSize = effectiveGridWidth > 0 ? (effectiveGridWidth - photoGridGap * 2) / 3 : 80;
   const photoMainSize = photoCellSize * 2 + photoGridGap;
   const photoMainHeight = photoMainSize * (5 / 4); // web aspect-[4/5] for main tile
-  const { user, signOut, refreshOnboarding } = useAuth();
+  const { user, signOut, refreshOnboarding, onboardingComplete } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -210,13 +211,17 @@ export default function ProfileScreen() {
     }
   }, [showPhotoViewer, galleryBackdropOpacity]);
 
-  // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
+  // Sync OneSignal tags when profile loads or updates (for segmentation: Incomplete Profile, etc.)
   useEffect(() => {
-    const status = profile?.bunny_video_status;
-    if (status !== 'uploading' && status !== 'processing') return;
-    const interval = setInterval(() => refetch(), 5000);
-    return () => clearInterval(interval);
-  }, [profile?.bunny_video_status, refetch]);
+    if (!user?.id || !profile) return;
+    setOneSignalTags({
+      userId: user.id,
+      onboardingComplete: onboardingComplete === true,
+      hasPhotos: (profile.photos?.length ?? 0) > 0,
+      isPremium: profile.is_premium === true,
+      city: profile.location ?? '',
+    });
+  }, [user?.id, profile, onboardingComplete]);
 
   // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
   useEffect(() => {

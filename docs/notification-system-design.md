@@ -254,6 +254,22 @@ Respect sound_enabled in notification_preferences. Custom sounds are post-launch
 
 ---
 
+## 13. OneSignal Segments (configure in dashboard)
+
+Configure these segments in the OneSignal dashboard (not in code). Use them to send automated messages or trigger campaigns.
+
+| Segment | Filter | Automated message (example) | Deep link |
+|--------|--------|-----------------------------|-----------|
+| **Incomplete Profile** | `onboarding_complete` = false, First Session > 24 hours ago | "Almost there! 📸 Add photos to get 3x more matches" | /(tabs)/profile |
+| **Inactive 3 Days** | Last Session &lt; 3 days ago | "People are vibing without you 💜 Check out new events in your area" | /(tabs)/events |
+| **Inactive 7 Days** | Last Session &lt; 7 days ago | "We miss you! 🌟 New events and matches are waiting" | /(tabs) |
+| **Daily Drop Ready** | Triggered via API | Sent by generate-daily-drops Edge Function | — |
+| **Event Registered** | Has active event registration for today | Managed by event-reminders cron, not OneSignal segments | — |
+
+**Tags set by the app (for segmentation):** The native app sets OneSignal user tags after login and when profile is updated: `user_id`, `onboarding_complete` (true/false), `has_photos` (true/false), `is_premium` (true/false), `city`, `signup_date` (YYYY-MM-DD). Use these in the OneSignal dashboard to build the segments above (e.g. "Incomplete Profile" = `onboarding_complete` = false and First Session > 24h).
+
+---
+
 ## References (files audited)
 
 - **Web:** src/hooks/usePushNotifications.ts, useNotificationPreferences.ts, useEventVibes.ts; src/components/notifications/* (NotificationContainer, NotificationPermissionFlow, MessageNotificationCard, etc.); src/contexts/NotificationContext.tsx; src/lib/notifications.ts; src/components/admin/AdminEventControls.tsx, AdminEventFormModal.tsx; src/integrations/supabase/types.ts (notification_preferences, push_notification_events).
