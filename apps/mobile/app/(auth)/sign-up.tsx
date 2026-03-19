@@ -7,7 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { spacing, radius, layout } from '@/constants/theme';
-import { trackEvent } from '@/lib/analytics';
+import { identifyUser, trackEvent } from '@/lib/analytics';
+import { supabase } from '@/lib/supabase';
 
 const GLOW_STYLE = {
   position: 'absolute' as const,

@@ -24,7 +24,7 @@ import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 function calculateAge(day: number, month: number, year: number): number {
@@ -203,18 +203,28 @@ export default function OnboardingScreen() {
     if (!canSubmit) return;
     setLoading(true);
     try {
+<<<<<<< feat/home-redesign
+      let parsedHeight: number | undefined;
+      if (heightCm) {
+        const h = Number(heightCm);
+        if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
+=======
 <<<<<<< feat/notification-deep-links
       let parsedHeight: number | undefined;
       if (heightCm) {
         const h = Number(heightCm);
         if (isNaN(h) || h < 100 || h > 250) {
           setLoading(false);
+>>>>>>> main
           Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
           return;
         }
         parsedHeight = h;
       }
+<<<<<<< feat/home-redesign
 =======
+=======
+>>>>>>> main
       const birth_date = `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`;
 >>>>>>> main
       await createProfile({
@@ -230,7 +240,7 @@ export default function OnboardingScreen() {
         height_cm: parsedHeight,
 =======
         about_me: aboutMeTrim || undefined,
-        height_cm: heightCm ? Number(heightCm) : undefined,
+        height_cm: parsedHeight,
         relationship_intent: relationshipIntent || undefined,
         photos: photos.length > 0 ? photos : undefined,
       });
@@ -833,6 +843,45 @@ const styles = StyleSheet.create({
   button: { marginTop: 24 },
   backBtn: { marginTop: 16, alignSelf: 'center' },
   link: { fontSize: 14, fontWeight: '500' },
+  stepProgressWrap: { marginBottom: spacing.md, gap: spacing.sm },
+  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', width: '100%' },
+  progressFill: { height: 4, borderRadius: 2 },
+  stepProgress: { fontSize: 12, textAlign: 'center' },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
+  dobRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  dobInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 48,
+    textAlign: 'center' as const,
+  },
+  dobInputYear: { flex: 1.4 },
+  dobHint: { fontSize: 13, marginBottom: 8 },
+  vibeChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  vibeChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
+  vibeMinHint: { fontSize: 13, marginBottom: 8 },
+  intentOptionList: { gap: 10, marginBottom: 8 },
+  intentOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
+  photoSlot: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoMinHint: { fontSize: 13, marginBottom: 4 },
   webFallbackCard: { marginTop: 20, marginBottom: 12, padding: spacing.lg },
   webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
   webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
