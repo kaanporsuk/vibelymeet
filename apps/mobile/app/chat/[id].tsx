@@ -694,7 +694,10 @@ export default function ChatThreadScreen() {
           data={data.messages}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            (data.messages?.length ?? 0) === 0 ? styles.listContentEmpty : null,
+          ]}
           ListHeaderComponent={
             pendingDateProposalsForMe.length > 0 ? (
               <View style={styles.proposalBanners}>
@@ -748,9 +751,13 @@ export default function ChatThreadScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <Text style={[styles.empty, { color: theme.textSecondary }]}>
-              No messages yet. Say hi!
-            </Text>
+            <View style={styles.waveEmptyWrap}>
+              <Text style={styles.waveEmptyEmoji}>👋</Text>
+              <Text style={[styles.waveEmptyTitle, { color: theme.text }]}>{"It's a match!"}</Text>
+              <Text style={[styles.waveEmptySub, { color: theme.mutedForeground }]}>
+                Send a wave to start the conversation
+              </Text>
+            </View>
           }
           ListFooterComponent={
             partnerTyping ? (
@@ -942,6 +949,21 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
+  listContentEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  waveEmptyWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+    minHeight: 220,
+  },
+  waveEmptyEmoji: { fontSize: 48, marginBottom: 16 },
+  waveEmptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
+  waveEmptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
   themRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, gap: spacing.xs },
   themAvatarWrap: {
