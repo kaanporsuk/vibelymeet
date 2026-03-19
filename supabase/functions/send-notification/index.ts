@@ -28,6 +28,46 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   credits_subscription: 'notify_credits_subscription',
 }
 
+// Map notification category to 8 pref groups (pref_*). If pref is false, skip push. No entry = always send (e.g. safety_alerts).
+const NOTIFICATION_TYPE_TO_PREF: Record<string, string> = {
+  new_message: 'pref_messages',
+  voice_message: 'pref_messages',
+  video_message: 'pref_messages',
+  message_reaction: 'pref_messages',
+  date_proposal_received: 'pref_messages',
+  date_proposal_accepted: 'pref_messages',
+  date_proposal_declined: 'pref_messages',
+  messages: 'pref_messages',
+  new_match: 'pref_matches',
+  mutual_vibe: 'pref_matches',
+  who_liked_you: 'pref_matches',
+  event_registered: 'pref_events',
+  event_reminder_30m: 'pref_events',
+  event_reminder_5m: 'pref_events',
+  event_live: 'pref_events',
+  event_ended: 'pref_events',
+  new_event_city: 'pref_events',
+  event_almost_full: 'pref_events',
+  event_reminder: 'pref_events',
+  daily_drop: 'pref_daily_drop',
+  drop_opener: 'pref_daily_drop',
+  drop_reply: 'pref_daily_drop',
+  drop_expiring: 'pref_daily_drop',
+  partner_ready: 'pref_video_dates',
+  date_starting: 'pref_video_dates',
+  reconnection: 'pref_video_dates',
+  ready_gate: 'pref_video_dates',
+  date_reminder: 'pref_video_dates',
+  vibe_received: 'pref_vibes_social',
+  super_vibe: 'pref_vibes_social',
+  someone_vibed_you: 'pref_vibes_social',
+  premium_teaser: 'pref_marketing',
+  re_engagement: 'pref_marketing',
+  weekly_summary: 'pref_marketing',
+  recommendations: 'pref_marketing',
+  product_updates: 'pref_marketing',
+}
+
 // Categories that bypass quiet hours
 const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts']
 
@@ -184,8 +224,15 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 7. Check category toggle
+    // 7. Check category toggle (pref_* groups first, then legacy notify_*)
     if (category !== 'safety_alerts') {
+      const prefKey = NOTIFICATION_TYPE_TO_PREF[category]
+      if (prefKey && prefs[prefKey] === false) {
+        await logNotification(user_id, category, title, body, data, false, 'user_disabled')
+        return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
       const col = CATEGORY_TO_COLUMN[category]
       if (col && prefs[col] === false) {
         await logNotification(user_id, category, title, body, data, false, 'user_disabled')
