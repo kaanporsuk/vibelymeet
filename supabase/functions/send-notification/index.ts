@@ -71,6 +71,26 @@ const NOTIFICATION_TYPE_TO_PREF: Record<string, string> = {
 // Categories that bypass quiet hours
 const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts']
 
+// Title/body templates for P0 notification types (used when caller omits title or body)
+const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) => string }> = {
+  new_message: { title: 'New message', body: (ctx) => `${ctx?.senderName ?? 'Someone'}: ${ctx?.preview ?? 'New message'}` },
+  new_match: { title: "It's a vibe! 💜", body: (ctx) => `You matched with ${ctx?.partnerName ?? 'someone'}` },
+  daily_drop: { title: 'Daily Drop is ready 💧', body: () => 'Your daily match is waiting. Tap to reveal!' },
+  drop_opener: { title: 'New opener received', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a message` },
+  drop_reply: { title: 'Reply received!', body: (ctx) => `${ctx?.senderName ?? 'Someone'} replied to your opener` },
+  event_reminder_30m: { title: 'Event in 30 minutes ⏰', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} starts soon. Get ready!` },
+  event_reminder_5m: { title: 'Starting in 5 minutes! 🎉', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} is about to begin` },
+  event_live: { title: 'Event is LIVE 🔴', body: (ctx) => `${ctx?.eventTitle ?? 'Event'} has started. Enter the lobby now!` },
+  vibe_received: { title: 'Someone vibed you! 💜', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a vibe at ${ctx?.eventTitle ?? 'an event'}` },
+  super_vibe: { title: 'Super Vibe! ⭐', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a Super Vibe!` },
+  mutual_vibe: { title: "It's a match! 🎉", body: (ctx) => `You and ${ctx?.partnerName ?? 'someone'} vibed each other` },
+  partner_ready: { title: 'Your match is ready!', body: () => 'Tap to start your video date' },
+  date_proposal_received: { title: 'Date suggestion 📅', body: (ctx) => `${ctx?.senderName ?? 'Someone'} suggested a date` },
+  date_proposal_accepted: { title: 'Date accepted! 🎉', body: (ctx) => `${ctx?.partnerName ?? 'Someone'} accepted your date suggestion` },
+  welcome: { title: 'Welcome to Vibely! 💜', body: () => 'Complete your profile to start matching' },
+  profile_incomplete: { title: 'Almost there! 📸', body: () => 'Add photos to get 3x more matches' },
+}
+
 async function logNotification(
   userId: string,
   category: string,
@@ -154,7 +174,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { user_id, category, title, body, data, image_url, bypass_preferences } = await req.json()
+    let { user_id, category, title, body, data, image_url, bypass_preferences } = await req.json()
 
     if (!user_id || !category) {
       return new Response(
@@ -162,6 +182,15 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+
+    // Apply templates when title or body not provided
+    const template = NOTIFICATION_TEMPLATES[category]
+    if (template) {
+      if (!title || typeof title !== 'string') title = template.title
+      if (!body || typeof body !== 'string') body = template.body(data || {})
+    }
+    if (!title) title = 'Notification'
+    if (!body) body = 'You have a new notification'
 
     // Fetch preferences
     let { data: prefs } = await supabase
