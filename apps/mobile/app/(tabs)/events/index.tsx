@@ -592,10 +592,7 @@ export default function EventsListScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { isPremium } = useBackendSubscription(user?.id);
-  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(
-    user?.id ?? null,
-    isPremium ?? false,
-  );
+  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null, isPremium);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
