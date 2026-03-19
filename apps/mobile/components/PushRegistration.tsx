@@ -1,15 +1,15 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { initOneSignal, registerPushWithBackend, logoutOneSignal } from '@/lib/onesignal';
+import { initOneSignal, registerPushWithBackend, logoutOneSignal, setOneSignalTags } from '@/lib/onesignal';
+import { supabase } from '@/lib/supabase';
 
 /**
  * Initializes OneSignal and registers this device for push when user is logged in.
- * On sign out, clears OneSignal external id so backend no longer targets this device
- * for that user (actual DB row is left; backend uses mobile_onesignal_subscribed which
- * we could clear on logout if desired — for now we leave it for simplicity).
+ * Sets OneSignal tags for segmentation (welcome flow, profile nudge, re-engagement).
+ * On sign out, clears OneSignal external id.
  */
 export function PushRegistration() {
-  const { user, session } = useAuth();
+  const { user, session, onboardingComplete } = useAuth();
 
   useEffect(() => {
     initOneSignal();
@@ -20,8 +20,30 @@ export function PushRegistration() {
       logoutOneSignal();
       return;
     }
-    registerPushWithBackend(user.id).catch(() => {});
-  }, [user?.id, session]);
+    let cancelled = false;
+    (async () => {
+      await registerPushWithBackend(user.id).catch(() => {});
+      if (cancelled) return;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('photos, is_premium, created_at, location')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (cancelled || !profile) return;
+      const row = profile as { photos?: string[] | null; is_premium?: boolean; created_at?: string; location?: string | null };
+      setOneSignalTags({
+        userId: user.id,
+        onboardingComplete: onboardingComplete === true,
+        hasPhotos: (row.photos?.length ?? 0) > 0,
+        isPremium: row.is_premium === true,
+        city: row.location ?? '',
+        signupDate: row.created_at ?? null,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, session, onboardingComplete]);
 
   return null;
 }
