@@ -295,9 +295,11 @@ export default function EventDetailScreen() {
               ))}
             </View>
           )}
+          {/* Vibe match — wire when backend provides score (e.g. event deck / registration RPC) */}
           <Text style={[styles.sectionTitle, { color: theme.text }]}>About This Event</Text>
           {descText.length > 0 ? (
             <>
+              {/* Read more / Show less when description > 150 chars (web parity) */}
               <Text
                 style={[styles.description, { color: theme.textSecondary }]}
                 numberOfLines={showFullDesc ? undefined : 3}
