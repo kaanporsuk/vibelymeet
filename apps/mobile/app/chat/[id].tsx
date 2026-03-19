@@ -281,7 +281,7 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const handleVideoPick = async () => {
+  const pickVideoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || isSending) return;
     setVideoError(null);
     try {
@@ -291,9 +291,9 @@ export default function ChatThreadScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['videos'],
-        allowsEditing: false,
-        quality: 1,
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        quality: 0.7,
+        videoMaxDuration: 30,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -306,9 +306,9 @@ export default function ChatThreadScreen() {
         mimeType: asset.mimeType ?? undefined,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Video send failed';
+      const msg = e instanceof Error ? e.message : 'Could not attach video.';
       setVideoError(msg);
-      Alert.alert('Video failed', msg);
+      Alert.alert('Error', msg);
     }
   };
 
@@ -694,7 +694,10 @@ export default function ChatThreadScreen() {
           data={data.messages}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[
+            styles.list,
+            (data.messages?.length ?? 0) === 0 ? styles.listContentEmpty : null,
+          ]}
           ListHeaderComponent={
             pendingDateProposalsForMe.length > 0 ? (
               <View style={styles.proposalBanners}>
@@ -748,9 +751,13 @@ export default function ChatThreadScreen() {
             ) : null
           }
           ListEmptyComponent={
-            <Text style={[styles.empty, { color: theme.textSecondary }]}>
-              No messages yet. Say hi!
-            </Text>
+            <View style={styles.waveEmptyWrap}>
+              <Text style={styles.waveEmptyEmoji}>👋</Text>
+              <Text style={[styles.waveEmptyTitle, { color: theme.text }]}>{"It's a match!"}</Text>
+              <Text style={[styles.waveEmptySub, { color: theme.mutedForeground }]}>
+                Send a wave to start the conversation
+              </Text>
+            </View>
           }
           ListFooterComponent={
             partnerTyping ? (
@@ -765,7 +772,7 @@ export default function ChatThreadScreen() {
             <Ionicons name="calendar-outline" size={18} color={theme.tint} />
             <Text style={[styles.quickActionLabel, { color: theme.tint }]}>Suggest a date</Text>
           </Pressable>
-          <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/matches').catch(() => {})} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
+          <Pressable onPress={() => router.push('/(tabs)/matches')} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
             <Ionicons name="game-controller-outline" size={18} color={theme.textSecondary} />
             <Text style={[styles.quickActionLabel, { color: theme.textSecondary }]}>Games</Text>
           </Pressable>
@@ -792,15 +799,19 @@ export default function ChatThreadScreen() {
           />
           <Pressable
             style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={() => Alert.alert('Coming soon', 'Photo messages will be available in a future update.')}
+            onPress={() => void pickVideoFromLibrary()}
             disabled={isSending}
-            accessibilityLabel="Attach photo"
+            accessibilityLabel="Attach video from library"
           >
-            <Ionicons name="camera-outline" size={22} color={theme.tint} />
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="camera-outline" size={22} color={theme.tint} />
+            )}
           </Pressable>
           <Pressable
             style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={handleVideoPick}
+            onPress={() => void pickVideoFromLibrary()}
             disabled={isSending}
             accessibilityLabel="Send video"
           >
@@ -942,6 +953,21 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
   },
+  listContentEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  waveEmptyWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+    minHeight: 220,
+  },
+  waveEmptyEmoji: { fontSize: 48, marginBottom: 16 },
+  waveEmptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
+  waveEmptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
   themRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, gap: spacing.xs },
   themAvatarWrap: {

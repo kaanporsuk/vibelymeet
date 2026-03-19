@@ -12,7 +12,6 @@ import {
   RefreshControl,
   StyleSheet,
   Animated,
-  Linking,
 } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -56,6 +55,7 @@ import { NotificationPermissionFlow } from '@/components/notifications/Notificat
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -90,7 +90,10 @@ export default function DashboardScreen() {
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const { isPremium } = useBackendSubscription(user?.id);
-  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(user?.id ?? null, isPremium);
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(
+    user?.id ?? null,
+    isPremium ?? false,
+  );
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, isPremium);
   const { data: proposals = [] } = useDateProposals(user?.id);
@@ -235,7 +238,7 @@ export default function DashboardScreen() {
           {nextReminder && nextReminder.urgency !== 'none' && (
             <MiniDateCountdown
               reminder={nextReminder}
-              onPress={() => Linking.openURL('https://vibelymeet.com/schedule')}
+              onPress={() => router.push('/schedule' as Href)}
             />
           )}
           <Pressable
@@ -293,7 +296,13 @@ export default function DashboardScreen() {
                 <DateReminderCard
                   key={reminder.id}
                   reminder={reminder}
-                  onJoinDate={() => Linking.openURL('https://vibelymeet.com/video-date')}
+                  onJoinDate={() => {
+                    if (activeSession?.sessionId) {
+                      router.push(`/date/${activeSession.sessionId}` as const);
+                    } else {
+                      router.push('/schedule' as Href);
+                    }
+                  }}
                   onEnableNotifications={() => router.push('/settings/notifications')}
                   notificationsEnabled={pushGranted}
                 />

@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { getCreateVideoUploadCredentials, uploadVibeVideoToBunny } from '@/lib/vibeVideoApi';
+import { trackEvent } from '@/lib/analytics';
 
 const MAX_DURATION_SEC = 15;
 
@@ -65,6 +66,7 @@ export default function VibeVideoRecordScreen() {
           setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
         }
       });
+      trackEvent('vibe_video_uploaded');
       router.replace('/(tabs)/profile');
     } catch (e) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Please try again.');
