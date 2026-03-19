@@ -24,7 +24,7 @@ import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
+import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 function calculateAge(day: number, month: number, year: number): number {
@@ -785,17 +785,47 @@ const styles = StyleSheet.create({
   button: { marginTop: 24 },
   backBtn: { marginTop: 16, alignSelf: 'center' },
   link: { fontSize: 14, fontWeight: '500' },
+  stepProgressWrap: { marginBottom: spacing.md, gap: spacing.sm },
+  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', width: '100%' },
+  progressFill: { height: 4, borderRadius: 2 },
+  stepProgress: { fontSize: 12, textAlign: 'center' },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
+  dobRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  dobInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 48,
+    textAlign: 'center' as const,
+  },
+  dobInputYear: { flex: 1.4 },
+  dobHint: { fontSize: 13, marginBottom: 8 },
+  vibeChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  vibeChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
+  vibeMinHint: { fontSize: 13, marginBottom: 8 },
+  intentOptionList: { gap: 10, marginBottom: 8 },
+  intentOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
+  photoSlot: {
+    width: '30%',
+    aspectRatio: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoMinHint: { fontSize: 13, marginBottom: 4 },
   webFallbackCard: { marginTop: 20, marginBottom: 12, padding: spacing.lg },
   webFallbackTitle: { fontSize: 15, fontWeight: '600', marginBottom: 6 },
   webFallbackSub: { fontSize: 13, lineHeight: 18, marginBottom: spacing.md },
   webFallbackBtn: { alignSelf: 'flex-start' },
-  welcomeBlock: { alignItems: 'center', paddingTop: 40, paddingBottom: 24, gap: 16 },
-  welcomeIcon: { width: 72, height: 72, borderRadius: 36, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  welcomeTitle: { fontSize: 28, fontWeight: '700', textAlign: 'center', letterSpacing: 0.3 },
-  welcomeSub: { fontSize: 16, textAlign: 'center', lineHeight: 24, paddingHorizontal: 16 },
-  welcomeBullets: { width: '100%', borderTopWidth: 1, paddingTop: 20, gap: 16, marginTop: 8 },
-  welcomeBullet: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bulletIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  bulletEmoji: { fontSize: 20 },
-  bulletText: { fontSize: 15, fontWeight: '500', flex: 1 },
 });
