@@ -80,13 +80,14 @@ function getTimeGreeting(): string {
   return 'Good evening';
 }
 
+/** Subtle scale pulse on the small LIVE dot only — calm, not card-level. */
 function PulsingLiveDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(scale, { toValue: 1.35, duration: 750, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1.15, duration: 2000, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: 2000, useNativeDriver: true }),
       ]),
     );
     loop.start();
