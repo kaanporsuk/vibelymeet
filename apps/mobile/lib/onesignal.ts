@@ -20,7 +20,7 @@ export function initOneSignal(): void {
   }
 }
 
-/** Login + subscription id + Supabase upsert (assumes push permission already handled). */
+/** Login + subscription id + Supabase upsert (no OS permission prompt). */
 async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
   OneSignal.login(userId);
   let subscriptionId: string | null = await OneSignal.User.pushSubscription.getIdAsync();
@@ -42,6 +42,20 @@ async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+/**
+ * Sync OneSignal subscription ID to notification_preferences after permission is already granted.
+ * Does not call requestPermission — use from flows that already prompted (e.g. requestPushPermissionsAfterPrompt).
+ */
+export async function syncPushSubscriptionToBackend(userId: string): Promise<boolean> {
+  if (!APP_ID) return false;
+  try {
+    return await pushSubscriptionToBackend(userId);
+  } catch (e) {
+    console.warn('[Vibely] syncPushSubscriptionToBackend error:', e);
+    return false;
+  }
 }
 
 /**

@@ -1,13 +1,4 @@
--- Drop the overly broad UPDATE policy that allowed users to modify
--- admin reply content
-DROP POLICY IF EXISTS "users_update_read_admin_replies"
-  ON public.support_ticket_replies;
-
--- Revoke UPDATE grant from authenticated users on this table
-REVOKE UPDATE ON public.support_ticket_replies FROM authenticated;
-
--- Safe RPC: only allows marking a specific admin reply as read
--- Users can only mark replies on their OWN tickets
+-- Idempotent: ensure RPC is schema-qualified (applies to DBs that already ran 20260322150000)
 CREATE OR REPLACE FUNCTION public.mark_support_reply_read(p_reply_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -27,5 +18,4 @@ BEGIN
 END;
 $$;
 
--- Grant execute to authenticated users only
 GRANT EXECUTE ON FUNCTION public.mark_support_reply_read(uuid) TO authenticated;

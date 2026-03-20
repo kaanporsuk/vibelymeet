@@ -5,7 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
-import { disablePush, registerPushWithBackend } from '@/lib/onesignal';
+import { disablePush, syncPushSubscriptionToBackend } from '@/lib/onesignal';
 import { PAUSED_UNTIL_KEY } from '@/lib/notificationPause';
 
 export const VIBELY_PUSH_PERMISSION_ASKED_KEY = 'vibely_push_permission_asked';
@@ -26,7 +26,7 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
       { user_id: userId, push_enabled: true },
       { onConflict: 'user_id' }
     );
-    await registerPushWithBackend(userId);
+    await syncPushSubscriptionToBackend(userId);
   } else {
     await supabase.from('notification_preferences').upsert(
       { user_id: userId, push_enabled: false },
