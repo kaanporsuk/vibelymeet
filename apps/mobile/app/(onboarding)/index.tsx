@@ -77,13 +77,6 @@ export default function OnboardingScreen() {
   const [job, setJob] = useState('');
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
-  const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
-  const [relationshipIntent, setRelationshipIntent] = useState('');
-  const [photos, setPhotos] = useState<string[]>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -657,70 +650,39 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading}>
-              <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
-            </Pressable>
-          </>
-        )}
-
-        {/* Step 6: Photos — web Step 7 parity */}
-        {step === 6 && (
-          <>
-            <Text style={[styles.title, { color: theme.text }]}>Add your photos</Text>
-            <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
-              Add at least 2 photos so people can see the real you.
-            </Text>
-            <RNView style={styles.photoGrid}>
-              {[0, 1, 2, 3, 4, 5].map((i) => {
-                const photoPath = photos[i];
-                const isNextSlot = i === photos.length;
-                const showSpinner = uploadingPhoto && isNextSlot;
-                const canAddHere =
-                  isNextSlot && photos.length < MAX_ONBOARDING_PHOTOS && !uploadingPhoto;
-                return (
-                  <Pressable
-                    key={i}
-                    onPress={() => {
-                      if (canAddHere) pickAndUploadPhoto();
-                    }}
-                    disabled={!photoPath && !canAddHere}
-                    style={[
-                      styles.photoSlot,
-                      {
-                        borderStyle: photoPath ? 'solid' : 'dashed',
-                        borderColor: photoPath ? theme.border : theme.mutedForeground,
-                        backgroundColor: photoPath ? 'transparent' : theme.surfaceSubtle,
-                      },
-                    ]}
-                  >
-                    {photoPath ? (
-                      <Image
-                        source={{ uri: getImageUrl(photoPath, undefined, 'profile_photo') }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                      />
-                    ) : showSpinner ? (
-                      <ActivityIndicator color={theme.tint} />
-                    ) : (
-                      <Ionicons name="add" size={28} color={theme.mutedForeground} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </RNView>
-            <Text
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
+            <TextInput
+              placeholder="Height in cm (e.g. 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
               style={[
-                styles.photoMinHint,
-                {
-                  color: photos.length >= 2 ? theme.success : theme.mutedForeground,
-                },
+                styles.input,
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
               ]}
-            >
-              {photos.length}/2 minimum added
-            </Text>
-            <Text style={[{ fontSize: 12, color: theme.mutedForeground, marginTop: 8 }]}>
-              Optional: add up to {MAX_ONBOARDING_PHOTOS} photos. Vibe video is available on web.
-            </Text>
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
+            <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
+              <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
+              <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
+                Profile photos, vibes, and vibe video are available on the full site. Finish there for the best experience.
+              </Text>
+              <VibelyButton
+                label="Complete on web"
+                onPress={() => Linking.openURL(WEB_PROFILE_URL)}
+                variant="secondary"
+                size="sm"
+                style={styles.webFallbackBtn}
+              />
+            </Card>
             <VibelyButton
               label={loading ? 'Creating Profile...' : 'Complete Profile'}
               onPress={handleSubmit}
@@ -775,6 +737,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },
   stepSub: { fontSize: 15, lineHeight: 22, marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   input: { borderWidth: 1, padding: 12, borderRadius: 16, marginBottom: 12, minHeight: 56 },
   textArea: { minHeight: 80, textAlignVertical: 'top' },
   genderRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12, padding: 4, borderRadius: 16 },

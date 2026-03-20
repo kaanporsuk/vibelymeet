@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
-import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { registerPushWithBackend } from '@/lib/onesignal';

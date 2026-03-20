@@ -17,6 +17,8 @@ import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { LogBox, View } from 'react-native';
+import { useBadgeCount } from '@/lib/useBadgeCount';
+import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
 import 'react-native-reanimated';
 
@@ -139,8 +141,15 @@ function ActivityHeartbeat() {
   return null;
 }
 
+/** Runs badge count query and sets OneSignal app badge (iOS/Android). */
+function BadgeCountUpdater() {
+  useBadgeCount();
+  return null;
+}
+
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  useCurrentRouteTracker();
 
   useEffect(() => {
     initRevenueCat();
@@ -179,6 +188,7 @@ function RootLayoutNav() {
         <PushRegistration />
         <NotificationDeepLinkHandler />
         <ActivityHeartbeat />
+        <BadgeCountUpdater />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
             {POSTHOG_KEY ? (

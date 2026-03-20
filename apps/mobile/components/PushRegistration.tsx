@@ -7,7 +7,7 @@ import { initOneSignal, syncPushWithBackendIfPermissionGranted, logoutOneSignal 
  * already granted notification permission (no prompt on every app open).
  */
 export function PushRegistration() {
-  const { user, session } = useAuth();
+  const { user, session, onboardingComplete } = useAuth();
 
   useEffect(() => {
     initOneSignal();

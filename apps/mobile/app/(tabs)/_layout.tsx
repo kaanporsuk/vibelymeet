@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { supabase } from '@/lib/supabase';
 import { withAlpha } from '@/lib/colorUtils';
