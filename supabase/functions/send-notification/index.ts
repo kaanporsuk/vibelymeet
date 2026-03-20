@@ -341,6 +341,27 @@ Deno.serve(async (req) => {
     if (category === 'messages' && prefs.message_bundle_enabled && data?.match_id) {
       // OneSignal collapse_id max 64 chars; match_id alone scopes per-conversation for this recipient
       collapseId = `msg_${data.match_id}`
+
+      // Lightweight 10s debounce: if we already sent a notification for this conversation
+      // in the last 10 seconds, skip the OneSignal API call. collapse_id still updates on-device.
+      // notification_log.data is JSONB — filter by match_id via contains (no dedicated match_id column).
+      const tenSecondsAgo = new Date(Date.now() - 10 * 1000).toISOString()
+      const { count: recentCount } = await supabase
+        .from('notification_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user_id)
+        .eq('category', 'messages')
+        .eq('delivered', true)
+        .gte('created_at', tenSecondsAgo)
+        .contains('data', { match_id: data.match_id })
+
+      if ((recentCount ?? 0) > 0) {
+        return new Response(
+          JSON.stringify({ success: false, reason: 'debounced', collapse_id: collapseId }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
       const { count: unreadCount } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
