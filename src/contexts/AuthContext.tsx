@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { removeExternalUserId } from "@/lib/onesignal";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
@@ -176,6 +177,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    const userId = session?.user?.id;
+    removeExternalUserId();
+    if (userId) {
+      try {
+        await supabase
+          .from("notification_preferences")
+          .update({
+            onesignal_player_id: null,
+            onesignal_subscribed: false,
+          })
+          .eq("user_id", userId);
+      } catch {
+        /* don't block logout */
+      }
+    }
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
