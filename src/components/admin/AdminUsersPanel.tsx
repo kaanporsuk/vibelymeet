@@ -144,7 +144,11 @@ const AdminUsersPanel = () => {
           grouped[item.profile_id] = [];
         }
         if (item.vibe_tags) {
-          grouped[item.profile_id].push(item.vibe_tags as { label: string; emoji: string });
+          const raw = item.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+          const tag = Array.isArray(raw) ? raw[0] : raw;
+          if (tag?.label) {
+            grouped[item.profile_id].push({ label: tag.label, emoji: tag.emoji ?? '' });
+          }
         }
       });
       return grouped;

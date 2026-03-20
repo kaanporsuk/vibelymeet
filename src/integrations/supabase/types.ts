@@ -532,6 +532,51 @@ export type Database = {
           },
         ]
       }
+      event_reminder_queue: {
+        Row: {
+          created_at: string
+          event_id: string
+          event_title: string
+          id: string
+          profile_id: string
+          reminder_type: string
+          sent_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          event_title: string
+          id?: string
+          profile_id: string
+          reminder_type: string
+          sent_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          event_title?: string
+          id?: string
+          profile_id?: string
+          reminder_type?: string
+          sent_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_reminder_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_reminder_queue_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_swipes: {
         Row: {
           actor_id: string
@@ -1078,6 +1123,8 @@ export type Database = {
           created_at: string | null
           id: string
           message_bundle_enabled: boolean | null
+          mobile_onesignal_player_id: string | null
+          mobile_onesignal_subscribed: boolean | null
           notify_credits_subscription: boolean | null
           notify_daily_drop: boolean | null
           notify_date_reminder: boolean | null
@@ -1113,6 +1160,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           message_bundle_enabled?: boolean | null
+          mobile_onesignal_player_id?: string | null
+          mobile_onesignal_subscribed?: boolean | null
           notify_credits_subscription?: boolean | null
           notify_daily_drop?: boolean | null
           notify_date_reminder?: boolean | null
@@ -1148,6 +1197,8 @@ export type Database = {
           created_at?: string | null
           id?: string
           message_bundle_enabled?: boolean | null
+          mobile_onesignal_player_id?: string | null
+          mobile_onesignal_subscribed?: boolean | null
           notify_credits_subscription?: boolean | null
           notify_daily_drop?: boolean | null
           notify_date_reminder?: boolean | null
@@ -1312,6 +1363,7 @@ export type Database = {
           company: string | null
           country: string | null
           created_at: string
+          discoverable: boolean
           email_unsubscribed: boolean
           email_verified: boolean | null
           events_attended: number | null
@@ -1319,19 +1371,19 @@ export type Database = {
           height_cm: number | null
           id: string
           interested_in: string[] | null
-          is_premium: boolean
           is_paused: boolean
+          is_premium: boolean
           is_suspended: boolean | null
           job: string | null
-          pause_reason: string | null
-          paused_at: string | null
-          paused_until: string | null
           last_seen_at: string | null
           lifestyle: Json | null
           location: string | null
           location_data: Json | null
           looking_for: string | null
           name: string
+          pause_reason: string | null
+          paused_at: string | null
+          paused_until: string | null
           phone_number: string | null
           phone_verified: boolean
           phone_verified_at: string | null
@@ -1345,6 +1397,8 @@ export type Database = {
           prompts: Json | null
           proof_selfie_url: string | null
           referred_by: string | null
+          show_distance: boolean
+          show_online_status: boolean
           suspension_reason: string | null
           tagline: string | null
           total_conversations: number | null
@@ -1365,6 +1419,7 @@ export type Database = {
           company?: string | null
           country?: string | null
           created_at?: string
+          discoverable?: boolean
           email_unsubscribed?: boolean
           email_verified?: boolean | null
           events_attended?: number | null
@@ -1372,8 +1427,8 @@ export type Database = {
           height_cm?: number | null
           id: string
           interested_in?: string[] | null
-          is_premium?: boolean
           is_paused?: boolean
+          is_premium?: boolean
           is_suspended?: boolean | null
           job?: string | null
           last_seen_at?: string | null
@@ -1398,6 +1453,8 @@ export type Database = {
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
+          show_distance?: boolean
+          show_online_status?: boolean
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
@@ -1418,6 +1475,7 @@ export type Database = {
           company?: string | null
           country?: string | null
           created_at?: string
+          discoverable?: boolean
           email_unsubscribed?: boolean
           email_verified?: boolean | null
           events_attended?: number | null
@@ -1425,19 +1483,19 @@ export type Database = {
           height_cm?: number | null
           id?: string
           interested_in?: string[] | null
-          is_premium?: boolean
           is_paused?: boolean
+          is_premium?: boolean
           is_suspended?: boolean | null
           job?: string | null
-          pause_reason?: string | null
-          paused_at?: string | null
-          paused_until?: string | null
           last_seen_at?: string | null
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
           looking_for?: string | null
           name?: string
+          pause_reason?: string | null
+          paused_at?: string | null
+          paused_until?: string | null
           phone_number?: string | null
           phone_verified?: boolean
           phone_verified_at?: string | null
@@ -1451,6 +1509,8 @@ export type Database = {
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
+          show_distance?: boolean
+          show_online_status?: boolean
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
@@ -1631,6 +1691,153 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      support_ticket_attachments: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          file_size: number | null
+          file_url: string
+          id: string
+          ticket_id: string
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          file_size?: number | null
+          file_url: string
+          id?: string
+          ticket_id: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_attachments_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_ticket_replies: {
+        Row: {
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          sender_id: string | null
+          sender_type: string
+          ticket_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          sender_id?: string | null
+          sender_type: string
+          ticket_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          sender_id?: string | null
+          sender_type?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_replies_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_tickets: {
+        Row: {
+          admin_notes: string | null
+          app_version: string | null
+          assigned_to: string | null
+          created_at: string
+          device_model: string | null
+          id: string
+          message: string
+          os_version: string | null
+          platform: string | null
+          primary_type: string
+          priority: string
+          reference_id: string
+          resolved_at: string | null
+          status: string
+          subcategory: string
+          subject: string | null
+          updated_at: string
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          app_version?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          device_model?: string | null
+          id?: string
+          message: string
+          os_version?: string | null
+          platform?: string | null
+          primary_type: string
+          priority?: string
+          reference_id: string
+          resolved_at?: string | null
+          status?: string
+          subcategory: string
+          subject?: string | null
+          updated_at?: string
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          app_version?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          device_model?: string | null
+          id?: string
+          message?: string
+          os_version?: string | null
+          platform?: string | null
+          primary_type?: string
+          priority?: string
+          reference_id?: string
+          resolved_at?: string | null
+          status?: string
+          subcategory?: string
+          subject?: string | null
+          updated_at?: string
+          user_email?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_tickets_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_credits: {
         Row: {
@@ -1872,8 +2079,8 @@ export type Database = {
           daily_room_url: string | null
           date_started_at: string | null
           duration_seconds: number | null
-          ended_reason: string | null
           ended_at: string | null
+          ended_reason: string | null
           event_id: string
           handshake_started_at: string | null
           id: string
@@ -1898,8 +2105,8 @@ export type Database = {
           daily_room_url?: string | null
           date_started_at?: string | null
           duration_seconds?: number | null
-          ended_reason?: string | null
           ended_at?: string | null
+          ended_reason?: string | null
           event_id: string
           handshake_started_at?: string | null
           id?: string
@@ -1924,8 +2131,8 @@ export type Database = {
           daily_room_url?: string | null
           date_started_at?: string | null
           duration_seconds?: number | null
-          ended_reason?: string | null
           ended_at?: string | null
+          ended_reason?: string | null
           event_id?: string
           handshake_started_at?: string | null
           id?: string
@@ -2055,6 +2262,10 @@ export type Database = {
         Returns: Json
       }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
+      daily_drop_transition: {
+        Args: { p_action: string; p_drop_id: string; p_text?: string }
+        Returns: Json
+      }
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
@@ -2192,20 +2403,17 @@ export type Database = {
         Args: { p_match_id: string }
         Returns: undefined
       }
+      ready_gate_transition: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      send_event_reminders: { Args: never; Returns: undefined }
       update_participant_status: {
         Args: { p_event_id: string; p_status: string; p_user_id: string }
         Returns: undefined
       }
-      daily_drop_transition: {
-        Args: { p_drop_id: string; p_action: string; p_text?: string | null }
-        Returns: Json
-      }
-      ready_gate_transition: {
-        Args: { p_action: string; p_reason?: string | null; p_session_id: string }
-        Returns: Json
-      }
       video_date_transition: {
-        Args: { p_action: string; p_reason?: string | null; p_session_id: string }
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
     }
@@ -2221,7 +2429,12 @@ export type Database = {
         | "clicked"
         | "failed"
         | "bounced"
-      video_date_state: "ready_gate" | "handshake" | "date" | "post_date" | "ended"
+      video_date_state:
+        | "ready_gate"
+        | "handshake"
+        | "date"
+        | "post_date"
+        | "ended"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2360,6 +2573,13 @@ export const Constants = {
         "clicked",
         "failed",
         "bounced",
+      ],
+      video_date_state: [
+        "ready_gate",
+        "handshake",
+        "date",
+        "post_date",
+        "ended",
       ],
     },
   },

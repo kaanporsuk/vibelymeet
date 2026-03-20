@@ -24,9 +24,11 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
-import { NotificationDeepLinkHandler } from '@/components/NotificationDeepLinkHandler';
+import { NotificationDeepLinkHandler, NotificationRouteTracker } from '@/components/NotificationDeepLinkHandler';
+import { NotificationPauseForeground } from '@/components/NotificationPauseForeground';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
-import { OfflineBanner } from '@/components/OfflineBanner';
+import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
+import { connectivityService } from '@/lib/connectivityService';
 import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
@@ -153,6 +155,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     initRevenueCat();
+    connectivityService.init();
   }, []);
 
   const stack = (
@@ -186,7 +189,9 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <PushRegistration />
+        <NotificationRouteTracker />
         <NotificationDeepLinkHandler />
+        <NotificationPauseForeground />
         <ActivityHeartbeat />
         <BadgeCountUpdater />
         <View style={{ flex: 1 }}>

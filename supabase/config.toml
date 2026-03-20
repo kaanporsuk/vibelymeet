@@ -104,3 +104,6 @@ verify_jwt = true
 
 [functions.account-resume]
 verify_jwt = true
+
+[functions.send-support-reply]
+verify_jwt = true

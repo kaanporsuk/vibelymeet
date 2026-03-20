@@ -1,10 +1,12 @@
 /**
  * Routes OneSignal notification opens into expo-router when payload includes a path.
  * Expects `additionalData.url` (matches web/send-notification `data.url`) or `launchURL`.
+ * Foreground: suppress message notifications when already viewing that chat thread.
  */
 import { useEffect } from 'react';
-import { router, type Href } from 'expo-router';
-import { OneSignal } from 'react-native-onesignal';
+import { router, usePathname, type Href } from 'expo-router';
+import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
+import { notificationRouteRef } from '@/lib/notificationRouteRef';
 
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
@@ -25,6 +27,15 @@ function hrefFromPayload(additionalData: Record<string, unknown> | undefined, la
   return null;
 }
 
+/** Keeps notificationRouteRef in sync for foreground suppression. */
+export function NotificationRouteTracker() {
+  const pathname = usePathname();
+  useEffect(() => {
+    notificationRouteRef.current = pathname || '/';
+  }, [pathname]);
+  return null;
+}
+
 export function NotificationDeepLinkHandler() {
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -36,15 +47,34 @@ export function NotificationDeepLinkHandler() {
       const n = e?.notification ?? e;
       const additionalData = n?.additionalData ?? e?.additionalData;
       const launchURL = n?.launchURL ?? e?.launchURL;
+      const data = additionalData as Record<string, unknown> | undefined;
+      if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
+        router.push(`/settings/ticket/${data.ticket_id}`);
+        return;
+      }
       const href = hrefFromPayload(additionalData, launchURL);
       if (href) {
         router.push(href);
       }
     };
 
-    const onForeground = (event: { getNotification: () => { display: () => void } }) => {
+    const onForeground = (event: NotificationWillDisplayEvent) => {
       try {
-        event.getNotification().display();
+        const n = event.getNotification();
+        const raw = n.additionalData as Record<string, unknown> | undefined;
+        const matchId =
+          typeof raw?.match_id === 'string'
+            ? raw.match_id
+            : typeof raw?.matchId === 'string'
+              ? raw.matchId
+              : undefined;
+        const cat = typeof raw?.category === 'string' ? raw.category : undefined;
+        const path = notificationRouteRef.current;
+        if (matchId && cat === 'messages' && path === `/chat/${matchId}`) {
+          event.preventDefault();
+          return;
+        }
+        n.display();
       } catch {
         /* default presentation if display fails */
       }

@@ -82,6 +82,28 @@ export function logoutOneSignal(): void {
   } catch {}
 }
 
+/**
+ * Suppress OneSignal push at the SDK level (optOut) or restore delivery (optIn).
+ * Maps to OneSignal v5 User.pushSubscription — the public name matches common docs (disablePush).
+ */
+export function setNativePushSuppressed(suppress: boolean): void {
+  disablePush(suppress);
+}
+
+/** Alias for OneSignal delivery gate docs — uses push subscription optOut/optIn under the hood. */
+export function disablePush(disable: boolean): void {
+  if (!APP_ID) return;
+  try {
+    if (disable) {
+      OneSignal.User.pushSubscription.optOut();
+    } else {
+      OneSignal.User.pushSubscription.optIn();
+    }
+  } catch (e) {
+    console.warn('[Vibely] disablePush failed:', e);
+  }
+}
+
 /** Profile-like shape for OneSignal tags (all tag values must be strings). */
 export type OneSignalTagsInput = {
   userId: string;

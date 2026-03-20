@@ -216,7 +216,7 @@
 
 ### Settings root
 - **Route:** `/settings` (from stack push, e.g. profile gear — **entry:** `router.push` not in tab bar)
-- **Rows:** Premium, Credits, Notifications, Account, Privacy, Help (FeedbackSheet), legal **web** links, Sign out Alert
+- **Rows:** Premium, Credits, Notifications, Account, Privacy, Support & Feedback (`/settings/support` stack), legal **web** links, Sign out Alert
 
 ---
 
@@ -391,7 +391,7 @@ Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-i
 | File | URL | Reason |
 |------|-----|--------|
 | `chat/[id].tsx` | `https://vibelymeet.com/matches` | Quick action |
-| `FeedbackSheet` | `mailto:support@vibelymeet.com` | Help & feedback |
+| `settings/support.tsx` | — | In-app Support & Feedback hub |
 | `settings/privacy.tsx` | `vibelymeet.com/settings` (×2), `/privacy` | Manage privacy on web |
 | `settings/index.tsx` | Billing portal `data.url` (Stripe) | Manage subscription |
 | `settings/index.tsx` | `/community-guidelines`, `/how-it-works`, `/settings`, `/privacy`, `/terms` | Legal / full settings on web |
@@ -404,7 +404,7 @@ Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-i
 | `settings/credits.tsx` | Checkout URL | Credits purchase |
 | `PhoneVerificationNudge.tsx` | `WEB_VERIFY_URL` (web verify) | Phone verify on web |
 | `VerificationBadgesRow.tsx` | Photo verify web | |
-| `FeedbackSheet.tsx` | `mailto:` or similar | Feedback |
+| `settings/submit-ticket.tsx` | Supabase `support_tickets` | Submit support / feedback / safety |
 | `usePushPermission.ts` | `app-settings:` | Open OS settings |
 | `(onboarding)/index.tsx` | `/profile` | Add photos on web |
 | `(tabs)/matches/index.tsx` | `/how-it-works` | Product help |
@@ -472,7 +472,7 @@ Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-i
 | Match | ReportFlowModal, MatchActionsSheet, ProfileDetailSheet, UnmatchSnackbar |
 | Profile | PromptEditSheet, ProfilePreviewModal, LifestyleDetailsSection, RelationshipIntentSelector, VerificationBadgesRow, PROMPT_CONSTANTS |
 | Video date | HandshakeTimer, IceBreakerCard, VideoDateControls, PartnerProfileSheet, PostDateSurvey, ConnectionOverlay, ReconnectionOverlay, KeepTheVibe, MutualVibeToast, VibeCheckButton |
-| Settings | DeletionRecoveryBanner, FeedbackSheet |
+| Settings | DeletionRecoveryBanner (Support flows live under `app/settings/support*.tsx`) |
 | Verification | EmailVerificationFlow, PhoneVerificationFlow |
 | Notifications | NotificationPermissionFlow |
 | Matches | DropsTabContent, WhoLikedYouGate |

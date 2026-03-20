@@ -286,7 +286,12 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
 
           {/* Smart Delivery */}
           <SectionHeader label="Smart Delivery" />
-          <ToggleRow icon={Layers} label="Bundle rapid messages" description="Group multiple messages from the same person instead of buzzing for each one" prefKey="message_bundle_enabled" />
+          <ToggleRow
+            icon={Layers}
+            label="Bundle rapid messages"
+            description="Replaces repeated alerts with one updated notification per conversation"
+            prefKey="message_bundle_enabled"
+          />
         </div>
 
         <DrawerFooter>

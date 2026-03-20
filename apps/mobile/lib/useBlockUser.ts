@@ -15,7 +15,7 @@ export type BlockedUser = {
 export function useBlockUser(userId: string | null | undefined) {
   const queryClient = useQueryClient();
 
-  const { data: blockedUsers = [] } = useQuery({
+  const { data: blockedUsers = [], isLoading: isBlockedUsersLoading } = useQuery({
     queryKey: ['blocked-users', userId],
     queryFn: async (): Promise<BlockedUser[]> => {
       if (!userId) return [];
@@ -82,6 +82,7 @@ export function useBlockUser(userId: string | null | undefined) {
     unblockUser: unblockMutation.mutateAsync,
     isUserBlocked,
     blockedUsers,
+    isBlockedUsersLoading,
     isBlocking: blockMutation.isPending,
     isUnblocking: unblockMutation.isPending,
   };

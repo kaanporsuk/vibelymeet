@@ -11,14 +11,14 @@
  * - useMutualAvailability: in same file; uses mySchedule + matchSchedule to compute mutual slots (golden/available). Not needed for this screen.
  * - Date proposals: web uses local state in useSchedule; native uses date_proposals table via useScheduleProposals (partitionScheduleProposals → pending, upcomingAccepted, past).
  */
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { format } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
-import { useSchedule } from '@/lib/useSchedule';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSchedule, type ScheduleTimeBucket } from '@/lib/useSchedule';
 import { supabase } from '@/lib/supabase';
 import {
   useScheduleProposals,
@@ -26,10 +26,9 @@ import {
   toDateProposalsForReminders,
 } from '@/lib/useScheduleProposals';
 import { useAuth } from '@/context/AuthContext';
-import { useDateReminders } from '@/lib/useDateReminders';
+import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
+import { useActiveSession } from '@/lib/useActiveSession';
 import { usePushPermission } from '@/lib/usePushPermission';
-import { registerPushWithBackend } from '@/lib/onesignal';
-import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
 import { spacing, layout } from '@/constants/theme';
@@ -55,6 +54,7 @@ async function openChatFromMatch(matchId: string, userId: string) {
 
 export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
+  const qc = useQueryClient();
   const { user } = useAuth();
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ['unread-message-count', user?.id],
@@ -69,7 +69,16 @@ export default function ScheduleScreen() {
     },
     enabled: !!user?.id,
   });
-  const { days, isLoading: scheduleLoading, toggleSlot, rollPreviousWeek, dateRange, shiftRange, getSlotState } = useSchedule();
+  const {
+    days,
+    isLoading: scheduleLoading,
+    toggleSlot,
+    rollPreviousWeek,
+    refetch: refetchSchedule,
+    dateRange,
+    shiftRange,
+    getSlotState,
+  } = useSchedule();
 
   const { data: allProposals = [], isLoading: proposalsLoading } = useScheduleProposals(user?.id);
   const { pending, upcomingAccepted, past } = partitionScheduleProposals(allProposals);
@@ -78,27 +87,40 @@ export default function ScheduleScreen() {
   const upcomingReminders = [...imminentReminders, ...soonReminders];
   const urgentIds = new Set(upcomingReminders.map((r) => r.proposalId));
   const calmUpcoming = upcomingAccepted.filter((p) => !urgentIds.has(p.id));
-  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
-    usePushPermission();
+  const { isGranted: pushGranted } = usePushPermission();
   const { activeSession } = useActiveSession(user?.id);
-  const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
-    const granted = await requestPermission();
-    if (granted && user?.id) {
-      await registerPushWithBackend(user.id);
-    }
-    await refreshPushPermission();
-    return granted;
-  }, [requestPermission, user?.id, refreshPushPermission]);
+  const [banner, setBanner] = useState<'success' | 'error' | null>(null);
+  const [rollLoading, setRollLoading] = useState(false);
+  const [datesTab, setDatesTab] = useState<'pending' | 'upcoming' | 'past'>('pending');
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
+    await refetchSchedule();
     await qc.invalidateQueries({ queryKey: ['date-proposals', user?.id] });
     setRefreshing(false);
-  }, [refetch, qc, user?.id]);
+  }, [refetchSchedule, qc, user?.id]);
+
+  const handleRollPreviousWeek = useCallback(async () => {
+    setRollLoading(true);
+    try {
+      await rollPreviousWeek();
+      setBanner('success');
+      setTimeout(() => setBanner(null), 3000);
+    } catch {
+      setBanner('error');
+      setTimeout(() => setBanner(null), 4000);
+    } finally {
+      setRollLoading(false);
+    }
+  }, [rollPreviousWeek]);
+
+  const handleToggleSlot = useCallback(
+    (isoDate: string, bucket: ScheduleTimeBucket) => {
+      void toggleSlot(isoDate, bucket);
+    },
+    [toggleSlot],
+  );
 
   const handleJoinDate = useCallback(
     async (reminder: DateReminder) => {
@@ -110,7 +132,7 @@ export default function ScheduleScreen() {
         await openChatFromMatch(reminder.matchId, user.id);
       }
     },
-    [toggleSlot],
+    [activeSession, user?.id],
   );
 
   if (scheduleLoading) {
@@ -126,13 +148,6 @@ export default function ScheduleScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: BG }]}>
-      <NotificationPermissionFlow
-        open={showNotificationFlow}
-        onOpenChange={setShowNotificationFlow}
-        onRequestPermission={handleNotificationPermissionRequest}
-        openSettings={openSettings}
-      />
-
       {/* [A] ScheduleHeaderBar */}
       <View style={[styles.headerBar, { paddingTop: insets.top + spacing.sm, paddingHorizontal: layout.containerPadding }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.8 }]}>
@@ -140,7 +155,7 @@ export default function ScheduleScreen() {
         </Pressable>
         <Text style={styles.headerTitle}>My Schedule</Text>
         <Pressable
-          onPress={() => setShowNotificationFlow(true)}
+          onPress={() => router.push('/settings/notifications')}
           style={({ pressed }) => [styles.bellWrap, pressed && { opacity: 0.8 }]}
         >
           <View style={styles.bellCircle}>
@@ -176,7 +191,7 @@ export default function ScheduleScreen() {
                 key={r.id}
                 reminder={r}
                 onJoinDate={r.matchId && user?.id ? () => openChatFromMatch(r.matchId!, user.id) : undefined}
-                onEnableNotifications={() => setShowNotificationFlow(true)}
+                onEnableNotifications={() => router.push('/settings/notifications')}
                 notificationsEnabled={pushGranted}
               />
             ))}

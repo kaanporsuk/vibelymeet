@@ -3,6 +3,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { resetAnalytics } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
+import { clearLocalPauseKeys } from '@/lib/notificationPause';
 
 type AuthState = {
   user: User | null;
@@ -88,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetAnalytics();
     const { data: { session: current } } = await supabase.auth.getSession();
     const uid = current?.user?.id;
+    void clearLocalPauseKeys();
     logoutOneSignal();
     if (uid) {
       void supabase

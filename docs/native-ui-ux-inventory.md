@@ -338,7 +338,7 @@ Convention: **Route** = Expo Router path from `app/`. **Layout** from parent `_l
 - **File:** `app/settings/index.tsx`
 - **Route:** `/settings`
 
-**Data:** `useQuery` `user_credits`; `Alert.alert`; `Linking`; RevenueCat portal via `supabase.functions.invoke('create-portal-session')`; `FeedbackSheet`.
+**Data:** `useQuery` `user_credits`; `Alert.alert`; `Linking`; RevenueCat portal via `supabase.functions.invoke('create-portal-session')`; Support & Feedback via `router.push('/settings/support')`.
 
 **Visual:** `ScreenHeader` + scroll; `SettingsRow` grid (icons `Ionicons`); Premium card; `VibelyButton` Manage subscription, Log Out, Delete; destructive row.
 
@@ -516,7 +516,7 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 | Video-date subcomponents | video-date/* | overlays | Animated pulses |
 | Lobby | lobby/ReadyGateOverlay.tsx | Modal fade | Primary CTA |
 | Premium | premium/* | gates, pill | — |
-| Settings | settings/FeedbackSheet Modal | — | TextInput + submit |
+| Settings | `settings/support`, `submit-ticket`, `ticket/[id]` | Stack screens | In-app tickets + thread |
 | Verification | verification/* | Modal slides | OTP inputs |
 | Notifications | NotificationPermissionFlow | Modal fade | Two-step CTAs |
 | schedule/DateReminderCard | — | VibelyButton sm | — |
@@ -578,7 +578,7 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 | sign-up | Email / Password | same | — | — | — | — | — | — |
 | chat/[id] | Type a message… | ~40+ | 14+ | 16 | theme | border | — | default |
 | DateSuggestionSheet | YYYY-MM-DD / Coffee… | varies | — | — | — | — | — | — |
-| FeedbackSheet | Describe… | multiline | — | — | — | — | — | — |
+| settings/submit-ticket | Tell us more… | multiline | — | — | — | — | — | — |
 | DropsTabContent | Reply… / Say something… | — | — | — | — | — | — | — |
 | matches/index search | Search by name or vibe… | 40 | 14 | 16 | — | — | — | search |
 | PromptEditSheet | Tap to add… | multiline | — | — | — | — | — | — |
@@ -669,7 +669,7 @@ Each entry: **file**, **props (summary)**, **visual notes**.
 | ActiveCallOverlay | chat/date | in call | Modal(s) | — | fade |
 | PhoneVerificationFlow | nudge/settings | verify | Modal | — | slide |
 | ReadyGateOverlay | lobby | gate open | Modal | — | fade |
-| FeedbackSheet | settings | feedback | Modal | — | slide |
+| Support stack | settings/support | support | Stack | — | push |
 | PartnerProfileSheet | video-date | partner | Modal | — | slide |
 | Alert.alert | many screens | confirm/errors | Native alert | — | system |
 

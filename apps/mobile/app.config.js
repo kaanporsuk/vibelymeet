@@ -15,6 +15,10 @@ module.exports = () => {
   });
   if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-video')) plugins.push('expo-video');
   if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-audio')) plugins.push('expo-audio');
+  if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-localization')) plugins.push('expo-localization');
+  if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === '@react-native-community/datetimepicker')) {
+    plugins.push('@react-native-community/datetimepicker');
+  }
   return {
     expo: {
       ...appJson.expo,

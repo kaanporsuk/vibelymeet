@@ -1,7 +1,7 @@
 /**
- * Settings — web parity: stateful Premium card, dynamic Credits, native delete, Help & Feedback, legal links.
+ * Settings — web parity: stateful Premium card, dynamic Credits, native delete, Support & Feedback, legal links.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +22,6 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { supabase } from '@/lib/supabase';
-import { FeedbackSheet } from '@/components/settings/FeedbackSheet';
 import Constants from 'expo-constants';
 
 function useCredits(userId: string | null | undefined) {
@@ -57,7 +56,6 @@ export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
   const { data: credits } = useCredits(user?.id);
-  const [showFeedbackSheet, setShowFeedbackSheet] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -180,8 +178,8 @@ export default function SettingsScreen() {
             <View style={styles.quickSection}>
               <SettingsRow
                 icon={<Ionicons name="chatbubble-outline" size={18} color={theme.tint} />}
-                title="Help & Feedback"
-                onPress={() => setShowFeedbackSheet(true)}
+                title="Support & Feedback"
+                onPress={() => router.push('/settings/support')}
               />
               <SettingsRow
                 icon={<Ionicons name="people-outline" size={18} color={theme.textSecondary} />}
@@ -247,7 +245,6 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
-      <FeedbackSheet visible={showFeedbackSheet} onClose={() => setShowFeedbackSheet(false)} />
     </View>
   );
 }

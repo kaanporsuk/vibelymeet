@@ -68,8 +68,8 @@ const NOTIFICATION_TYPE_TO_PREF: Record<string, string> = {
   product_updates: 'pref_marketing',
 }
 
-// Categories that bypass quiet hours
-const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts']
+// Categories that bypass quiet hours (time-critical / safety)
+const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety']
 
 // Title/body templates for P0 notification types (used when caller omits title or body)
 const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) => string }> = {
@@ -111,6 +111,14 @@ async function logNotification(
   })
 }
 
+/** Parse HH:MM or HH:MM:SS from Postgres TIME / text. */
+function timePartsMinutes(timeStr: string): number {
+  const parts = timeStr.trim().split(':').map((p) => parseInt(p, 10))
+  const h = Number.isFinite(parts[0]) ? parts[0] : 0
+  const m = Number.isFinite(parts[1]) ? parts[1] : 0
+  return h * 60 + m
+}
+
 function isInQuietHours(start: string, end: string, timezone: string): boolean {
   try {
     const now = new Date()
@@ -125,17 +133,14 @@ function isInQuietHours(start: string, end: string, timezone: string): boolean {
     const currentMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0')
     const currentMinutes = currentHour * 60 + currentMinute
 
-    const [startH, startM] = start.split(':').map(Number)
-    const [endH, endM] = end.split(':').map(Number)
-    const startMinutes = startH * 60 + (startM || 0)
-    const endMinutes = endH * 60 + (endM || 0)
+    const startMinutes = timePartsMinutes(start)
+    const endMinutes = timePartsMinutes(end)
 
     if (startMinutes <= endMinutes) {
       return currentMinutes >= startMinutes && currentMinutes < endMinutes
-    } else {
-      // Overnight range (e.g. 22:00-08:00)
-      return currentMinutes >= startMinutes || currentMinutes < endMinutes
     }
+    // Overnight range (e.g. 22:00 → 08:00)
+    return currentMinutes >= startMinutes || currentMinutes < endMinutes
   } catch {
     return false
   }
@@ -329,22 +334,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 9. Check throttle (messages only)
-    if (category === 'messages' && prefs.message_bundle_enabled) {
-      const oneMinuteAgo = new Date(Date.now() - 60000).toISOString()
-      const { count } = await supabase
-        .from('notification_log')
+    // 9. Message bundling: collapse_id + optional multi-message copy (replaces per-minute throttle)
+    let finalTitle = title
+    let finalBody = body
+    let collapseId: string | undefined
+    if (category === 'messages' && prefs.message_bundle_enabled && data?.match_id) {
+      // OneSignal collapse_id max 64 chars; match_id alone scopes per-conversation for this recipient
+      collapseId = `msg_${data.match_id}`
+      const { count: unreadCount } = await supabase
+        .from('messages')
         .select('id', { count: 'exact', head: true })
-        .eq('user_id', user_id)
-        .eq('category', 'messages')
-        .eq('delivered', true)
-        .gte('created_at', oneMinuteAgo)
+        .eq('match_id', data.match_id)
+        .is('read_at', null)
+        .neq('sender_id', user_id)
 
-      if ((count || 0) >= 1) {
-        await logNotification(user_id, category, title, body, data, false, 'throttled')
-        return new Response(JSON.stringify({ success: false, reason: 'throttled' }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
+      const n = unreadCount ?? 0
+      if (n > 1) {
+        finalTitle = `${title} · ${n} messages`
+        finalBody = `${n} new messages`
       }
     }
 
@@ -364,16 +371,20 @@ Deno.serve(async (req) => {
     }
 
     // 11. Send via OneSignal (all registered devices)
-    // deep_link: path for native app to open correct screen (e.g. /chat/USER_ID, /event/EVENT_ID/lobby)
+    // deep_link: path for native app to open correct screen (e.g. /chat/MATCH_ID, /event/EVENT_ID/lobby)
     const deepLink = (data && typeof data.url === 'string') ? data.url : (data && typeof data.deep_link === 'string') ? data.deep_link : '/'
-    const osData = { ...(data || {}), deep_link: deepLink }
+    const osData = { ...(data || {}), category, deep_link: deepLink }
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,
       include_player_ids: playerIds,
-      headings: { en: title },
-      contents: { en: body },
+      headings: { en: finalTitle },
+      contents: { en: finalBody },
       data: osData,
       url: data?.url ? `${APP_URL}${data.url}` : APP_URL,
+    }
+
+    if (collapseId) {
+      osPayload.collapse_id = collapseId
     }
 
     if (image_url) {
@@ -393,7 +404,7 @@ Deno.serve(async (req) => {
     console.log('OneSignal response:', osResult)
 
     // 12. Log success
-    await logNotification(user_id, category, title, body, data, true)
+    await logNotification(user_id, category, finalTitle, finalBody, data, true)
 
     return new Response(
       JSON.stringify({ success: true }),

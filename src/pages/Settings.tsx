@@ -234,7 +234,7 @@ const Settings = () => {
             onClick={() => setShowFeedback(true)}
           >
             <MessageSquareText className="w-4 h-4 text-primary" />
-            Help & Feedback
+            Support & Feedback
           </Button>
 
           <Button
@@ -351,7 +351,7 @@ const Settings = () => {
         }}
       />
 
-      {/* Help & Feedback Drawer */}
+      {/* Support & Feedback Drawer */}
       <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} />
 
       {/* Logout Confirmation */}
