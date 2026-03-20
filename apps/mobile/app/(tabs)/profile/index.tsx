@@ -583,9 +583,13 @@ export default function ProfileScreen() {
   const photoViewerPhotos = profilePhotos.length > 0 ? profilePhotos : [];
 
   const heroAvatarPath = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
-  const zodiacEmoji = profile?.birth_date
-    ? getZodiacEmoji(getZodiacSign(new Date(profile.birth_date)))
-    : null;
+  const zodiacEmoji = (() => {
+    if (!profile?.birth_date) return null;
+    const parts = profile.birth_date.split('-');
+    if (parts.length !== 3) return null;
+    const localDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return getZodiacEmoji(getZodiacSign(localDate));
+  })();
   const isVerified = !!(profile?.photo_verified || profile?.phone_verified);
   const isPremiumActive = !!(
     profile?.is_premium &&

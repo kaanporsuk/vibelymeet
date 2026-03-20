@@ -128,7 +128,8 @@ const Dashboard = () => {
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
-  const { isGranted, scheduleDateReminder, refreshSubscriptionState } = usePushNotifications();
+  const { isGranted, isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
+    usePushNotifications();
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
@@ -238,12 +239,12 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    if (isGranted && proposals.length > 0) {
+    if (isBrowserPermissionGranted && proposals.length > 0) {
       proposals
         .filter((p) => p.status === "accepted")
         .forEach((p) => scheduleDateReminder(p.senderName || "Your match", p.date, 15));
     }
-  }, [isGranted, proposals, scheduleDateReminder]);
+  }, [isBrowserPermissionGranted, proposals, scheduleDateReminder]);
 
   useEffect(() => {
     if (!nextEvent?.eventDate || isLiveEvent) return;

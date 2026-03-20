@@ -1,7 +1,7 @@
 # Notification permission & push delivery audit — Web + Native
 
 **Generated:** 2026-03-19  
-**Scope:** Permission UX, OneSignal wiring, service workers, `notification_preferences`, Edge Function `send-notification` (referenced in repo; **source not present in this workspace**).
+**Scope:** Permission UX, OneSignal wiring, service workers, `notification_preferences`, Edge Function `send-notification` (source: `supabase/functions/send-notification/index.ts`).
 
 ---
 
@@ -129,21 +129,20 @@
 
 ### 3.2 `send-notification` Edge Function
 
-- **Status:** **`supabase/functions/send-notification/` is NOT present in this repository.**  
-- **Expected env (from internal docs):** `ONESIGNAL_API_KEY`, `ONESIGNAL_APP_ID`, Supabase keys, `SUPABASE_URL`.  
-  - `_cursor_context/vibely_rebuild_master_backup_chatgpt.md` **L1492–1500**
+- **Status:** Implemented in **`supabase/functions/send-notification/index.ts`** (OneSignal REST, preference checks, `notification_log`, web + mobile player IDs).  
+- **Secrets:** `ONESIGNAL_REST_API_KEY`, `ONESIGNAL_APP_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, etc.
 
-### 3.3 Inferred recipient resolution (from schema + docs)
+### 3.3 Recipient resolution (from source)
 
 - Table: **`notification_preferences`** (`user_id` unique).  
 - **Web:** `onesignal_player_id`, `onesignal_subscribed`  
-- **Native:** `mobile_onesignal_player_id` (migration `20260311200000_notification_preferences_mobile_player.sql`), implied `mobile_onesignal_subscribed` in mobile upsert (`apps/mobile/lib/onesignal.ts` **L44–45**).  
-- **Intended behavior (docs):** send to **both** web and mobile when IDs exist — **cannot verify implementation** without function source.
+- **Native:** `mobile_onesignal_player_id`, `mobile_onesignal_subscribed`  
+- **Behavior:** Function collects both IDs into `include_player_ids` when subscribed flags are true (`send-notification/index.ts` ~L351–358).
 
 ### 3.4 Issues found (pipeline)
 
-- **CRITICAL — Missing source in repo:** Cannot verify OneSignal REST payload (`include_player_ids` vs `subscriptions` vs `include_external_user_ids`), preference gates, `notification_log`, or error handling without `send-notification/index.ts`.
-- **HIGH — Stale IDs:** No repo-visible cleanup on logout for web/native player columns.
+- **MEDIUM — API shape:** Uses `include_player_ids`; monitor OneSignal deprecation in favor of subscription-based APIs.
+- **Resolved — Stale IDs on logout:** Web `AuthContext.logout` and native `signOut` clear player columns (post-audit).
 - **MEDIUM — API deprecation risk:** If deployed code still uses deprecated OneSignal fields, deliveries may fail silently.
 
 ---
@@ -215,8 +214,8 @@
 | 6 | **`onesignal_player_id`** column |
 | 7 | **Yes** — `public/sw.js` (custom), `public/OneSignalSDK.sw.js` (OneSignal shim) |
 | 8 | Edge functions **invoke** `send-notification` (send-message, swipe-actions, daily-drop-actions, generate-daily-drops, client `notifications.ts`, etc.) |
-| 9 | **Inferred:** load prefs by `user_id` → player IDs; **not verifiable** without function source |
-| 10 | **End-to-end not verifiable** in this workspace without deployed function + live test |
+| 9 | Load prefs by `user_id` → `onesignal_player_id` / `mobile_onesignal_player_id` in `send-notification/index.ts` |
+| 10 | **Production check:** validate with live OneSignal + device (not a code gap) |
 
 ### Native
 
@@ -233,10 +232,10 @@
 | 9 | **`OneSignal.login(userId)`** with Supabase `user.id` **L33** |
 | 10 | **No** tags found in audited native files |
 
-### send-notification (documented expectations only)
+### send-notification (source in repo)
 
-- Recipients: **`notification_preferences`** by `user_id`; columns **web/native player IDs** (schema + mobile upsert).  
-- **Source missing in repo** — implementation, preference checks, and OneSignal payload **not audited line-by-line**.
+- Recipients: **`notification_preferences`** by `user_id`; web + mobile player ID columns when subscribed.  
+- **Source:** `supabase/functions/send-notification/index.ts` — preference gates, OneSignal `POST /notifications`, `include_player_ids`.
 
 ---
 
