@@ -1354,6 +1354,7 @@ export type Database = {
       profiles: {
         Row: {
           about_me: string | null
+          activity_status_visibility: string | null
           age: number
           avatar_url: string | null
           bio: string | null
@@ -1364,8 +1365,13 @@ export type Database = {
           country: string | null
           created_at: string
           discoverable: boolean
+          discovery_audience: string | null
+          discovery_mode: string | null
+          discovery_snooze_until: string | null
+          distance_visibility: string | null
           email_unsubscribed: boolean
           email_verified: boolean | null
+          event_attendance_visibility: string | null
           events_attended: number | null
           gender: string
           height_cm: number | null
@@ -1410,6 +1416,7 @@ export type Database = {
         }
         Insert: {
           about_me?: string | null
+          activity_status_visibility?: string | null
           age: number
           avatar_url?: string | null
           bio?: string | null
@@ -1420,8 +1427,13 @@ export type Database = {
           country?: string | null
           created_at?: string
           discoverable?: boolean
+          discovery_audience?: string | null
+          discovery_mode?: string | null
+          discovery_snooze_until?: string | null
+          distance_visibility?: string | null
           email_unsubscribed?: boolean
           email_verified?: boolean | null
+          event_attendance_visibility?: string | null
           events_attended?: number | null
           gender: string
           height_cm?: number | null
@@ -1466,6 +1478,7 @@ export type Database = {
         }
         Update: {
           about_me?: string | null
+          activity_status_visibility?: string | null
           age?: number
           avatar_url?: string | null
           bio?: string | null
@@ -1476,8 +1489,13 @@ export type Database = {
           country?: string | null
           created_at?: string
           discoverable?: boolean
+          discovery_audience?: string | null
+          discovery_mode?: string | null
+          discovery_snooze_until?: string | null
+          distance_visibility?: string | null
           email_unsubscribed?: boolean
           email_verified?: boolean | null
+          event_attendance_visibility?: string | null
           events_attended?: number | null
           gender?: string
           height_cm?: number | null

@@ -167,8 +167,8 @@ export default function SettingsScreen() {
             />
             <SettingsRow
               icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
-              title="Privacy"
-              subtitle="Visibility, blocked users, data"
+              title="Privacy & Visibility"
+              subtitle="Who finds you, what they see, how you stay protected"
               onPress={() => router.push('/settings/privacy')}
             />
           </Card>

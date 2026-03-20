@@ -19,6 +19,15 @@ module.exports = () => {
   if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === '@react-native-community/datetimepicker')) {
     plugins.push('@react-native-community/datetimepicker');
   }
+  if (!plugins.some((p) => (Array.isArray(p) ? p[0] : p) === 'expo-location')) {
+    plugins.push([
+      'expo-location',
+      {
+        locationWhenInUsePermission:
+          'Vibely uses your location to show nearby events and approximate distance.',
+      },
+    ]);
+  }
   return {
     expo: {
       ...appJson.expo,
