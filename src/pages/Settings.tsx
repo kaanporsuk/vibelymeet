@@ -205,7 +205,7 @@ const Settings = () => {
               </div>
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Account</h3>
-                <p className="text-xs text-muted-foreground">Manage your account</p>
+                <p className="text-xs text-muted-foreground">Security, membership, and account control</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -234,7 +234,7 @@ const Settings = () => {
             onClick={() => setShowFeedback(true)}
           >
             <MessageSquareText className="w-4 h-4 text-primary" />
-            Help & Feedback
+            Support & Feedback
           </Button>
 
           <Button
@@ -351,7 +351,7 @@ const Settings = () => {
         }}
       />
 
-      {/* Help & Feedback Drawer */}
+      {/* Support & Feedback Drawer */}
       <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} />
 
       {/* Logout Confirmation */}

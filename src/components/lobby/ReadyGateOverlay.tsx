@@ -116,12 +116,19 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
 
       if (myVibes && partnerVibes) {
         const myLabels = new Set(
-          myVibes.map((v) => (v.vibe_tags as { label: string } | null)?.label).filter(Boolean)
+          myVibes
+            .map((v) => {
+              const raw = v.vibe_tags as { label: string } | { label: string }[] | null;
+              const tag = Array.isArray(raw) ? raw[0] : raw;
+              return tag?.label;
+            })
+            .filter(Boolean)
         );
         const shared = partnerVibes
           .map((v) => {
-            const tag = v.vibe_tags as { label: string; emoji: string } | null;
-            return tag && myLabels.has(tag.label) ? `${tag.emoji} ${tag.label}` : null;
+            const raw = v.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+            const tag = Array.isArray(raw) ? raw[0] : raw;
+            return tag && myLabels.has(tag.label) ? `${tag.emoji ?? ''} ${tag.label}`.trim() : null;
           })
           .filter(Boolean) as string[];
         setSharedVibes(shared);

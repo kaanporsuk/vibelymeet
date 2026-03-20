@@ -27,10 +27,11 @@ import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel"
 import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
 import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
+import SupportInbox from "@/components/admin/SupportInbox";
 import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -67,6 +68,20 @@ const AdminDashboard = () => {
     refetchInterval: 60000,
   });
 
+  const { data: supportCount = 0 } = useQuery({
+    queryKey: ['admin-support-open-count'],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('support_tickets')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['submitted', 'in_review']);
+
+      if (error) throw error;
+      return count ?? 0;
+    },
+    refetchInterval: 30000,
+  });
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Logged out successfully");
@@ -83,6 +98,7 @@ const AdminDashboard = () => {
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         feedbackCount={feedbackCount}
+        supportCount={supportCount}
       />
 
       {/* Main Content */}
@@ -110,7 +126,8 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
                 {activePanel === 'deletions' && 'Account Deletions'}
-                {activePanel === 'feedback' && 'Help & Feedback'}
+                {activePanel === 'feedback' && 'Legacy feedback'}
+                {activePanel === 'support' && 'Support inbox'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -124,7 +141,8 @@ const AdminDashboard = () => {
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
                 {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
-                {activePanel === 'feedback' && 'Review bug reports, feature ideas, and questions from users'}
+                {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
+                {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
               </p>
               </div>
             </div>
@@ -189,6 +207,7 @@ const AdminDashboard = () => {
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
           {activePanel === 'deletions' && <AdminDeletionsPanel />}
           {activePanel === 'feedback' && <AdminFeedbackPanel />}
+          {activePanel === 'support' && <SupportInbox />}
         </main>
       </div>
 

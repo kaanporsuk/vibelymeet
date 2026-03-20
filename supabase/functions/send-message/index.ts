@@ -134,7 +134,12 @@ serve(async (req) => {
             category: "messages",
             title: senderProfile?.name || "New message",
             body: preview,
-            data: { url: `/chat/${match_id}`, match_id },
+            // Web + native /chat/:id both use the other user's profile_id (sender), not match_id
+            data: {
+              url: `/chat/${actorId}`,
+              match_id,
+              sender_id: actorId,
+            },
           },
         });
       } catch (notifyError) {

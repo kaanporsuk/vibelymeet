@@ -196,6 +196,23 @@ export function useEventDetails(eventId: string | undefined) {
   });
 }
 
+/** All event IDs the current user is registered for (Discover / lists should exclude these). */
+export function useRegisteredEventIds(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['user-registered-event-ids', userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<string[]> => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from('event_registrations')
+        .select('event_id')
+        .eq('profile_id', userId);
+      if (error) throw error;
+      return (data ?? []).map((r) => r.event_id).filter(Boolean) as string[];
+    },
+  });
+}
+
 export function useIsRegisteredForEvent(eventId: string | undefined, userId: string | undefined) {
   return useQuery({
     queryKey: ['event-registration-check', eventId, userId],
@@ -325,6 +342,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
+      qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
     },
   });
@@ -343,6 +361,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
       qc.invalidateQueries({ queryKey: ['events'] });
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
+      qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
     },
   });

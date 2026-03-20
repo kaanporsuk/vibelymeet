@@ -1,19 +1,34 @@
 /**
- * Account settings — email, verification, phone/email verify, pause/resume, scheduled deletion.
- *
- * Deletion: Native uses `request-account-deletion` (30-day grace) — same contract as web
- * (`email`, optional `reason`, `source: 'native'`). `cancel-deletion` revokes the schedule.
- * After 30 days the server runs final deletion (`delete-account`); no in-app immediate delete on native.
+ * Account & Security Center — sign-in, verification, membership, take a break, danger zone.
  */
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
-import { router } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  Modal,
+  Linking,
+  Alert,
+  Platform,
+  Image,
+  TextInput,
+  ScrollView as RNHScroll,
+} from 'react-native';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as WebBrowser from 'expo-web-browser';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
+import Purchases from 'react-native-purchases';
+
 import Colors from '@/constants/Colors';
-import { GlassHeaderBar, Card, VibelyButton } from '@/components/ui';
-import { spacing, layout } from '@/constants/theme';
+import { GlassHeaderBar, VibelyButton } from '@/components/ui';
+import { spacing, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useAuth } from '@/context/AuthContext';
@@ -22,296 +37,1121 @@ import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
+import { avatarUrl } from '@/lib/imageUrl';
+import { isRevenueCatConfigured } from '@/lib/revenuecat';
+
+const CYAN = '#22D3EE';
+const AMBER = '#F59E0B';
+const VIOLET = '#8B5CF6';
+
+type BreakChip = '24h' | '3d' | '1w' | '2w' | 'indefinite';
+
+type AccountProfile = {
+  name: string | null;
+  created_at: string | null;
+  avatar_url: string | null;
+  phone_number: string | null;
+  phone_verified: boolean | null;
+  email_verified: boolean | null;
+  photo_verified: boolean | null;
+  account_paused: boolean | null;
+  account_paused_until: string | null;
+  is_paused: boolean | null;
+  paused_until: string | null;
+};
+
+function maskPhoneE164(raw: string | null | undefined): string {
+  if (!raw) return 'Not set';
+  return raw.replace(/(\+\d{1,3})\d+(\d{2})$/, '$1 ••• •• $2');
+}
+
+function memberSinceLabel(iso: string | null | undefined): string {
+  if (!iso) return 'Member since —';
+  try {
+    const d = new Date(iso);
+    return `Member since ${d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+  } catch {
+    return 'Member since —';
+  }
+}
+
+function breakUntilForChip(chip: BreakChip): Date | null {
+  const now = Date.now();
+  const h = 60 * 60 * 1000;
+  const d = 24 * h;
+  switch (chip) {
+    case '24h':
+      return new Date(now + d);
+    case '3d':
+      return new Date(now + 3 * d);
+    case '1w':
+      return new Date(now + 7 * d);
+    case '2w':
+      return new Date(now + 14 * d);
+    default:
+      return null;
+  }
+}
+
+function formatBreakEnd(d: Date | null): string {
+  if (!d) return 'indefinitely';
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function passwordStrengthLabel(pw: string): { label: string; tone: 'weak' | 'fair' | 'strong' } {
+  if (pw.length < 8) return { label: 'Weak', tone: 'weak' };
+  let score = 0;
+  if (pw.length >= 10) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[a-z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  if (score <= 2) return { label: 'Fair', tone: 'fair' };
+  return { label: 'Strong', tone: 'strong' };
+}
+
+function subscriptionManageUrl(): string {
+  if (Platform.OS === 'android') return 'https://play.google.com/store/account/subscriptions';
+  return 'https://apps.apple.com/account/subscriptions';
+}
+
+function ValueChip({ label, accentColor }: { label: string; accentColor: string }) {
+  return (
+    <View
+      style={[
+        styles.valueChip,
+        { backgroundColor: withAlpha(accentColor, 0.15), borderColor: withAlpha(accentColor, 0.3) },
+      ]}
+    >
+      <Text style={[styles.valueChipText, { color: accentColor }]}>{label}</Text>
+    </View>
+  );
+}
+
+function SoonBadge({ theme }: { theme: (typeof Colors)['dark'] }) {
+  return (
+    <View
+      style={[
+        styles.valueChip,
+        {
+          backgroundColor: withAlpha(theme.mutedForeground, 0.1),
+          borderColor: withAlpha(theme.mutedForeground, 0.2),
+        },
+      ]}
+    >
+      <Text style={[styles.soonText, { color: theme.mutedForeground }]}>Soon</Text>
+    </View>
+  );
+}
 
 export default function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
-  const { user } = useAuth();
-  const email = user?.email ?? '';
+  const { user, signOut } = useAuth();
   const qc = useQueryClient();
+  const email = user?.email ?? '';
+
+  const [copiedToast, setCopiedToast] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const { data: profile } = useQuery({
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [passwordSheetOpen, setPasswordSheetOpen] = useState(false);
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+
+  const [newEmail, setNewEmail] = useState('');
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [emailSubmitting, setEmailSubmitting] = useState(false);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
+  const [breakChip, setBreakChip] = useState<BreakChip | null>(null);
+  const [breakBusy, setBreakBusy] = useState(false);
+
+  const [rcPremium, setRcPremium] = useState(false);
+  const [rcExpiry, setRcExpiry] = useState<string | null>(null);
+
+  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
+
+  const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ['profile-account', user?.id],
-    queryFn: async () => {
+    queryFn: async (): Promise<AccountProfile | null> => {
       if (!user?.id) return null;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('phone_verified, email_verified, photo_verified, is_paused')
+        .select(
+          'name, created_at, avatar_url, phone_number, phone_verified, email_verified, photo_verified, account_paused, account_paused_until, is_paused, paused_until'
+        )
         .eq('id', user.id)
         .maybeSingle();
-      return data as {
-        phone_verified?: boolean;
-        email_verified?: boolean;
-        photo_verified?: boolean;
-        is_paused?: boolean;
-      } | null;
+      if (error) throw error;
+      return data as AccountProfile | null;
     },
     enabled: !!user?.id,
   });
-  const [pauseLoading, setPauseLoading] = useState(false);
-  const [resumeLoading, setResumeLoading] = useState(false);
 
-  const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
-    setPauseLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('account-pause', { body: { duration } });
-      if (error || (data as { success?: boolean })?.success !== true) {
-        Alert.alert('Error', 'Could not pause your account. Try again.');
-        return;
-      }
-      await qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-      Alert.alert('Account paused', 'Your profile is hidden from events and matches. You can resume anytime.');
-    } finally {
-      setPauseLoading(false);
-    }
-  };
+  const { data: credits } = useQuery({
+    queryKey: ['user_credits', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('user_credits')
+        .select('extra_time_credits, extended_vibe_credits')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
 
-  const resumeAccount = async () => {
-    setResumeLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('account-resume', { body: {} });
-      if (error || (data as { success?: boolean })?.success !== true) {
-        Alert.alert('Error', 'Could not resume. Try again.');
-        return;
-      }
-      await qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    } finally {
-      setResumeLoading(false);
-    }
-  };
-
-  const confirmPause = () => {
-    Alert.alert(
-      'Pause account',
-      'Your profile will be hidden from events and matches. Choose how long.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: '24 hours', onPress: () => pauseAccount('day') },
-        { text: '1 week', onPress: () => pauseAccount('week') },
-        { text: 'Until I resume', style: 'destructive', onPress: () => pauseAccount('indefinite') },
-      ]
-    );
-  };
-  const { pendingDeletion, cancelDeletion, isCancelling, refetchDeletionState } = useDeletionRecovery(user?.id);
-
-  const requestAccountDeletion = async () => {
-    if (!email?.includes('@')) {
-      Alert.alert('Error', 'We need your email to schedule deletion.');
-      return;
-    }
-    setIsDeleting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('request-account-deletion', {
-        body: { email, reason: null, source: 'native' },
-      });
-      if (error) {
-        Alert.alert('Error', 'Could not schedule deletion. Try again.');
-        setIsDeleting(false);
-        return;
-      }
-      if ((data as { success?: boolean })?.success !== true) {
-        Alert.alert('Error', 'Something went wrong. Try again.');
-        setIsDeleting(false);
-        return;
-      }
-      await refetchDeletionState();
-    } catch {
-      Alert.alert('Error', 'Could not reach the server. Try again.');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const confirmDeleteAccount = () => {
-    Alert.alert(
-      'Delete your account?',
-      'Your account will be scheduled for deletion.\n\nYou have 30 days to change your mind.\n\nAfter 30 days, all your data will be permanently deleted. This includes your profile, matches, messages, and media.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete my account', style: 'destructive', onPress: requestAccountDeletion },
-      ]
-    );
-  };
-
-  const refetchProfile = () => {
+  const refreshProfile = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
     qc.invalidateQueries({ queryKey: ['my-profile'] });
+    qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
+  }, [qc, user?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!isRevenueCatConfigured()) return;
+      try {
+        const info = await Purchases.getCustomerInfo();
+        if (cancelled) return;
+        const ent = info.entitlements.active['premium'];
+        setRcPremium(!!ent);
+        setRcExpiry(ent?.expirationDate ?? null);
+      } catch {
+        if (!cancelled) {
+          setRcPremium(false);
+          setRcExpiry(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const oauthProvider = useMemo(() => {
+    const ids = user?.identities ?? [];
+    const g = ids.find((i) => i.provider === 'google');
+    if (g) return 'Google' as const;
+    const a = ids.find((i) => i.provider === 'apple');
+    if (a) return 'Apple' as const;
+    return null;
+  }, [user?.identities]);
+
+  const hasEmailPasswordIdentity = useMemo(
+    () => (user?.identities ?? []).some((i) => i.provider === 'email'),
+    [user?.identities]
+  );
+
+  const onBreak = !!(profile?.account_paused || profile?.is_paused);
+  const breakUntilIso = profile?.account_paused_until ?? profile?.paused_until ?? null;
+
+  const creditTotal = (credits?.extra_time_credits ?? 0) + (credits?.extended_vibe_credits ?? 0);
+
+  const copySupportId = async () => {
+    if (!user?.id) return;
+    await Clipboard.setStringAsync(user.id.slice(0, 8));
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      /* optional */
+    }
+    setCopiedToast(true);
+    setTimeout(() => setCopiedToast(false), 2000);
   };
 
+  const applyTakeBreak = async () => {
+    if (!user?.id || !breakChip) return;
+    const until = breakUntilForChip(breakChip);
+    const now = new Date().toISOString();
+    setBreakBusy(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          account_paused: true,
+          account_paused_until: until?.toISOString() ?? null,
+          is_paused: true,
+          paused_until: until?.toISOString() ?? null,
+          paused_at: now,
+          pause_reason: 'user_break',
+          discoverable: false,
+          discovery_mode: 'hidden',
+          discovery_snooze_until: null,
+        })
+        .eq('id', user.id);
+      if (error) {
+        Alert.alert('Couldn’t update', error.message);
+        return;
+      }
+      refreshProfile();
+      setBreakChip(null);
+      Alert.alert("You're on a break", "We'll be here when you're ready.");
+    } finally {
+      setBreakBusy(false);
+    }
+  };
+
+  const confirmTakeBreak = () => {
+    if (!breakChip) return;
+    const until = breakUntilForChip(breakChip);
+    Alert.alert(
+      'Take a break?',
+      `You'll be hidden until ${formatBreakEnd(until)}.\n\nYour existing matches and chats won't be affected.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', onPress: () => void applyTakeBreak() },
+      ]
+    );
+  };
+
+  const endBreak = async () => {
+    if (!user?.id) return;
+    setBreakBusy(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          account_paused: false,
+          account_paused_until: null,
+          is_paused: false,
+          paused_until: null,
+          paused_at: null,
+          discoverable: true,
+          discovery_mode: 'visible',
+        })
+        .eq('id', user.id);
+      if (error) {
+        Alert.alert('Couldn’t update', error.message);
+        return;
+      }
+      refreshProfile();
+      Alert.alert('Welcome back!', "You're visible in discovery again.");
+    } finally {
+      setBreakBusy(false);
+    }
+  };
+
+  const confirmDeactivate = async () => {
+    if (!user?.id) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        account_paused: true,
+        account_paused_until: null,
+        is_paused: true,
+        paused_until: null,
+        paused_at: new Date().toISOString(),
+        discoverable: false,
+        discovery_mode: 'hidden',
+      })
+      .eq('id', user.id);
+    setDeactivateOpen(false);
+    if (error) {
+      Alert.alert('Couldn’t deactivate', error.message);
+      return;
+    }
+    await signOut();
+    router.replace('/(auth)/sign-in');
+  };
+
+  const openDeleteFlow = () => {
+    const isPremium = rcPremium;
+    const msg = isPremium
+      ? 'You have an active Vibely Premium subscription. Deleting your account does NOT automatically cancel your subscription. Cancel it in the App Store or Play Store first.'
+      : 'Your account and all data will be permanently deleted.';
+    const subUrl = subscriptionManageUrl();
+    if (isPremium) {
+      Alert.alert('Before you delete', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Manage subscription first', onPress: () => Linking.openURL(subUrl).catch(() => {}) },
+        {
+          text: 'Delete anyway',
+          style: 'destructive',
+          onPress: () => router.push('/delete-account' as Href),
+        },
+      ]);
+    } else {
+      Alert.alert('Before you delete', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: () => router.push('/delete-account' as Href) },
+      ]);
+    }
+  };
+
+  const restorePurchases = async () => {
+    try {
+      await Purchases.restorePurchases();
+      const info = await Purchases.getCustomerInfo();
+      const ent = info.entitlements.active['premium'];
+      setRcPremium(!!ent);
+      setRcExpiry(ent?.expirationDate ?? null);
+      Alert.alert('Done', ent ? 'Purchases restored.' : 'No active purchases found.');
+    } catch (e) {
+      Alert.alert('Restore failed', e instanceof Error ? e.message : 'Try again.');
+    }
+  };
+
+  const displayName = profile?.name?.trim() || 'Member';
+  const av = avatarUrl(profile?.avatar_url, 'avatar');
+
+  const strength = passwordStrengthLabel(newPassword);
+  const strengthColor =
+    strength.tone === 'weak' ? theme.danger : strength.tone === 'fair' ? AMBER : theme.success;
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]} accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </Pressable>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Account</Text>
+          <View style={styles.headerTitles}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Account & Security</Text>
+            <Text style={[styles.headerSub, { color: theme.mutedForeground }]}>Manage your sign-in, trust, membership, and control.</Text>
+          </View>
         </View>
       </GlassHeaderBar>
 
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.main}>
-          {pendingDeletion && (
-            <DeletionRecoveryBanner
-              scheduledDate={pendingDeletion.scheduled_deletion_at}
-              onCancel={cancelDeletion}
-              isCancelling={isCancelling}
-            />
-          )}
-          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-            <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
-              <Ionicons name="person-circle-outline" size={32} color={theme.tint} />
-            </View>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Signed in as</Text>
-            <Text style={[styles.email, { color: theme.text }]} numberOfLines={1}>{email || '—'}</Text>
-            <View style={styles.verificationRow}>
-              {profile?.phone_verified ? (
-                <View style={[styles.badge, { backgroundColor: withAlpha(theme.success, 0.15) }]}>
-                  <Ionicons name="call" size={14} color={theme.success} />
-                  <Text style={[styles.badgeText, { color: theme.success }]}>Phone verified</Text>
-                </View>
-              ) : (
-                <Pressable onPress={() => setShowPhoneVerify(true)} style={[styles.badge, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="call" size={14} color={theme.textSecondary} />
-                  <Text style={[styles.badgeText, { color: theme.textSecondary }]}>Verify Phone</Text>
-                </Pressable>
-              )}
-              {profile?.email_verified ? (
-                <View style={[styles.badge, { backgroundColor: withAlpha(theme.success, 0.15) }]}>
-                  <Ionicons name="mail" size={14} color={theme.success} />
-                  <Text style={[styles.badgeText, { color: theme.success }]}>Email verified</Text>
-                </View>
-              ) : (
-                <Pressable onPress={() => setShowEmailVerify(true)} style={[styles.badge, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="mail" size={14} color={theme.textSecondary} />
-                  <Text style={[styles.badgeText, { color: theme.textSecondary }]}>Verify Email</Text>
-                </Pressable>
-              )}
-              <View style={[styles.badge, (profile?.photo_verified) ? { backgroundColor: withAlpha(theme.success, 0.15) } : { backgroundColor: theme.surfaceSubtle }]}>
-                <Ionicons name="camera" size={14} color={profile?.photo_verified ? theme.success : theme.textSecondary} />
-                <Text style={[styles.badgeText, { color: profile?.photo_verified ? theme.success : theme.textSecondary }]}>
-                  {profile?.photo_verified ? 'Photo verified' : 'Photo not verified'}
-                </Text>
-              </View>
-            </View>
-            <Text style={[styles.body, { color: theme.textSecondary }]}>
-              Change password and other settings on web. Pause or resume below.
-            </Text>
-            {profile?.is_paused ? (
-              <View style={[styles.pausedBanner, { backgroundColor: withAlpha(theme.tint, 0.12), borderColor: theme.tint }]}>
-                <Ionicons name="pause-circle" size={22} color={theme.tint} />
-                <Text style={[styles.pausedText, { color: theme.text }]}>Your account is paused</Text>
-              </View>
-            ) : null}
-            {profile?.is_paused ? (
-              <VibelyButton
-                label={resumeLoading ? 'Resuming…' : 'Resume account'}
-                onPress={() => resumeAccount()}
-                variant="primary"
-                style={styles.cta}
-                disabled={resumeLoading}
-              />
-            ) : (
-              <VibelyButton
-                label={pauseLoading ? 'Pausing…' : 'Pause account'}
-                onPress={confirmPause}
-                variant="secondary"
-                style={styles.cta}
-                disabled={pauseLoading}
-              />
-            )}
-            <VibelyButton
-              label="Open account settings on web"
-              onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
-              variant="secondary"
-              style={styles.ctaSecondary}
-            />
-          </Card>
+        {pendingDeletion ? (
+          <DeletionRecoveryBanner
+            scheduledDate={pendingDeletion.scheduled_deletion_at}
+            onCancel={cancelDeletion}
+            isCancelling={isCancelling}
+          />
+        ) : null}
 
-          {!pendingDeletion && (
-            <Pressable
-              onPress={confirmDeleteAccount}
-              disabled={isDeleting}
-              style={({ pressed }) => [
-                styles.deleteBtn,
-                { backgroundColor: withAlpha(theme.danger, 0.09), borderColor: withAlpha(theme.danger, 0.31) },
-                pressed && { opacity: 0.9 },
-              ]}
-            >
-              {isDeleting ? (
-                <ActivityIndicator size="small" color={theme.danger} />
-              ) : (
-                <>
-                  <Ionicons name="trash-outline" size={20} color={theme.danger} />
-                  <Text style={[styles.deleteBtnLabel, { color: theme.danger }]}>Delete Account</Text>
-                </>
-              )}
-            </Pressable>
-          )}
-        </View>
+        {profileLoading ? (
+          <ActivityIndicator color={theme.tint} style={{ marginVertical: 24 }} />
+        ) : (
+          <>
+            {/* Summary card */}
+            <View style={[styles.summaryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.summaryRow}>
+                <Image source={{ uri: av }} style={styles.avatar} />
+                <View style={styles.summaryTextCol}>
+                  <Text style={[styles.displayName, { color: theme.text }]} numberOfLines={1}>
+                    {displayName}
+                  </Text>
+                  <Text style={[styles.emailLine, { color: theme.mutedForeground }]} numberOfLines={1}>
+                    {email || '—'}
+                  </Text>
+                  <Text style={[styles.memberSince, { color: theme.mutedForeground }]}>{memberSinceLabel(profile?.created_at)}</Text>
+                  <Pressable onPress={copySupportId} hitSlop={8}>
+                    <Text style={[styles.supportId, { color: theme.mutedForeground }]}>ID: {user?.id?.slice(0, 8) ?? '—'}</Text>
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.trustRow}>
+                <TrustMini
+                  theme={theme}
+                  label="Phone"
+                  verified={!!profile?.phone_verified}
+                  onVerify={() => setShowPhoneVerify(true)}
+                />
+                <TrustMini
+                  theme={theme}
+                  label="Email"
+                  verified={!!profile?.email_verified}
+                  onVerify={() => setShowEmailVerify(true)}
+                />
+                <TrustMini
+                  theme={theme}
+                  label="Photo"
+                  verified={!!profile?.photo_verified}
+                  onVerify={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/profile').catch(() => {})}
+                />
+              </View>
+            </View>
+
+            <SectionTitle theme={theme} text="SIGN-IN & SECURITY" />
+            <CardShell theme={theme}>
+              <AccountRow
+                theme={theme}
+                icon="mail-outline"
+                iconColor={theme.tint}
+                title="Email address"
+                subtitle={email || '—'}
+                onPress={() => setEmailSheetOpen(true)}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="call-outline"
+                iconColor={theme.tint}
+                title="Phone number"
+                subtitle={profile?.phone_number ? maskPhoneE164(profile.phone_number) : 'Not set'}
+                right={
+                  <View style={styles.rowRight}>
+                    {!profile?.phone_number ? <ValueChip label="Add" accentColor={theme.tint} /> : null}
+                    <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                  </View>
+                }
+                onPress={() => setShowPhoneVerify(true)}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="lock-closed-outline"
+                iconColor={theme.tint}
+                title="Password"
+                subtitle="••••••••"
+                onPress={() => setPasswordSheetOpen(true)}
+              />
+              <Hairline theme={theme} />
+              <DisabledAccountRow
+                theme={theme}
+                icon="shield-checkmark-outline"
+                title="Two-factor authentication"
+                subtitle="Add an extra layer of security"
+                right={<SoonBadge theme={theme} />}
+              />
+              <Hairline theme={theme} />
+              <DisabledAccountRow
+                theme={theme}
+                icon="key-outline"
+                title="Login methods"
+                subtitle="Google, Apple, email"
+                right={<SoonBadge theme={theme} />}
+              />
+            </CardShell>
+
+            <SectionTitle theme={theme} text="VERIFICATION & TRUST" />
+            <Text style={[styles.sectionDesc, { color: theme.mutedForeground }]}>
+              Verified accounts get better visibility and are trusted more at events.
+            </Text>
+            <CardShell theme={theme}>
+              <AccountRow
+                theme={theme}
+                icon="camera-outline"
+                iconColor={CYAN}
+                title="Photo verification"
+                subtitle={
+                  profile?.photo_verified ? "Verified · Helps others trust your profile" : "Take a selfie to verify it's really you"
+                }
+                right={
+                  profile?.photo_verified ? (
+                    <ValueChip label="Verified ✓" accentColor={CYAN} />
+                  ) : (
+                    <View style={styles.rowRight}>
+                      <ValueChip label="Verify" accentColor={AMBER} />
+                      <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                    </View>
+                  )
+                }
+                onPress={
+                  profile?.photo_verified
+                    ? undefined
+                    : () => WebBrowser.openBrowserAsync('https://vibelymeet.com/profile').catch(() => {})
+                }
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="mail-outline"
+                iconColor={CYAN}
+                title="Email verified"
+                right={
+                  profile?.email_verified ? (
+                    <ValueChip label="Verified" accentColor={theme.success} />
+                  ) : (
+                    <ValueChip label="Verify →" accentColor={AMBER} />
+                  )
+                }
+                onPress={profile?.email_verified ? undefined : () => setShowEmailVerify(true)}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="call-outline"
+                iconColor={CYAN}
+                title="Phone verified"
+                right={
+                  profile?.phone_verified ? (
+                    <ValueChip label="Verified" accentColor={theme.success} />
+                  ) : (
+                    <ValueChip label="Verify →" accentColor={AMBER} />
+                  )
+                }
+                onPress={profile?.phone_verified ? undefined : () => setShowPhoneVerify(true)}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="information-circle-outline"
+                iconColor={theme.mutedForeground}
+                title="About verification"
+                subtitle="How Vibely uses your verification data"
+                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy').catch(() => {})}
+              />
+            </CardShell>
+
+            <SectionTitle theme={theme} text="MEMBERSHIP & PURCHASES" />
+            <CardShell theme={theme}>
+              <AccountRow
+                theme={theme}
+                icon="star-outline"
+                iconColor={AMBER}
+                title="Vibely Premium"
+                subtitle={
+                  rcPremium && rcExpiry
+                    ? `Active · Renews ${new Date(rcExpiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    : rcPremium
+                      ? 'Active'
+                      : 'Unlock unlimited vibes and premium features'
+                }
+                right={
+                  <View style={styles.rowRight}>
+                    {rcPremium ? (
+                      <ValueChip label="Active" accentColor={AMBER} />
+                    ) : (
+                      <>
+                        <ValueChip label="Upgrade" accentColor={theme.tint} />
+                        <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                      </>
+                    )}
+                  </View>
+                }
+                onPress={() => router.push('/premium')}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="flash-outline"
+                iconColor={VIOLET}
+                title="Credits"
+                subtitle="Used for video dates and premium features"
+                right={
+                  <View style={styles.rowRight}>
+                    <Text style={{ color: theme.textSecondary, fontSize: 13, fontWeight: '600' }}>{creditTotal} credits</Text>
+                    <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                  </View>
+                }
+                onPress={() => router.push('/settings/credits')}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="card-outline"
+                iconColor={theme.mutedForeground}
+                title="Manage subscription"
+                subtitle="Cancel, upgrade, or change your plan"
+                onPress={() => Linking.openURL(subscriptionManageUrl()).catch(() => {})}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="refresh-outline"
+                iconColor={theme.mutedForeground}
+                title="Restore purchases"
+                subtitle="If you've reinstalled the app"
+                onPress={() => void restorePurchases()}
+              />
+            </CardShell>
+
+            <SectionTitle theme={theme} text="TAKE A BREAK" />
+            {onBreak ? (
+              <View style={[styles.breakCardActive, { borderColor: withAlpha(AMBER, 0.35), backgroundColor: withAlpha(AMBER, 0.08) }]}>
+                <Ionicons name="pause-circle" size={24} color={AMBER} />
+                <Text style={[styles.breakTitle, { color: theme.text }]}>You're on a break</Text>
+                <Text style={[styles.breakBody, { color: theme.mutedForeground }]}>
+                  {breakUntilIso ? `Hidden until ${formatBreakEnd(new Date(breakUntilIso))}` : 'Hidden indefinitely'}
+                  {'\n'}Your matches and chats are still active.
+                </Text>
+                <Pressable
+                  onPress={() => void endBreak()}
+                  disabled={breakBusy}
+                  style={[styles.outlineAmberBtn, { borderColor: AMBER }]}
+                >
+                  <Text style={{ color: AMBER, fontWeight: '700' }}>{breakBusy ? '…' : 'End break now'}</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={[styles.breakCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                <Ionicons name="moon-outline" size={24} color={AMBER} />
+                <Text style={[styles.breakTitle, { color: theme.text }]}>Need some time off?</Text>
+                <Text style={[styles.breakBody, { color: theme.mutedForeground }]}>
+                  Going on a break hides you from discovery while keeping your matches, chats, and account intact.
+                </Text>
+                <RNHScroll horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+                  {(
+                    [
+                      ['24h', '24 hours'],
+                      ['3d', '3 days'],
+                      ['1w', '1 week'],
+                      ['2w', '2 weeks'],
+                      ['indefinite', 'Indefinitely'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Pressable
+                      key={key}
+                      onPress={() => setBreakChip(key)}
+                      style={[
+                        styles.durationChip,
+                        {
+                          borderColor: breakChip === key ? theme.tint : theme.border,
+                          backgroundColor: breakChip === key ? withAlpha(theme.tint, 0.15) : theme.surface,
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: '600' }}>{label}</Text>
+                    </Pressable>
+                  ))}
+                </RNHScroll>
+                <VibelyButton
+                  label="Take a break"
+                  onPress={confirmTakeBreak}
+                  variant="primary"
+                  disabled={!breakChip || breakBusy}
+                  style={{ marginTop: spacing.md }}
+                />
+              </View>
+            )}
+
+            <SectionTitle theme={theme} text="DATA & ACCOUNT CONTROL" />
+            <CardShell theme={theme}>
+              <DisabledAccountRow
+                theme={theme}
+                icon="download-outline"
+                title="Download my data"
+                subtitle="Request a copy of your Vibely data"
+                right={<SoonBadge theme={theme} />}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="chatbubble-ellipses-outline"
+                iconColor={theme.tint}
+                title="Contact support"
+                subtitle="Get help or report an issue"
+                onPress={() => router.push('/settings/support')}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="log-out-outline"
+                iconColor="#EF4444"
+                title="Log out"
+                destructive
+                onPress={() =>
+                  Alert.alert('Log out?', "You'll need to sign back in to use Vibely.", [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Log out',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await signOut();
+                        router.replace('/(auth)/sign-in');
+                      },
+                    },
+                  ])
+                }
+              />
+            </CardShell>
+
+            <Text style={[styles.dangerSectionTitle, { color: theme.danger }]}>DANGER ZONE</Text>
+            <View style={[styles.dangerCard, { borderColor: withAlpha('#EF4444', 0.3), backgroundColor: withAlpha('#EF4444', 0.04) }]}>
+              <AccountRow
+                theme={theme}
+                icon="pause-outline"
+                iconColor="#EF4444"
+                title="Deactivate account"
+                subtitle="Temporarily disable your account. You can reactivate anytime."
+                onPress={() => setDeactivateOpen(true)}
+              />
+              <Hairline theme={theme} />
+              <AccountRow
+                theme={theme}
+                icon="trash-outline"
+                iconColor="#EF4444"
+                title="Delete account"
+                subtitle="Permanently delete your account and all data. This cannot be undone."
+                onPress={openDeleteFlow}
+              />
+            </View>
+          </>
+        )}
       </ScrollView>
+
+      {copiedToast ? (
+        <View style={[styles.toast, { backgroundColor: theme.surface }]}>
+          <Text style={{ color: theme.text, fontWeight: '600' }}>Copied</Text>
+        </View>
+      ) : null}
 
       <PhoneVerificationFlow
         visible={showPhoneVerify}
         onClose={() => setShowPhoneVerify(false)}
-        onVerified={refetchProfile}
+        onVerified={refreshProfile}
+        initialPhoneE164={profile?.phone_number}
       />
       <EmailVerificationFlow
         visible={showEmailVerify}
         email={email}
         onClose={() => setShowEmailVerify(false)}
-        onVerified={refetchProfile}
+        onVerified={refreshProfile}
       />
+
+      <Modal transparent visible={emailSheetOpen} animationType="slide">
+        <Pressable style={styles.sheetBackdrop} onPress={() => setEmailSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.handle, { backgroundColor: theme.muted }]} />
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Update email</Text>
+            <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>Current: {email || '—'}</Text>
+            <TextInput
+              placeholder="New email address"
+              placeholderTextColor={theme.mutedForeground}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={newEmail}
+              onChangeText={setNewEmail}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+            />
+            <TextInput
+              placeholder="Confirm new email"
+              placeholderTextColor={theme.mutedForeground}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={confirmEmail}
+              onChangeText={setConfirmEmail}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+            />
+            <View style={[styles.infoCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: withAlpha(theme.tint, 0.2) }]}>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+                Your email will update after you confirm the link we sent.
+              </Text>
+            </View>
+            <Pressable
+              onPress={async () => {
+                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (!re.test(newEmail) || newEmail !== confirmEmail) {
+                  Alert.alert('Check emails', 'Enter a valid email and make sure both fields match.');
+                  return;
+                }
+                setEmailSubmitting(true);
+                try {
+                  const { error } = await supabase.auth.updateUser({ email: newEmail });
+                  if (error) {
+                    Alert.alert('Couldn’t update', error.message);
+                    return;
+                  }
+                  Alert.alert('Verification sent', `Check ${newEmail} to confirm.`);
+                  setNewEmail('');
+                  setConfirmEmail('');
+                  setEmailSheetOpen(false);
+                } finally {
+                  setEmailSubmitting(false);
+                }
+              }}
+              style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: emailSubmitting ? 0.7 : 1 }]}
+            >
+              <Text style={styles.primaryBtnText}>{emailSubmitting ? '…' : 'Update'}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={passwordSheetOpen} animationType="slide">
+        <Pressable style={styles.sheetBackdrop} onPress={() => setPasswordSheetOpen(false)}>
+          <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.handle, { backgroundColor: theme.muted }]} />
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Change password</Text>
+            {!hasEmailPasswordIdentity ? (
+              <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>
+                Your account uses {oauthProvider ? `${oauthProvider} ` : ''}sign-in. Password not applicable.
+              </Text>
+            ) : (
+              <>
+                <TextInput
+                  placeholder="Current password"
+                  placeholderTextColor={theme.mutedForeground}
+                  secureTextEntry
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+                <TextInput
+                  placeholder="New password (min 8 characters)"
+                  placeholderTextColor={theme.mutedForeground}
+                  secureTextEntry
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+                {newPassword.length > 0 ? (
+                  <Text style={{ color: strengthColor, fontSize: 12, marginBottom: 8 }}>{strength.label}</Text>
+                ) : null}
+                <TextInput
+                  placeholder="Confirm new password"
+                  placeholderTextColor={theme.mutedForeground}
+                  secureTextEntry
+                  value={confirmNewPassword}
+                  onChangeText={setConfirmNewPassword}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+                <Pressable
+                  onPress={async () => {
+                    if (newPassword.length < 8 || newPassword !== confirmNewPassword) {
+                      Alert.alert('Check password', 'Min 8 characters and confirmation must match.');
+                      return;
+                    }
+                    setPasswordSubmitting(true);
+                    try {
+                      const { error: authErr } = await supabase.auth.signInWithPassword({
+                        email,
+                        password: currentPassword,
+                      });
+                      if (authErr) {
+                        Alert.alert('Incorrect', 'Current password is incorrect.');
+                        return;
+                      }
+                      const { error } = await supabase.auth.updateUser({ password: newPassword });
+                      if (error) {
+                        Alert.alert('Couldn’t update', error.message);
+                        return;
+                      }
+                      setCurrentPassword('');
+                      setNewPassword('');
+                      setConfirmNewPassword('');
+                      setPasswordSheetOpen(false);
+                      Alert.alert('Password updated');
+                    } finally {
+                      setPasswordSubmitting(false);
+                    }
+                  }}
+                  style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: passwordSubmitting ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.primaryBtnText}>{passwordSubmitting ? '…' : 'Update password'}</Text>
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent visible={deactivateOpen} animationType="fade">
+        <Pressable style={styles.sheetBackdrop} onPress={() => setDeactivateOpen(false)}>
+          <Pressable style={[styles.deactivateBox, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Deactivate account?</Text>
+            <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>
+              Your profile will be hidden and your account suspended until you log back in. Your data and matches are preserved.
+            </Text>
+            <Pressable
+              onPress={() => void confirmDeactivate()}
+              style={[styles.outlineDangerBtn, { borderColor: theme.danger }]}
+            >
+              <Text style={{ color: theme.danger, fontWeight: '700' }}>Deactivate</Text>
+            </Pressable>
+            <Pressable onPress={() => setDeactivateOpen(false)} style={{ paddingVertical: 12 }}>
+              <Text style={{ color: theme.tint, fontWeight: '600', textAlign: 'center' }}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+function TrustMini({
+  theme,
+  label,
+  verified,
+  onVerify,
+}: {
+  theme: (typeof Colors)['dark'];
+  label: string;
+  verified: boolean;
+  onVerify: () => void;
+}) {
+  const dot = verified ? theme.success : AMBER;
+  const textColor = verified ? theme.success : theme.textSecondary;
+  return (
+    <View style={styles.trustMini}>
+      <View style={[styles.trustDot, { backgroundColor: dot }]} />
+      <Text style={[styles.trustLabel, { color: textColor }]} numberOfLines={1}>
+        {label}
+      </Text>
+      {!verified ? (
+        <Pressable onPress={onVerify} hitSlop={6}>
+          <Text style={{ color: theme.tint, fontSize: 11, fontWeight: '600' }}>Verify →</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+function SectionTitle({ theme, text }: { theme: (typeof Colors)['dark']; text: string }) {
+  return <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>{text}</Text>;
+}
+
+function CardShell({ theme, children }: { theme: (typeof Colors)['dark']; children: React.ReactNode }) {
+  return (
+    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>{children}</View>
+  );
+}
+
+function Hairline({ theme }: { theme: (typeof Colors)['dark'] }) {
+  return <View style={[styles.hairline, { backgroundColor: theme.border }]} />;
+}
+
+function AccountRow({
+  theme,
+  icon,
+  iconColor,
+  title,
+  subtitle,
+  onPress,
+  right,
+  destructive,
+}: {
+  theme: (typeof Colors)['dark'];
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  title: string;
+  subtitle?: string;
+  onPress?: () => void;
+  right?: React.ReactNode;
+  destructive?: boolean;
+}) {
+  const inner = (
+    <View style={styles.accRow}>
+      <Ionicons name={icon} size={20} color={iconColor} />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.accTitle, { color: destructive ? '#EF4444' : theme.text }]}>{title}</Text>
+        {subtitle ? <Text style={[styles.accSub, { color: theme.mutedForeground }]}>{subtitle}</Text> : null}
+      </View>
+      {right ?? <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />}
+    </View>
+  );
+  if (onPress) {
+    return <Pressable onPress={onPress}>{inner}</Pressable>;
+  }
+  return inner;
+}
+
+function DisabledAccountRow({
+  theme,
+  icon,
+  title,
+  subtitle,
+  right,
+}: {
+  theme: (typeof Colors)['dark'];
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+  right: React.ReactNode;
+}) {
+  return (
+    <View style={{ opacity: 0.72 }}>
+      <View style={styles.accRow}>
+        <Ionicons name={icon} size={20} color={theme.mutedForeground} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.accTitle, { color: theme.text }]}>{title}</Text>
+          <Text style={[styles.accSub, { color: theme.mutedForeground }]}>{subtitle}</Text>
+        </View>
+        {right}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  backBtn: { padding: spacing.xs },
-  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingTop: layout.mainContentPaddingTop, paddingHorizontal: spacing.lg },
-  main: {},
-  card: { padding: spacing.lg },
-  iconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
-  label: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  email: { fontSize: 16, fontWeight: '500', marginBottom: spacing.sm },
-  verificationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  badge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
-  body: { fontSize: 14, lineHeight: 20, marginBottom: spacing.md },
-  cta: { marginTop: spacing.sm },
-  ctaSecondary: { marginTop: spacing.sm },
-  pausedBanner: {
+  root: { flex: 1 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  backBtn: { padding: spacing.xs, marginTop: 2 },
+  headerTitles: { flex: 1, minWidth: 0 },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  headerSub: { fontSize: 13, marginTop: 4, lineHeight: 18 },
+  scroll: { paddingHorizontal: 16, gap: 20, paddingTop: layout.mainContentPaddingTop },
+  summaryCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
+  summaryRow: { flexDirection: 'row', gap: 14 },
+  avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#333' },
+  summaryTextCol: { flex: 1, minWidth: 0 },
+  displayName: { fontSize: 18, fontWeight: '700' },
+  emailLine: { fontSize: 13, marginTop: 2 },
+  memberSince: { fontSize: 12, marginTop: 4 },
+  supportId: { fontSize: 11, marginTop: 6, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  trustRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, gap: 8 },
+  trustMini: { flex: 1, alignItems: 'center', gap: 4 },
+  trustDot: { width: 8, height: 8, borderRadius: 4 },
+  trustLabel: { fontSize: 11, fontWeight: '600' },
+  sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingLeft: 4 },
+  sectionDesc: { fontSize: 12, marginBottom: 12, marginTop: -12, paddingLeft: 4 },
+  card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  hairline: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  accRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    padding: spacing.md,
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  accTitle: { fontSize: 15, fontWeight: '600' },
+  accSub: { fontSize: 12, marginTop: 2 },
+  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  valueChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  valueChipText: { fontSize: 12, fontWeight: '600' },
+  soonText: { fontSize: 11, fontWeight: '600' },
+  breakCard: { borderRadius: 16, borderWidth: 1, padding: 16 },
+  breakCardActive: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 8 },
+  breakTitle: { fontSize: 17, fontWeight: '700', marginTop: 8 },
+  breakBody: { fontSize: 13, lineHeight: 19, marginTop: 4 },
+  chipScroll: { gap: 8, paddingVertical: 12 },
+  durationChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 8 },
+  outlineAmberBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: spacing.md,
-  },
-  pausedText: { fontSize: 15, fontWeight: '600', flex: 1 },
-  deleteBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.xl,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    borderRadius: 12,
-    borderWidth: 1,
   },
-  deleteBtnLabel: { fontSize: 16, fontWeight: '600' },
+  dangerSectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingLeft: 4 },
+  dangerCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  toast: {
+    position: 'absolute',
+    bottom: 48,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  sheet: {
+    borderTopLeftRadius: radius['2xl'],
+    borderTopRightRadius: radius['2xl'],
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing['2xl'],
+    paddingTop: spacing.md,
+  },
+  handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, marginBottom: spacing.md },
+  sheetTitle: { fontSize: 20, fontWeight: '700' },
+  sheetMuted: { fontSize: 13, marginTop: 8, marginBottom: 12 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+    fontSize: 16,
+  },
+  infoCard: { padding: 10, borderRadius: 8, borderWidth: 1, marginBottom: 12 },
+  primaryBtn: { paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
+  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  deactivateBox: { marginHorizontal: 24, borderRadius: 16, borderWidth: 1, padding: 20 },
+  outlineDangerBtn: { marginTop: 16, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
 });

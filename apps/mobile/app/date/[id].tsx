@@ -56,6 +56,7 @@ import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -574,6 +575,7 @@ export default function VideoDateScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <LiveSurfaceOfflineStrip />
       <View style={styles.remoteContainer}>
         {remoteParticipant ? (
           <>

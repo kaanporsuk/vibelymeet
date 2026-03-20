@@ -1,12 +1,28 @@
 /**
- * Notification settings — full parity with web: categories, push status, pause, sound, quiet hours, smart delivery.
+ * Notification settings — categories, push status, pause (non-destructive), sound, quiet hours.
+ * Pause All only touches paused_until; master switch only push_enabled — never category toggles.
  */
-import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, Switch } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Alert,
+  Switch,
+  Linking,
+  Platform,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import { PermissionStatus } from 'expo-modules-core';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
+import { withAlpha } from '@/lib/colorUtils';
 import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -14,6 +30,22 @@ import { usePushPermission } from '@/lib/usePushPermission';
 import { registerPushWithBackend } from '@/lib/onesignal';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
+import {
+  PAUSE_KIND_KEY,
+  PAUSED_UNTIL_KEY,
+  applyPause,
+  applyResume,
+  inferPauseKindFromUntil,
+  type PauseKind,
+} from '@/lib/notificationPause';
+import { applyMasterPushEnabled } from '@/lib/pushMasterSwitch';
+import { PauseNotificationsModal } from '@/components/settings/PauseNotificationsModal';
+import { supabase } from '@/lib/supabase';
+import { useFocusEffect } from '@react-navigation/native';
+import { getCalendars } from 'expo-localization';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+
+const AMBER = '#F59E0B';
 
 const NOTIFICATION_SECTIONS = [
   {
@@ -135,43 +167,326 @@ const ADDITIONAL_SECTIONS = [
       },
     ],
   },
-  {
-    title: 'QUIET HOURS',
-    items: [
-      {
-        key: 'quiet_hours_enabled' as const,
-        icon: 'moon-outline' as const,
-        label: 'Quiet Hours',
-        desc: 'Mute notifications during set hours',
-      },
-    ],
-  },
-  {
-    title: 'SMART DELIVERY',
-    items: [
-      {
-        key: 'message_bundle_enabled' as const,
-        icon: 'layers-outline' as const,
-        label: 'Bundle rapid messages',
-        desc: 'Group multiple messages from the same person',
-      },
-    ],
-  },
 ] as const;
+
+const quietHoursLabel = Platform.OS === 'android' ? 'Do Not Disturb Hours' : 'Quiet Hours';
+const quietHoursDescription =
+  Platform.OS === 'android'
+    ? 'Silence Vibely notifications during set hours'
+    : 'Mute notifications during set hours';
+
+function parseTimeToDate(t: string | null | undefined): Date {
+  const d = new Date();
+  const raw = (t || '22:00:00').split(':').map((x) => parseInt(x, 10));
+  d.setHours(raw[0] ?? 22, raw[1] ?? 0, 0, 0);
+  return d;
+}
+
+function dateToTimeString(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
+}
+
+function timezoneDisplayLabel(tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en', {
+      timeZone: tz,
+      timeZoneName: 'long',
+    }).formatToParts(new Date());
+    return parts.find((p) => p.type === 'timeZoneName')?.value ?? tz;
+  } catch {
+    return tz;
+  }
+}
+
+const PAUSE_KIND_LABEL: Record<PauseKind, string> = {
+  m30: '30 min',
+  h1: '1 hr',
+  h8: '8 hrs',
+  d1: '24 hrs',
+  w1: '1 week',
+  manual: 'Manual',
+};
+
+function formatRemainingShort(iso: string | null): string {
+  if (!iso) return '';
+  const end = new Date(iso);
+  if (end <= new Date()) return '';
+  if (end.getFullYear() >= 2095) return 'Manual';
+  const ms = end.getTime() - Date.now();
+  const totalM = Math.max(0, Math.ceil(ms / 60000));
+  const h = Math.floor(totalM / 60);
+  const m = totalM % 60;
+  if (h > 0) return `${h}h ${m}m left`;
+  return `${m}m left`;
+}
+
+function formatUntilClock(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
 
 export default function NotificationsSettingsScreen() {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
+  const qc = useQueryClient();
   const { user } = useAuth();
   const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
-  const { isGranted, isDenied, requestPermission, openSettings, refresh } = usePushPermission();
+  const { isGranted: oneSignalGranted, requestPermission, refresh } = usePushPermission();
 
-  const permissionGranted = isGranted;
+  const [expoPerm, setExpoPerm] = useState<PermissionStatus | null>(null);
+  const [pauseModalVisible, setPauseModalVisible] = useState(false);
+  const [pauseKind, setPauseKind] = useState<PauseKind | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const [remainingTick, setRemainingTick] = useState(0);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void Notifications.getPermissionsAsync().then(({ status }) => setExpoPerm(status));
+    }, [])
+  );
+
+  const isPaused = Boolean(prefs.paused_until && new Date(prefs.paused_until) > new Date());
+  const osDenied = expoPerm === PermissionStatus.DENIED;
+
+  useEffect(() => {
+    if (!user?.id) {
+      setPauseKind(null);
+      return;
+    }
+    void AsyncStorage.getItem(PAUSE_KIND_KEY).then((k) => setPauseKind((k as PauseKind | null) ?? null));
+  }, [user?.id, prefs.paused_until]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const userId = user.id;
+    async function syncPauseState() {
+      const { data, error } = await supabase
+        .from('notification_preferences')
+        .select('paused_until')
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (error || !data) return;
+      const pu = data.paused_until as string | null;
+      if (pu && new Date(pu) > new Date()) {
+        await AsyncStorage.setItem(PAUSED_UNTIL_KEY, pu);
+        const { disablePush } = await import('@/lib/onesignal');
+        disablePush(true);
+      } else if (pu) {
+        const { resumeNotifications } = await import('@/lib/notificationPause');
+        await resumeNotifications(userId);
+        await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      }
+    }
+    void syncPauseState();
+  }, [user?.id, qc]);
+
+  useEffect(() => {
+    if (!isPaused) return;
+    const id = setInterval(() => setRemainingTick((t) => t + 1), 30000);
+    return () => clearInterval(id);
+  }, [isPaused]);
+
+  const activePauseKind = useMemo((): PauseKind | null => {
+    if (!isPaused) return null;
+    if (pauseKind) return pauseKind;
+    return inferPauseKindFromUntil(prefs.paused_until);
+  }, [isPaused, pauseKind, prefs.paused_until]);
+
+  const remainingShort = useMemo(
+    () => formatRemainingShort(prefs.paused_until),
+    [prefs.paused_until, remainingTick, isPaused]
+  );
+
+  const pauseChipLabel = useMemo(() => {
+    if (!isPaused) {
+      return activePauseKind ? PAUSE_KIND_LABEL[activePauseKind] : 'Off';
+    }
+    return remainingShort || 'Paused';
+  }, [isPaused, activePauseKind, remainingShort]);
 
   const handleEnablePush = async () => {
     const granted = await requestPermission();
     if (granted && user?.id) await registerPushWithBackend(user.id);
     await refresh();
+    const { status } = await Notifications.getPermissionsAsync();
+    setExpoPerm(status);
+  };
+
+  const handleSelectPauseDuration = useCallback(
+    async (kind: PauseKind) => {
+      if (!user?.id) return;
+      setPauseBusy(true);
+      try {
+        await applyPause(kind, user.id);
+        setPauseKind(kind);
+        await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+        setPauseModalVisible(false);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Something went wrong';
+        Alert.alert('Could not pause', msg);
+      } finally {
+        setPauseBusy(false);
+      }
+    },
+    [user?.id, qc]
+  );
+
+  const handleResume = useCallback(async () => {
+    if (!user?.id) return;
+    setPauseBusy(true);
+    try {
+      await applyResume(user.id);
+      setPauseKind(null);
+      await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      setPauseModalVisible(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Something went wrong';
+      Alert.alert('Could not resume', msg);
+    } finally {
+      setPauseBusy(false);
+    }
+  }, [user?.id, qc]);
+
+  const handleMasterSwitch = useCallback(
+    async (val: boolean) => {
+      if (!user?.id) return;
+      try {
+        await applyMasterPushEnabled(user.id, val);
+        await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Something went wrong';
+        Alert.alert('Could not update', msg);
+      }
+    },
+    [user?.id, qc]
+  );
+
+  const saveQuietHoursPatch = useCallback(
+    async (patch: Record<string, unknown>) => {
+      if (!user?.id) return;
+      const { error } = await supabase
+        .from('notification_preferences')
+        .upsert({ user_id: user.id, ...patch }, { onConflict: 'user_id' });
+      if (error) {
+        Alert.alert('Could not save', error.message);
+        return;
+      }
+      await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+    },
+    [user?.id, qc]
+  );
+
+  const handleQuietHoursToggle = useCallback(
+    async (val: boolean) => {
+      if (!user?.id) return;
+      const tz = getCalendars()[0]?.timeZone ?? 'UTC';
+      if (val) {
+        await saveQuietHoursPatch({
+          quiet_hours_enabled: true,
+          quiet_hours_timezone: tz,
+          quiet_hours_start: prefs.quiet_hours_start ?? '22:00:00',
+          quiet_hours_end: prefs.quiet_hours_end ?? '08:00:00',
+        });
+      } else {
+        await saveQuietHoursPatch({ quiet_hours_enabled: false });
+      }
+    },
+    [user?.id, prefs.quiet_hours_start, prefs.quiet_hours_end, saveQuietHoursPatch]
+  );
+
+  const onStartTimeChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') setShowStartPicker(false);
+    if (Platform.OS === 'android' && event.type === 'dismissed') return;
+    if (date) void saveQuietHoursPatch({ quiet_hours_start: dateToTimeString(date) });
+  };
+
+  const onEndTimeChange = (event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') setShowEndPicker(false);
+    if (Platform.OS === 'android' && event.type === 'dismissed') return;
+    if (date) void saveQuietHoursPatch({ quiet_hours_end: dateToTimeString(date) });
+  };
+
+  const tzLabel = useMemo(
+    () => timezoneDisplayLabel(prefs.quiet_hours_timezone || 'UTC'),
+    [prefs.quiet_hours_timezone]
+  );
+
+  const renderStatusCard = () => {
+    if (osDenied) {
+      return (
+        <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.border, 0.4), borderColor: theme.glassBorder }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.mutedForeground, 0.12) }]}>
+            <Ionicons name={'bell-off-outline' as any} size={28} color={theme.mutedForeground} />
+          </View>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.danger }}>Not allowed by device</Text>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+            Allow notifications in your device settings to receive alerts.
+          </Text>
+          <Pressable onPress={() => Linking.openSettings()} style={styles.openSettingsBtn}>
+            <Text style={{ color: theme.tint, fontWeight: '600', fontSize: 14 }}>Open Settings</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (isPaused && prefs.paused_until) {
+      const until = formatUntilClock(prefs.paused_until);
+      return (
+        <View style={[styles.statusCard, { backgroundColor: withAlpha(AMBER, 0.08), borderColor: withAlpha(AMBER, 0.25) }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(AMBER, 0.15) }]}>
+            <Ionicons name="pause-circle" size={28} color={AMBER} />
+          </View>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Notifications paused</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: AMBER }}>Until {until}</Text>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+            Your preferences are saved. Push will resume automatically.
+          </Text>
+          <Pressable onPress={handleResume} disabled={pauseBusy} style={{ marginTop: 10 }}>
+            <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>Resume now</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (!prefs.push_enabled) {
+      return (
+        <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.border, 0.4), borderColor: theme.glassBorder }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.mutedForeground, 0.1) }]}>
+            <Ionicons name={'bell-off-outline' as any} size={28} color={theme.mutedForeground} />
+          </View>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.mutedForeground }}>Disabled</Text>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+            Turn on All Notifications below to receive any push alerts.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: theme.glassBorder }]}>
+        <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.tint, 0.15) }]}>
+          <Ionicons name="notifications" size={28} color={theme.tint} />
+        </View>
+        <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
+        <Text style={{ fontSize: 17, fontWeight: '700', color: theme.tint }}>Enabled</Text>
+        <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+          You&apos;ll get date reminders, new matches, and daily drop alerts.
+        </Text>
+      </View>
+    );
   };
 
   return (
@@ -196,7 +511,7 @@ export default function NotificationsSettingsScreen() {
         contentContainerStyle={[styles.scrollInner, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {!permissionGranted ? (
+        {!osDenied && !oneSignalGranted ? (
           <View
             style={[
               styles.alertBanner,
@@ -207,66 +522,58 @@ export default function NotificationsSettingsScreen() {
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[styles.alertTitle, { color: theme.text }]}>Push notifications are off</Text>
               <Text style={[styles.alertDesc, { color: theme.mutedForeground }]}>
-                You'll miss matches, messages, and date invitations
+                You&apos;ll miss matches, messages, and date invitations
               </Text>
-              {isDenied ? (
-                <Pressable onPress={openSettings} style={styles.openSettingsLink}>
-                  <Text style={{ color: theme.tint, fontWeight: '600', fontSize: 13 }}>Open system settings</Text>
-                </Pressable>
-              ) : null}
             </View>
             <Pressable onPress={handleEnablePush} style={styles.enableBtn}>
               <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Enable Push Notifications</Text>
             </Pressable>
           </View>
-        ) : (
-          <View style={[styles.statusCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
-            <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.tint, 0.15) }]}>
-              <Ionicons name="notifications" size={28} color={theme.tint} />
-            </View>
-            <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
-            <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>Enabled</Text>
-            <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
-              You'll get date reminders, new matches, and daily drop alerts.
-            </Text>
-          </View>
-        )}
+        ) : null}
 
-        <View style={[styles.row, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
-          <Ionicons name="pause-circle-outline" size={20} color={theme.mutedForeground} />
+        {renderStatusCard()}
+
+        <Pressable
+          onPress={() => setPauseModalVisible(true)}
+          style={[
+            styles.row,
+            {
+              backgroundColor: theme.glassSurface,
+              borderColor: isPaused ? withAlpha(AMBER, 0.35) : theme.glassBorder,
+            },
+          ]}
+        >
+          <Ionicons name="pause-circle-outline" size={20} color={isPaused ? AMBER : theme.mutedForeground} />
           <Text style={[styles.rowLabel, { color: theme.text, flex: 1 }]}>Pause All Notifications</Text>
-          <Pressable
-            onPress={() => {
-              Alert.alert('Pause Notifications', 'How long?', [
-                {
-                  text: '1 hour',
-                  onPress: () => updatePref('paused_until', new Date(Date.now() + 3600000).toISOString()),
-                },
-                {
-                  text: '8 hours',
-                  onPress: () => updatePref('paused_until', new Date(Date.now() + 28800000).toISOString()),
-                },
-                {
-                  text: '24 hours',
-                  onPress: () => updatePref('paused_until', new Date(Date.now() + 86400000).toISOString()),
-                },
-                { text: 'Resume all', onPress: () => updatePref('paused_until', null), style: 'destructive' },
-                { text: 'Cancel', style: 'cancel' },
-              ]);
-            }}
-            style={[styles.pauseBtn, { borderColor: theme.border }]}
+          <View
+            style={[
+              styles.chip,
+              {
+                borderColor: isPaused ? withAlpha(AMBER, 0.45) : theme.border,
+                backgroundColor: isPaused ? withAlpha(AMBER, 0.12) : theme.surfaceSubtle,
+              },
+            ]}
           >
-            <Text style={{ color: theme.mutedForeground, fontSize: 13 }}>Pause</Text>
-            <Ionicons name="chevron-down" size={14} color={theme.mutedForeground} />
-          </Pressable>
-        </View>
+            <Text
+              style={{
+                fontSize: 13,
+                fontWeight: '600',
+                color: isPaused ? AMBER : theme.mutedForeground,
+              }}
+              numberOfLines={1}
+            >
+              {pauseChipLabel}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={isPaused ? AMBER : theme.mutedForeground} />
+          </View>
+        </Pressable>
 
         <View style={[styles.row, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
           <Ionicons name="notifications-outline" size={20} color={theme.mutedForeground} />
           <Text style={[styles.rowLabel, { color: theme.text, flex: 1 }]}>All Notifications</Text>
           <Switch
             value={prefs.push_enabled}
-            onValueChange={(val) => updatePref('push_enabled', val)}
+            onValueChange={(val) => void handleMasterSwitch(val)}
             disabled={isLoading}
             trackColor={{ false: theme.muted, true: theme.tint }}
           />
@@ -275,6 +582,23 @@ export default function NotificationsSettingsScreen() {
         {!isLoading &&
           NOTIFICATION_SECTIONS.map((section) => (
             <View key={section.title} style={{ gap: 8 }}>
+              {section.title === 'CONNECTIONS' && isPaused ? (
+                <View
+                  style={[
+                    styles.pauseInfoBanner,
+                    {
+                      backgroundColor: withAlpha(AMBER, 0.1),
+                      borderColor: withAlpha(AMBER, 0.25),
+                    },
+                  ]}
+                >
+                  <Ionicons name="information-circle-outline" size={16} color={AMBER} style={{ marginTop: 1 }} />
+                  <Text style={[styles.pauseInfoText, { color: AMBER }]}>
+                    Paused until {formatUntilClock(prefs.paused_until)} — your preferences below are saved and will apply
+                    when notifications resume.
+                  </Text>
+                </View>
+              ) : null}
               <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>{section.title}</Text>
               <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
                 {section.items.map((item, idx) => (
@@ -330,14 +654,8 @@ export default function NotificationsSettingsScreen() {
                       <Text style={[styles.toggleDesc, { color: theme.mutedForeground }]}>{item.desc}</Text>
                     </View>
                     <Switch
-                      value={
-                        item.key === 'sound_enabled'
-                          ? prefs.sound_enabled
-                          : item.key === 'message_bundle_enabled'
-                            ? prefs.message_bundle_enabled
-                            : prefs.quiet_hours_enabled
-                      }
-                      onValueChange={(val) => updatePref(item.key, val)}
+                      value={prefs.sound_enabled}
+                      onValueChange={(val) => updatePref('sound_enabled', val)}
                       trackColor={{ false: theme.muted, true: theme.tint }}
                     />
                   </View>
@@ -345,7 +663,118 @@ export default function NotificationsSettingsScreen() {
               </View>
             </View>
           ))}
+
+        {!isLoading ? (
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>QUIET HOURS</Text>
+            <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+              <View style={styles.toggleRow}>
+                <Ionicons name="moon-outline" size={20} color={theme.mutedForeground} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.toggleLabel, { color: theme.text }]}>{quietHoursLabel}</Text>
+                  <Text style={[styles.toggleDesc, { color: theme.mutedForeground }]}>{quietHoursDescription}</Text>
+                </View>
+                <Switch
+                  value={prefs.quiet_hours_enabled}
+                  onValueChange={(val) => void handleQuietHoursToggle(val)}
+                  trackColor={{ false: theme.muted, true: theme.tint }}
+                />
+              </View>
+              {prefs.quiet_hours_enabled ? (
+                <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <Pressable
+                      onPress={() => {
+                        setShowEndPicker(false);
+                        setShowStartPicker(true);
+                      }}
+                      style={[styles.timeChip, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                    >
+                      <Text style={{ fontSize: 12, color: theme.mutedForeground }}>Starts</Text>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>
+                        {parseTimeToDate(prefs.quiet_hours_start).toLocaleTimeString(undefined, {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setShowStartPicker(false);
+                        setShowEndPicker(true);
+                      }}
+                      style={[styles.timeChip, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                    >
+                      <Text style={{ fontSize: 12, color: theme.mutedForeground }}>Ends</Text>
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: theme.text }}>
+                        {parseTimeToDate(prefs.quiet_hours_end).toLocaleTimeString(undefined, {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={{ fontSize: 11, color: theme.mutedForeground }}>
+                    Times are in {tzLabel}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: theme.mutedForeground, opacity: 0.9 }}>
+                    Video date invitations and safety alerts can still come through.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            {showStartPicker ? (
+              <DateTimePicker
+                value={parseTimeToDate(prefs.quiet_hours_start)}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onStartTimeChange}
+              />
+            ) : null}
+            {showEndPicker ? (
+              <DateTimePicker
+                value={parseTimeToDate(prefs.quiet_hours_end)}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onEndTimeChange}
+              />
+            ) : null}
+          </View>
+        ) : null}
+
+        {!isLoading ? (
+          <View style={{ gap: 8 }}>
+            <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>SMART DELIVERY</Text>
+            <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+              <View style={styles.toggleRow}>
+                <Ionicons name="layers-outline" size={20} color={theme.mutedForeground} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.toggleLabel, { color: theme.text }]}>Bundle rapid messages</Text>
+                  <Text style={[styles.toggleDesc, { color: theme.mutedForeground }]}>
+                    Replaces repeated alerts with one updated notification per conversation
+                  </Text>
+                </View>
+                <Switch
+                  value={prefs.message_bundle_enabled}
+                  onValueChange={(val) => updatePref('message_bundle_enabled', val)}
+                  trackColor={{ false: theme.muted, true: theme.tint }}
+                />
+              </View>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
+
+      <PauseNotificationsModal
+        visible={pauseModalVisible}
+        onClose={() => !pauseBusy && setPauseModalVisible(false)}
+        theme={theme}
+        activePauseKind={activePauseKind}
+        isPaused={isPaused}
+        busy={pauseBusy}
+        onSelectDuration={handleSelectPauseDuration}
+        onResume={handleResume}
+      />
     </View>
   );
 }
@@ -390,10 +819,6 @@ const styles = StyleSheet.create({
   },
   alertTitle: { fontSize: 15, fontWeight: '600' },
   alertDesc: { fontSize: 12, marginTop: 2 },
-  openSettingsLink: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-  },
   enableBtn: {
     backgroundColor: '#E84393',
     paddingHorizontal: 14,
@@ -414,6 +839,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  openSettingsBtn: {
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -423,14 +853,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   rowLabel: { fontSize: 15, fontWeight: '500' },
-  pauseBtn: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    maxWidth: '48%',
+  },
+  pauseInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
+    marginBottom: 12,
+  },
+  pauseInfoText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 16,
   },
   sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingLeft: 4 },
   sectionCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
@@ -443,4 +889,11 @@ const styles = StyleSheet.create({
   },
   toggleLabel: { fontSize: 15, fontWeight: '500' },
   toggleDesc: { fontSize: 12, marginTop: 1 },
+  timeChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
 });

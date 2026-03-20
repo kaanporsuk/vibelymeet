@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck:core": "tsc -p tsconfig.core-strict.json"
+    "typecheck:core": "tsc -p tsconfig.core-strict.json",
+    "typecheck": "npm run typecheck:core && cd apps/mobile && npm run typecheck && cd ../../ && npx tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.87.0",

@@ -38,8 +38,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       if (data) {
         const labels = data
           .map((v) => {
-            const tag = v.vibe_tags as { label: string; emoji: string } | null;
-            return tag ? `${tag.emoji} ${tag.label}` : null;
+            const raw = v.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
+            const tag = Array.isArray(raw) ? raw[0] : raw;
+            return tag?.label ? `${tag.emoji ?? ''} ${tag.label}`.trim() : null;
           })
           .filter(Boolean) as string[];
         setVibeLabels(labels);

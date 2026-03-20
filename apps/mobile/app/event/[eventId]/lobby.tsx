@@ -36,6 +36,7 @@ import { useIsOffline } from '@/lib/useNetworkStatus';
 import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
+import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -431,6 +432,8 @@ export default function EventLobbyScreen() {
           </View>
         </View>
       </GlassHeaderBar>
+
+      <LiveSurfaceOfflineStrip />
 
       <View style={styles.body}>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>

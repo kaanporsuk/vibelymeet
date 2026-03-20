@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Loader2,
   Phone,
+  Moon,
+  PauseCircle,
 } from "lucide-react";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,25 @@ interface AccountSettingsDrawerProps {
 
 type ActiveSection = null | "email" | "password";
 
+type BreakKey = "24h" | "3d" | "1w" | "2w" | "indefinite";
+
+function breakUntilForChip(chip: BreakKey): Date | null {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  switch (chip) {
+    case "24h":
+      return new Date(now + day);
+    case "3d":
+      return new Date(now + 3 * day);
+    case "1w":
+      return new Date(now + 7 * day);
+    case "2w":
+      return new Date(now + 14 * day);
+    default:
+      return null;
+  }
+}
+
 export const AccountSettingsDrawer = ({
   open,
   onOpenChange,
@@ -56,18 +77,29 @@ export const AccountSettingsDrawer = ({
   const [phoneChangePassword, setPhoneChangePassword] = useState("");
   const [phoneReauthLoading, setPhoneReauthLoading] = useState(false);
 
-  // Fetch phone verification status
+  const [onBreak, setOnBreak] = useState(false);
+  const [breakUntilIso, setBreakUntilIso] = useState<string | null>(null);
+  const [breakChip, setBreakChip] = useState<BreakKey | null>(null);
+  const [breakBusy, setBreakBusy] = useState(false);
+
+  // Phone + take-a-break state from profile
   useEffect(() => {
     if (!open || !user) return;
     const fetchPhone = async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("phone_verified, phone_number")
+        .select(
+          "phone_verified, phone_number, account_paused, account_paused_until, is_paused, paused_until"
+        )
         .eq("id", user.id)
         .maybeSingle();
       if (data) {
-        setPhoneVerified(data.phone_verified);
-        setPhoneNumber(data.phone_number);
+        setPhoneVerified(!!data.phone_verified);
+        setPhoneNumber((data.phone_number as string) ?? null);
+        setOnBreak(!!(data.account_paused || data.is_paused));
+        setBreakUntilIso(
+          (data.account_paused_until as string | null) ?? (data.paused_until as string | null) ?? null
+        );
       }
     };
     fetchPhone();
@@ -182,6 +214,77 @@ export const AccountSettingsDrawer = ({
   const passwordStrength = getPasswordStrength(newPassword);
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
 
+  const applyTakeBreak = async () => {
+    if (!user || !breakChip) return;
+    const until = breakUntilForChip(breakChip);
+    const now = new Date().toISOString();
+    setBreakBusy(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          account_paused: true,
+          account_paused_until: until?.toISOString() ?? null,
+          is_paused: true,
+          paused_until: until?.toISOString() ?? null,
+          paused_at: now,
+          pause_reason: "user_break",
+          discoverable: false,
+          discovery_mode: "hidden",
+          discovery_snooze_until: null,
+        })
+        .eq("id", user.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setOnBreak(true);
+      setBreakUntilIso(until?.toISOString() ?? null);
+      setBreakChip(null);
+      toast.success("You're on a break. We'll be here when you're ready.");
+    } finally {
+      setBreakBusy(false);
+    }
+  };
+
+  const confirmTakeBreak = () => {
+    if (!breakChip) return;
+    const until = breakUntilForChip(breakChip);
+    const line = until
+      ? `You'll be hidden until ${until.toLocaleString()}.`
+      : "You'll be hidden indefinitely.";
+    if (!window.confirm(`${line}\n\nYour existing matches and chats won't be affected.`)) return;
+    void applyTakeBreak();
+  };
+
+  const endBreak = async () => {
+    if (!user) return;
+    setBreakBusy(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          account_paused: false,
+          account_paused_until: null,
+          is_paused: false,
+          paused_until: null,
+          paused_at: null,
+          discoverable: true,
+          discovery_mode: "visible",
+        })
+        .eq("id", user.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      setOnBreak(false);
+      setBreakUntilIso(null);
+      toast.success("Welcome back! You're visible in discovery again.");
+    } finally {
+      setBreakBusy(false);
+    }
+  };
+
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent className="max-h-[90vh]">
@@ -196,6 +299,79 @@ export const AccountSettingsDrawer = ({
         </DrawerHeader>
 
         <div className="px-4 pb-4 space-y-3 overflow-y-auto">
+          {/* Take a break — same model as native Account & Security */}
+          <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] space-y-3">
+            {onBreak ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <PauseCircle className="w-6 h-6 text-amber-500 shrink-0" />
+                  <span className="font-semibold text-foreground">You&apos;re on a break</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {breakUntilIso
+                    ? `Hidden until ${new Date(breakUntilIso).toLocaleString()}`
+                    : "Hidden indefinitely"}
+                  <br />
+                  Your matches and chats are still active.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+                  disabled={breakBusy}
+                  onClick={() => void endBreak()}
+                >
+                  End break now
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <Moon className="w-6 h-6 text-amber-500 shrink-0" />
+                  <span className="font-semibold text-foreground">Need some time off?</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Going on a break hides you from discovery while keeping your matches, chats, and account
+                  intact.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["24h", "24 hours"],
+                      ["3d", "3 days"],
+                      ["1w", "1 week"],
+                      ["2w", "2 weeks"],
+                      ["indefinite", "Indefinitely"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setBreakChip(key)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                        breakChip === key
+                          ? "border-primary bg-primary/15 text-foreground"
+                          : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="gradient"
+                  className="w-full"
+                  disabled={!breakChip || breakBusy}
+                  onClick={confirmTakeBreak}
+                >
+                  Take a break
+                </Button>
+              </>
+            )}
+          </div>
+
           {/* Current Email Display */}
           <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
