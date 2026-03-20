@@ -658,7 +658,7 @@ export default function EventsListScreen() {
     const registered = new Set(registeredEventIds);
     return upcomingEvents.filter((e) => {
       if (registered.has(e.id)) return false;
-      const end = new Date(e.eventDate.getTime() + e.duration_minutes * 60 * 1000);
+      const end = new Date(e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000);
       return end > now;
     });
   }, [upcomingEvents, registeredEventIds]);
