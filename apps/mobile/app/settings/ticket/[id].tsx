@@ -84,16 +84,22 @@ export default function TicketThreadScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!ticketId) return;
-      void supabase
-        .from('support_ticket_replies')
-        .update({ is_read: true })
-        .eq('ticket_id', ticketId)
-        .eq('sender_type', 'admin')
-        .eq('is_read', false)
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ['support_tickets'] });
-        });
-    }, [ticketId, queryClient])
+      void (async () => {
+        const { data: unreadReplies } = await supabase
+          .from('support_ticket_replies')
+          .select('id')
+          .eq('ticket_id', ticketId)
+          .eq('sender_type', 'admin')
+          .eq('is_read', false);
+
+        if (unreadReplies && unreadReplies.length > 0) {
+          await Promise.all(
+            unreadReplies.map((r) => supabase.rpc('mark_support_reply_read', { p_reply_id: r.id })),
+          );
+        }
+        queryClient.invalidateQueries({ queryKey: ['support_tickets'] });
+      })();
+    }, [ticketId, queryClient]),
   );
 
   const sendMutation = useMutation({

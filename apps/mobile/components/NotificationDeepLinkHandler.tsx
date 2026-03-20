@@ -19,7 +19,7 @@ function hrefFromPayload(additionalData: Record<string, unknown> | undefined, la
   if (raw.startsWith('/')) return raw as Href;
   try {
     const u = new URL(raw);
-    const path = u.pathname && u.pathname !== '/' ? u.pathname : `/${u.host}`;
+    const path = u.pathname && u.pathname !== '/' ? u.pathname : '/';
     if (path.startsWith('/')) return path as Href;
   } catch {
     /* ignore */

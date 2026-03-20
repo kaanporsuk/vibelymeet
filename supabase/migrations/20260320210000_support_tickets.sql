@@ -148,22 +148,9 @@ CREATE POLICY "users_insert_own_user_replies"
     )
   );
 
-CREATE POLICY "users_update_read_admin_replies"
-  ON public.support_ticket_replies FOR UPDATE
-  USING (
-    sender_type = 'admin'
-    AND EXISTS (
-      SELECT 1 FROM public.support_tickets t
-      WHERE t.id = ticket_id AND t.user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    sender_type = 'admin'
-    AND EXISTS (
-      SELECT 1 FROM public.support_tickets t
-      WHERE t.id = ticket_id AND t.user_id = auth.uid()
-    )
-  );
+-- users_update_read_admin_replies: intentionally omitted — a broad UPDATE policy let
+-- authenticated users change any column on admin replies. Use mark_support_reply_read
+-- RPC (see migration 20260322150000_mark_support_reply_read_rpc.sql) instead.
 
 -- Replies: admins
 CREATE POLICY "admins_all_support_ticket_replies"

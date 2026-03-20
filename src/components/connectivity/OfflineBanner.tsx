@@ -4,8 +4,19 @@ import { getHealthUrl } from "@/lib/healthUrl";
 type NetState = "online" | "reconnecting" | "offline";
 
 function abortAfter(ms: number): AbortSignal {
+  // AbortSignal.timeout() auto-clears — no orphaned timers
+  if (typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  // Fallback for older runtimes
   const c = new AbortController();
-  window.setTimeout(() => c.abort(), ms);
+  const t = window.setTimeout(() => c.abort(), ms);
+  // Return a signal that also clears the timer
+  const originalAbort = c.abort.bind(c);
+  c.abort = () => {
+    window.clearTimeout(t);
+    originalAbort();
+  };
   return c.signal;
 }
 

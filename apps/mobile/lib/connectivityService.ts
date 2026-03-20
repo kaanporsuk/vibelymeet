@@ -14,8 +14,19 @@ function getHealthUrl(): string {
 }
 
 function abortAfter(ms: number): AbortSignal {
+  // AbortSignal.timeout() auto-clears — no orphaned timers
+  if (typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  // Fallback for older runtimes
   const c = new AbortController();
-  setTimeout(() => c.abort(), ms);
+  const t = setTimeout(() => c.abort(), ms);
+  // Return a signal that also clears the timer
+  const originalAbort = c.abort.bind(c);
+  c.abort = () => {
+    clearTimeout(t);
+    originalAbort();
+  };
   return c.signal;
 }
 

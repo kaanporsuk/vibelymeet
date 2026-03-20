@@ -85,8 +85,6 @@ export default function ScheduleScreen() {
   const reminderSource = toDateProposalsForReminders(upcomingAccepted);
   const { imminentReminders, soonReminders } = useDateReminders(reminderSource);
   const upcomingReminders = [...imminentReminders, ...soonReminders];
-  const urgentIds = new Set(upcomingReminders.map((r) => r.proposalId));
-  const calmUpcoming = upcomingAccepted.filter((p) => !urgentIds.has(p.id));
   const { isGranted: pushGranted } = usePushPermission();
   const { activeSession } = useActiveSession(user?.id);
   const [refreshing, setRefreshing] = useState(false);
