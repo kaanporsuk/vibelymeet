@@ -413,6 +413,7 @@ function ThreadPanel({ ticket }: { ticket: TicketListRow }) {
       if (data) {
         setRows(data);
 
+        // Mark unread admin replies as read (same as native does on focus)
         const unreadAdminIds = data
           .filter((r) => r.sender_type === "admin" && !r.is_read)
           .map((r) => r.id);

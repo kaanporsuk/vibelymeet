@@ -7,11 +7,13 @@ CREATE SEQUENCE IF NOT EXISTS support_ticket_ref_seq
   NO MAXVALUE
   CACHE 1;
 
--- Replace the trigger function (SECURITY INVOKER: callers need sequence USAGE;
--- see 20260322200000_support_ticket_seq_grants.sql.)
+-- Trigger function: final production shape (btrim, schema-qualified nextval,
+-- SECURITY DEFINER + search_path for safe nextval without per-role sequence grants).
 CREATE OR REPLACE FUNCTION public.set_support_ticket_reference_id()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
   IF NULLIF(btrim(COALESCE(NEW.reference_id, '')), '') IS NULL THEN
