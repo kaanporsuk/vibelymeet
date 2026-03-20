@@ -5,22 +5,15 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getPlayerId, promptForPush } from "@/lib/onesignal";
 
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
 export async function requestWebPushPermissionAndSync(userId: string): Promise<boolean> {
   try {
     const granted = await promptForPush();
     if (!granted) return false;
 
-    let playerId: string | null = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      playerId = await getPlayerId();
-      if (playerId) break;
-      await delay(300 * (attempt + 1));
-    }
+    const playerId = await getPlayerId();
 
     if (!playerId) {
-      console.warn("[requestWebPushPermission] granted but no player id after retries");
+      console.warn("[requestWebPushPermission] granted but no player id (getPlayerId exhausted its retries)");
       return false;
     }
 
