@@ -16,6 +16,7 @@ import { useFonts } from 'expo-font';
 import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
 import { useBadgeCount } from '@/lib/useBadgeCount';
 import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
@@ -192,6 +193,7 @@ function RootLayoutNav() {
         <NotificationRouteTracker />
         <NotificationDeepLinkHandler />
         <NotificationPauseForeground />
+        <DeactivatedAccountReactivationPrompt />
         <ActivityHeartbeat />
         <BadgeCountUpdater />
         <View style={{ flex: 1 }}>

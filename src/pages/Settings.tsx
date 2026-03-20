@@ -205,7 +205,7 @@ const Settings = () => {
               </div>
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Account</h3>
-                <p className="text-xs text-muted-foreground">Manage your account</p>
+                <p className="text-xs text-muted-foreground">Security, membership, and account control</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />

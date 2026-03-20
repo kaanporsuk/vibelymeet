@@ -26,3 +26,33 @@ export async function clearExpiredDiscoverySnoozeIfNeeded(userId: string | null 
       .eq('id', userId);
   }
 }
+
+/** When timed account break ends, restore visibility (keeps legacy is_paused in sync). */
+export async function clearExpiredAccountPauseIfNeeded(userId: string | null | undefined): Promise<void> {
+  if (!userId) return;
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('account_paused, account_paused_until')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error || !data) return;
+
+  const paused = data.account_paused as boolean | null | undefined;
+  const until = data.account_paused_until as string | null | undefined;
+
+  if (paused && until && new Date(until) <= new Date()) {
+    await supabase
+      .from('profiles')
+      .update({
+        account_paused: false,
+        account_paused_until: null,
+        is_paused: false,
+        paused_until: null,
+        discoverable: true,
+        discovery_mode: 'visible',
+      })
+      .eq('id', userId);
+  }
+}

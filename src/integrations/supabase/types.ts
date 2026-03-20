@@ -1354,6 +1354,8 @@ export type Database = {
       profiles: {
         Row: {
           about_me: string | null
+          account_paused: boolean | null
+          account_paused_until: string | null
           activity_status_visibility: string | null
           age: number
           avatar_url: string | null
@@ -1416,6 +1418,8 @@ export type Database = {
         }
         Insert: {
           about_me?: string | null
+          account_paused?: boolean | null
+          account_paused_until?: string | null
           activity_status_visibility?: string | null
           age: number
           avatar_url?: string | null
@@ -1478,6 +1482,8 @@ export type Database = {
         }
         Update: {
           about_me?: string | null
+          account_paused?: boolean | null
+          account_paused_until?: string | null
           activity_status_visibility?: string | null
           age?: number
           avatar_url?: string | null

@@ -2,7 +2,10 @@ import { useEffect } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { clearExpiredPauseIfNeeded } from '@/lib/notificationPause';
-import { clearExpiredDiscoverySnoozeIfNeeded } from '@/lib/discoverySnooze';
+import {
+  clearExpiredAccountPauseIfNeeded,
+  clearExpiredDiscoverySnoozeIfNeeded,
+} from '@/lib/discoverySnooze';
 import { useAuth } from '@/context/AuthContext';
 
 /**
@@ -16,8 +19,10 @@ export function NotificationPauseForeground() {
     const run = async () => {
       await clearExpiredPauseIfNeeded();
       await clearExpiredDiscoverySnoozeIfNeeded(user?.id);
+      await clearExpiredAccountPauseIfNeeded(user?.id);
       qc.invalidateQueries({ queryKey: ['notification-preferences'] });
       qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
+      qc.invalidateQueries({ queryKey: ['profile-account', user?.id] });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     };
 

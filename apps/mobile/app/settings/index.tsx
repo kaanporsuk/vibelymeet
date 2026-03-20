@@ -12,7 +12,6 @@ import {
   GlassHeaderBar,
   Card,
   SettingsRow,
-  DestructiveRow,
   VibelyText,
   VibelyButton,
 } from '@/components/ui';
@@ -53,20 +52,9 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
   const { data: credits } = useCredits(user?.id);
-
-  const handleLogout = () => {
-    Alert.alert(
-      'Log out?',
-      "You'll need to sign in again to access your account.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Log Out', style: 'destructive', onPress: () => signOut() },
-      ]
-    );
-  };
 
   const handleManageSubscription = async () => {
     try {
@@ -79,10 +67,6 @@ export default function SettingsScreen() {
     } catch {
       Alert.alert('Couldn\'t open billing', 'Something went wrong. Try again.');
     }
-  };
-
-  const handleDeleteAccount = () => {
-    router.push('/settings/account');
   };
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
@@ -152,7 +136,7 @@ export default function SettingsScreen() {
             <SettingsRow
               icon={<Ionicons name="person-outline" size={20} color={theme.accent} />}
               title="Account"
-              subtitle="Manage your account"
+              subtitle="Security, membership, and account control"
               onPress={() => router.push('/settings/account')}
             />
           </Card>
@@ -210,27 +194,6 @@ export default function SettingsScreen() {
             </View>
           </Card>
 
-          {/* Log out — standalone action, same visual group as quick links */}
-          <View style={styles.logoutWrap}>
-            <DestructiveRow
-              icon={<Ionicons name="log-out-outline" size={20} color={theme.danger} />}
-              label="Log Out"
-              onPress={handleLogout}
-            />
-          </View>
-
-          <Text style={[styles.sectionHeader, { color: theme.danger, marginTop: spacing.xl }]}>Danger Zone</Text>
-          <View style={[styles.dangerZone, { borderTopColor: withAlpha(theme.danger, 0.2) }]}>
-            <Text style={[styles.dangerZoneHelper, { color: theme.textSecondary }]}>
-              Account deletion is permanent after the grace period.
-            </Text>
-            <DestructiveRow
-              icon={<Ionicons name="trash-outline" size={20} color={theme.danger} />}
-              label="Delete My Account"
-              onPress={handleDeleteAccount}
-            />
-          </View>
-
           <Text
             style={{
               textAlign: 'center',
@@ -275,17 +238,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sectionHeaderFirst: { marginTop: 4 },
-  logoutWrap: { marginTop: spacing.lg },
-  dangerZone: {
-    marginTop: spacing.sm,
-    paddingTop: spacing.lg,
-    borderTopWidth: 1,
-  },
-  dangerZoneHelper: {
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: spacing.md,
-  },
   premiumCardInner: {
     gap: spacing.md,
   },
