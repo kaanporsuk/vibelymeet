@@ -47,6 +47,7 @@ import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { registerPushWithBackend } from '@/lib/onesignal';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -115,8 +116,18 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const { activeSession, refetch: refetchActiveSession } = useActiveSession(user?.id);
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
-  const { isGranted: pushGranted, requestPermission, openSettings } = usePushPermission();
+  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
+    usePushPermission();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
+    const granted = await requestPermission();
+    if (granted && user?.id) {
+      await registerPushWithBackend(user.id);
+    }
+    await refreshPushPermission();
+    return granted;
+  }, [requestPermission, user?.id, refreshPushPermission]);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const { isPremium } = useBackendSubscription(user?.id);
@@ -650,7 +661,7 @@ export default function DashboardScreen() {
           <NotificationPermissionFlow
             open={showNotificationFlow}
             onOpenChange={setShowNotificationFlow}
-            onRequestPermission={requestPermission}
+            onRequestPermission={handleNotificationPermissionRequest}
             openSettings={openSettings}
           />
 

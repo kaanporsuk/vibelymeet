@@ -20,6 +20,7 @@ import {
 } from '@/lib/useScheduleProposals';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { registerPushWithBackend } from '@/lib/onesignal';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { supabase } from '@/lib/supabase';
@@ -50,10 +51,20 @@ export default function ScheduleScreen() {
   const upcomingReminders = [...imminentReminders, ...soonReminders];
   const urgentIds = new Set(upcomingReminders.map((r) => r.proposalId));
   const calmUpcoming = upcomingAccepted.filter((p) => !urgentIds.has(p.id));
-  const { isGranted: pushGranted, requestPermission, openSettings } = usePushPermission();
+  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
+    usePushPermission();
   const { activeSession } = useActiveSession(user?.id);
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
+    const granted = await requestPermission();
+    if (granted && user?.id) {
+      await registerPushWithBackend(user.id);
+    }
+    await refreshPushPermission();
+    return granted;
+  }, [requestPermission, user?.id, refreshPushPermission]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -111,7 +122,7 @@ export default function ScheduleScreen() {
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
-        onRequestPermission={requestPermission}
+        onRequestPermission={handleNotificationPermissionRequest}
         openSettings={openSettings}
       />
 
