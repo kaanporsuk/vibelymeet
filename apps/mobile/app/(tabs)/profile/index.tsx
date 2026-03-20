@@ -35,8 +35,9 @@ import {
   DestructiveRow,
   VibelyText,
 } from '@/components/ui';
-import { GradientSurface } from '@/components/GradientSurface';
+import { LinearGradient } from 'expo-linear-gradient';
 import { spacing, radius, typography, layout, shadows, fonts } from '@/constants/theme';
+import { withAlpha } from '@/lib/colorUtils';
 import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
@@ -95,12 +96,23 @@ const MAX_PHOTOS = 6;
 // Relationship intent labels (mirrored from web + RelationshipIntentSelector)
 const LOOKING_FOR_LABELS: Record<string, string> = {
   'long-term': 'Something serious',
-  'relationship': 'Relationship',
+  relationship: 'Relationship',
   'something-casual': 'Something casual',
   'new-friends': 'New friends',
   'figuring-out': 'Not sure yet',
   'rather-not': 'Rather not say',
 };
+
+/** Identity hero chips — short labels */
+function formatLookingFor(value: string): string {
+  const map: Record<string, string> = {
+    'long-term': 'Looking for dating',
+    'something-casual': 'Casual',
+    'new-friends': 'New friends',
+    'figuring-out': 'Open to anything',
+  };
+  return map[value] ?? LOOKING_FOR_LABELS[value] ?? value;
+}
 
 function getVibeScoreLabel(score: number): string {
   if (score >= 90) return 'Iconic';
@@ -241,14 +253,6 @@ export default function ProfileScreen() {
       city: profile.location ?? '',
     });
   }, [user?.id, profile, onboardingComplete]);
-
-  // Poll profile when vibe video is uploading or processing so UI updates when ready/failed
-  useEffect(() => {
-    const status = profile?.bunny_video_status;
-    if (status !== 'uploading' && status !== 'processing') return;
-    const interval = setInterval(() => refetch(), 5000);
-    return () => clearInterval(interval);
-  }, [profile?.bunny_video_status, refetch]);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
@@ -566,9 +570,6 @@ export default function ProfileScreen() {
     );
   }
 
-  // Match web ProfilePhoto: primary is first photo, avatar_url fallback
-  const photoUrl = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
-  const displayUrl = photoUrl ? avatarUrl(photoUrl, 'profile_photo') : null;
   const eventsCount = profile?.events_attended ?? 0;
   const matchesCount = profile?.total_matches ?? 0;
   const convosCount = profile?.total_conversations ?? 0;
@@ -579,11 +580,26 @@ export default function ProfileScreen() {
   const profilePhotos = profile?.photos ?? [];
   const photoViewerPhotos = profilePhotos.length > 0 ? profilePhotos : [];
 
+  const heroAvatarPath = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
+  const zodiacEmoji = (() => {
+    if (!profile?.birth_date) return null;
+    const parts = profile.birth_date.split('-');
+    if (parts.length !== 3) return null;
+    const localDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return getZodiacEmoji(getZodiacSign(localDate));
+  })();
+  const isVerified = !!(profile?.photo_verified || profile?.phone_verified);
+  const isPremiumActive = !!(
+    profile?.is_premium &&
+    profile?.premium_until &&
+    new Date(profile.premium_until) > new Date()
+  );
+
   return (
     <>
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.background }}
-      contentContainerStyle={{ paddingBottom: layout.scrollContentPaddingBottomTab }}
+      contentContainerStyle={{ paddingBottom: 120 }}
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
@@ -592,29 +608,85 @@ export default function ProfileScreen() {
         />
       }
     >
-      {/* Hero — web parity: gradient strip (GradientSurface), glass buttons */}
-      <View style={[styles.heroOuter, { paddingTop: insets.top }]}>
-        <GradientSurface variant="primary" style={styles.heroGradient}>
-          <View style={styles.heroButtons}>
-            <Pressable
-              style={[styles.heroButton, styles.heroButtonGlass, { borderColor: theme.glassBorder }]}
-              onPress={handlePreviewProfile}
-              accessibilityLabel="Preview profile"
-            >
-              <Ionicons name="eye-outline" size={24} color={theme.text} />
-            </Pressable>
-            <Pressable
-              style={[styles.heroButton, styles.heroButtonGlassRight, { borderColor: theme.glassBorder }]}
-              onPress={() => router.push('/settings')}
-              accessibilityLabel="Settings"
-            >
-              <Ionicons name="settings-outline" size={24} color={theme.text} />
-            </Pressable>
-          </View>
-        </GradientSurface>
+      {/* Zone A — atmospheric neon hero (seamless fade to page bg) */}
+      <LinearGradient
+        colors={['#7C3AED', '#6D28D9', '#4C1D95', theme.background]}
+        locations={[0, 0.25, 0.6, 1]}
+        style={[styles.heroGradient, { paddingTop: insets.top + 8 }]}
+      >
+        <View style={styles.glowOrb} />
+        <View style={styles.heroControls}>
+          <Pressable
+            onPress={handlePreviewProfile}
+            style={styles.glassBtn}
+            accessibilityLabel="Preview profile"
+          >
+            <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            style={styles.glassBtn}
+            accessibilityLabel="Settings"
+          >
+            <Ionicons name="settings-outline" size={20} color="rgba(255,255,255,0.85)" />
+          </Pressable>
+        </View>
+      </LinearGradient>
+
+      {/* Zone B — avatar overlaps gradient edge */}
+      <View style={styles.avatarSection}>
+        <View style={styles.avatarOuter}>
+          <LinearGradient
+            colors={['#8B5CF6', '#E84393']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.avatarGlowRing}
+          >
+            <View style={[styles.avatarInner, { backgroundColor: theme.background }]}>
+              {heroAvatarPath ? (
+                <Image
+                  source={{ uri: getImageUrl(heroAvatarPath) }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]}>
+                  <Ionicons name="person" size={48} color={theme.mutedForeground} />
+                </View>
+              )}
+            </View>
+          </LinearGradient>
+
+          {isVerified && (
+            <View style={[styles.verifyBadge, { backgroundColor: theme.background }]}>
+              <Ionicons name="checkmark-circle" size={22} color="#00CEC9" />
+            </View>
+          )}
+
+          <Pressable
+            onPress={handleAddPhoto}
+            disabled={photoUploading}
+            style={[styles.avatarAction, styles.avatarActionRight]}
+            accessibilityLabel="Add or change photo"
+          >
+            {photoUploading ? (
+              <Ionicons name="hourglass-outline" size={16} color="#fff" />
+            ) : (
+              <Ionicons name="camera" size={16} color="#fff" />
+            )}
+          </Pressable>
+
+          <Pressable
+            onPress={handleVibeVideoPress}
+            disabled={vibeStatus === 'uploading' || vibeStatus === 'processing'}
+            style={[styles.avatarAction, styles.avatarActionLeft]}
+            accessibilityLabel="Vibe video"
+          >
+            <Ionicons name="videocam" size={16} color="#fff" />
+          </Pressable>
+        </View>
       </View>
 
-      {/* Verification badges row — phone, email, photo; native flows for phone/email */}
+      {/* Verification badges — phone, email, photo */}
       <View style={[styles.verificationBadgesWrap, { paddingHorizontal: spacing.lg }]}>
         <VerificationBadgesRow
           phoneVerified={profile?.phone_verified}
@@ -625,82 +697,81 @@ export default function ProfileScreen() {
         />
       </View>
 
-      {/* Centered primary photo — web parity: rounded-2xl, border-4 background, shadow; VerificationBadge when verified */}
-      <View style={styles.avatarWrap}>
-        <View style={[styles.heroPhotoContainer, { borderColor: theme.background }, shadows.card]}>
-          {profile?.photo_verified && (
-            <View style={[styles.verificationBadgeOnPhoto, { backgroundColor: theme.neonCyan }]}>
-              <Ionicons name="shield-checkmark" size={14} color="#fff" />
+      {/* Zone C — identity block */}
+      <View style={styles.identityBlock}>
+        <View style={styles.nameRow}>
+          <Text style={[styles.nameText, { color: theme.text }]} numberOfLines={1}>
+            {profile?.name ?? 'Your name'}
+            {profile?.age != null ? `, ${profile.age}` : ''}
+          </Text>
+          {zodiacEmoji ? (
+            <View
+              style={[
+                styles.zodiacChip,
+                { backgroundColor: withAlpha(theme.tint, 0.15), borderColor: withAlpha(theme.tint, 0.3) },
+              ]}
+            >
+              <Text style={{ fontSize: 14 }}>{zodiacEmoji}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {profile?.tagline ? (
+          <Text style={[styles.tagline, { color: theme.tint }]} numberOfLines={2}>
+            "{profile.tagline}"
+          </Text>
+        ) : (
+          <Text style={[styles.taglinePlaceholder, { color: theme.textSecondary }]}>
+            Add tagline
+          </Text>
+        )}
+
+        {!!profile?.location && (
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={theme.mutedForeground} />
+            <Text style={[styles.locationText, { color: theme.mutedForeground }]}>
+              {profile.location}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.chipRow}>
+          {isVerified && (
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: withAlpha('#00CEC9', 0.12), borderColor: withAlpha('#00CEC9', 0.25) },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: '#00CEC9' }]}>Verified</Text>
             </View>
           )}
-          {displayUrl ? (
-            <Image source={{ uri: displayUrl }} style={styles.heroPhotoImage} />
-          ) : (
-            <View style={[styles.heroPhotoFallback, { backgroundColor: theme.surfaceSubtle }]}>
-              <Text style={[styles.heroPhotoInitials, { color: theme.textSecondary }]}>
-                {profile?.name?.[0] ?? 'V'}
+          {isPremiumActive && (
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: withAlpha('#E84393', 0.12), borderColor: withAlpha('#E84393', 0.25) },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: '#E84393' }]}>Premium</Text>
+            </View>
+          )}
+          {profile?.looking_for ? (
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: withAlpha(theme.tint, 0.12), borderColor: withAlpha(theme.tint, 0.25) },
+              ]}
+            >
+              <Text style={[styles.chipText, { color: theme.tint }]}>
+                {formatLookingFor(profile.looking_for)}
               </Text>
             </View>
-          )}
-          <Pressable
-            style={[styles.videoBtn, { backgroundColor: theme.surface }]}
-            onPress={handleVibeVideoPress}
-            disabled={vibeStatus === 'uploading' || vibeStatus === 'processing'}
-            accessibilityLabel="Vibe video"
-          >
-            <Ionicons name="videocam-outline" size={18} color={theme.text} />
-          </Pressable>
-          <Pressable
-            style={[styles.cameraBtn, { backgroundColor: theme.tint }]}
-            onPress={handleAddPhoto}
-            disabled={photoUploading}
-            accessibilityLabel="Add or change photo"
-          >
-            {photoUploading ? (
-              <Ionicons name="hourglass-outline" size={20} color="#fff" />
-            ) : (
-              <Ionicons name="camera" size={20} color="#fff" />
-            )}
-          </Pressable>
+          ) : null}
         </View>
       </View>
 
       <Animated.View style={[styles.main, { opacity: fadeAnim }]}>
-        {/* Identity block: name / age, Premium chip, zodiac (web parity) */}
-        <View style={styles.identityBlock}>
-          <View style={styles.identityNameRow}>
-            <Text style={[styles.nameAge, { color: theme.text }]} numberOfLines={1}>
-              {profile?.name || 'Your name'}, {profile?.age ?? '—'}
-            </Text>
-            {profile?.is_premium && (
-              <View style={[styles.premiumChip, { backgroundColor: theme.tint }]}>
-                <Ionicons name="sparkles" size={12} color="#fff" />
-                <Text style={styles.premiumChipText}>Premium</Text>
-              </View>
-            )}
-            {profile?.birth_date && (
-              <Text style={styles.zodiacEmoji} accessibilityLabel={getZodiacSign(new Date(profile.birth_date))}>
-                {getZodiacEmoji(getZodiacSign(new Date(profile.birth_date)))}
-              </Text>
-            )}
-          </View>
-          {profile?.tagline ? (
-            <Text style={[styles.taglineText, { color: theme.tint }]} numberOfLines={2}>
-              "{profile.tagline}"
-            </Text>
-          ) : (
-            <Text style={[styles.taglinePlaceholder, { color: theme.textSecondary }]}>
-              Add tagline
-            </Text>
-          )}
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
-            <Text style={[styles.locationText, { color: theme.textSecondary }]}>
-              {profile?.location || 'Location not set'}
-            </Text>
-          </View>
-        </View>
-
         {/* Vibe Score card — web parity glass-card */}
         <Card variant="glass" style={styles.vibeScoreCard}>
           <View style={styles.vibeScoreRow}>
@@ -1503,84 +1574,92 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  heroOuter: {
-    paddingHorizontal: 0,
-    marginBottom: 0,
-  },
   heroGradient: {
-    height: 140,
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    borderBottomLeftRadius: radius['2xl'],
-    borderBottomRightRadius: radius['2xl'],
+    height: 180,
+    paddingHorizontal: 16,
+    position: 'relative',
     overflow: 'hidden',
+    width: '100%',
   },
-  heroButtons: {
+  glowOrb: {
+    position: 'absolute',
+    bottom: -40,
+    alignSelf: 'center',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(139, 92, 246, 0.25)',
+  },
+  heroControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    zIndex: 2,
   },
-  heroButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  glassBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
   },
-  heroButtonGlass: {
-    backgroundColor: 'rgba(255,255,255,0.16)',
-  },
-  heroButtonGlassRight: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  avatarWrap: {
+  avatarSection: {
     alignItems: 'center',
-    marginTop: -56,
-    marginBottom: spacing.xl + 4,
+    marginTop: -55,
+    zIndex: 10,
   },
-  heroPhotoContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: radius['2xl'],
-    overflow: 'hidden',
-    borderWidth: 4,
+  avatarOuter: {
     position: 'relative',
   },
-  heroPhotoImage: {
+  avatarGlowRing: {
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    padding: 3,
+  },
+  avatarInner: {
     width: '100%',
     height: '100%',
+    borderRadius: 60,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  heroPhotoFallback: {
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  avatarPlaceholder: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroPhotoInitials: {
-    fontSize: 48,
-    fontWeight: '600',
-  },
-  videoBtn: {
+  verifyBadge: {
     position: 'absolute',
-    bottom: -4,
-    left: -4,
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    top: 2,
+    right: 2,
+    borderRadius: 12,
+    padding: 1,
+  },
+  avatarAction: {
+    position: 'absolute',
+    bottom: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cameraBtn: {
-    position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  avatarActionRight: { right: 0 },
+  avatarActionLeft: { left: 0 },
   main: {
     paddingHorizontal: layout.containerPadding,
     maxWidth: layout.contentWidth,
@@ -1589,47 +1668,32 @@ const styles = StyleSheet.create({
   },
   identityBlock: {
     alignItems: 'center',
-    marginBottom: spacing.xl,
-    marginTop: spacing.sm,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    gap: 6,
+    marginBottom: spacing.lg,
   },
-  identityNameRow: {
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
+    gap: 8,
+    maxWidth: '100%',
   },
-  nameAge: {
-    ...typography.titleLG,
+  nameText: {
     fontSize: 24,
+    fontWeight: '700',
+    flexShrink: 1,
   },
-  premiumChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  zodiacChip: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  premiumChipText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  zodiacEmoji: {
-    fontSize: 18,
-  },
-  verificationBadgeOnPhoto: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    zIndex: 2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  tagline: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   promptRow: {
     paddingVertical: spacing.sm,
@@ -1671,11 +1735,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  taglineText: {
-    fontSize: 14,
-    fontStyle: 'italic',
-    marginBottom: spacing.xs,
-  },
   taglinePlaceholder: {
     fontSize: 14,
     marginBottom: spacing.xs,
@@ -1686,7 +1745,24 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   locationText: {
-    fontSize: 14,
+    fontSize: 13,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 6,
+  },
+  statusChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   vibeScoreCard: {
     marginBottom: spacing.xl,

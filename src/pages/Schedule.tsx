@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Bell } from "lucide-react";
@@ -14,15 +14,28 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 
 const SchedulePage = () => {
   const navigate = useNavigate();
+  const { user } = useUserProfile();
   const { proposals, respondToProposal, getTimeBlockInfo, mySchedule, toggleSlot } = useSchedule();
   const { addNotification } = useNotifications();
   const { reminders, imminentReminders, soonReminders } = useDateReminders(proposals);
-  const { isGranted, requestPermission } = usePushNotifications();
+  const { isGranted, refreshSubscriptionState } = usePushNotifications();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [, forceUpdate] = useState({});
+
+  const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
+    if (!user?.id) return false;
+    const ok = await requestWebPushPermissionAndSync(user.id);
+    await refreshSubscriptionState();
+    if (ok) {
+      window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+    }
+    return ok;
+  }, [user?.id, refreshSubscriptionState]);
 
   const handleAcceptProposal = (proposalId: string) => {
     const proposal = proposals.find(p => p.id === proposalId);
@@ -78,7 +91,7 @@ const SchedulePage = () => {
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
-        onRequestPermission={requestPermission}
+        onRequestPermission={handleRequestOneSignalPermission}
       />
 
       {/* Header */}

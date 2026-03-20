@@ -47,10 +47,12 @@ import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { registerPushWithBackend } from '@/lib/onesignal';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
+import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -79,13 +81,14 @@ function getTimeGreeting(): string {
   return 'Good evening';
 }
 
+/** Subtle scale pulse on the small LIVE dot only — calm, not card-level. */
 function PulsingLiveDot({ color }: { color: string }) {
   const scale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(scale, { toValue: 1.35, duration: 750, useNativeDriver: true }),
-        Animated.timing(scale, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1.15, duration: 2000, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: 2000, useNativeDriver: true }),
       ]),
     );
     loop.start();
@@ -113,8 +116,18 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const { activeSession, refetch: refetchActiveSession } = useActiveSession(user?.id);
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
-  const { isGranted: pushGranted, requestPermission, openSettings } = usePushPermission();
+  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
+    usePushPermission();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+
+  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
+    const granted = await requestPermission();
+    if (granted && user?.id) {
+      await registerPushWithBackend(user.id);
+    }
+    await refreshPushPermission();
+    return granted;
+  }, [requestPermission, user?.id, refreshPushPermission]);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const { isPremium } = useBackendSubscription(user?.id);
@@ -634,7 +647,7 @@ export default function DashboardScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
       >
         <Animated.View style={[{ opacity: fadeAnim }, styles.scrollInner]}>
@@ -648,7 +661,7 @@ export default function DashboardScreen() {
           <NotificationPermissionFlow
             open={showNotificationFlow}
             onOpenChange={setShowNotificationFlow}
-            onRequestPermission={requestPermission}
+            onRequestPermission={handleNotificationPermissionRequest}
             openSettings={openSettings}
           />
 
@@ -881,7 +894,7 @@ const styles = StyleSheet.create({
   },
   avatarBtn: {},
   scroll: { flex: 1 },
-  scrollContent: { paddingTop: 8 },
+  scrollContent: { paddingTop: 8, paddingBottom: 120 },
   scrollInner: {
     paddingHorizontal: layout.containerPadding,
     gap: 24,
@@ -1040,24 +1053,13 @@ const styles = StyleSheet.create({
   upcomingEmpty: {
     paddingVertical: spacing.lg,
     paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
     borderWidth: 1,
+    borderRadius: radius.lg,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
-  otherCitiesCtaText: { fontSize: 13, fontWeight: '600' },
-  matchRow: { flexDirection: 'row', gap: spacing.lg, paddingVertical: spacing.sm, paddingRight: spacing.lg },
-  matchItem: { alignItems: 'center', gap: spacing.sm, minWidth: 64 },
-  matchName: { fontWeight: '600', fontSize: 12, maxWidth: 64 },
-  eventRail: { flexDirection: 'row', gap: spacing.md + 2, paddingBottom: spacing.lg },
-  discoverCard: {
-    width: 260,
-    borderRadius: radius['2xl'],
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  discoverImage: { width: '100%', height: 120 },
-  discoverBody: { padding: spacing.md, gap: 6 },
-  discoverTitle: { fontWeight: '600' },
-  discoverMeta: { fontSize: 12 },
-  discoverAttendeesRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  discoverAttendees: { fontSize: 12 },
+  upcomingEmptyText: { fontSize: 14 },
+  upcomingEmptyLink: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  upcomingEmptyLinkText: { fontSize: 12, fontWeight: '600' },
 });

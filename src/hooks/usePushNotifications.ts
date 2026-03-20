@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useServiceWorker } from './useServiceWorker';
+import { isSubscribed } from '@/lib/onesignal';
 
 const NOTIFICATION_PERMISSION_KEY = 'vibely_notification_permission';
 const SCHEDULED_NOTIFICATIONS_KEY = 'vibely_scheduled_notifications';
@@ -16,23 +17,51 @@ interface ScheduledNotification {
 export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(false);
+  const [isOneSignalSubscribed, setIsOneSignalSubscribed] = useState(false);
   const { 
     isReady: swReady, 
     scheduleDateReminder: swScheduleDateReminder,
     showNotification: swShowNotification,
   } = useServiceWorker();
 
-  // Check support and permission on mount
-  useEffect(() => {
-    const supported = 'Notification' in window;
-    setIsSupported(supported);
-    
-    if (supported) {
+  const refreshSubscriptionState = useCallback(async () => {
+    if ('Notification' in window) {
       setPermission(Notification.permission);
+    }
+    try {
+      const sub = await isSubscribed();
+      setIsOneSignalSubscribed(sub);
+    } catch {
+      setIsOneSignalSubscribed(false);
     }
   }, []);
 
-  // Request permission
+  useEffect(() => {
+    const supported = 'Notification' in window;
+    setIsSupported(supported);
+    void refreshSubscriptionState();
+  }, [refreshSubscriptionState]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void refreshSubscriptionState();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshSubscriptionState]);
+
+  useEffect(() => {
+    const onSubscriptionChanged = () => {
+      void refreshSubscriptionState();
+    };
+    window.addEventListener('vibely-onesignal-subscription-changed', onSubscriptionChanged);
+    return () => window.removeEventListener('vibely-onesignal-subscription-changed', onSubscriptionChanged);
+  }, [refreshSubscriptionState]);
+
+  /**
+   * Browser-only permission (does not subscribe to OneSignal / server push).
+   * Prefer `requestWebPushPermissionAndSync` for flows that need backend delivery.
+   */
   const requestPermission = useCallback(async (): Promise<boolean> => {
     if (!isSupported) {
       console.warn('Push notifications not supported on this platform');
@@ -40,7 +69,6 @@ export function usePushNotifications() {
     }
     
     try {
-      // This triggers the browser's native permission dialog
       const result = await Notification.requestPermission();
       console.log('Notification permission result:', result);
       setPermission(result);
@@ -172,12 +200,19 @@ export function usePushNotifications() {
     return () => clearInterval(interval);
   }, [isSupported, permission, checkScheduledNotifications]);
 
+  /** Server push ready: browser allowed notifications AND OneSignal subscription active. */
+  const isGranted = permission === 'granted' && isOneSignalSubscribed;
+
   return {
     isSupported,
     permission,
-    isGranted: permission === 'granted',
+    isGranted,
+    /** Browser notification permission only (local/SW scheduling); may differ from isGranted. */
+    isBrowserPermissionGranted: permission === 'granted',
     isDenied: permission === 'denied',
+    isOneSignalSubscribed,
     hasServiceWorker: swReady,
+    refreshSubscriptionState,
     requestPermission,
     sendNotification,
     scheduleNotification,

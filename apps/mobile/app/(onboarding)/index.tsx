@@ -197,11 +197,6 @@ export default function OnboardingScreen() {
       if (heightCm) {
         const h = Number(heightCm);
         if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
-      let parsedHeight: number | undefined;
-      if (heightCm) {
-        const h = Number(heightCm);
-        if (isNaN(h) || h < 100 || h > 250) {
-          setLoading(false);
           Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
           return;
         }
@@ -216,8 +211,29 @@ export default function OnboardingScreen() {
         country: country.trim() || undefined,
         tagline: tagline.trim() || null,
         job: job.trim() || null,
-        about_me: aboutMe.trim() || null,
+        about_me: aboutMeTrim || undefined,
         height_cm: parsedHeight,
+        relationship_intent: relationshipIntent || undefined,
+        photos: photos.length > 0 ? photos : undefined,
+      });
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user && selectedVibeIds.length > 0) {
+        const vibeRows = selectedVibeIds.map((tagId) => ({
+          profile_id: user.id,
+          vibe_tag_id: tagId,
+        }));
+        const { error: vibesError } = await supabase
+          .from('profile_vibes')
+          .upsert(vibeRows, { onConflict: 'profile_id,vibe_tag_id' });
+        if (vibesError) throw vibesError;
+      }
+      trackEvent('onboarding_completed', {
+        has_photo: photos.length > 0,
+        has_bio: !!aboutMeTrim,
+        has_vibes: selectedVibeIds.length > 0,
+        vibe_count: selectedVibeIds.length,
       });
       await refreshOnboarding();
       router.replace('/(tabs)');

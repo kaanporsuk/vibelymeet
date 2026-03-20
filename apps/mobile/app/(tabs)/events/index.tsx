@@ -920,7 +920,7 @@ export default function EventsListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { paddingBottom: layout.scrollContentPaddingBottomTab },
+  scrollContent: { paddingBottom: 120 },
   centered: {
     flex: 1,
     justifyContent: 'center',

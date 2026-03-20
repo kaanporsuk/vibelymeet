@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { resetAnalytics } from '@/lib/analytics';
+import { logoutOneSignal } from '@/lib/onesignal';
 
 type AuthState = {
   user: User | null;
@@ -85,6 +86,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     resetAnalytics();
+    const { data: { session: current } } = await supabase.auth.getSession();
+    const uid = current?.user?.id;
+    logoutOneSignal();
+    if (uid) {
+      void supabase
+        .from('notification_preferences')
+        .update({
+          mobile_onesignal_player_id: null,
+          mobile_onesignal_subscribed: false,
+        })
+        .eq('user_id', uid)
+        .then(({ error }) => {
+          if (error && __DEV__) console.warn('[signOut] notification_preferences:', error.message);
+        });
+    }
     await supabase.auth.signOut();
     setOnboardingComplete(null);
   }, []);

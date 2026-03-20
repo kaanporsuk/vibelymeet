@@ -169,8 +169,7 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.birth_date !== undefined) {
     db.birth_date = updates.birth_date;
     if (updates.birth_date) {
-      const d = new Date(updates.birth_date);
-      db.age = calculateAge(d);
+      db.age = calculateAge(parseBirthDate(updates.birth_date));
     }
   }
   if (updates.height_cm !== undefined) db.height_cm = updates.height_cm;
@@ -236,7 +235,13 @@ export async function createProfile(data: {
     country: countryVal,
     job: data.job ?? null,
     about_me: data.about_me ?? null,
-    height_cm: (typeof data.height_cm === 'number' && data.height_cm >= 100 && data.height_cm <= 250) ? data.height_cm : null,
+    height_cm:
+      typeof data.height_cm === 'number' &&
+      Number.isInteger(data.height_cm) &&
+      data.height_cm >= 100 &&
+      data.height_cm <= 250
+        ? data.height_cm
+        : null,
     looking_for: lookingFor,
     photos: data.photos?.length ? data.photos : null,
     avatar_url: data.photos?.[0] ?? null,

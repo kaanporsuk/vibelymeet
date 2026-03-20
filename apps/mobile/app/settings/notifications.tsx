@@ -1,166 +1,446 @@
 /**
- * Notifications settings — permission state + 8 toggle groups (design spec: 44 notification types).
+ * Notification settings — full parity with web: categories, push status, pause, sound, quiet hours, smart delivery.
  */
-import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, Switch } from 'react-native';
+import React from 'react';
+import { View, Text, ScrollView, Pressable, StyleSheet, Alert, Switch } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { GlassHeaderBar, Card, VibelyButton } from '@/components/ui';
+import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
-import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { registerPushWithBackend } from '@/lib/onesignal';
 import { useAuth } from '@/context/AuthContext';
-import { useNotificationPreferences, type NotificationPrefKey } from '@/lib/useNotificationPreferences';
+import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
 
-const PREF_GROUPS: Array<{
-  key: NotificationPrefKey;
-  label: string;
-  desc: string;
-  defaultVal: boolean;
-  locked?: boolean;
-}> = [
-  { key: 'pref_messages', label: 'Messages', desc: 'New messages, voice notes, video messages, reactions', defaultVal: true },
-  { key: 'pref_matches', label: 'Matches', desc: 'New matches, mutual vibes, who liked you', defaultVal: true },
-  { key: 'pref_events', label: 'Events', desc: 'Reminders, live alerts, new events in your city', defaultVal: true },
-  { key: 'pref_daily_drop', label: 'Daily Drop', desc: 'Drop available, openers, and replies', defaultVal: true },
-  { key: 'pref_video_dates', label: 'Video Dates', desc: 'Partner ready, date starting, reconnection', defaultVal: true },
-  { key: 'pref_vibes_social', label: 'Vibes & Social', desc: 'Someone vibed you, super vibes', defaultVal: true },
-  { key: 'pref_marketing', label: 'Tips & Recommendations', desc: 'Premium features, weekly summary, re-engagement', defaultVal: false },
-  { key: 'pref_account_safety', label: 'Account & Safety', desc: 'Verification, subscription, credits, security alerts', defaultVal: true, locked: true },
-];
+const NOTIFICATION_SECTIONS = [
+  {
+    title: 'CONNECTIONS',
+    items: [
+      {
+        key: 'notify_new_match',
+        icon: 'heart-outline' as const,
+        label: 'New Match',
+        desc: 'When you and someone both vibe',
+        color: '#E84393',
+      },
+      {
+        key: 'notify_messages',
+        icon: 'chatbubble-outline' as const,
+        label: 'Messages',
+        desc: 'New messages from matches',
+        color: '#00B4D8',
+      },
+      {
+        key: 'notify_someone_vibed_you',
+        icon: 'sparkles-outline' as const,
+        label: 'Someone Vibed You',
+        desc: 'When someone swipes vibe on you',
+        color: '#8B5CF6',
+      },
+      {
+        key: 'notify_ready_gate',
+        icon: 'videocam-outline' as const,
+        label: 'Ready Gate',
+        desc: 'Video date invitations',
+        color: '#8B5CF6',
+      },
+    ],
+  },
+  {
+    title: 'EVENTS & DATES',
+    items: [
+      {
+        key: 'notify_event_live',
+        icon: 'calendar-outline' as const,
+        label: 'Event Going Live',
+        desc: 'When an event you joined starts',
+        color: '#F97316',
+      },
+      {
+        key: 'notify_event_reminder',
+        icon: 'time-outline' as const,
+        label: 'Event Reminders',
+        desc: 'Reminders before your events',
+        color: '#F97316',
+      },
+      {
+        key: 'notify_date_reminder',
+        icon: 'alarm-outline' as const,
+        label: 'Date Reminders',
+        desc: 'Upcoming video date alerts',
+        color: '#F97316',
+      },
+    ],
+  },
+  {
+    title: 'DISCOVERY',
+    items: [
+      {
+        key: 'notify_daily_drop',
+        icon: 'flash-outline' as const,
+        label: 'Daily Drop',
+        desc: 'Your daily curated match',
+        color: '#EAB308',
+      },
+      {
+        key: 'notify_recommendations',
+        icon: 'compass-outline' as const,
+        label: 'Recommendations',
+        desc: 'People and events you might like',
+        color: '#6B7280',
+      },
+      {
+        key: 'notify_product_updates',
+        icon: 'grid-outline' as const,
+        label: 'Product Updates',
+        desc: 'New features and improvements',
+        color: '#6B7280',
+      },
+    ],
+  },
+  {
+    title: 'ACCOUNT',
+    items: [
+      {
+        key: 'notify_credits_subscription',
+        icon: 'card-outline' as const,
+        label: 'Credits & Purchases',
+        desc: 'Purchase confirmations',
+        color: '#6B7280',
+      },
+      {
+        key: 'safety_alerts',
+        icon: 'shield-outline' as const,
+        label: 'Safety Alerts',
+        desc: 'Safety & account alerts · Always on',
+        color: '#22C55E',
+        locked: true,
+      },
+    ],
+  },
+] as const;
+
+const ADDITIONAL_SECTIONS = [
+  {
+    title: 'SOUND',
+    items: [
+      {
+        key: 'sound_enabled' as const,
+        icon: 'volume-high-outline' as const,
+        label: 'Notification Sound',
+        desc: 'Play a sound with notifications',
+      },
+    ],
+  },
+  {
+    title: 'QUIET HOURS',
+    items: [
+      {
+        key: 'quiet_hours_enabled' as const,
+        icon: 'moon-outline' as const,
+        label: 'Quiet Hours',
+        desc: 'Mute notifications during set hours',
+      },
+    ],
+  },
+  {
+    title: 'SMART DELIVERY',
+    items: [
+      {
+        key: 'message_bundle_enabled' as const,
+        icon: 'layers-outline' as const,
+        label: 'Bundle rapid messages',
+        desc: 'Group multiple messages from the same person',
+      },
+    ],
+  },
+] as const;
 
 export default function NotificationsSettingsScreen() {
-  const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
-  const { isGranted, isDenied, requestPermission, openSettings, refresh } = usePushPermission();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [showFlow, setShowFlow] = useState(false);
-  const { prefs, isLoading: prefsLoading, updatePref } = useNotificationPreferences(user?.id);
+  const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
+  const { isGranted, isDenied, requestPermission, openSettings, refresh } = usePushPermission();
 
-  const handleRequest = async (): Promise<boolean> => {
+  const permissionGranted = isGranted;
+
+  const handleEnablePush = async () => {
     const granted = await requestPermission();
     if (granted && user?.id) await registerPushWithBackend(user.id);
-    return granted;
+    await refresh();
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[{ flex: 1, backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]} accessibilityLabel="Back">
+        <View style={styles.headerInner}>
+          <Pressable
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+            accessibilityLabel="Back"
+          >
             <Ionicons name="arrow-back" size={24} color={theme.text} />
           </Pressable>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Notifications</Text>
+          <View style={styles.headerTitles}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Notifications</Text>
+            <Text style={[styles.headerSubtitle, { color: theme.mutedForeground }]}>Control what you hear about</Text>
+          </View>
         </View>
       </GlassHeaderBar>
 
       <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={[styles.scrollInner, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.main}>
-          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-            <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
-              <Ionicons name="notifications-outline" size={32} color={theme.tint} />
-            </View>
-            <Text style={[styles.statusLabel, { color: theme.textSecondary }]}>Push notifications</Text>
-            <Text style={[styles.statusValue, { color: theme.text }]}>
-              {isGranted ? 'Enabled' : isDenied ? 'Disabled' : 'Not set'}
-            </Text>
-            {isGranted && (
-              <Text style={[styles.body, { color: theme.textSecondary }]}>
-                You'll get date reminders, new matches, and daily drop alerts.
+        {!permissionGranted ? (
+          <View
+            style={[
+              styles.alertBanner,
+              { borderColor: 'rgba(234,179,8,0.4)', backgroundColor: 'rgba(234,179,8,0.06)' },
+            ]}
+          >
+            <Ionicons name="alert-circle" size={22} color="#EAB308" style={styles.alertIcon} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.alertTitle, { color: theme.text }]}>Push notifications are off</Text>
+              <Text style={[styles.alertDesc, { color: theme.mutedForeground }]}>
+                You'll miss matches, messages, and date invitations
               </Text>
-            )}
-            {isDenied && (
-              <>
-                <Text style={[styles.body, { color: theme.textSecondary }]}>
-                  Enable in your device settings to get date reminders and match alerts.
-                </Text>
-                <VibelyButton label="Open Settings" onPress={openSettings} variant="primary" style={styles.cta} />
-              </>
-            )}
-            {!isGranted && !isDenied && (
-              <VibelyButton label="Enable notifications" onPress={() => setShowFlow(true)} variant="primary" style={styles.cta} />
-            )}
-          </Card>
-          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>What to notify</Text>
-            {!prefsLoading && (
-              <View style={styles.toggles}>
-                {PREF_GROUPS.map((group) => (
-                  <View key={group.key} style={[styles.row, { borderBottomColor: theme.border }]}>
-                    <View style={styles.rowContent}>
-                      <View style={styles.rowLabelRow}>
-                        <Text style={[styles.rowLabel, { color: theme.text }]}>{group.label}</Text>
-                        {group.locked && (
-                          <Ionicons name="lock-closed" size={14} color={theme.textSecondary} style={styles.lockIcon} />
-                        )}
-                      </View>
-                      <Text style={[styles.rowDesc, { color: theme.textSecondary }]}>
-                        {group.locked ? 'Always on for your safety' : group.desc}
-                      </Text>
+              {isDenied ? (
+                <Pressable onPress={openSettings} style={styles.openSettingsLink}>
+                  <Text style={{ color: theme.tint, fontWeight: '600', fontSize: 13 }}>Open system settings</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable onPress={handleEnablePush} style={styles.enableBtn}>
+              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Enable Push Notifications</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={[styles.statusCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+            <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.tint, 0.15) }]}>
+              <Ionicons name="notifications" size={28} color={theme.tint} />
+            </View>
+            <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>Enabled</Text>
+            <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+              You'll get date reminders, new matches, and daily drop alerts.
+            </Text>
+          </View>
+        )}
+
+        <View style={[styles.row, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+          <Ionicons name="pause-circle-outline" size={20} color={theme.mutedForeground} />
+          <Text style={[styles.rowLabel, { color: theme.text, flex: 1 }]}>Pause All Notifications</Text>
+          <Pressable
+            onPress={() => {
+              Alert.alert('Pause Notifications', 'How long?', [
+                {
+                  text: '1 hour',
+                  onPress: () => updatePref('paused_until', new Date(Date.now() + 3600000).toISOString()),
+                },
+                {
+                  text: '8 hours',
+                  onPress: () => updatePref('paused_until', new Date(Date.now() + 28800000).toISOString()),
+                },
+                {
+                  text: '24 hours',
+                  onPress: () => updatePref('paused_until', new Date(Date.now() + 86400000).toISOString()),
+                },
+                { text: 'Resume all', onPress: () => updatePref('paused_until', null), style: 'destructive' },
+                { text: 'Cancel', style: 'cancel' },
+              ]);
+            }}
+            style={[styles.pauseBtn, { borderColor: theme.border }]}
+          >
+            <Text style={{ color: theme.mutedForeground, fontSize: 13 }}>Pause</Text>
+            <Ionicons name="chevron-down" size={14} color={theme.mutedForeground} />
+          </Pressable>
+        </View>
+
+        <View style={[styles.row, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+          <Ionicons name="notifications-outline" size={20} color={theme.mutedForeground} />
+          <Text style={[styles.rowLabel, { color: theme.text, flex: 1 }]}>All Notifications</Text>
+          <Switch
+            value={prefs.push_enabled}
+            onValueChange={(val) => updatePref('push_enabled', val)}
+            disabled={isLoading}
+            trackColor={{ false: theme.muted, true: theme.tint }}
+          />
+        </View>
+
+        {!isLoading &&
+          NOTIFICATION_SECTIONS.map((section) => (
+            <View key={section.title} style={{ gap: 8 }}>
+              <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>{section.title}</Text>
+              <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+                {section.items.map((item, idx) => (
+                  <View
+                    key={item.key}
+                    style={[
+                      styles.toggleRow,
+                      idx < section.items.length - 1 && {
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: withAlpha(theme.border, 0.35),
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={20} color={item.color} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.toggleLabel, { color: theme.text }]}>{item.label}</Text>
+                      <Text style={[styles.toggleDesc, { color: theme.mutedForeground }]}>{item.desc}</Text>
+                    </View>
+                    {'locked' in item && item.locked ? (
+                      <Ionicons name="lock-closed" size={18} color={theme.mutedForeground} />
+                    ) : (
+                      <Switch
+                        value={Boolean(prefs[item.key as keyof NotificationPrefs])}
+                        onValueChange={(val) => updatePref(item.key, val)}
+                        trackColor={{ false: theme.muted, true: theme.tint }}
+                      />
+                    )}
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+
+        {!isLoading &&
+          ADDITIONAL_SECTIONS.map((section) => (
+            <View key={section.title} style={{ gap: 8 }}>
+              <Text style={[styles.sectionTitle, { color: theme.mutedForeground }]}>{section.title}</Text>
+              <View style={[styles.sectionCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+                {section.items.map((item, idx) => (
+                  <View
+                    key={item.key}
+                    style={[
+                      styles.toggleRow,
+                      idx < section.items.length - 1 && {
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: withAlpha(theme.border, 0.35),
+                      },
+                    ]}
+                  >
+                    <Ionicons name={item.icon as keyof typeof Ionicons.glyphMap} size={20} color={theme.mutedForeground} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.toggleLabel, { color: theme.text }]}>{item.label}</Text>
+                      <Text style={[styles.toggleDesc, { color: theme.mutedForeground }]}>{item.desc}</Text>
                     </View>
                     <Switch
-                      value={group.locked ? true : (prefs[group.key] ?? group.defaultVal)}
-                      onValueChange={(val) => { if (!group.locked) updatePref(group.key, val); }}
-                      disabled={group.locked}
-                      trackColor={{ false: theme.surfaceSubtle, true: theme.tint }}
-                      thumbColor={theme.primaryForeground}
+                      value={
+                        item.key === 'sound_enabled'
+                          ? prefs.sound_enabled
+                          : item.key === 'message_bundle_enabled'
+                            ? prefs.message_bundle_enabled
+                            : prefs.quiet_hours_enabled
+                      }
+                      onValueChange={(val) => updatePref(item.key, val)}
+                      trackColor={{ false: theme.muted, true: theme.tint }}
                     />
                   </View>
                 ))}
               </View>
-            )}
-            <Text style={[styles.body, { color: theme.textSecondary }]}>
-              Quiet hours and alert sounds can be managed on web.
-            </Text>
-            <VibelyButton
-              label="Open notification settings on web"
-              onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => Alert.alert('Unable to open', 'Try again later.'))}
-              variant="secondary"
-              size="sm"
-              style={styles.cta}
-            />
-          </Card>
-        </View>
+            </View>
+          ))}
       </ScrollView>
-
-      <NotificationPermissionFlow
-        open={showFlow}
-        onOpenChange={(open) => { setShowFlow(open); if (!open) refresh(); }}
-        onRequestPermission={handleRequest}
-        openSettings={openSettings}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
-  backBtn: { padding: spacing.xs },
-  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
-  scroll: { flex: 1 },
-  scrollContent: { paddingTop: layout.mainContentPaddingTop, paddingHorizontal: spacing.lg },
-  main: { gap: spacing.lg },
-  card: { padding: spacing.lg },
-  iconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
-  statusLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  statusValue: { fontSize: 16, fontWeight: '600', marginBottom: spacing.sm },
-  sectionTitle: { fontSize: 12, fontWeight: '600', letterSpacing: 0.5, marginBottom: spacing.sm, textTransform: 'uppercase' },
-  toggles: { marginBottom: spacing.md },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
-  rowContent: { flex: 1, minWidth: 0, marginRight: spacing.md },
-  rowLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  rowLabel: { fontSize: 16, fontWeight: '600' },
-  rowDesc: { fontSize: 13, marginTop: 2, lineHeight: 18 },
-  lockIcon: { marginLeft: 2 },
-  body: { fontSize: 14, lineHeight: 20, marginBottom: spacing.md },
-  cta: { marginTop: spacing.sm },
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  backBtn: {
+    padding: spacing.xs,
+  },
+  headerTitles: {
+    flex: 1,
+    minWidth: 0,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  scrollInner: {
+    padding: 16,
+    gap: 20,
+    paddingTop: layout.mainContentPaddingTop,
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexWrap: 'wrap',
+  },
+  alertIcon: {
+    marginTop: 2,
+  },
+  alertTitle: { fontSize: 15, fontWeight: '600' },
+  alertDesc: { fontSize: 12, marginTop: 2 },
+  openSettingsLink: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  enableBtn: {
+    backgroundColor: '#E84393',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusCard: {
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  statusIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  rowLabel: { fontSize: 15, fontWeight: '500' },
+  pauseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, paddingLeft: 4 },
+  sectionCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  toggleLabel: { fontSize: 15, fontWeight: '500' },
+  toggleDesc: { fontSize: 12, marginTop: 1 },
 });

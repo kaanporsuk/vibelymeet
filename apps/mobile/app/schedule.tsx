@@ -28,6 +28,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useDateReminders } from '@/lib/useDateReminders';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { registerPushWithBackend } from '@/lib/onesignal';
 import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
@@ -75,38 +76,38 @@ export default function ScheduleScreen() {
   const reminderSource = toDateProposalsForReminders(upcomingAccepted);
   const { imminentReminders, soonReminders } = useDateReminders(reminderSource);
   const upcomingReminders = [...imminentReminders, ...soonReminders];
-
-  const { isGranted: pushGranted, requestPermission, openSettings } = usePushPermission();
+  const urgentIds = new Set(upcomingReminders.map((r) => r.proposalId));
+  const calmUpcoming = upcomingAccepted.filter((p) => !urgentIds.has(p.id));
+  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
+    usePushPermission();
+  const { activeSession } = useActiveSession(user?.id);
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
-  const [rollLoading, setRollLoading] = useState(false);
-  const [banner, setBanner] = useState<'success' | 'error' | null>(null);
-  const [datesTab, setDatesTab] = useState<'pending' | 'upcoming' | 'past'>('pending');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleRollPreviousWeek = useCallback(async () => {
-    setRollLoading(true);
-    setBanner(null);
-    try {
-      await rollPreviousWeek();
-      setBanner('success');
-    } catch {
-      setBanner('error');
-    } finally {
-      setRollLoading(false);
+  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
+    const granted = await requestPermission();
+    if (granted && user?.id) {
+      await registerPushWithBackend(user.id);
     }
-  }, [rollPreviousWeek]);
+    await refreshPushPermission();
+    return granted;
+  }, [requestPermission, user?.id, refreshPushPermission]);
 
-  useEffect(() => {
-    if (!banner) return;
-    const t = setTimeout(() => setBanner(null), banner === 'success' ? 3000 : 4000);
-    return () => clearTimeout(t);
-  }, [banner]);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    await qc.invalidateQueries({ queryKey: ['date-proposals', user?.id] });
+    setRefreshing(false);
+  }, [refetch, qc, user?.id]);
 
-  const handleToggleSlot = useCallback(
-    async (isoDate: string, bucket: Parameters<typeof toggleSlot>[1]) => {
-      try {
-        await toggleSlot(isoDate, bucket);
-      } catch {
-        setBanner('error');
+  const handleJoinDate = useCallback(
+    async (reminder: DateReminder) => {
+      if (activeSession?.sessionId) {
+        router.push(`/date/${activeSession.sessionId}` as const);
+        return;
+      }
+      if (reminder.matchId && user?.id) {
+        await openChatFromMatch(reminder.matchId, user.id);
       }
     },
     [toggleSlot],
@@ -128,7 +129,7 @@ export default function ScheduleScreen() {
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
-        onRequestPermission={requestPermission}
+        onRequestPermission={handleNotificationPermissionRequest}
         openSettings={openSettings}
       />
 
