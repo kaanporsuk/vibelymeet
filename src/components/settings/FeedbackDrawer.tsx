@@ -399,17 +399,32 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
 
 function ThreadPanel({ ticket }: { ticket: TicketListRow }) {
   const [rows, setRows] = useState<
-    { id: string; sender_type: string; message: string; created_at: string }[]
+    { id: string; sender_type: string; message: string; created_at: string; is_read?: boolean | null }[]
   >([]);
 
   useEffect(() => {
     void (async () => {
       const { data } = await supabase
         .from("support_ticket_replies")
-        .select("id, sender_type, message, created_at")
+        .select("id, sender_type, message, created_at, is_read")
         .eq("ticket_id", ticket.id)
         .order("created_at", { ascending: true });
-      if (data) setRows(data);
+
+      if (data) {
+        setRows(data);
+
+        const unreadAdminIds = data
+          .filter((r) => r.sender_type === "admin" && !r.is_read)
+          .map((r) => r.id);
+
+        if (unreadAdminIds.length > 0) {
+          await Promise.all(
+            unreadAdminIds.map((id) =>
+              supabase.rpc("mark_support_reply_read", { p_reply_id: id }),
+            ),
+          );
+        }
+      }
     })();
   }, [ticket.id]);
 

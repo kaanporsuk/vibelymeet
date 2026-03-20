@@ -13,9 +13,12 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  -- Only set if not already provided
-  IF NEW.reference_id IS NULL OR NEW.reference_id = '' THEN
-    NEW.reference_id := 'VB-' || LPAD(nextval('support_ticket_ref_seq')::text, 5, '0');
+  IF NULLIF(btrim(COALESCE(NEW.reference_id, '')), '') IS NULL THEN
+    NEW.reference_id := 'VB-' || LPAD(
+      nextval('public.support_ticket_ref_seq'::regclass)::text,
+      5,
+      '0'
+    );
   END IF;
   RETURN NEW;
 END;
