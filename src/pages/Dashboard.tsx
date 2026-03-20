@@ -32,6 +32,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useDailyDropTabBadge } from "@/hooks/useDailyDropTabBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { differenceInSeconds, format, startOfDay } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
@@ -127,7 +128,17 @@ const Dashboard = () => {
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
-  const { isGranted, requestPermission, scheduleDateReminder } = usePushNotifications();
+  const { isGranted, scheduleDateReminder, refreshSubscriptionState } = usePushNotifications();
+
+  const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
+    if (!user?.id) return false;
+    const ok = await requestWebPushPermissionAndSync(user.id);
+    await refreshSubscriptionState();
+    if (ok) {
+      window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+    }
+    return ok;
+  }, [user?.id, refreshSubscriptionState]);
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
   const dropReady = useDailyDropTabBadge(user?.id);
@@ -389,7 +400,7 @@ const Dashboard = () => {
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
-        onRequestPermission={requestPermission}
+        onRequestPermission={handleRequestOneSignalPermission}
       />
 
       <header className="sticky top-0 z-40 glass-card border-b border-white/10 px-4 py-4">

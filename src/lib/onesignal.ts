@@ -61,8 +61,15 @@ export const getPlayerId = (): Promise<string | null> => {
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal: any) => {
       try {
-        const id = await OneSignal.User.PushSubscription.id;
-        resolve(id || null);
+        for (let i = 0; i < 5; i++) {
+          const id = await OneSignal.User.PushSubscription.id;
+          if (id) {
+            resolve(id);
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        resolve(null);
       } catch {
         resolve(null);
       }

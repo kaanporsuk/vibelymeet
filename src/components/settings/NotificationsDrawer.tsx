@@ -39,8 +39,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
-import { promptForPush, getPlayerId } from "@/lib/onesignal";
-import { supabase } from "@/integrations/supabase/client";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -53,19 +53,16 @@ interface NotificationsDrawerProps {
 
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
   const { user } = useUserProfile();
+  const { refreshSubscriptionState } = usePushNotifications();
   const { prefs, isLoading, isSaving, isPushSubscribed, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
 
   const handleEnablePush = async () => {
-    const granted = await promptForPush();
-    if (granted) {
-      const playerId = await getPlayerId();
-      if (playerId && user?.id) {
-        await supabase.from("notification_preferences").upsert(
-          { user_id: user.id, onesignal_player_id: playerId, onesignal_subscribed: true },
-          { onConflict: "user_id" }
-        );
-      }
+    if (!user?.id) return;
+    const ok = await requestWebPushPermissionAndSync(user.id);
+    await refreshSubscriptionState();
+    if (ok) {
+      window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
       toast.success("Push notifications enabled! 🔔");
     }
   };

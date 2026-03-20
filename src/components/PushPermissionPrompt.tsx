@@ -10,7 +10,8 @@ import {
   DrawerDescription,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { promptForPush, getPlayerId, isSubscribed } from "@/lib/onesignal";
+import { isSubscribed } from "@/lib/onesignal";
+import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -29,12 +30,10 @@ export function PushPermissionPrompt() {
     if (!("Notification" in window)) return;
 
     const checkEligibility = async () => {
-      // Already subscribed?
+      // Fully set up for server push (OneSignal + browser)
       const subscribed = await isSubscribed();
-      if (subscribed) return;
+      if (Notification.permission === "granted" && subscribed) return;
 
-      // Already granted at browser level?
-      if (Notification.permission === "granted") return;
       if (Notification.permission === "denied") return;
 
       // Check localStorage prompt timing
@@ -66,35 +65,23 @@ export function PushPermissionPrompt() {
   }, [user?.id]);
 
   const handleEnable = async () => {
-    const granted = await promptForPush();
-    if (granted) {
-      const playerId = await getPlayerId();
-      if (playerId && user?.id) {
-        await supabase.from("notification_preferences").upsert(
-          {
-            user_id: user.id,
-            onesignal_player_id: playerId,
-            onesignal_subscribed: true,
-          },
-          { onConflict: "user_id" }
-        );
-      }
+    if (!user?.id) return;
+    const ok = await requestWebPushPermissionAndSync(user.id);
+    if (ok) {
+      window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
       localStorage.setItem(PROMPTED_KEY, String(Date.now()));
       setOpen(false);
       trackEvent('push_permission_granted');
       toast.success("Notifications enabled! 🔔");
 
-      // Send welcome notification
-      if (user?.id) {
-        sendNotification({
-          user_id: user.id,
-          category: "safety_alerts",
-          title: "Notifications are on! 🔔",
-          body: "You can customize what you receive anytime in Settings → Notifications",
-          data: { url: "/settings" },
-          bypass_preferences: true,
-        });
-      }
+      sendNotification({
+        user_id: user.id,
+        category: "safety_alerts",
+        title: "Notifications are on! 🔔",
+        body: "You can customize what you receive anytime in Settings → Notifications",
+        data: { url: "/settings" },
+        bypass_preferences: true,
+      });
     }
   };
 
