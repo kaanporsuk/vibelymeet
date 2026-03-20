@@ -7,7 +7,8 @@ CREATE SEQUENCE IF NOT EXISTS support_ticket_ref_seq
   NO MAXVALUE
   CACHE 1;
 
--- Replace the trigger function
+-- Replace the trigger function (SECURITY INVOKER: callers need sequence USAGE;
+-- see 20260322200000_support_ticket_seq_grants.sql.)
 CREATE OR REPLACE FUNCTION public.set_support_ticket_reference_id()
 RETURNS TRIGGER
 LANGUAGE plpgsql

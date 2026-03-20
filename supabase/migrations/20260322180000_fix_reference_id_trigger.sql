@@ -1,16 +1,4 @@
--- Fix reference_id generation: handle whitespace + schema-qualify sequence
-CREATE OR REPLACE FUNCTION public.set_support_ticket_reference_id()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  IF NULLIF(btrim(COALESCE(NEW.reference_id, '')), '') IS NULL THEN
-    NEW.reference_id := 'VB-' || LPAD(
-      nextval('public.support_ticket_ref_seq'::regclass)::text,
-      5,
-      '0'
-    );
-  END IF;
-  RETURN NEW;
-END;
-$$;
+-- This migration was superseded by the final version of
+-- 20260322170000_support_ticket_reference_sequence.sql which already
+-- contains the btrim + schema-qualified sequence fix.
+-- Kept as an empty migration to preserve the migration history chain.

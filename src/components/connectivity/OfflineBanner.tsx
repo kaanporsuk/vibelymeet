@@ -3,35 +3,34 @@ import { getHealthUrl } from "@/lib/healthUrl";
 
 type NetState = "online" | "reconnecting" | "offline";
 
-function abortAfter(ms: number): AbortSignal {
-  // AbortSignal.timeout() auto-clears — no orphaned timers
-  if (typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(ms);
-  }
-  // Fallback for older runtimes
-  const c = new AbortController();
-  const t = window.setTimeout(() => c.abort(), ms);
-  // Return a signal that also clears the timer
-  const originalAbort = c.abort.bind(c);
-  c.abort = () => {
-    window.clearTimeout(t);
-    originalAbort();
-  };
-  return c.signal;
-}
-
 async function probeHealthOk(timeoutMs: number): Promise<boolean> {
   const url = getHealthUrl();
   if (!url) return true;
+  if (typeof AbortSignal.timeout === "function") {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       method: "GET",
       cache: "no-store",
-      signal: abortAfter(timeoutMs),
+      signal: controller.signal,
     });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
