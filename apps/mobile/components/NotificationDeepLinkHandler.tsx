@@ -62,15 +62,16 @@ export function NotificationDeepLinkHandler() {
       try {
         const n = event.getNotification();
         const raw = n.additionalData as Record<string, unknown> | undefined;
-        const matchId =
-          typeof raw?.match_id === 'string'
-            ? raw.match_id
-            : typeof raw?.matchId === 'string'
-              ? raw.matchId
+        // Chat routes use the other user's profile_id in the path (/chat/:profileId), not match_id
+        const chatPeerProfileId =
+          typeof raw?.sender_id === 'string'
+            ? raw.sender_id
+            : typeof raw?.other_user_id === 'string'
+              ? raw.other_user_id
               : undefined;
         const cat = typeof raw?.category === 'string' ? raw.category : undefined;
         const path = notificationRouteRef.current;
-        if (matchId && cat === 'messages' && path === `/chat/${matchId}`) {
+        if (chatPeerProfileId && cat === 'messages' && path === `/chat/${chatPeerProfileId}`) {
           event.preventDefault();
           return;
         }

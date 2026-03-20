@@ -71,11 +71,13 @@ const AdminDashboard = () => {
   const { data: supportCount = 0 } = useQuery({
     queryKey: ['admin-support-open-count'],
     queryFn: async () => {
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from('support_tickets')
         .select('*', { count: 'exact', head: true })
         .in('status', ['submitted', 'in_review']);
-      return count || 0;
+
+      if (error) throw error;
+      return count ?? 0;
     },
     refetchInterval: 30000,
   });

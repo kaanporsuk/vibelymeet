@@ -371,16 +371,37 @@ Deno.serve(async (req) => {
     }
 
     // 11. Send via OneSignal (all registered devices)
-    // deep_link: path for native app to open correct screen (e.g. /chat/MATCH_ID, /event/EVENT_ID/lobby)
-    const deepLink = (data && typeof data.url === 'string') ? data.url : (data && typeof data.deep_link === 'string') ? data.deep_link : '/'
-    const osData = { ...(data || {}), category, deep_link: deepLink }
+    // Deep link contract (web + native):
+    // - /chat/:id is always the other user's profile_id (the message sender from the recipient's POV).
+    // - match_id is included in data for muting, bundling, and client logic — not for the chat URL path.
+    let webPath = '/'
+    const osData: Record<string, unknown> = { ...(data || {}), category }
+    if (category === 'messages' && data?.match_id && data?.sender_id) {
+      const chatPath = `/chat/${data.sender_id}`
+      osData.match_id = data.match_id
+      osData.other_user_id = data.sender_id
+      osData.sender_id = data.sender_id
+      osData.url = chatPath
+      osData.deep_link = chatPath
+      webPath = chatPath
+    } else {
+      const deepLink =
+        data && typeof data.url === 'string'
+          ? data.url
+          : data && typeof data.deep_link === 'string'
+            ? data.deep_link
+            : '/'
+      osData.deep_link = deepLink
+      webPath = data && typeof data.url === 'string' ? data.url : '/'
+    }
+
     const osPayload: any = {
       app_id: ONESIGNAL_APP_ID,
       include_player_ids: playerIds,
       headings: { en: finalTitle },
       contents: { en: finalBody },
       data: osData,
-      url: data?.url ? `${APP_URL}${data.url}` : APP_URL,
+      url: webPath !== '/' ? `${APP_URL}${webPath}` : APP_URL,
     }
 
     if (collapseId) {
