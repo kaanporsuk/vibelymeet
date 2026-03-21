@@ -13,37 +13,6 @@ function getHealthUrl(): string {
   return `${base.replace(/\/$/, '')}/functions/v1/health`;
 }
 
-async function probeHealthOk(timeoutMs: number): Promise<boolean> {
-  const url = getHealthUrl();
-  if (!url) return true;
-  if (typeof AbortSignal.timeout === 'function') {
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        cache: 'no-store',
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  }
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
 class ConnectivityService {
   private state: NetworkState = 'online';
   private listeners: Set<Listener> = new Set();
@@ -132,18 +101,37 @@ class ConnectivityService {
     }, delayMs);
   }
 
+  private async probeOnce(timeoutMs: number): Promise<boolean> {
+    const url = getHealthUrl();
+    if (!url) return true;
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timerId);
+    }
+  }
+
   private async probe() {
     if (this.probeLoopTimer) {
       clearTimeout(this.probeLoopTimer);
       this.probeLoopTimer = null;
     }
 
-    const ok = await probeHealthOk(8000);
+    const ok = await this.probeOnce(8000);
     if (ok) {
       if (this.stabilityTimer) clearTimeout(this.stabilityTimer);
       this.stabilityTimer = setTimeout(async () => {
         this.stabilityTimer = null;
-        const confirm = await probeHealthOk(5000);
+        const confirm = await this.probeOnce(5000);
         if (confirm) {
           this.setState('online');
         } else {
