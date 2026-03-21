@@ -3,25 +3,32 @@ import { getHealthUrl } from "@/lib/healthUrl";
 
 type NetState = "online" | "reconnecting" | "offline";
 
-async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
-  const controller = new AbortController();
-  const timerId = window.setTimeout(() => controller.abort(), ms);
-  try {
-    return await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timerId);
+function abortAfter(ms: number): AbortSignal {
+  // AbortSignal.timeout() auto-clears — no orphaned timers
+  if (typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
   }
+  // Fallback for older runtimes
+  const c = new AbortController();
+  const t = window.setTimeout(() => c.abort(), ms);
+  // Return a signal that also clears the timer
+  const originalAbort = c.abort.bind(c);
+  c.abort = () => {
+    window.clearTimeout(t);
+    originalAbort();
+  };
+  return c.signal;
 }
 
 async function probeHealthOk(timeoutMs: number): Promise<boolean> {
   const url = getHealthUrl();
   if (!url) return true;
   try {
-    const res = await fetchWithTimeout(url, timeoutMs);
+    const res = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      signal: abortAfter(timeoutMs),
+    });
     return res.ok;
   } catch {
     return false;
@@ -34,17 +41,8 @@ function useWebConnectivity(): NetState {
   const probeLoopRef = useRef<number | null>(null);
   const debounceOfflineRef = useRef<number | null>(null);
   const stabilityRef = useRef<number | null>(null);
-  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const safeSetNetState = useCallback((next: NetState | ((s: NetState) => NetState)) => {
-    if (!mountedRef.current) return;
+  const setNetState = useCallback((next: NetState | ((s: NetState) => NetState)) => {
     setStateRaw((prev) => {
       const resolved = typeof next === "function" ? (next as (s: NetState) => NetState)(prev) : next;
       if (startupGraceRef.current && resolved !== "online") return prev;
@@ -60,75 +58,42 @@ function useWebConnectivity(): NetState {
   }
 
   const probe = useCallback(async () => {
-    if (!mountedRef.current) return;
     clearProbeLoop();
     const ok = await probeHealthOk(8000);
-    if (!mountedRef.current) return;
     if (ok) {
       if (stabilityRef.current != null) window.clearTimeout(stabilityRef.current);
       stabilityRef.current = window.setTimeout(async () => {
         stabilityRef.current = null;
         const confirm = await probeHealthOk(5000);
-        if (!mountedRef.current) return;
         if (confirm) {
-          safeSetNetState("online");
+          setNetState("online");
         } else {
-          safeSetNetState("reconnecting");
-          probeLoopRef.current = window.setTimeout(() => {
-            if (mountedRef.current) void probe();
-          }, 8000);
+          setNetState("reconnecting");
+          probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
         }
       }, 2000);
       return;
     }
-    if (!mountedRef.current) return;
-    safeSetNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
-    probeLoopRef.current = window.setTimeout(() => {
-      if (mountedRef.current) void probe();
-    }, 8000);
-  }, [safeSetNetState]);
+    setNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
+    probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
+  }, [setNetState]);
 
   useEffect(() => {
-    const pendingTimers: number[] = [];
     const id = window.setTimeout(() => {
       startupGraceRef.current = false;
-      if (mountedRef.current) void probe();
+      void probe();
     }, 5000);
-    pendingTimers.push(id);
-    return () => {
-      pendingTimers.forEach((t) => window.clearTimeout(t));
-    };
+    return () => window.clearTimeout(id);
   }, [probe]);
 
   useEffect(() => {
-    const pendingTimers: number[] = [];
-
-    function scheduleProbe(delayMs: number) {
-      const timerId = window.setTimeout(() => {
-        if (mountedRef.current) void probe();
-      }, delayMs);
-      pendingTimers.push(timerId);
-      return timerId;
-    }
-
     const scheduleOffline = () => {
-      if (debounceOfflineRef.current != null) {
-        window.clearTimeout(debounceOfflineRef.current);
-        debounceOfflineRef.current = null;
-      }
+      if (debounceOfflineRef.current != null) window.clearTimeout(debounceOfflineRef.current);
       debounceOfflineRef.current = window.setTimeout(() => {
         debounceOfflineRef.current = null;
-        if (!mountedRef.current) return;
-        safeSetNetState("offline");
-        const loopId = window.setTimeout(() => {
-          if (mountedRef.current) void probe();
-        }, 8000);
-        probeLoopRef.current = loopId;
-        pendingTimers.push(loopId);
+        setNetState("offline");
+        probeLoopRef.current = window.setTimeout(() => void probe(), 8000);
       }, 2000);
-      if (debounceOfflineRef.current != null) {
-        pendingTimers.push(debounceOfflineRef.current);
-      }
     };
 
     const onBrowserOffline = () => {
@@ -144,30 +109,23 @@ function useWebConnectivity(): NetState {
         window.clearTimeout(debounceOfflineRef.current);
         debounceOfflineRef.current = null;
       }
-      safeSetNetState("reconnecting");
-      scheduleProbe(400);
+      setNetState("reconnecting");
+      window.setTimeout(() => void probe(), 400);
     };
 
     window.addEventListener("offline", onBrowserOffline);
     window.addEventListener("online", onBrowserOnline);
 
-    scheduleProbe(400);
+    window.setTimeout(() => void probe(), 400);
 
     return () => {
       window.removeEventListener("offline", onBrowserOffline);
       window.removeEventListener("online", onBrowserOnline);
-      pendingTimers.forEach((t) => window.clearTimeout(t));
       clearProbeLoop();
-      if (debounceOfflineRef.current != null) {
-        window.clearTimeout(debounceOfflineRef.current);
-        debounceOfflineRef.current = null;
-      }
-      if (stabilityRef.current != null) {
-        window.clearTimeout(stabilityRef.current);
-        stabilityRef.current = null;
-      }
+      if (debounceOfflineRef.current != null) window.clearTimeout(debounceOfflineRef.current);
+      if (stabilityRef.current != null) window.clearTimeout(stabilityRef.current);
     };
-  }, [probe, safeSetNetState]);
+  }, [probe, setNetState]);
 
   return state;
 }

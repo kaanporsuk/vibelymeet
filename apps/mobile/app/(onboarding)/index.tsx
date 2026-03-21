@@ -649,6 +649,26 @@ export default function OnboardingScreen() {
             <Text style={[{ fontSize: 13, color: theme.mutedForeground, marginTop: 8, lineHeight: 20 }]}>
               You can add more photos and record your vibe video later in your profile.
             </Text>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
+            <TextInput
+              placeholder="Height in cm (e.g. 175)"
+              value={heightCm}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
+              keyboardType="number-pad"
+              maxLength={3}
+              style={[
+                styles.input,
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
+              ]}
+              placeholderTextColor={theme.mutedForeground}
+              editable={!loading}
+            />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
             <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
               <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
               <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>

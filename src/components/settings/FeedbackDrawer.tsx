@@ -399,33 +399,17 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
 
 function ThreadPanel({ ticket }: { ticket: TicketListRow }) {
   const [rows, setRows] = useState<
-    { id: string; sender_type: string; message: string; created_at: string; is_read?: boolean | null }[]
+    { id: string; sender_type: string; message: string; created_at: string }[]
   >([]);
 
   useEffect(() => {
     void (async () => {
       const { data } = await supabase
         .from("support_ticket_replies")
-        .select("id, sender_type, message, created_at, is_read")
+        .select("id, sender_type, message, created_at")
         .eq("ticket_id", ticket.id)
         .order("created_at", { ascending: true });
-
-      if (data) {
-        setRows(data);
-
-        // Mark unread admin replies as read (same as native does on focus)
-        const unreadAdminIds = data
-          .filter((r) => r.sender_type === "admin" && !r.is_read)
-          .map((r) => r.id);
-
-        if (unreadAdminIds.length > 0) {
-          await Promise.all(
-            unreadAdminIds.map((id) =>
-              supabase.rpc("mark_support_reply_read", { p_reply_id: id }),
-            ),
-          );
-        }
-      }
+      if (data) setRows(data);
     })();
   }, [ticket.id]);
 

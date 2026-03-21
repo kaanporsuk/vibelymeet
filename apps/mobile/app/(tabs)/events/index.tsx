@@ -622,25 +622,10 @@ export default function EventsListScreen() {
   const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
   const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
 
-  // Base: upcoming events excluding registered + already ended
-  const discoverableUpcoming = useMemo(() => {
-    const now = new Date();
-    const registered = new Set(registeredEventIds);
-    return upcomingEvents.filter((e) => {
-      if (registered.has(e.id)) return false;
-      const end = new Date(
-        e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000
-      );
-      return end > now;
-    });
-  }, [upcomingEvents, registeredEventIds]);
-
-  // Discover rail: same as base (separate const for clarity / future divergence)
-  const discoverUpcomingEvents = discoverableUpcoming;
-
   const filteredEvents = useMemo(() => {
+    const registered = new Set(registeredEventIds);
     const now = new Date();
-    let list = discoverableUpcoming;
+    let list = upcomingEvents;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -660,8 +645,23 @@ export default function EventsListScreen() {
         return dateMatch;
       });
     }
-    return list;
-  }, [discoverableUpcoming, searchQuery, activeFilters]);
+    return list.filter((event) => {
+      if (registered.has(event.id)) return false;
+      const eventEnd = new Date(
+        event.eventDate.getTime() + (event.duration_minutes ?? 60) * 60 * 1000
+      );
+      return eventEnd > now;
+    });
+  }, [upcomingEvents, registeredEventIds, searchQuery, activeFilters]);
+  const discoverUpcomingEvents = useMemo(() => {
+    const now = new Date();
+    const registered = new Set(registeredEventIds);
+    return upcomingEvents.filter((e) => {
+      if (registered.has(e.id)) return false;
+      const end = new Date(e.eventDate.getTime() + e.duration_minutes * 60 * 1000);
+      return end > now;
+    });
+  }, [upcomingEvents, registeredEventIds]);
   const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
   const { data: featuredAttendees = [] } = useEventAttendees(featuredEvent?.id);

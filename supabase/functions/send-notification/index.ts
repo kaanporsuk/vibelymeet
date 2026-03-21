@@ -334,38 +334,24 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 9. Message routing: validate fields, optional bundling + multi-message copy
+    // 9. Message bundling: collapse_id + optional multi-message copy (replaces per-minute throttle)
     let finalTitle = title
     let finalBody = body
     let collapseId: string | undefined
-    let messagesChatPath: string | null = null
-    if (category === 'messages') {
-      if (!data?.match_id || !data?.sender_id) {
-        // Missing required fields for message notification routing.
-        // Log the gap and fall through with whatever URL is in data.
-        console.warn('[send-notification] message notification missing match_id or sender_id', {
-          has_match_id: !!data?.match_id,
-          has_sender_id: !!data?.sender_id,
-          user_id,
-        })
-        // Do not attempt bundling or deep-link override without both fields
-      } else {
-        messagesChatPath = `/chat/${data.sender_id}`
-        // Both fields present — safe to proceed with bundling when enabled
-        if (prefs.message_bundle_enabled) {
-          collapseId = `msg_${data.match_id}`
-          const { count: unreadCount } = await supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('match_id', data.match_id)
-            .eq('sender_id', data.sender_id)
-            .is('read_at', null)
-          const n = unreadCount ?? 0
-          if (n > 1) {
-            finalTitle = `${title} · ${n} messages`
-            finalBody = `${n} new messages`
-          }
-        }
+    if (category === 'messages' && prefs.message_bundle_enabled && data?.match_id) {
+      // OneSignal collapse_id max 64 chars; match_id alone scopes per-conversation for this recipient
+      collapseId = `msg_${data.match_id}`
+      const { count: unreadCount } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('match_id', data.match_id)
+        .is('read_at', null)
+        .neq('sender_id', user_id)
+
+      const n = unreadCount ?? 0
+      if (n > 1) {
+        finalTitle = `${title} · ${n} messages`
+        finalBody = `${n} new messages`
       }
     }
 
@@ -390,13 +376,14 @@ Deno.serve(async (req) => {
     // - match_id is included in data for muting, bundling, and client logic — not for the chat URL path.
     let webPath = '/'
     const osData: Record<string, unknown> = { ...(data || {}), category }
-    if (messagesChatPath) {
+    if (category === 'messages' && data?.match_id && data?.sender_id) {
+      const chatPath = `/chat/${data.sender_id}`
       osData.match_id = data.match_id
       osData.other_user_id = data.sender_id
       osData.sender_id = data.sender_id
-      osData.url = messagesChatPath
-      osData.deep_link = messagesChatPath
-      webPath = messagesChatPath
+      osData.url = chatPath
+      osData.deep_link = chatPath
+      webPath = chatPath
     } else {
       const deepLink =
         data && typeof data.url === 'string'
@@ -438,7 +425,7 @@ Deno.serve(async (req) => {
     console.log('OneSignal response:', osResult)
 
     // 12. Log success
-    await logNotification(user_id, category, finalTitle, finalBody, osData, true)
+    await logNotification(user_id, category, finalTitle, finalBody, data, true)
 
     return new Response(
       JSON.stringify({ success: true }),

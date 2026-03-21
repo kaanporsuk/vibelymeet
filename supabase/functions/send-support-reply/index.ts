@@ -102,10 +102,9 @@ serve(async (req) => {
           type: "support_reply",
           ticket_id: ticket.id,
           reference_id: ticket.reference_id,
-          // Web navigates to /settings where the Support & Feedback
-          // section shows the thread. Native uses ticket_id to deep link.
-          url: `/settings`,
+          url: `/settings/ticket/${ticket.id}`,
         },
+        bypass_preferences: true,
       }),
     });
 

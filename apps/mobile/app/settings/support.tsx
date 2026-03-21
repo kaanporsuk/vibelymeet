@@ -55,7 +55,7 @@ export default function SupportScreen() {
   const ticketIds = useMemo(() => tickets.map((t) => t.id), [tickets]);
 
   const { data: unreadByTicket = {} } = useQuery({
-    queryKey: ['support_unread', user?.id, ticketIds],
+    queryKey: ['support_unread', ticketIds.join(',')],
     queryFn: async () => {
       if (ticketIds.length === 0) return {};
       const { data, error } = await supabase
