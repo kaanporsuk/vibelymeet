@@ -20,7 +20,7 @@ export function initOneSignal(): void {
   }
 }
 
-/** Login + subscription id + Supabase upsert (assumes push permission already handled). */
+/** Login + subscription id + Supabase upsert (no OS permission prompt). */
 async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
   OneSignal.login(userId);
   let subscriptionId: string | null = await OneSignal.User.pushSubscription.getIdAsync();
@@ -42,6 +42,20 @@ async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+/**
+ * Sync OneSignal subscription ID to notification_preferences after permission is already granted.
+ * Does not call requestPermission — use from flows that already prompted (e.g. requestPushPermissionsAfterPrompt).
+ */
+export async function syncPushSubscriptionToBackend(userId: string): Promise<boolean> {
+  if (!APP_ID) return false;
+  try {
+    return await pushSubscriptionToBackend(userId);
+  } catch (e) {
+    console.warn('[Vibely] syncPushSubscriptionToBackend error:', e);
+    return false;
+  }
 }
 
 /**
@@ -80,6 +94,28 @@ export function logoutOneSignal(): void {
   try {
     OneSignal.logout();
   } catch {}
+}
+
+/**
+ * Suppress OneSignal push at the SDK level (optOut) or restore delivery (optIn).
+ * Maps to OneSignal v5 User.pushSubscription — the public name matches common docs (disablePush).
+ */
+export function setNativePushSuppressed(suppress: boolean): void {
+  disablePush(suppress);
+}
+
+/** Alias for OneSignal delivery gate docs — uses push subscription optOut/optIn under the hood. */
+export function disablePush(disable: boolean): void {
+  if (!APP_ID) return;
+  try {
+    if (disable) {
+      OneSignal.User.pushSubscription.optOut();
+    } else {
+      OneSignal.User.pushSubscription.optIn();
+    }
+  } catch (e) {
+    console.warn('[Vibely] disablePush failed:', e);
+  }
 }
 
 /** Profile-like shape for OneSignal tags (all tag values must be strings). */

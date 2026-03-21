@@ -17,7 +17,9 @@ import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { differenceInSeconds, startOfDay } from 'date-fns';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Notifications from 'expo-notifications';
+import { PermissionStatus } from 'expo-modules-core';
 import Colors from '@/constants/Colors';
 import {
   Avatar,
@@ -47,8 +49,8 @@ import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
-import { registerPushWithBackend } from '@/lib/onesignal';
-import { NotificationPermissionFlow } from '@/components/notifications/NotificationPermissionFlow';
+import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
+import { VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
@@ -113,21 +115,12 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { user } = useAuth();
+  const qc = useQueryClient();
+  const { user, onboardingComplete } = useAuth();
   const { activeSession, refetch: refetchActiveSession } = useActiveSession(user?.id);
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
-  const { isGranted: pushGranted, requestPermission, openSettings, refresh: refreshPushPermission } =
-    usePushPermission();
-  const [showNotificationFlow, setShowNotificationFlow] = useState(false);
-
-  const handleNotificationPermissionRequest = useCallback(async (): Promise<boolean> => {
-    const granted = await requestPermission();
-    if (granted && user?.id) {
-      await registerPushWithBackend(user.id);
-    }
-    await refreshPushPermission();
-    return granted;
-  }, [requestPermission, user?.id, refreshPushPermission]);
+  const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
+  const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const { isPremium } = useBackendSubscription(user?.id);
@@ -273,6 +266,25 @@ export default function DashboardScreen() {
     })();
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!user?.id || onboardingComplete !== true) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const asked = await AsyncStorage.getItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
+          if (asked) return;
+          const { status } = await Notifications.getPermissionsAsync();
+          if (status === PermissionStatus.UNDETERMINED) {
+            setShowPushPermissionPrompt(true);
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [user?.id, onboardingComplete]);
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -287,9 +299,8 @@ export default function DashboardScreen() {
   }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchUnread]);
 
   const handleNotificationPress = useCallback(() => {
-    if (!pushGranted) setShowNotificationFlow(true);
-    else router.push('/settings/notifications');
-  }, [pushGranted]);
+    router.push('/settings/notifications');
+  }, []);
 
   const handleCancelDeletion = useCallback(async () => {
     await cancelDeletion();
@@ -658,11 +669,14 @@ export default function DashboardScreen() {
               isCancelling={isCancelling}
             />
           )}
-          <NotificationPermissionFlow
-            open={showNotificationFlow}
-            onOpenChange={setShowNotificationFlow}
-            onRequestPermission={handleNotificationPermissionRequest}
-            openSettings={openSettings}
+          <PushPermissionPrompt
+            visible={showPushPermissionPrompt}
+            onClose={() => setShowPushPermissionPrompt(false)}
+            userId={user?.id}
+            onCompleted={() => {
+              qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+              void refreshPushPermission();
+            }}
           />
 
           {phoneNudgeChecked && showPhoneNudge && (

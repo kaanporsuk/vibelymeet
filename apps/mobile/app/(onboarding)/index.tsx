@@ -10,6 +10,7 @@ import {
   View as RNView,
   Image,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -23,7 +24,7 @@ import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { getImageUrl } from '@/lib/imageUrl';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { VibelyButton } from '@/components/ui';
+import { VibelyButton, Card } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -53,8 +54,11 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
-const TOTAL_STEPS = 7;
+/** Six user-facing steps: indices 0–5 (final step includes submit). */
+const TOTAL_STEPS = 6;
 const MAX_ONBOARDING_PHOTOS = 6;
+
+const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
 
 const INTENT_OPTIONS = [
   { value: 'long_term', label: 'Long-term relationship', emoji: '💕' },
@@ -78,6 +82,13 @@ export default function OnboardingScreen() {
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
+  const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
+  const [relationshipIntent, setRelationshipIntent] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [city, setCity] = useState('');
+  const [country, setCountry] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -126,12 +137,7 @@ export default function OnboardingScreen() {
       step1AgeOk &&
       aboutMeValid
     );
-  const canSubmit =
-    step === 6 &&
-    detailsComplete &&
-    photos.length >= 2 &&
-    !loading &&
-    !uploadingPhoto;
+  const canSubmit = step === 5 && detailsComplete && !loading && !uploadingPhoto;
 
   const handleNext = () => {
     if (step === 0) setStep(1);
@@ -153,8 +159,6 @@ export default function OnboardingScreen() {
       setStep(4);
     } else if (step === 4 && relationshipIntent) {
       setStep(5);
-    } else if (step === 5 && canNext) {
-      setStep(6);
     }
   };
 
@@ -181,7 +185,7 @@ export default function OnboardingScreen() {
         mimeType: asset.mimeType ?? 'image/jpeg',
         fileName: `onboarding_${Date.now()}.jpg`,
       });
-      setPhotos((prev) => (prev.length >= MAX_ONBOARDING_PHOTOS ? prev : [...prev, path]));
+      setPhotos((prev: string[]) => (prev.length >= MAX_ONBOARDING_PHOTOS ? prev : [...prev, path]));
     } catch {
       Alert.alert('Upload failed', 'Please try again.');
     } finally {
@@ -220,7 +224,7 @@ export default function OnboardingScreen() {
         data: { user },
       } = await supabase.auth.getUser();
       if (user && selectedVibeIds.length > 0) {
-        const vibeRows = selectedVibeIds.map((tagId) => ({
+        const vibeRows = selectedVibeIds.map((tagId: string) => ({
           profile_id: user.id,
           vibe_tag_id: tagId,
         }));
@@ -289,7 +293,7 @@ export default function OnboardingScreen() {
       keyboardVerticalOffset={80}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {step > 0 && step <= 6 && (
+        {step > 0 && step <= 5 && (
           <RNView style={styles.stepProgressWrap}>
             <RNView style={[styles.progressTrack, { backgroundColor: theme.border }]}>
               <RNView
@@ -460,8 +464,8 @@ export default function OnboardingScreen() {
                   <Pressable
                     key={tag.id}
                     onPress={() => {
-                      setSelectedVibeIds((prev) =>
-                        selected ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                      setSelectedVibeIds((prev: string[]) =>
+                        selected ? prev.filter((id: string) => id !== tag.id) : [...prev, tag.id]
                       );
                     }}
                     style={[
@@ -586,24 +590,26 @@ export default function OnboardingScreen() {
             {aboutMe.length > 0 && aboutMe.length < 10 ? (
               <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>Minimum 10 characters</Text>
             ) : null}
-            <Text style={[styles.inputLabel, { color: theme.text }]}>Height</Text>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
             <TextInput
-              placeholder="Height in cm (e.g., 175)"
+              placeholder="Height in cm (e.g. 175)"
               value={heightCm}
-              onChangeText={(t) => setHeightCm(t.replace(/\D/g, '').slice(0, 3))}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
               keyboardType="number-pad"
               maxLength={3}
               style={[
                 styles.input,
-                {
-                  borderColor: theme.border,
-                  color: theme.text,
-                  backgroundColor: theme.background,
-                },
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
               ]}
               placeholderTextColor={theme.mutedForeground}
               editable={!loading}
             />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
             <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
             <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (
@@ -643,33 +649,6 @@ export default function OnboardingScreen() {
             <Text style={[{ fontSize: 13, color: theme.mutedForeground, marginTop: 8, lineHeight: 20 }]}>
               You can add more photos and record your vibe video later in your profile.
             </Text>
-            <VibelyButton
-              label="Continue"
-              onPress={handleNext}
-              disabled={!canNext}
-              variant="primary"
-              style={styles.button}
-            />
-            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
-            <TextInput
-              placeholder="Height in cm (e.g. 175)"
-              value={heightCm}
-              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
-              keyboardType="number-pad"
-              maxLength={3}
-              style={[
-                styles.input,
-                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
-              ]}
-              placeholderTextColor={theme.mutedForeground}
-              editable={!loading}
-            />
-            {heightCm.length > 0 &&
-              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
-                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
-                  Enter a value between 100 and 250 cm
-                </Text>
-              )}
             <Card variant="glass" style={[styles.webFallbackCard, { borderColor: theme.glassBorder }]}>
               <Text style={[styles.webFallbackTitle, { color: theme.text }]}>Add photos & more on web</Text>
               <Text style={[styles.webFallbackSub, { color: theme.textSecondary }]}>
@@ -691,7 +670,7 @@ export default function OnboardingScreen() {
               variant="primary"
               style={styles.button}
             />
-            <Pressable style={styles.backBtn} onPress={() => setStep(5)} disabled={loading || uploadingPhoto}>
+            <Pressable style={styles.backBtn} onPress={() => setStep(4)} disabled={loading || uploadingPhoto}>
               <Text style={[styles.link, { color: theme.tint }]}>Back</Text>
             </Pressable>
           </>
@@ -751,7 +730,6 @@ const styles = StyleSheet.create({
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden', width: '100%' },
   progressFill: { height: 4, borderRadius: 2 },
   stepProgress: { fontSize: 12, textAlign: 'center' },
-  inputLabel: { fontSize: 14, fontWeight: '600', marginBottom: 6, marginTop: 16 },
   dobRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   dobInput: {
     flex: 1,

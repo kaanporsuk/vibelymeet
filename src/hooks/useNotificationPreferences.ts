@@ -143,7 +143,13 @@ export function useNotificationPreferences() {
     (key: keyof NotificationPreferences) => {
       const current = prefs[key];
       if (typeof current === "boolean") {
-        savePrefs({ [key]: !current });
+        const next = !current;
+        if (key === "quiet_hours_enabled" && next) {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+          savePrefs({ [key]: next, quiet_hours_timezone: tz });
+        } else {
+          savePrefs({ [key]: next });
+        }
       }
     },
     [prefs, savePrefs]

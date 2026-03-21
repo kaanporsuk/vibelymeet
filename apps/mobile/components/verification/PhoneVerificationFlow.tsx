@@ -29,9 +29,11 @@ type PhoneVerificationFlowProps = {
   visible: boolean;
   onClose: () => void;
   onVerified: () => void;
+  /** E.164 e.g. +905551234567 — prefills country + local digits when opening */
+  initialPhoneE164?: string | null;
 };
 
-export function PhoneVerificationFlow({ visible, onClose, onVerified }: PhoneVerificationFlowProps) {
+export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPhoneE164 }: PhoneVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('phone');
   const [countryCode, setCountryCode] = useState('+90');
@@ -54,8 +56,23 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified }: PhoneVer
       setOtp(['', '', '', '', '', '']);
       setError(null);
       setFailedAttempts(0);
+      return;
     }
-  }, [visible]);
+    if (initialPhoneE164) {
+      const raw = initialPhoneE164.replace(/\s/g, '');
+      const match = raw.match(/^(\+\d{1,3})(.*)$/);
+      if (match) {
+        const cc = match[1];
+        const rest = match[2].replace(/\D/g, '');
+        const known = COUNTRY_CODES.some((c) => c.code === cc);
+        if (known) setCountryCode(cc);
+        setPhoneNumber(rest);
+      }
+    } else {
+      setPhoneNumber('');
+      setCountryCode('+90');
+    }
+  }, [visible, initialPhoneE164]);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;

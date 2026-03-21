@@ -75,6 +75,21 @@ export function useSchedule() {
     }));
   }, [dateRange]);
 
+  const refetch = useCallback(async () => {
+    if (!user?.id) return;
+    const { data, error } = await supabase
+      .from('user_schedules')
+      .select('slot_key, slot_date, time_block, status')
+      .eq('user_id', user.id);
+    if (!error && data) {
+      const next: Record<string, { status: 'open' | 'busy' }> = {};
+      data.forEach((row) => {
+        next[row.slot_key] = { status: (row.status as 'open' | 'busy') || 'open' };
+      });
+      setSchedule(next);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user?.id) {
       setLoading(false);
@@ -82,6 +97,7 @@ export function useSchedule() {
     }
     let cancelled = false;
     (async () => {
+      setLoading(true);
       const { data, error } = await supabase
         .from('user_schedules')
         .select('slot_key, slot_date, time_block, status')
@@ -96,7 +112,9 @@ export function useSchedule() {
       }
       setLoading(false);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const [lockedSlotKeys] = useState<Set<string>>(new Set());
@@ -240,6 +258,7 @@ export function useSchedule() {
     isLoading: loading,
     toggleSlot,
     rollPreviousWeek,
+    refetch,
     dateRange: dateRangeDisplay,
     setDateRange,
     shiftRange,

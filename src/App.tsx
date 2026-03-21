@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AlertTriangle, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { OfflineBanner } from "@/components/OfflineBanner";
+import { OfflineBanner } from "@/components/connectivity/OfflineBanner";
 import { useEffect } from "react";
 import posthog from 'posthog-js';
 import Index from "./pages/Index";

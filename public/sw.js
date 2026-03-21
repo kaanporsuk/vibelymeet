@@ -1,4 +1,7 @@
 // Service Worker for Vibely Push Notifications
+// Note: Production web push uses OneSignal (see public/OneSignalSDK.sw.js). Quiet hours and message
+// bundling (collapse_id) are enforced in supabase/functions/send-notification before OneSignal sends.
+// This file handles legacy SCHEDULE_NOTIFICATION / SHOW_NOTIFICATION helpers and generic push fallbacks.
 const CACHE_NAME = 'vibely-v1';
 
 // Install event - cache essential assets

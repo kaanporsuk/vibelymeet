@@ -91,7 +91,11 @@ const EventLobby = () => {
         .eq("profile_id", user.id);
       if (data) {
         const labels = data
-          .map((v) => (v.vibe_tags as { label: string } | null)?.label)
+          .map((v) => {
+            const raw = v.vibe_tags as { label: string } | { label: string }[] | null;
+            const tag = Array.isArray(raw) ? raw[0] : raw;
+            return tag?.label;
+          })
           .filter(Boolean) as string[];
         setUserVibes(labels);
       }

@@ -25,7 +25,14 @@ import { spacing, radius, typography, layout, shadows } from '@/constants/theme'
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useEvents, useIsRegisteredForEvent, useEventAttendees, type EventListItem, type EventAttendee } from '@/lib/eventsApi';
+import {
+  useEvents,
+  useIsRegisteredForEvent,
+  useEventAttendees,
+  useRegisteredEventIds,
+  type EventListItem,
+  type EventAttendee,
+} from '@/lib/eventsApi';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery } from '@tanstack/react-query';
@@ -593,6 +600,7 @@ export default function EventsListScreen() {
   const theme = Colors[colorScheme];
   const { isPremium } = useBackendSubscription(user?.id);
   const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null, isPremium);
+  const { data: registeredEventIds = [] } = useRegisteredEventIds(user?.id);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -610,10 +618,29 @@ export default function EventsListScreen() {
   const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
   const showLocationPrompt = !hasLocation;
 
-  const now = useMemo(() => new Date(), []);
+  const isFiltering = searchQuery.length > 0 || activeFilters.length > 0;
+  const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
+  const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
+
+  // Base: upcoming events excluding registered + already ended
+  const discoverableUpcoming = useMemo(() => {
+    const now = new Date();
+    const registered = new Set(registeredEventIds);
+    return upcomingEvents.filter((e) => {
+      if (registered.has(e.id)) return false;
+      const end = new Date(
+        e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000
+      );
+      return end > now;
+    });
+  }, [upcomingEvents, registeredEventIds]);
+
+  // Discover rail: same as base (separate const for clarity / future divergence)
+  const discoverUpcomingEvents = discoverableUpcoming;
 
   const filteredEvents = useMemo(() => {
-    let list = events;
+    const now = new Date();
+    let list = discoverableUpcoming;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -634,11 +661,7 @@ export default function EventsListScreen() {
       });
     }
     return list;
-  }, [events, searchQuery, activeFilters, now]);
-
-  const isFiltering = searchQuery.length > 0 || activeFilters.length > 0;
-  const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
-  const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
+  }, [discoverableUpcoming, searchQuery, activeFilters]);
   const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
   const { data: featuredAttendees = [] } = useEventAttendees(featuredEvent?.id);
@@ -817,11 +840,11 @@ export default function EventsListScreen() {
               />
             )}
 
-            {upcomingEvents.length > 0 && (
+            {discoverUpcomingEvents.length > 0 && (
               <EventsRail
                 title={liveEvents.length > 0 ? 'Upcoming' : 'Discover'}
                 emoji="📍"
-                events={upcomingEvents}
+                events={discoverUpcomingEvents}
                 theme={theme}
                 accentColor="cyan"
                 onEventPress={handleEventPress}
