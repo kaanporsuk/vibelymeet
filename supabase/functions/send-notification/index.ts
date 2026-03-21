@@ -343,14 +343,16 @@ Deno.serve(async (req) => {
       // so rapid messages show as one updating notification, not a stack
       collapseId = `msg_${data.match_id}`
 
-      const { count: unreadCount } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('match_id', data.match_id)
-        .is('read_at', null)
-        .neq('sender_id', user_id)
-
-      const n = unreadCount ?? 0
+      let n = 0
+      if (data.sender_id) {
+        const { count: unreadCount } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('match_id', data.match_id)
+          .eq('sender_id', data.sender_id)
+          .is('read_at', null)
+        n = unreadCount ?? 0
+      }
       if (n > 1) {
         finalTitle = `${title} · ${n} messages`
         finalBody = `${n} new messages`

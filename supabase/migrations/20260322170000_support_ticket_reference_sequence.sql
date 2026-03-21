@@ -1,7 +1,7 @@
 -- Replace random-loop reference_id with a sequence-based approach
 -- Sequences are atomic and concurrency-safe by design
 
-CREATE SEQUENCE IF NOT EXISTS support_ticket_ref_seq
+CREATE SEQUENCE IF NOT EXISTS public.support_ticket_ref_seq
   START WITH 10001
   INCREMENT BY 1
   NO MAXVALUE
