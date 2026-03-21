@@ -438,7 +438,7 @@ Deno.serve(async (req) => {
     console.log('OneSignal response:', osResult)
 
     // 12. Log success
-    await logNotification(user_id, category, finalTitle, finalBody, data, true)
+    await logNotification(user_id, category, finalTitle, finalBody, osData, true)
 
     return new Response(
       JSON.stringify({ success: true }),
