@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { removeExternalUserId } from "@/lib/onesignal";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 interface User {
@@ -178,7 +177,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     const userId = session?.user?.id;
-    removeExternalUserId();
     if (userId) {
       try {
         await supabase

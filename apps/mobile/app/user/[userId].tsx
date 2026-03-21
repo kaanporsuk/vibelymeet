@@ -18,14 +18,7 @@ import { useMatches } from '@/lib/chatApi';
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
-
-const LOOKING_FOR_LABELS: Record<string, string> = {
-  'long-term': 'Long-term partner',
-  'relationship': 'Relationship',
-  'something-casual': 'Something casual',
-  'new-friends': 'New friends',
-  'figuring-out': 'Figuring it out',
-};
+import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 
 export default function PublicProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -115,7 +108,7 @@ export default function PublicProfileScreen() {
   const photoUrl = profile.avatar_url || profile.photos?.[0];
   const photoUris = (profile.photos ?? []).filter(Boolean).map((p) => getImageUrl(p, { width: 800, quality: 90 }));
   const displayPhoto = photoUris.length > 0 ? photoUris[photoIndex % photoUris.length] : (photoUrl ? getImageUrl(photoUrl, { width: 800, quality: 90 }) : null);
-  const lookingForLabel = profile.looking_for ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for : null;
+  const lookingForDisplay = getLookingForDisplay(profile.looking_for);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -167,10 +160,13 @@ export default function PublicProfileScreen() {
             </View>
           ) : null}
 
-          {lookingForLabel ? (
+          {lookingForDisplay ? (
             <Card style={styles.card}>
               <Text style={[styles.cardLabel, { color: theme.textSecondary }]}>Looking for</Text>
-              <Text style={[styles.cardValue, { color: theme.text }]}>{lookingForLabel}</Text>
+              <View style={styles.lookingForRow}>
+                <Text style={styles.lookingForEmoji}>{lookingForDisplay.emoji}</Text>
+                <Text style={[styles.cardValue, { color: theme.text }]}>{lookingForDisplay.label}</Text>
+              </View>
             </Card>
           ) : null}
 
@@ -258,6 +254,8 @@ const styles = StyleSheet.create({
   card: { marginTop: spacing.md, padding: spacing.lg },
   cardLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   cardValue: { fontSize: 15 },
+  lookingForRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  lookingForEmoji: { fontSize: 18 },
   body: { fontSize: 15, lineHeight: 22 },
   vibeChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
   vibeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },

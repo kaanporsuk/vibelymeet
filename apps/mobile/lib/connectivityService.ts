@@ -8,7 +8,7 @@ export type NetworkState = 'online' | 'reconnecting' | 'offline';
 type Listener = (state: NetworkState) => void;
 
 function getHealthUrl(): string {
-  const base = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+  const base = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').trim();
   if (!base) return '';
   return `${base.replace(/\/$/, '')}/functions/v1/health`;
 }
@@ -62,14 +62,20 @@ class ConnectivityService {
 
     setTimeout(() => {
       this.startupGrace = false;
-      void this.probe();
     }, 5000);
 
     const url = getHealthUrl();
+    if (!url && __DEV__) {
+      console.warn(
+        '[connectivity] EXPO_PUBLIC_SUPABASE_URL is missing — health probes skipped; staying online.',
+      );
+    }
     if (url) {
+      // NetInfo defaults to HEAD; Edge Functions may mishandle HEAD — force GET.
       NetInfo.configure({
         reachabilityUrl: url,
-        reachabilityTest: async (response) => response.status === 200,
+        reachabilityMethod: 'GET',
+        reachabilityTest: async (response) => response.ok,
         reachabilityLongTimeout: 60 * 1000,
         reachabilityShortTimeout: 5 * 1000,
         reachabilityRequestTimeout: 10 * 1000,
@@ -87,11 +93,24 @@ class ConnectivityService {
   }
 
   private handleNetInfo(netState: NetInfoState) {
-    const disconnected = netState.isConnected === false;
-    const definitelyUnreachable = netState.isInternetReachable === false;
-
-    if (disconnected || definitelyUnreachable) {
+    // Only explicit "no connection" triggers the offline path. On many devices
+    // isInternetReachable is null for seconds at startup, or false while Wi‑Fi is fine;
+    // treating that as offline causes a permanent banner. Health probe is truth.
+    if (netState.isConnected === false) {
       this.scheduleOffline();
+      return;
+    }
+
+    if (netState.isInternetReachable === null) {
+      return;
+    }
+
+    if (netState.isInternetReachable === false) {
+      if (this.offlineDebounceTimer) {
+        clearTimeout(this.offlineDebounceTimer);
+        this.offlineDebounceTimer = null;
+      }
+      this.scheduleProbe(400);
       return;
     }
 

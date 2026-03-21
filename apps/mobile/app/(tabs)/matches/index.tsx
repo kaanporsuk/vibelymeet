@@ -1,4 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
+import * as Haptics from 'expo-haptics';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSharedValue } from 'react-native-reanimated';
 import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Linking, Share, Platform, Image, Alert } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,7 +22,7 @@ import {
 import { spacing, typography, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { useMatches } from '@/lib/chatApi';
+import { useMatches, type MatchListItem } from '@/lib/chatApi';
 import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
@@ -28,6 +31,8 @@ import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
+import { UnmatchConfirmationSheet } from '@/components/match/UnmatchConfirmationSheet';
+import { SwipeableMatchConversationRow } from '@/components/matches/SwipeableMatchConversationRow';
 import { DropsTabContent } from '@/components/matches/DropsTabContent';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
@@ -74,6 +79,9 @@ export default function MatchesListScreen() {
   const [actionsMatch, setActionsMatch] = useState<(typeof matches)[0] | null>(null);
   const [reportTarget, setReportTarget] = useState<{ id: string; name: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const scrollCloseNonceSV = useSharedValue(0);
+  const [activeSwipeMatchId, setActiveSwipeMatchId] = useState<string | null>(null);
+  const [unmatchSheetMatch, setUnmatchSheetMatch] = useState<MatchListItem | null>(null);
 
   const handleUnmatch = useCallback(
     (matchId: string, name: string) => {
@@ -171,6 +179,24 @@ export default function MatchesListScreen() {
   const handleRefresh = useCallback(async () => {
     await refetch();
   }, [refetch]);
+
+  const dismissOpenConversationSwipe = useCallback(() => {
+    if (activeSwipeMatchId === null) return;
+    scrollCloseNonceSV.value += 1;
+    setActiveSwipeMatchId(null);
+  }, [activeSwipeMatchId, scrollCloseNonceSV]);
+
+  const onConversationsScrollBeginDrag = useCallback(() => {
+    scrollCloseNonceSV.value += 1;
+    setActiveSwipeMatchId(null);
+  }, [scrollCloseNonceSV]);
+
+  const confirmUnmatchFromSheet = useCallback(() => {
+    if (!unmatchSheetMatch) return;
+    setPendingUnmatchMatchId(unmatchSheetMatch.matchId);
+    setPendingUnmatchName(unmatchSheetMatch.name);
+    initiateUnmatch(unmatchSheetMatch.matchId);
+  }, [unmatchSheetMatch, initiateUnmatch]);
 
   const handleInviteFriends = useCallback(() => {
     const link = `https://vibelymeet.com/auth?mode=signup&ref=${user?.id ?? ''}`;
@@ -300,26 +326,68 @@ export default function MatchesListScreen() {
     [router]
   );
 
-  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = ({ item }) => (
-    <Pressable
-      onPress={() => handleMatchPress(item)}
-      onLongPress={() => !isUserBlocked(item.id) && setActionsMatch(item)}
-      style={({ pressed }) => [pressed && { opacity: 0.8 }]}
-    >
-      <MatchListRow
-        imageUri={item.image}
-        name={item.name}
-        age={item.age}
-        time={item.time}
-        lastMessage={item.lastMessage}
-        unread={item.unread}
-        isNew={item.isNew}
-      />
-    </Pressable>
+  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = useCallback(
+    ({ item }) => {
+      const row = (
+        <MatchListRow
+          imageUri={item.image}
+          name={item.name}
+          age={item.age}
+          time={item.time}
+          lastMessage={item.lastMessage}
+          unread={item.unread}
+          isNew={item.isNew}
+        />
+      );
+
+      if (isUserBlocked(item.id)) {
+        return (
+          <Pressable
+            onPress={() => handleMatchPress(item)}
+            onLongPress={() => setActionsMatch(item)}
+            style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+          >
+            {row}
+          </Pressable>
+        );
+      }
+
+      return (
+        <SwipeableMatchConversationRow
+          matchId={item.matchId}
+          backgroundColor={theme.background}
+          activeSwipeMatchId={activeSwipeMatchId}
+          scrollCloseNonce={scrollCloseNonceSV}
+          onSwipeBegin={setActiveSwipeMatchId}
+          onSwipeEnd={() => setActiveSwipeMatchId(null)}
+          onPress={() => handleMatchPress(item)}
+          onLongPress={() => setActionsMatch(item)}
+          onSwipeRightCommit={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            (router as { push: (p: string) => void }).push(`/user/${item.id}`);
+          }}
+          onSwipeLeftCommit={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setUnmatchSheetMatch(item);
+          }}
+        >
+          {row}
+        </SwipeableMatchConversationRow>
+      );
+    },
+    [
+      activeSwipeMatchId,
+      handleMatchPress,
+      isUserBlocked,
+      router,
+      scrollCloseNonceSV,
+      theme.background,
+    ]
   );
 
   return (
     <ScreenContainer>
+      <RNView onTouchStart={dismissOpenConversationSwipe}>
       <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
         <RNView style={styles.headerTopRow}>
           <RNView style={styles.headerTitleRow}>
@@ -430,20 +498,23 @@ export default function MatchesListScreen() {
           </RNView>
         )}
       </GlassHeaderBar>
+      </RNView>
 
       {activeTab === 'conversations' ? (
-        <FlatList
-          data={filteredMatches}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.matchId}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching && !isLoading}
-              onRefresh={handleRefresh}
-              tintColor={theme.tint}
-            />
-          }
+        <GestureHandlerRootView style={styles.gestureRoot}>
+          <FlatList
+            data={filteredMatches}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.matchId}
+            contentContainerStyle={styles.list}
+            onScrollBeginDrag={onConversationsScrollBeginDrag}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching && !isLoading}
+                onRefresh={handleRefresh}
+                tintColor={theme.tint}
+              />
+            }
           ListEmptyComponent={
             searchQuery.trim() ? (
               <RNView style={styles.searchEmpty}>
@@ -454,6 +525,7 @@ export default function MatchesListScreen() {
             ) : null
           }
           ListHeaderComponent={
+            <RNView onTouchStart={dismissOpenConversationSwipe}>
             <>
               {newVibes.length > 0 && !isPremium ? (
                 <WhoLikedYouGate count={newVibes.length} />
@@ -507,9 +579,10 @@ export default function MatchesListScreen() {
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
               </RNView>
             </>
+            </RNView>
           }
           ListFooterComponent={
-            <RNView style={styles.footerCards}>
+            <RNView onTouchStart={dismissOpenConversationSwipe} style={styles.footerCards}>
               <Card style={[styles.proTipCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                 <RNView style={styles.proTipRow}>
                   <Ionicons name="bulb-outline" size={20} color={theme.tint} />
@@ -529,7 +602,8 @@ export default function MatchesListScreen() {
               </Card>
             </RNView>
           }
-        />
+          />
+        </GestureHandlerRootView>
       ) : (
         <DropsTabContent userId={user?.id} />
       )}
@@ -594,11 +668,25 @@ export default function MatchesListScreen() {
           reporterId={user.id}
         />
       )}
+
+      <UnmatchConfirmationSheet
+        visible={!!unmatchSheetMatch}
+        onClose={() => setUnmatchSheetMatch(null)}
+        name={unmatchSheetMatch?.name ?? ''}
+        imageUri={unmatchSheetMatch?.image ?? ''}
+        onConfirmUnmatch={confirmUnmatchFromSheet}
+        onReportInstead={() => {
+          if (unmatchSheetMatch) {
+            setReportTarget({ id: unmatchSheetMatch.id, name: unmatchSheetMatch.name });
+          }
+        }}
+      />
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: { flex: 1 },
   matchesHeaderBar: { marginBottom: spacing.md },
   headerTopRow: {
     flexDirection: 'row',

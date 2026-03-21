@@ -46,6 +46,10 @@ function useWebConnectivity(): NetState {
     setStateRaw((prev) => {
       const resolved = typeof next === "function" ? (next as (s: NetState) => NetState)(prev) : next;
       if (startupGraceRef.current && resolved !== "online") return prev;
+      if (resolved === "online" && probeLoopRef.current != null) {
+        window.clearTimeout(probeLoopRef.current);
+        probeLoopRef.current = null;
+      }
       return resolved;
     });
   }, []);
@@ -81,10 +85,9 @@ function useWebConnectivity(): NetState {
   useEffect(() => {
     const id = window.setTimeout(() => {
       startupGraceRef.current = false;
-      void probe();
     }, 5000);
     return () => window.clearTimeout(id);
-  }, [probe]);
+  }, []);
 
   useEffect(() => {
     const scheduleOffline = () => {

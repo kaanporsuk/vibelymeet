@@ -3,6 +3,9 @@ import { connectivityService, type NetworkState } from '@/lib/connectivityServic
 
 export function useConnectivity(): NetworkState {
   const [state, setState] = useState<NetworkState>(() => connectivityService.getState());
-  useEffect(() => connectivityService.subscribe(setState), []);
+  useEffect(() => {
+    setState(connectivityService.getState());
+    return connectivityService.subscribe(setState);
+  }, []);
   return state;
 }

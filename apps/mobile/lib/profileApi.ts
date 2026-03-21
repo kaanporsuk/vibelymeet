@@ -72,6 +72,18 @@ function parseBirthDate(dateStr: string): Date {
   return new Date(dateStr);
 }
 
+/** US-style M/D/YYYY + zodiac name — web Profile.tsx Basics. */
+export function formatBirthdayUsWithZodiac(birth_date: string | null | undefined): string {
+  if (!birth_date) return 'Not set';
+  const d = parseBirthDate(birth_date);
+  if (Number.isNaN(d.getTime())) return 'Not set';
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  const y = d.getFullYear();
+  const sign = getZodiacSign(d);
+  return `${m}/${day}/${y} (${sign})`;
+}
+
 function calculateAge(birthDate: Date): number {
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
@@ -80,21 +92,62 @@ function calculateAge(birthDate: Date): number {
   return age;
 }
 
+/** Live stats — mirrors web `src/services/profileService.ts` fetchMyProfile counts. */
+export async function fetchProfileLiveCounts(userId: string): Promise<{
+  events: number;
+  matches: number;
+  convos: number;
+}> {
+  const [eventsCountRes, matchesCountRes, convosCountRes] = await Promise.all([
+    supabase
+      .from('event_registrations')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_id', userId),
+    supabase
+      .from('matches')
+      .select('*', { count: 'exact', head: true })
+      .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`),
+    supabase
+      .from('matches')
+      .select('*', { count: 'exact', head: true })
+      .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
+      .not('last_message_at', 'is', null),
+  ]);
+
+  if (eventsCountRes.error && __DEV__) {
+    console.warn('[profileApi] events count:', eventsCountRes.error.message);
+  }
+  if (matchesCountRes.error && __DEV__) {
+    console.warn('[profileApi] matches count:', matchesCountRes.error.message);
+  }
+  if (convosCountRes.error && __DEV__) {
+    console.warn('[profileApi] convos count:', convosCountRes.error.message);
+  }
+
+  return {
+    events: eventsCountRes.error ? 0 : (eventsCountRes.count ?? 0),
+    matches: matchesCountRes.error ? 0 : (matchesCountRes.count ?? 0),
+    convos: convosCountRes.error ? 0 : (convosCountRes.count ?? 0),
+  };
+}
+
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const [profileRes, vibesRes] = await Promise.all([
+  const uid = user.id;
+  const [profileRes, vibesRes, counts] = await Promise.all([
     supabase
       .from('profiles')
       .select(
         'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until'
       )
-      .eq('id', user.id)
+      .eq('id', uid)
       .maybeSingle(),
     supabase
       .from('profile_vibes')
       .select('vibe_tags(label)')
-      .eq('profile_id', user.id),
+      .eq('profile_id', uid),
+    fetchProfileLiveCounts(uid),
   ]);
 
   if (profileRes.error) throw profileRes.error;
@@ -118,6 +171,9 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
 
   return {
     ...row,
+    events_attended: counts.events,
+    total_matches: counts.matches,
+    total_conversations: counts.convos,
     prompts: (row.prompts as ProfileRow['prompts']) ?? null,
     vibes,
     lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,

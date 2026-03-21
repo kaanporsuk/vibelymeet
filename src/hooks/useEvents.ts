@@ -273,12 +273,14 @@ export const useNextRegisteredEvent = () => {
           cover_image: string;
           event_date: string;
           duration_minutes?: number | null;
+          current_attendees?: number | null;
         };
         const eventDate = new Date(event.event_date);
         const durationMs = (event.duration_minutes ?? 60) * 60 * 1000;
         const eventEnd = new Date(eventDate.getTime() + durationMs);
         const isLive = now >= eventDate && now < eventEnd;
-        
+        const currentAttendees = event.current_attendees ?? 0;
+
         return {
           event: {
             id: event.id,
@@ -288,6 +290,7 @@ export const useNextRegisteredEvent = () => {
             eventDate,
             image: event.cover_image,
             isLive,
+            currentAttendees,
           },
           isRegistered: true,
         };
@@ -327,6 +330,8 @@ export const useNextRegisteredEvent = () => {
       const eventEnd = new Date(eventDate.getTime() + durationMs);
       const isLive = now >= eventDate && now < eventEnd;
 
+      const currentAttendees = event.current_attendees ?? 0;
+
       return {
         event: {
           id: event.id,
@@ -336,6 +341,7 @@ export const useNextRegisteredEvent = () => {
           eventDate,
           image: event.cover_image,
           isLive,
+          currentAttendees,
         },
         isRegistered: false,
       };

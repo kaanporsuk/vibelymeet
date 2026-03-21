@@ -10,7 +10,7 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { VibelyText } from '@/components/ui';
 import { avatarUrl } from '@/lib/imageUrl';
 import { RELATIONSHIP_INTENT_OPTIONS } from './RelationshipIntentSelector';
-import { LIFESTYLE_CATEGORIES } from './LifestyleDetailsSection';
+import { getLifestyleDisplayChips } from '@/lib/lifestyleChips';
 import { PROMPT_EMOJIS } from './PROMPT_CONSTANTS';
 import type { ProfileRow } from '@/lib/profileApi';
 
@@ -140,18 +140,16 @@ export function ProfilePreviewModal({ visible, onClose, profile }: ProfilePrevie
           ))}
 
           {/* Lifestyle */}
-          {Object.keys(lifestyle).length > 0 && (
+          {getLifestyleDisplayChips(lifestyle).length > 0 && (
             <View style={styles.section}>
               <VibelyText variant="overline" style={{ color: theme.textSecondary }}>Lifestyle</VibelyText>
               <View style={styles.chipWrap}>
-                {LIFESTYLE_CATEGORIES.filter((c) => lifestyle[c.id]).map((c) => {
-                  const opt = c.options.find((o) => o.value === lifestyle[c.id]);
-                  return opt ? (
-                    <View key={c.id} style={[styles.chip, { backgroundColor: theme.surfaceSubtle }]}>
-                      <VibelyText variant="caption" style={{ color: theme.text }}>{c.label}: {opt.label}</VibelyText>
-                    </View>
-                  ) : null;
-                })}
+                {getLifestyleDisplayChips(lifestyle).map((chip) => (
+                  <View key={chip.id} style={[styles.chip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                    <Text style={styles.lifestyleEmoji}>{chip.emoji}</Text>
+                    <VibelyText variant="caption" style={{ color: theme.text }}>{chip.label}</VibelyText>
+                  </View>
+                ))}
               </View>
             </View>
           )}
@@ -179,7 +177,16 @@ const styles = StyleSheet.create({
   miniBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill },
   miniBadgeText: { fontSize: 12, fontWeight: '600' },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  lifestyleEmoji: { fontSize: 14 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.md },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   promptCard: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.sm },

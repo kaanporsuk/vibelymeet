@@ -228,7 +228,7 @@ const Matches = () => {
   ];
 
   return (
-    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
+    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-[100px]">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-border/50">
         <div className="px-4 py-4">

@@ -5,15 +5,16 @@ import {
   Sparkles,
   Users,
   Radio,
-  MessageCircle,
-  Droplet,
   UserPlus,
   Search,
   Video,
+  Heart,
+  Clock,
+  X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { BottomNav } from "@/components/BottomNav";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { EventCover, ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,10 +31,9 @@ import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
-import { useDailyDropTabBadge } from "@/hooks/useDailyDropTabBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
-import { differenceInSeconds, format, startOfDay } from "date-fns";
+import { differenceInSeconds, differenceInMinutes, differenceInHours, format, startOfDay } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { DeletionRecoveryBanner } from "@/components/settings/DeletionRecoveryBanner";
@@ -62,6 +62,29 @@ function getTimeGreeting(): string {
   if (h < 12) return "Good morning";
   if (h < 17) return "Good afternoon";
   return "Good evening";
+}
+
+const PROFILE_READINESS_DISMISS_KEY = "vibely_profile_readiness_dismissed_at";
+const PROFILE_READINESS_COOLDOWN_MS = 7 * 86400000;
+
+function formatStartsInSoon(eventDate: Date): string {
+  const totalMin = differenceInMinutes(eventDate, new Date());
+  if (totalMin <= 0) return "Starting now";
+  if (totalMin < 60) return `Starts in ${totalMin} minutes`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m > 0 ? `Starts in ${h}h ${m}m` : `Starts in ${h}h`;
+}
+
+function formatLongCountdownToEvent(eventDate: Date): string {
+  const diff = differenceInSeconds(eventDate, new Date());
+  if (diff <= 0) return "Starting soon";
+  const d = Math.floor(diff / 86400);
+  const h = Math.floor((diff % 86400) / 3600);
+  if (d > 0) return `${d} day${d !== 1 ? "s" : ""}, ${h} hr${h !== 1 ? "s" : ""}`;
+  const m = Math.floor((diff % 3600) / 60);
+  if (h > 0) return `${h} hr${h !== 1 ? "s" : ""}, ${m} min`;
+  return `${m} min`;
 }
 
 type HomeProfile = {
@@ -142,8 +165,6 @@ const Dashboard = () => {
   }, [user?.id, refreshSubscriptionState]);
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
-  const dropReady = useDailyDropTabBadge(user?.id);
-
   const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
     queryKey: ["unread-home", user?.id],
     queryFn: async () => {
@@ -195,13 +216,18 @@ const Dashboard = () => {
     },
   });
 
-  const hasPhotos = (homeProfile?.photos?.length ?? 0) >= 2;
-  const hasVibes = (homeProfile?.vibeCount ?? 0) >= 3;
-  const hasAbout = !!homeProfile?.about_me && homeProfile.about_me.length >= 10;
-  const isProfileComplete = hasPhotos && hasVibes && hasAbout;
-
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+  const [profileReadinessDismissed, setProfileReadinessDismissed] = useState(false);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(PROFILE_READINESS_DISMISS_KEY);
+    if (!raw) return;
+    const ts = parseInt(raw, 10);
+    if (!Number.isNaN(ts) && Date.now() - ts < PROFILE_READINESS_COOLDOWN_MS) {
+      setProfileReadinessDismissed(true);
+    }
+  }, []);
 
   const nextEvent = nextEventData?.event;
   const isRegisteredForNextEvent = nextEventData?.isRegistered || false;
@@ -211,6 +237,24 @@ const Dashboard = () => {
     if (!nextEvent?.eventDate) return Number.POSITIVE_INFINITY;
     return (nextEvent.eventDate.getTime() - Date.now()) / 36e5;
   }, [nextEvent?.eventDate]);
+
+  const startingSoonWithin2h = useMemo(() => {
+    return (
+      !!nextEvent &&
+      isRegisteredForNextEvent &&
+      !isLiveEvent &&
+      hoursUntilNext > 0 &&
+      hoursUntilNext <= 2
+    );
+  }, [nextEvent, isRegisteredForNextEvent, isLiveEvent, hoursUntilNext]);
+
+  const profileCompletenessPercent = useMemo(() => {
+    const photoScore = Math.min((homeProfile?.photos?.length ?? 0) / 2, 1);
+    const vibeScore = Math.min((homeProfile?.vibeCount ?? 0) / 3, 1);
+    const aboutLen = homeProfile?.about_me?.length ?? 0;
+    const aboutScore = aboutLen >= 10 ? 1 : Math.min(aboutLen / 10, 1);
+    return Math.round(((photoScore + vibeScore + aboutScore) / 3) * 100);
+  }, [homeProfile?.photos, homeProfile?.vibeCount, homeProfile?.about_me]);
 
   const upcomingEvents = useMemo(() => {
     const start = startOfDay(new Date());
@@ -268,82 +312,88 @@ const Dashboard = () => {
 
   const loading = eventLoading || eventsLoading || matchesLoading;
   const newMatchCount = matches.filter((m) => m.isNew).length;
-  const hasUpcomingDate = proposals.length > 0;
-
   const firstName =
     homeProfile?.name?.trim().split(/\s+/)[0] ||
     user?.name?.trim().split(/\s+/)[0] ||
     user?.email?.split("@")[0] ||
     "there";
 
-  const getSubline = (): string | null => {
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) return "You're live tonight";
-    if (nextEvent && isRegisteredForNextEvent && hoursUntilNext < 24) return "Tonight looks promising";
-    if (unreadMessageCount > 0)
-      return `${unreadMessageCount} fresh conversation${unreadMessageCount > 1 ? "s" : ""}`;
-    if (newMatchCount > 0) return "Someone new vibed with you";
-    if (nextEvent && isRegisteredForNextEvent) return "Your next event is coming up";
-    return null;
-  };
-
-  const subline = getSubline();
+  const contextualSubline = useMemo(() => {
+    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) return "Your event is live now";
+    if (startingSoonWithin2h && nextEvent)
+      return `Get ready — ${nextEvent.title} starts soon`;
+    if (newMatchCount > 0)
+      return `You have ${newMatchCount} new vibe${newMatchCount !== 1 ? "s" : ""} to explore`;
+    if (profileCompletenessPercent < 80) return "Complete your profile to get discovered";
+    return "Let's find your vibe today";
+  }, [
+    isLiveEvent,
+    isRegisteredForNextEvent,
+    nextEvent,
+    startingSoonWithin2h,
+    newMatchCount,
+    profileCompletenessPercent,
+  ]);
 
   const formatEventDateTime = (d: Date) => format(d, "EEE, MMM d · h:mm a");
 
   function QuickActionsRail() {
-    const actions: Array<{
-      icon: ReactNode;
-      label: string;
-      className: string;
-      onClick: () => void;
-    }> = [];
+    type QA = { key: string; icon: ReactNode; label: string; className: string; onClick: () => void };
+    const actions: QA[] = [];
 
     if (isLiveEvent && isRegisteredForNextEvent && nextEvent) {
       actions.push({
-        icon: <Radio className="w-4 h-4" />,
-        label: "Lobby is live",
-        className: "text-destructive bg-destructive/10 border-destructive/20",
+        key: "lobby",
+        icon: <Radio className="w-4 h-4 shrink-0" />,
+        label: "Enter Lobby",
+        className:
+          "text-white border-transparent bg-gradient-to-r from-neon-violet to-neon-pink shadow-[0_0_20px_-4px_rgba(139,92,246,0.45)]",
         onClick: () => navigate(`/event/${nextEvent.id}/lobby`),
       });
     }
-    if (unreadMessageCount > 0) {
+    if (startingSoonWithin2h && nextEvent) {
       actions.push({
-        icon: <MessageCircle className="w-4 h-4" />,
-        label: `${unreadMessageCount} unread`,
-        className: "text-accent bg-accent/10 border-accent/20",
+        key: "ready",
+        icon: <Clock className="w-4 h-4 shrink-0" />,
+        label: "Get Ready",
+        className: "border border-amber-500/30 bg-amber-500/20 text-amber-400",
+        onClick: () => navigate(`/events/${nextEvent.id}`),
+      });
+    }
+    if (newMatchCount > 0) {
+      actions.push({
+        key: "vibes-waiting",
+        icon: <Heart className="w-4 h-4 shrink-0" />,
+        label: `${newMatchCount} Vibes Waiting`,
+        className: "border border-pink-500/30 bg-pink-500/20 text-pink-400",
         onClick: () => navigate("/matches"),
       });
     }
-    if (dropReady) {
+    if (profileCompletenessPercent < 80) {
       actions.push({
-        icon: <Droplet className="w-4 h-4" />,
-        label: "Daily Drop",
-        className: "text-neon-cyan bg-neon-cyan/10 border-neon-cyan/20",
-        onClick: () => navigate("/matches"),
-      });
-    }
-    if (hasUpcomingDate) {
-      actions.push({
-        icon: <Video className="w-4 h-4" />,
-        label: "Date coming up",
-        className: "text-neon-pink bg-neon-pink/10 border-neon-pink/20",
-        onClick: () => navigate("/schedule"),
-      });
-    }
-    if (!isProfileComplete) {
-      actions.push({
-        icon: <UserPlus className="w-4 h-4" />,
-        label: "Complete profile",
-        className: "text-primary bg-primary/10 border-primary/20",
+        key: "complete",
+        icon: <UserPlus className="w-4 h-4 shrink-0" />,
+        label: "Complete Profile",
+        className: "border border-white/10 bg-white/5 text-white/70",
         onClick: () => navigate("/profile"),
       });
     }
-    if (actions.length < 4) {
+    if (!isRegisteredForNextEvent) {
       actions.push({
-        icon: <Search className="w-4 h-4" />,
-        label: "Browse events",
-        className: "text-primary bg-primary/10 border-primary/20",
+        key: "browse",
+        icon: <Search className="w-4 h-4 shrink-0" />,
+        label: "Browse Events",
+        className: "border border-white/10 bg-white/5 text-white/70",
         onClick: () => navigate("/events"),
+      });
+    }
+    if ((homeProfile?.vibeCount ?? 0) === 0) {
+      actions.push({
+        key: "set-vibes",
+        icon: <Sparkles className="w-4 h-4 shrink-0" />,
+        label: "Set Your Vibes",
+        className: "border border-white/10 bg-white/5 text-white/70",
+        onClick: () => navigate("/schedule"),
       });
     }
 
@@ -351,13 +401,13 @@ const Dashboard = () => {
     if (visible.length === 0) return null;
 
     return (
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-4 px-4 py-1">
-        {visible.map((a, i) => (
+      <div className="-mx-4 flex gap-3 overflow-x-auto px-4 py-1 scrollbar-hide">
+        {visible.map((a) => (
           <button
-            key={`${a.label}-${i}`}
+            key={a.key}
             type="button"
             onClick={a.onClick}
-            className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-xl border whitespace-nowrap text-sm font-semibold transition-all hover:scale-[1.02] active:scale-95 ${a.className}`}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium whitespace-nowrap transition-all hover:scale-[1.02] active:scale-95 ${a.className}`}
           >
             {a.icon}
             {a.label}
@@ -397,7 +447,7 @@ const Dashboard = () => {
   const showHeroSkeleton = eventLoading && !nextEvent;
 
   return (
-    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-24">
+    <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-[100px]">
       <NotificationPermissionFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
@@ -416,7 +466,7 @@ const Dashboard = () => {
               <>
                 <p className="text-sm text-muted-foreground">{getTimeGreeting()},</p>
                 <h1 className="text-xl font-display font-bold text-foreground truncate">{firstName}</h1>
-                {subline && <p className="text-xs text-primary">{subline}</p>}
+                <p className="text-sm text-muted-foreground">{contextualSubline}</p>
               </>
             )}
           </div>
@@ -518,7 +568,7 @@ const Dashboard = () => {
           </section>
         )}
 
-        {/* 1. Hero — 4 states */}
+        {/* 1. Hero — 4 states (live → starting soon ≤2h → booked → no registration) */}
         {showHeroSkeleton && (
           <div className="glass-card overflow-hidden border border-white/10">
             <EventCardSkeleton />
@@ -529,7 +579,7 @@ const Dashboard = () => {
           <motion.section
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="relative glass-card overflow-hidden border border-white/10"
+            className="relative glass-card overflow-hidden border border-emerald-500/30 shadow-[0_0_32px_-8px_rgba(16,185,129,0.45)]"
           >
             <div className="relative h-48">
               <EventCover
@@ -540,14 +590,18 @@ const Dashboard = () => {
               />
               <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
             </div>
-            <div className="absolute top-4 left-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-destructive/20 border border-destructive/40 z-10">
-              <div className="w-2 h-2 rounded-full bg-destructive animate-pulse shrink-0" />
-              <span className="text-xs font-bold text-destructive uppercase tracking-wider">Live Now</span>
+            <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0 shadow-[0_0_8px_2px_rgba(52,211,153,0.7)]" />
+              <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-[1px]">LIVE NOW</span>
             </div>
-            <div className="relative p-6 -mt-16 space-y-3 z-[1]">
+            <div className="relative z-[1] -mt-16 space-y-3 p-6">
               <h3 className="text-xl font-display font-bold text-foreground drop-shadow-sm">{nextEvent.title}</h3>
               <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                <Users className="w-3.5 h-3.5 shrink-0" /> People vibing right now
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                {(() => {
+                  const n = (nextEvent as { currentAttendees?: number }).currentAttendees ?? 0;
+                  return n > 0 ? `${n} people vibing` : "Jump in — the lobby is open";
+                })()}
               </p>
               <Button variant="gradient" className="w-full" onClick={() => navigate(`/event/${nextEvent.id}/lobby`)}>
                 Enter Lobby →
@@ -558,39 +612,29 @@ const Dashboard = () => {
 
         {!showHeroSkeleton &&
           !isLiveEvent &&
+          startingSoonWithin2h &&
           nextEvent &&
-          isRegisteredForNextEvent &&
-          hoursUntilNext <= 24 && (
-            <section className="space-y-3">
-              <h2 className="text-lg font-display font-semibold text-foreground">Your Night Starts Soon</h2>
-              <div
-                className="glass-card overflow-hidden cursor-pointer border border-white/10"
-                onClick={() => navigate(`/events/${nextEvent.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(`/events/${nextEvent.id}`);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="relative h-36">
-                  <EventCover
-                    src={nextEvent.image}
-                    title={nextEvent.title}
-                    className="!aspect-auto absolute inset-0 h-full w-full"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent pointer-events-none" />
-                  <div className="absolute top-3 right-3 px-2 py-1 text-xs font-medium rounded-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30">
-                    ✓ Registered
-                  </div>
-                  <div className="absolute bottom-3 left-3 pr-3">
-                    <h3 className="text-lg font-display font-bold text-white drop-shadow-md">{nextEvent.title}</h3>
-                    <p className="text-sm text-white/80 drop-shadow">{formatEventDateTime(nextEvent.eventDate)}</p>
-                  </div>
+          isRegisteredForNextEvent && (
+            <motion.section
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card overflow-hidden border border-orange-400/25 shadow-[0_0_24px_-6px_rgba(251,146,60,0.35)]"
+            >
+              <div className="relative h-36">
+                <EventCover
+                  src={nextEvent.image}
+                  title={nextEvent.title}
+                  className="!aspect-auto absolute inset-0 h-full w-full"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-transparent pointer-events-none" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500/25 border border-orange-400/40">
+                  <span className="text-[10px] font-bold text-orange-200 uppercase tracking-[1px]">STARTING SOON</span>
                 </div>
-                <div className="flex justify-center gap-2 py-4">
+              </div>
+              <div className="space-y-3 p-5">
+                <h3 className="text-lg font-display font-bold text-foreground">{nextEvent.title}</h3>
+                <p className="text-sm font-medium text-orange-200/90">{formatStartsInSoon(nextEvent.eventDate)}</p>
+                <div className="flex justify-center gap-2">
                   {[
                     { val: countdown.days, label: "DAYS" },
                     { val: countdown.hours, label: "HRS" },
@@ -599,90 +643,96 @@ const Dashboard = () => {
                   ].map((item) => (
                     <div
                       key={item.label}
-                      className="w-14 h-14 rounded-xl bg-secondary flex flex-col items-center justify-center"
+                      className="flex h-14 w-14 flex-col items-center justify-center rounded-xl bg-secondary"
                     >
                       <span className="text-lg font-bold gradient-text">{String(item.val).padStart(2, "0")}</span>
-                      <span className="text-[10px] text-muted-foreground font-semibold">{item.label}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[1px] text-muted-foreground">
+                        {item.label}
+                      </span>
                     </div>
                   ))}
                 </div>
-                <div className="px-4 pb-4">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="w-full"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/events/${nextEvent.id}`);
-                    }}
-                  >
-                    View Event
-                  </Button>
-                </div>
+                <Button
+                  className="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white border-0"
+                  onClick={() => navigate(`/events/${nextEvent.id}`)}
+                >
+                  Get Ready →
+                </Button>
               </div>
-            </section>
+            </motion.section>
           )}
 
         {!showHeroSkeleton &&
           !isLiveEvent &&
+          !startingSoonWithin2h &&
           nextEvent &&
-          isRegisteredForNextEvent &&
-          hoursUntilNext > 24 && (
-            <section className="space-y-3">
-              <h2 className="text-lg font-display font-semibold text-foreground">Next Event</h2>
-              <div
-                className="glass-card overflow-hidden cursor-pointer border border-white/10"
+          isRegisteredForNextEvent && (
+            <motion.section
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="overflow-hidden rounded-2xl border border-white/10 glass-card"
+            >
+              <button
+                type="button"
+                className="relative block w-full text-left"
                 onClick={() => navigate(`/events/${nextEvent.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(`/events/${nextEvent.id}`);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
               >
-                <div className="relative h-32">
+                <div className="relative h-40">
                   <EventCover
                     src={nextEvent.image}
                     title={nextEvent.title}
                     className="!aspect-auto absolute inset-0 h-full w-full"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent pointer-events-none" />
-                  <div className="absolute top-3 right-3 px-2 py-1 text-xs font-medium rounded-full bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30">
-                    ✓ Registered
+                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/65 to-black/20 pointer-events-none" />
+                  <div className="absolute top-3 right-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
+                    You&apos;re registered ✓
                   </div>
                   <div className="absolute bottom-3 left-3 pr-3">
-                    <h3 className="text-base font-display font-bold text-white drop-shadow-md">{nextEvent.title}</h3>
-                    <p className="text-sm text-white/80 drop-shadow">{formatEventDateTime(nextEvent.eventDate)}</p>
+                    <h3 className="text-lg font-display font-bold text-white drop-shadow-md">{nextEvent.title}</h3>
+                    <p className="text-sm text-white/85 drop-shadow">{formatEventDateTime(nextEvent.eventDate)}</p>
                   </div>
                 </div>
-                <div className="px-4 pb-4 pt-2">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="w-full"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/events/${nextEvent.id}`);
-                    }}
-                  >
-                    View Event
-                  </Button>
+              </button>
+              <div className="space-y-3 px-5 pb-5 pt-4">
+                <p className="text-center text-sm font-medium text-muted-foreground">
+                  {formatLongCountdownToEvent(nextEvent.eventDate)}
+                </p>
+                <div className="flex justify-center gap-2">
+                  {[
+                    { val: countdown.days, label: "DAYS" },
+                    { val: countdown.hours, label: "HRS" },
+                    { val: countdown.minutes, label: "MIN" },
+                    { val: countdown.seconds, label: "SEC" },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex h-14 w-14 flex-col items-center justify-center rounded-xl bg-secondary"
+                    >
+                      <span className="text-lg font-bold gradient-text">{String(item.val).padStart(2, "0")}</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[1px] text-muted-foreground">
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/events/${nextEvent.id}`)}
+                  className="w-full text-center text-sm font-semibold text-primary hover:underline"
+                >
+                  View Details →
+                </button>
               </div>
-            </section>
+            </motion.section>
           )}
 
-        {!showHeroSkeleton &&
-          !(isLiveEvent && isRegisteredForNextEvent && nextEvent) &&
-          !(nextEvent && isRegisteredForNextEvent) && (
-          <div className="glass-card p-8 text-center space-y-4 border border-white/10">
-            <Sparkles className="w-10 h-10 text-primary mx-auto" />
+        {!showHeroSkeleton && !isRegisteredForNextEvent && (
+          <div className="glass-card space-y-4 border border-white/10 p-8 text-center">
+            <Sparkles className="mx-auto h-10 w-10 text-primary" />
             <h3 className="text-xl font-display font-bold text-foreground">Find your next vibe</h3>
             <p className="text-sm text-muted-foreground">Join an event to meet amazing people live</p>
             <Button variant="gradient" className="w-full" onClick={() => navigate("/events")}>
-              Explore Events
+              Explore Events →
             </Button>
           </div>
         )}
@@ -739,7 +789,7 @@ const Dashboard = () => {
               <div className="text-center py-4 w-full space-y-3">
                 <p className="text-sm text-muted-foreground">No matches yet. Join an event to start connecting!</p>
                 <Button variant="secondary" size="sm" onClick={() => navigate("/events")}>
-                  Browse Events
+                  Browse Events →
                 </Button>
               </div>
             )}
@@ -814,33 +864,44 @@ const Dashboard = () => {
           </div>
         </section>
 
-        {/* 5. Profile readiness */}
-        {!homeProfileLoading && user?.id && !isProfileComplete && (
-          <div
-            className="glass-card p-4 flex items-center gap-3 cursor-pointer hover:bg-card/80 transition-colors border border-primary/20 bg-primary/5"
-            onClick={() => navigate("/profile")}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                navigate("/profile");
-              }
-            }}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-foreground">Be more discoverable tonight</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {!hasPhotos
-                  ? "Add photos for stronger first impressions"
-                  : !hasVibes
-                    ? "Select your vibes for better matching"
-                    : "Add more about yourself for stronger intros"}
+        {/* 5. Profile readiness nudge */}
+        {!homeProfileLoading &&
+          user?.id &&
+          profileCompletenessPercent < 80 &&
+          !profileReadinessDismissed && (
+            <div className="glass-card relative overflow-hidden border border-violet-500/20 bg-violet-500/5 p-4">
+              <button
+                type="button"
+                className="absolute right-2 top-2 rounded-full p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                aria-label="Dismiss"
+                onClick={() => {
+                  localStorage.setItem(PROFILE_READINESS_DISMISS_KEY, String(Date.now()));
+                  setProfileReadinessDismissed(true);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <p className="pr-8 text-sm font-semibold text-foreground">
+                Complete your profile to get 3x more matches
               </p>
+              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+                  style={{ width: `${profileCompletenessPercent}%` }}
+                />
+              </div>
+              <p className="mt-1 text-[10px] uppercase tracking-[1px] text-muted-foreground">
+                {profileCompletenessPercent}% complete
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/profile")}
+                className="mt-3 text-sm font-semibold text-primary hover:underline"
+              >
+                Complete Now →
+              </button>
             </div>
-            <ChevronRight className="w-5 h-5 text-primary shrink-0" />
-          </div>
-        )}
+          )}
 
         {/* 6. Ambient pulse */}
         <AmbientPulse />

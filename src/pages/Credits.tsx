@@ -92,7 +92,7 @@ const Credits = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-[100px]">
       <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
         <div className="flex items-center gap-4 max-w-lg mx-auto">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="text-foreground">

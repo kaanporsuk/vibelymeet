@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ScrollView,
   Alert,
@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,8 +43,23 @@ import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+
+/** Profile verification section — parity with web `VerificationSteps` + spec teal / violet–pink gradient */
+const VERIFICATION_TEAL = '#0D9488';
+const VERIFICATION_GRADIENT = ['#8B5CF6', '#E84393'] as const;
+const VERIFICATION_SHIELD = '#8B5CF6';
+const VERIFICATION_SUCCESS_TEXT = '#2DD4BF';
 import { setOneSignalTags } from '@/lib/onesignal';
-import { fetchMyProfile, updateMyProfile, getZodiacSign, getZodiacEmoji, type ProfileRow } from '@/lib/profileApi';
+import {
+  fetchMyProfile,
+  fetchProfileLiveCounts,
+  updateMyProfile,
+  getZodiacSign,
+  getZodiacEmoji,
+  formatBirthdayUsWithZodiac,
+  type ProfileRow,
+} from '@/lib/profileApi';
+import { calculateVibeScore } from '@/lib/calculateVibeScore';
 import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
@@ -52,9 +68,8 @@ import { avatarUrl, getImageUrl } from '@/lib/imageUrl';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
-import { RelationshipIntentSelector } from '@/components/profile/RelationshipIntentSelector';
+import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
-import { VerificationBadgesRow } from '@/components/profile/VerificationBadgesRow';
 import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
@@ -93,25 +108,41 @@ function VibeVideoPlayer({ playbackUrl, thumbnailUrl, style }: { playbackUrl: st
 // Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
 const MAX_PHOTOS = 6;
 
-// Relationship intent labels (mirrored from web + RelationshipIntentSelector)
-const LOOKING_FOR_LABELS: Record<string, string> = {
-  'long-term': 'Something serious',
-  relationship: 'Relationship',
-  'something-casual': 'Something casual',
-  'new-friends': 'New friends',
-  'figuring-out': 'Not sure yet',
-  'rather-not': 'Rather not say',
-};
+const MAX_CONVERSATION_PROMPTS = 3;
 
-/** Identity hero chips — short labels */
-function formatLookingFor(value: string): string {
-  const map: Record<string, string> = {
-    'long-term': 'Looking for dating',
-    'something-casual': 'Casual',
-    'new-friends': 'New friends',
-    'figuring-out': 'Open to anything',
+function parseBirthDateForVibeScore(birth_date: string | null | undefined): Date | null {
+  if (!birth_date) return null;
+  const parts = birth_date.split('-');
+  if (parts.length === 3) {
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (Number.isInteger(y) && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return new Date(y, m - 1, d);
+    }
+  }
+  const t = new Date(birth_date);
+  return Number.isNaN(t.getTime()) ? null : t;
+}
+
+/** Maps DB row → shared calculator input (web `Profile.tsx` uses `verified: false` after load). */
+function profileRowToVibeScoreProfile(p: ProfileRow) {
+  return {
+    name: p.name ?? undefined,
+    birthDate: parseBirthDateForVibeScore(p.birth_date) ?? undefined,
+    job: p.job ?? undefined,
+    heightCm: p.height_cm ?? undefined,
+    location: p.location ?? undefined,
+    aboutMe: p.about_me ?? undefined,
+    photos: p.photos ?? [],
+    vibes: p.vibes ?? [],
+    prompts: p.prompts ?? [],
+    lookingFor: p.looking_for ?? undefined,
+    lifestyle: p.lifestyle ?? {},
+    verified: false as boolean,
+    tagline: p.tagline ?? undefined,
+    hasVibeVideo: !!(p.bunny_video_uid && p.bunny_video_status === 'ready'),
   };
-  return map[value] ?? LOOKING_FOR_LABELS[value] ?? value;
 }
 
 function getVibeScoreLabel(score: number): string {
@@ -122,7 +153,13 @@ function getVibeScoreLabel(score: number): string {
   return 'Ghost Mode';
 }
 
-/** Web parity: circular progress ring (tint stroke, muted track), Space Grotesk bold % */
+/** Web `VibeScore.tsx`: track muted, progress color by tier, label below ring */
+function vibeScoreRingColor(score: number): string {
+  if (score >= 75) return '#E84393';
+  if (score >= 50) return '#8B5CF6';
+  return '#06B6D4';
+}
+
 function VibeScoreDisplay({
   score,
   size = 100,
@@ -133,46 +170,51 @@ function VibeScoreDisplay({
   theme: { text: string; textSecondary: string; tint: string; muted: string };
 }) {
   const label = getVibeScoreLabel(score);
-  const stroke = 6;
+  const stroke = 8;
   const r = (size - stroke) / 2;
   const c = size / 2;
   const circumference = 2 * Math.PI * r;
   const progress = Math.min(100, Math.max(0, score)) / 100;
   const strokeDashoffset = circumference * (1 - progress);
+  const ringColor = vibeScoreRingColor(score);
 
   return (
-    <View style={[vibeScoreStyles.wrap, { width: size, height: size }]}>
-      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={c} cy={c} r={r} stroke={theme.muted} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={c}
-          cy={c}
-          r={r}
-          stroke={theme.tint}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${c} ${c})`}
-        />
-      </Svg>
-      <Text style={[vibeScoreStyles.scoreText, { color: theme.text }]}>{score}%</Text>
+    <View style={vibeScoreStyles.column}>
+      <View style={[vibeScoreStyles.ringWrap, { width: size, height: size }]}>
+        <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
+          <Circle cx={c} cy={c} r={r} stroke={theme.muted} strokeWidth={stroke} fill="none" />
+          <Circle
+            cx={c}
+            cy={c}
+            r={r}
+            stroke={ringColor}
+            strokeWidth={stroke}
+            fill="none"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${c} ${c})`}
+          />
+        </Svg>
+        <Text style={[vibeScoreStyles.scoreText, { color: theme.text }]}>{score}%</Text>
+      </View>
       <Text style={[vibeScoreStyles.scoreLabel, { color: theme.textSecondary }]}>{label}</Text>
     </View>
   );
 }
 
 const vibeScoreStyles = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center' },
+  column: { alignItems: 'center' },
+  ringWrap: { alignItems: 'center', justifyContent: 'center' },
   scoreText: {
+    position: 'absolute',
     fontSize: 22,
     fontFamily: fonts.displayBold,
   },
   scoreLabel: {
-    fontSize: 11,
-    marginTop: 2,
-    fontWeight: '600',
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
   },
 });
 
@@ -196,6 +238,31 @@ export default function ProfileScreen() {
     queryFn: fetchMyProfile,
     enabled: !!user?.id,
   });
+
+  const verificationStepTotal = 3;
+  const verificationVerifiedCount = useMemo(() => {
+    if (!profile) return 0;
+    let n = 0;
+    if (profile.email_verified) n++;
+    if (profile.photo_verified) n++;
+    if (profile.phone_verified) n++;
+    return n;
+  }, [profile?.email_verified, profile?.photo_verified, profile?.phone_verified]);
+  const verificationProgressPct = (verificationVerifiedCount / verificationStepTotal) * 100;
+
+  const { data: liveCounts, refetch: refetchLiveCounts } = useQuery({
+    queryKey: ['profile-live-counts', user?.id],
+    queryFn: () => fetchProfileLiveCounts(user!.id),
+    enabled: !!user?.id,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id) return;
+      void refetch();
+      void refetchLiveCounts();
+    }, [user?.id, refetch, refetchLiveCounts]),
+  );
 
   useEffect(() => {
     if (!profile) return;
@@ -268,6 +335,7 @@ export default function ProfileScreen() {
   const [promptSheetMode, setPromptSheetMode] = useState<'edit' | 'add'>('edit');
   const [promptEditIndex, setPromptEditIndex] = useState<number | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showVibeManageSheet, setShowVibeManageSheet] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -309,12 +377,21 @@ export default function ProfileScreen() {
   };
 
   const handlePromptSave = async (question: string, answer: string) => {
-    const current = profile?.prompts ?? [];
+    const current = [...(profile?.prompts ?? [])];
     const idx = promptEditIndex ?? -1;
-    if (idx >= 0 && idx < current.length) {
-      const next = [...current];
-      next[idx] = { question, answer };
-      await updateMyProfile({ prompts: next });
+    if (idx >= 0) {
+      while (current.length <= idx) {
+        current.push({ question: '', answer: '' });
+      }
+      current[idx] = { question, answer };
+      while (
+        current.length > 0 &&
+        !current[current.length - 1]?.question?.trim() &&
+        !current[current.length - 1]?.answer?.trim()
+      ) {
+        current.pop();
+      }
+      await updateMyProfile({ prompts: current });
     }
     qc.invalidateQueries({ queryKey: ['my-profile'] });
     setShowPromptSheet(false);
@@ -322,11 +399,27 @@ export default function ProfileScreen() {
   };
 
   const handlePromptAdd = async (question: string, answer: string) => {
-    const current = profile?.prompts ?? [];
-    const next = [...current, { question, answer }];
-    await updateMyProfile({ prompts: next });
+    const current = [...(profile?.prompts ?? [])];
+    const slotIdx = promptEditIndex;
+    if (slotIdx !== null && slotIdx >= 0) {
+      while (current.length <= slotIdx) {
+        current.push({ question: '', answer: '' });
+      }
+      current[slotIdx] = { question, answer };
+      while (
+        current.length > 0 &&
+        !current[current.length - 1]?.question?.trim() &&
+        !current[current.length - 1]?.answer?.trim()
+      ) {
+        current.pop();
+      }
+      await updateMyProfile({ prompts: current });
+    } else {
+      await updateMyProfile({ prompts: [...current, { question, answer }] });
+    }
     qc.invalidateQueries({ queryKey: ['my-profile'] });
     setShowPromptSheet(false);
+    setPromptEditIndex(null);
   };
 
   const handlePromptRemove = async (index: number) => {
@@ -543,13 +636,10 @@ export default function ProfileScreen() {
     }
   };
 
-  // Placeholder vibe score from profile completeness (mirrors web intent; no shared calc on mobile)
-  const vibeScore =
-    profile?.name && profile?.about_me && profile?.tagline && (profile?.photos?.length ?? 0) > 0
-      ? 70
-      : profile?.name
-        ? 40
-        : 0;
+  const vibeScore = useMemo(() => {
+    if (!profile) return 0;
+    return calculateVibeScore(profileRowToVibeScoreProfile(profile));
+  }, [profile]);
 
   if (isLoading && !profile) {
     return (
@@ -564,18 +654,19 @@ export default function ProfileScreen() {
       <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
         <ErrorState
           message={error instanceof Error ? error.message : "We couldn't load your profile."}
-          onActionPress={() => refetch()}
+          onActionPress={() => {
+            void refetch();
+            void refetchLiveCounts();
+          }}
         />
       </View>
     );
   }
 
-  const eventsCount = profile?.events_attended ?? 0;
-  const matchesCount = profile?.total_matches ?? 0;
-  const convosCount = profile?.total_conversations ?? 0;
-  const lookingForLabel = profile?.looking_for
-    ? LOOKING_FOR_LABELS[profile.looking_for] ?? profile.looking_for
-    : null;
+  const eventsCount = liveCounts?.events ?? profile?.events_attended ?? 0;
+  const matchesCount = liveCounts?.matches ?? profile?.total_matches ?? 0;
+  const convosCount = liveCounts?.convos ?? profile?.total_conversations ?? 0;
+  const lookingForDisplay = getLookingForDisplay(profile?.looking_for);
 
   const profilePhotos = profile?.photos ?? [];
   const photoViewerPhotos = profilePhotos.length > 0 ? profilePhotos : [];
@@ -588,7 +679,6 @@ export default function ProfileScreen() {
     const localDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
     return getZodiacEmoji(getZodiacSign(localDate));
   })();
-  const isVerified = !!(profile?.photo_verified || profile?.phone_verified);
   const isPremiumActive = !!(
     profile?.is_premium &&
     profile?.premium_until &&
@@ -603,107 +693,117 @@ export default function ProfileScreen() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching && !isLoading}
-          onRefresh={() => refetch()}
+          onRefresh={() => {
+            void refetch();
+            void refetchLiveCounts();
+          }}
           tintColor={theme.tint}
         />
       }
     >
-      {/* Zone A — atmospheric neon hero (seamless fade to page bg) */}
-      <LinearGradient
-        colors={['#7C3AED', '#6D28D9', '#4C1D95', theme.background]}
-        locations={[0, 0.25, 0.6, 1]}
-        style={[styles.heroGradient, { paddingTop: insets.top + 8 }]}
+      {/* Zone A — absolute full-bleed gradient behind controls (web parity). Avoids flex/layout gaps showing theme.background between buttons. */}
+      <RNView
+        style={[
+          styles.heroShell,
+          { minHeight: insets.top + 8 + 44 + 24 },
+        ]}
       >
-        <View style={styles.glowOrb} />
-        <View style={styles.heroControls}>
-          <Pressable
-            onPress={handlePreviewProfile}
-            style={styles.glassBtn}
-            accessibilityLabel="Preview profile"
-          >
-            <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.85)" />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            style={styles.glassBtn}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings-outline" size={20} color="rgba(255,255,255,0.85)" />
-          </Pressable>
-        </View>
-      </LinearGradient>
+        <LinearGradient
+          pointerEvents="none"
+          colors={['#8B5CF6', '#D946EF', '#E84393', theme.background]}
+          locations={[0, 0.32, 0.62, 1]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.heroGradientAbsolute, { height: insets.top + 220 }]}
+        />
+        <RNView pointerEvents="none" style={styles.glowOrb} />
+        <RNView
+          pointerEvents="box-none"
+          style={[styles.heroTopBar, { paddingTop: insets.top + 8 }]}
+        >
+          <RNView style={styles.heroControls}>
+            <Pressable
+              onPress={handlePreviewProfile}
+              style={styles.glassBtn}
+              accessibilityLabel="Preview profile"
+            >
+              <Ionicons name="eye-outline" size={20} color="rgba(255,255,255,0.85)" />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push('/settings')}
+              style={styles.glassBtn}
+              accessibilityLabel="Settings"
+            >
+              <Ionicons name="settings-outline" size={20} color="rgba(255,255,255,0.85)" />
+            </Pressable>
+          </RNView>
+        </RNView>
+      </RNView>
 
-      {/* Zone B — avatar overlaps gradient edge */}
+      {/* Zone B — web ProfilePhoto xl: 128×128, rounded-2xl (16), border-4 background, shadow-2xl */}
       <View style={styles.avatarSection}>
         <View style={styles.avatarOuter}>
-          <LinearGradient
-            colors={['#8B5CF6', '#E84393']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.avatarGlowRing}
+          <View
+            style={[
+              styles.heroAvatarCard,
+              {
+                borderColor: theme.background,
+                backgroundColor: theme.surfaceSubtle,
+              },
+            ]}
           >
-            <View style={[styles.avatarInner, { backgroundColor: theme.background }]}>
-              {heroAvatarPath ? (
-                <Image
-                  source={{ uri: getImageUrl(heroAvatarPath) }}
-                  style={styles.avatarImage}
-                />
-              ) : (
-                <View style={[styles.avatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="person" size={48} color={theme.mutedForeground} />
-                </View>
-              )}
-            </View>
-          </LinearGradient>
+            {heroAvatarPath ? (
+              <Image source={{ uri: getImageUrl(heroAvatarPath) }} style={styles.avatarImage} />
+            ) : (
+              <View style={[styles.avatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]}>
+                <Ionicons name="person" size={48} color={theme.mutedForeground} />
+              </View>
+            )}
+          </View>
 
-          {isVerified && (
-            <View style={[styles.verifyBadge, { backgroundColor: theme.background }]}>
-              <Ionicons name="checkmark-circle" size={22} color="#00CEC9" />
-            </View>
-          )}
+          {profile?.bunny_video_uid && vibeStatus === 'ready' ? (
+            <Pressable
+              onPress={handleVibeVideoPress}
+              style={[styles.mediaFab, styles.mediaFabLeft, { backgroundColor: '#06B6D4' }, shadows.glowCyan]}
+              accessibilityLabel="Vibe video"
+            >
+              <Ionicons name="videocam" size={20} color="#fff" />
+            </Pressable>
+          ) : null}
 
           <Pressable
             onPress={handleAddPhoto}
             disabled={photoUploading}
-            style={[styles.avatarAction, styles.avatarActionRight]}
+            style={[styles.mediaFab, styles.mediaFabRight, { backgroundColor: '#E84393' }, shadows.glowPink]}
             accessibilityLabel="Add or change photo"
           >
             {photoUploading ? (
-              <Ionicons name="hourglass-outline" size={16} color="#fff" />
+              <Ionicons name="hourglass-outline" size={20} color="#fff" />
             ) : (
-              <Ionicons name="camera" size={16} color="#fff" />
+              <Ionicons name="camera" size={20} color="#fff" />
             )}
-          </Pressable>
-
-          <Pressable
-            onPress={handleVibeVideoPress}
-            disabled={vibeStatus === 'uploading' || vibeStatus === 'processing'}
-            style={[styles.avatarAction, styles.avatarActionLeft]}
-            accessibilityLabel="Vibe video"
-          >
-            <Ionicons name="videocam" size={16} color="#fff" />
           </Pressable>
         </View>
       </View>
 
-      {/* Verification badges — phone, email, photo */}
-      <View style={[styles.verificationBadgesWrap, { paddingHorizontal: spacing.lg }]}>
-        <VerificationBadgesRow
-          phoneVerified={profile?.phone_verified}
-          emailVerified={profile?.email_verified}
-          photoVerified={profile?.photo_verified}
-          onVerifyPhone={() => setShowPhoneVerify(true)}
-          onVerifyEmail={() => setShowEmailVerify(true)}
-        />
-      </View>
-
-      {/* Zone C — identity block */}
+      {/* Zone C — identity block (web: Premium inline with name; no hero verification pills/chips) */}
       <View style={styles.identityBlock}>
         <View style={styles.nameRow}>
           <Text style={[styles.nameText, { color: theme.text }]} numberOfLines={1}>
             {profile?.name ?? 'Your name'}
             {profile?.age != null ? `, ${profile.age}` : ''}
           </Text>
+          {isPremiumActive ? (
+            <LinearGradient
+              colors={['#8B5CF6', '#E84393']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.premiumPill}
+            >
+              <Ionicons name="diamond" size={11} color="#fff" />
+              <Text style={styles.premiumPillText}>Premium</Text>
+            </LinearGradient>
+          ) : null}
           {zodiacEmoji ? (
             <View
               style={[
@@ -716,58 +816,27 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {profile?.tagline ? (
-          <Text style={[styles.tagline, { color: theme.tint }]} numberOfLines={2}>
-            "{profile.tagline}"
-          </Text>
-        ) : (
-          <Text style={[styles.taglinePlaceholder, { color: theme.textSecondary }]}>
-            Add tagline
-          </Text>
-        )}
-
-        {!!profile?.location && (
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={14} color={theme.mutedForeground} />
-            <Text style={[styles.locationText, { color: theme.mutedForeground }]}>
-              {profile.location}
+        <Pressable
+          onPress={() => setEditing(true)}
+          style={({ pressed }) => [styles.taglineRow, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          accessibilityLabel={profile?.tagline ? 'Edit tagline' : 'Add tagline'}
+        >
+          {profile?.tagline ? (
+            <Text style={[styles.tagline, { color: theme.tint }]} numberOfLines={2}>
+              "{profile.tagline}"
             </Text>
-          </View>
-        )}
+          ) : (
+            <Text style={[styles.taglinePlaceholder, { color: theme.textSecondary }]}>Add tagline</Text>
+          )}
+          <Ionicons name="pencil-outline" size={16} color={theme.tint} style={styles.taglinePencil} />
+        </Pressable>
 
-        <View style={styles.chipRow}>
-          {isVerified && (
-            <View
-              style={[
-                styles.statusChip,
-                { backgroundColor: withAlpha('#00CEC9', 0.12), borderColor: withAlpha('#00CEC9', 0.25) },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: '#00CEC9' }]}>Verified</Text>
-            </View>
-          )}
-          {isPremiumActive && (
-            <View
-              style={[
-                styles.statusChip,
-                { backgroundColor: withAlpha('#E84393', 0.12), borderColor: withAlpha('#E84393', 0.25) },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: '#E84393' }]}>Premium</Text>
-            </View>
-          )}
-          {profile?.looking_for ? (
-            <View
-              style={[
-                styles.statusChip,
-                { backgroundColor: withAlpha(theme.tint, 0.12), borderColor: withAlpha(theme.tint, 0.25) },
-              ]}
-            >
-              <Text style={[styles.chipText, { color: theme.tint }]}>
-                {formatLookingFor(profile.looking_for)}
-              </Text>
-            </View>
-          ) : null}
+        <View style={styles.locationRow}>
+          <Ionicons name="location-outline" size={14} color={theme.mutedForeground} />
+          <Text style={[styles.locationText, { color: theme.mutedForeground }]}>
+            {profile?.location?.trim() ? profile.location : 'Location not set'}
+          </Text>
         </View>
       </View>
 
@@ -775,7 +844,7 @@ export default function ProfileScreen() {
         {/* Vibe Score card — web parity glass-card */}
         <Card variant="glass" style={styles.vibeScoreCard}>
           <View style={styles.vibeScoreRow}>
-            <VibeScoreDisplay score={vibeScore} size={100} theme={theme} />
+            <VibeScoreDisplay score={vibeScore} size={90} theme={theme} />
             <View style={styles.vibeScoreCopy}>
               <Text style={[styles.vibeScoreTitle, { color: theme.text }]}>
                 Your Vibe Score
@@ -786,14 +855,21 @@ export default function ProfileScreen() {
                   : "You're at peak vibe. Time to make some connections."}
               </Text>
               <View style={styles.vibeScoreActions}>
-                {vibeScore < 100 && (
+                <Pressable
+                  onPress={handlePreviewProfile}
+                  style={({ pressed }) => [styles.vibePreviewBtn, pressed && { opacity: 0.85 }]}
+                >
+                  <Ionicons name="eye-outline" size={16} color={theme.tint} />
+                  <Text style={[styles.vibePreviewBtnText, { color: theme.tint }]}>Preview</Text>
+                </Pressable>
+                {vibeScore < 100 ? (
                   <VibelyButton
                     label="Complete Profile"
                     onPress={() => setEditing(true)}
-                    variant="primary"
+                    variant="gradient"
                     style={styles.completeProfileBtn}
                   />
-                )}
+                ) : null}
               </View>
             </View>
           </View>
@@ -833,7 +909,7 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        {/* Looking For — web parity glass-card, Chip for value */}
+        {/* Looking For — web RelationshipIntent display chip (emoji + label) */}
         <Card variant="glass">
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionTitleRow}>
@@ -845,9 +921,15 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={16} color={theme.tint} />
             </Pressable>
           </View>
-          {lookingForLabel ? (
-            <View style={styles.chipWrap}>
-              <Chip label={lookingForLabel} variant="secondary" />
+          {lookingForDisplay ? (
+            <View
+              style={[
+                styles.lookingForDisplayChip,
+                { backgroundColor: theme.tintSoft, borderColor: theme.border },
+              ]}
+            >
+              <Text style={styles.lookingForEmoji}>{lookingForDisplay.emoji}</Text>
+              <Text style={[styles.lookingForLabelText, { color: theme.text }]}>{lookingForDisplay.label}</Text>
             </View>
           ) : (
             <Text style={[styles.helperText, { color: theme.textSecondary }]}>
@@ -870,49 +952,136 @@ export default function ProfileScreen() {
           </Text>
         </Card>
 
-        {/* Conversation Starters — web parity: list when data exists, else empty card */}
+        {/* Conversation Starters — web ProfilePrompt: large cards, gradient left accent */}
         <View style={styles.sectionHeaderStandalone}>
           <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.tint} style={styles.sectionIcon} />
           <VibelyText variant="titleSM" style={{ color: theme.text }}>Conversation Starters</VibelyText>
         </View>
-        {profile?.prompts && profile.prompts.length > 0 ? (
-          <Card variant="glass">
-            {profile.prompts.filter((p) => p.question?.trim() || p.answer?.trim()).map((p, i) => (
+        {(() => {
+          const list = profile?.prompts ?? [];
+          const hasAnyPromptContent = list.some((p) => p.question?.trim() || p.answer?.trim());
+
+          const openFirstPrompt = () => {
+            setPromptSheetMode('add');
+            setPromptEditIndex(null);
+            setShowPromptSheet(true);
+          };
+
+          const openSlot = (index: number, mode: 'edit' | 'add') => {
+            setPromptSheetMode(mode);
+            setPromptEditIndex(index);
+            setShowPromptSheet(true);
+          };
+
+          if (!hasAnyPromptContent) {
+            return (
               <Pressable
-                key={i}
-                onPress={() => { setPromptEditIndex(i); setPromptSheetMode('edit'); setShowPromptSheet(true); }}
-                style={[styles.promptRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}
+                onPress={openFirstPrompt}
+                style={({ pressed }) => [
+                  styles.promptFirstEmptyCard,
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: theme.surfaceSubtle,
+                  },
+                  pressed && { opacity: 0.92 },
+                ]}
               >
-                <View style={styles.promptRowContent}>
-                  <Text style={styles.promptEmojiSmall}>{PROMPT_EMOJIS[p.question] ?? '💭'}</Text>
-                  <View style={styles.promptRowText}>
-                    <Text style={[styles.promptQuestion, { color: theme.textSecondary }]}>{p.question || 'Prompt'}</Text>
-                    <Text style={[styles.promptAnswer, { color: theme.text }]}>{p.answer || 'Tap to add your answer...'}</Text>
-                  </View>
-                  <Ionicons name="pencil" size={16} color={theme.tint} />
-                </View>
+                <Text style={styles.promptEmptyEmoji}>💬</Text>
+                <Text style={[styles.promptEmptyPlaceholder, { color: theme.textSecondary }]}>
+                  Tap to add your answer...
+                </Text>
               </Pressable>
-            ))}
-            <Pressable onPress={() => { setPromptSheetMode('add'); setPromptEditIndex(null); setShowPromptSheet(true); }} style={({ pressed }) => [styles.addPromptBtn, { borderColor: theme.border }, pressed && { opacity: 0.8 }]}>
-              <Ionicons name="add-circle-outline" size={20} color={theme.tint} />
-              <Text style={[styles.addPromptLabel, { color: theme.tint }]}>Add prompt</Text>
-            </Pressable>
-          </Card>
-        ) : (
-          <Pressable onPress={() => { setPromptSheetMode('add'); setPromptEditIndex(null); setShowPromptSheet(true); }} style={({ pressed }) => [styles.promptsEmptyCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.92 }]}>
-            <View style={styles.promptsEmptyInner}>
-              <View style={[styles.promptsEmptyIcon, { backgroundColor: theme.tintSoft }]}>
-                <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.tint} />
-              </View>
-              <Text style={[styles.promptsEmptyTitle, { color: theme.text }]}>
-                Add your first Conversation Starter
-              </Text>
-              <Text style={[styles.promptsEmptySub, { color: theme.textSecondary }]}>
-                Give matches something fun to respond to
-              </Text>
+            );
+          }
+
+          const slots = [...list];
+          while (slots.length < MAX_CONVERSATION_PROMPTS) {
+            slots.push({ question: '', answer: '' });
+          }
+          const displaySlots = slots.slice(0, MAX_CONVERSATION_PROMPTS);
+
+          return (
+            <View style={styles.promptCardsColumn}>
+              {displaySlots.map((slot, index) => {
+                const hasQuestion = !!slot.question?.trim();
+                const answerTrim = slot.answer?.trim() ?? '';
+
+                if (!hasQuestion) {
+                  return (
+                    <Pressable
+                      key={`empty-${index}`}
+                      onPress={() => openSlot(index, 'add')}
+                      style={({ pressed }) => [
+                        styles.promptSlotEmptyCard,
+                        {
+                          borderColor: theme.border,
+                          backgroundColor: theme.surfaceSubtle,
+                        },
+                        pressed && { opacity: 0.92 },
+                      ]}
+                    >
+                      <Text style={styles.promptEmptyEmoji}>💬</Text>
+                      <Text style={[styles.promptEmptyPlaceholder, { color: theme.textSecondary }]}>
+                        Tap to add your answer...
+                      </Text>
+                    </Pressable>
+                  );
+                }
+
+                const emoji = PROMPT_EMOJIS[slot.question] ?? '💭';
+                return (
+                  <Pressable
+                    key={`prompt-${index}-${slot.question}`}
+                    onPress={() => openSlot(index, 'edit')}
+                    style={({ pressed }) => [
+                      styles.promptStandaloneCard,
+                      {
+                        backgroundColor: theme.surfaceSubtle,
+                        borderColor: theme.glassBorder,
+                      },
+                      pressed && { opacity: 0.96 },
+                    ]}
+                  >
+                    <View style={styles.promptGradientAccentWrap} pointerEvents="none">
+                      <LinearGradient
+                        colors={['#8B5CF6', '#E84393']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                    </View>
+                    <View style={styles.promptCardInner}>
+                      <View style={styles.promptCardTopRow}>
+                        <View style={styles.promptCardTitleRow}>
+                          <Text style={styles.promptCardEmoji}>{emoji}</Text>
+                          <Text style={[styles.promptCardQuestion, { color: theme.textSecondary }]} numberOfLines={3}>
+                            {slot.question}
+                          </Text>
+                        </View>
+                        <Ionicons name="pencil-outline" size={18} color={theme.textSecondary} />
+                      </View>
+                      {answerTrim ? (
+                        <Text style={[styles.promptCardAnswer, { color: theme.text }]}>{answerTrim}</Text>
+                      ) : (
+                        <Text style={[styles.promptCardAnswerPlaceholder, { color: theme.textSecondary }]}>
+                          Tap to add your answer...
+                        </Text>
+                      )}
+                      {answerTrim ? (
+                        <View style={styles.promptCardFooter}>
+                          <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.tint} />
+                          <Text style={[styles.promptCardFooterLabel, { color: theme.textSecondary }]}>
+                            Conversation starter
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
-          </Pressable>
-        )}
+          );
+        })()}
 
         {/* Lifestyle — web parity: display only when has values */}
         {(profile?.lifestyle && Object.keys(profile.lifestyle).length > 0) ? (
@@ -982,27 +1151,36 @@ export default function ProfileScreen() {
                 ) : (
                   <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.surface }]} />
                 )}
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={['transparent', 'rgba(0,0,0,0.72)']}
+                  locations={[0.35, 1]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Pressable
+                  onPress={() => setShowVibeManageSheet(true)}
+                  style={styles.vibeVideoManagePill}
+                  accessibilityLabel="Manage vibe video"
+                >
+                  <Text style={styles.vibeVideoManagePillText}>Manage</Text>
+                </Pressable>
                 <View style={styles.vibeVideoPlayOverlay} pointerEvents="box-none">
                   <Pressable onPress={() => playbackUrl && setShowVibeVideoFullscreen(true)} style={styles.vibeVideoPlayBtn}>
-                    <Ionicons name="play" size={32} color="#fff" />
+                    <Ionicons name="play" size={28} color="#fff" />
                   </Pressable>
                 </View>
                 {caption ? (
-                  <View style={styles.vibeVideoCaptionStrip}>
-                    <Text style={styles.vibeVideoCaptionLabel}>Vibing on</Text>
-                    <Text style={styles.vibeVideoCaptionText} numberOfLines={2}>{caption}</Text>
+                  <View style={styles.vibeVideoCaptionStrip} pointerEvents="none">
+                    <Text style={styles.vibeVideoVibingOnLabel}>VIBING ON</Text>
+                    <Text style={styles.vibeVideoCaptionText} numberOfLines={2}>
+                      {caption}
+                    </Text>
                   </View>
                 ) : (
-                  <View style={styles.vibeVideoCaptionStrip}>
+                  <View style={styles.vibeVideoCaptionStrip} pointerEvents="none">
                     <Text style={[styles.vibeVideoCaptionText, { opacity: 0.7 }]}>Tap to play</Text>
                   </View>
                 )}
-                <View style={styles.vibeVideoActionsRow}>
-                  <VibelyButton label="Record new" onPress={handleVibeVideoPress} variant="secondary" size="sm" />
-                  <Pressable onPress={handleDeleteVibeVideo}>
-                    <Text style={{ color: theme.danger, fontSize: 14 }}>Delete video</Text>
-                  </Pressable>
-                </View>
               </>
             );
           })()}
@@ -1019,7 +1197,7 @@ export default function ProfileScreen() {
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
                 Record a 15-second video intro to stand out
               </Text>
-              <VibelyButton label="Record My Vibe" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
+              <VibelyButton label="Record your Vibe Video" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
             </View>
           )}
         </View>
@@ -1074,8 +1252,8 @@ export default function ProfileScreen() {
                   >
                     <Image source={{ uri: avatarUrl(url) }} style={styles.photoGridImg} />
                     {isMain && (
-                      <View style={[styles.photoMainBadge, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                        <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.95)" />
+                      <View style={[styles.photoMainBadge, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+                        <Text style={styles.photoMainBadgeCrown}>👑</Text>
                         <Text style={styles.photoMainBadgeText}>Main</Text>
                       </View>
                     )}
@@ -1101,7 +1279,7 @@ export default function ProfileScreen() {
           )}
         </Card>
 
-        {/* The Basics — web parity glass-card, rounded-xl rows */}
+        {/* The Basics — web: 2×2 grid (Birthday | Work, Height | Location) */}
         <Card variant="glass">
           <View style={styles.sectionHeaderRow}>
             <VibelyText variant="titleSM" style={{ color: theme.text }}>The Basics</VibelyText>
@@ -1113,120 +1291,196 @@ export default function ProfileScreen() {
           <View style={styles.basicsGrid}>
             {(
               [
-                { icon: 'calendar-outline' as const, label: 'Birthday', value: profile?.birth_date ? new Date(profile.birth_date).toLocaleDateString() : 'Not set' },
-                { icon: 'briefcase-outline' as const, label: 'Work', value: profile?.job || 'Not set' },
-                { icon: 'resize-outline' as const, label: 'Height', value: profile?.height_cm ? `${profile.height_cm} cm` : 'Not set' },
-                { icon: 'location-outline' as const, label: 'Location', value: profile?.location || 'Not set' },
+                {
+                  icon: 'calendar-outline' as const,
+                  label: 'Birthday',
+                  value: formatBirthdayUsWithZodiac(profile?.birth_date),
+                },
+                { icon: 'briefcase-outline' as const, label: 'Work', value: profile?.job?.trim() || 'Not set' },
+                {
+                  icon: 'resize-outline' as const,
+                  label: 'Height',
+                  value: profile?.height_cm ? `${profile.height_cm} cm` : 'Not set',
+                },
+                { icon: 'location-outline' as const, label: 'Location', value: profile?.location?.trim() || 'Not set' },
               ] as const
             ).map((item) => (
-              <View key={item.label} style={[styles.basicRow, { backgroundColor: theme.surface }]}>
-                <Ionicons name={item.icon} size={16} color={theme.textSecondary} />
-                <View style={styles.basicRowText}>
-                  <Text style={[styles.basicLabel, { color: theme.textSecondary }]}>{item.label}</Text>
-                  <Text style={[styles.basicValue, { color: theme.text }]} numberOfLines={1}>{item.value}</Text>
+              <View
+                key={item.label}
+                style={[
+                  styles.basicCard,
+                  {
+                    backgroundColor: theme.surfaceSubtle,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                <View style={styles.basicCardTopRow}>
+                  <Ionicons name={item.icon} size={16} color={theme.textSecondary} />
+                  <Text style={[styles.basicCardLabel, { color: theme.textSecondary }]}>{item.label}</Text>
                 </View>
+                <Text style={[styles.basicCardValue, { color: theme.text }]} numberOfLines={3}>
+                  {item.value}
+                </Text>
               </View>
             ))}
           </View>
         </Card>
 
-        {/* Lifestyle — web parity: key-value rows when data exists */}
+        {/* Verification — web `VerificationSteps`: header + gradient bar + teal cards + success banner */}
         <Card variant="glass">
-          <View style={styles.sectionHeaderRow}>
-            <VibelyText variant="titleSM" style={{ color: theme.text }}>Lifestyle</VibelyText>
-            <Pressable onPress={() => setEditing(true)} style={({ pressed }) => [styles.sectionEditLink, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.sectionEditLinkText, { color: theme.tint }]}>Edit</Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-            </Pressable>
-          </View>
-          {profile?.lifestyle && Object.keys(profile.lifestyle).length > 0 ? (
-            <View style={styles.basicsGrid}>
-              {Object.entries(profile.lifestyle)
-                .filter(([, v]) => v != null && String(v).trim() !== '')
-                .map(([key, value]) => (
-                  <View key={key} style={[styles.basicRow, { backgroundColor: theme.surface }]}>
-                    <View style={styles.basicRowText}>
-                      <Text style={[styles.basicLabel, { color: theme.textSecondary }]}>{key.replace(/_/g, ' ')}</Text>
-                      <Text style={[styles.basicValue, { color: theme.text }]} numberOfLines={1}>{String(value)}</Text>
-                    </View>
-                  </View>
-                ))}
+          <View style={styles.verificationHeaderRow}>
+            <View style={styles.verificationTitleLeft}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={VERIFICATION_SHIELD} />
+              <Text style={[styles.verificationTitle, { color: theme.text }]}>Verification</Text>
             </View>
-          ) : (
-            <Text style={[styles.helperText, { color: theme.textSecondary }]}>
-              Help find someone compatible with your lifestyle.
+            <Text style={[styles.verificationCountLabel, { color: theme.textSecondary }]}>
+              {verificationVerifiedCount}/{verificationStepTotal} complete
             </Text>
-          )}
-        </Card>
+          </View>
 
-        {/* Verification — web parity: step list reflecting actual state (photo_verified, phone_verified) */}
-        <Card variant="glass">
-          <View style={styles.verificationHeader}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={theme.neonCyan} />
-            <VibelyText variant="titleSM" style={{ color: theme.text }}>Verification</VibelyText>
+          <View style={styles.verificationProgressTrack}>
+            <View style={[styles.verificationProgressFill, { width: `${verificationProgressPct}%` }]}>
+              <LinearGradient
+                colors={[...VERIFICATION_GRADIENT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
           </View>
-          <Text style={[styles.verificationSubline, { color: theme.textSecondary }]}>
-            Get a verified badge and stand out
-          </Text>
-          <View style={styles.verificationSteps}>
+
+          <View style={styles.verificationCardsWrap}>
             {profile?.email_verified ? (
-              <View style={[styles.verificationStepRow, { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
-                <Ionicons name="mail-outline" size={18} color={theme.neonCyan} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Email</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.textSecondary }]}>Verified</Text>
+              <View
+                style={[
+                  styles.verificationCard,
+                  { borderColor: 'rgba(13, 148, 136, 0.3)', backgroundColor: 'rgba(13, 148, 136, 0.1)' },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(13, 148, 136, 0.2)' }]}>
+                  <Ionicons name="mail-outline" size={20} color={VERIFICATION_TEAL} />
                 </View>
-                <Ionicons name="checkmark-circle" size={20} color={theme.neonCyan} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Email verification</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.textSecondary }]}>Verified</Text>
+                </View>
+                <View style={styles.verificationTealCheck}>
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                </View>
               </View>
             ) : (
-              <Pressable onPress={() => setShowEmailVerify(true)} style={({ pressed }) => [styles.verificationStepRow, { borderBottomWidth: 1, borderBottomColor: theme.border }, pressed && { opacity: 0.8 }]}>
-                <Ionicons name="mail-outline" size={18} color={theme.textSecondary} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Email</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.tint }]}>Verify</Text>
+              <Pressable
+                onPress={() => setShowEmailVerify(true)}
+                style={({ pressed }) => [
+                  styles.verificationCard,
+                  { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                  <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.tint} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Email verification</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.tint }]}>Verify</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.tint} />
               </Pressable>
             )}
+
             {profile?.photo_verified ? (
-              <View style={[styles.verificationStepRow, { borderBottomWidth: 1, borderBottomColor: theme.border }]}>
-                <Ionicons name="camera-outline" size={18} color={theme.neonCyan} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Photo verification</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.textSecondary }]}>Verified</Text>
+              <View
+                style={[
+                  styles.verificationCard,
+                  { borderColor: 'rgba(13, 148, 136, 0.3)', backgroundColor: 'rgba(13, 148, 136, 0.1)' },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(13, 148, 136, 0.2)' }]}>
+                  <Ionicons name="camera-outline" size={20} color={VERIFICATION_TEAL} />
                 </View>
-                <Ionicons name="checkmark-circle" size={20} color={theme.neonCyan} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Photo verification</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.textSecondary }]}>Verified</Text>
+                </View>
+                <View style={styles.verificationTealCheck}>
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                </View>
               </View>
             ) : (
-              <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})} style={({ pressed }) => [styles.verificationStepRow, { borderBottomWidth: 1, borderBottomColor: theme.border }, pressed && { opacity: 0.8 }]}>
-                <Ionicons name="camera-outline" size={18} color={theme.textSecondary} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Photo verification</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.tint }]}>Verify on web</Text>
+              <Pressable
+                onPress={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})}
+                style={({ pressed }) => [
+                  styles.verificationCard,
+                  { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                  <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.tint} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Photo verification</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.tint }]}>Verify on web</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.tint} />
               </Pressable>
             )}
+
             {profile?.phone_verified ? (
-              <View style={[styles.verificationStepRow, styles.verificationStepRowLast, { borderBottomColor: theme.border }]}>
-                <Ionicons name="call-outline" size={18} color={theme.neonCyan} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Phone number</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.textSecondary }]}>Verified</Text>
+              <View
+                style={[
+                  styles.verificationCard,
+                  { borderColor: 'rgba(13, 148, 136, 0.3)', backgroundColor: 'rgba(13, 148, 136, 0.1)' },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(13, 148, 136, 0.2)' }]}>
+                  <Ionicons name="call-outline" size={20} color={VERIFICATION_TEAL} />
                 </View>
-                <Ionicons name="checkmark-circle" size={20} color={theme.neonCyan} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Phone number</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.textSecondary }]}>Verified</Text>
+                </View>
+                <View style={styles.verificationTealCheck}>
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                </View>
               </View>
             ) : (
-              <Pressable onPress={() => setShowPhoneVerify(true)} style={({ pressed }) => [styles.verificationStepRow, styles.verificationStepRowLast, { borderBottomColor: theme.border }, pressed && { opacity: 0.8 }]}>
-                <Ionicons name="call-outline" size={18} color={theme.textSecondary} />
-                <View style={styles.verificationStepContent}>
-                  <Text style={[styles.verificationStepLabel, { color: theme.text }]}>Phone number</Text>
-                  <Text style={[styles.verificationStepDesc, { color: theme.tint }]}>Verify</Text>
+              <Pressable
+                onPress={() => setShowPhoneVerify(true)}
+                style={({ pressed }) => [
+                  styles.verificationCard,
+                  { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <View style={[styles.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                  <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.tint} />
+                <View style={styles.verificationCardText}>
+                  <Text style={[styles.verificationCardTitle, { color: theme.text }]}>Phone number</Text>
+                  <Text style={[styles.verificationCardSubtitle, { color: theme.tint }]}>Verify your number</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.tint} />
               </Pressable>
             )}
           </View>
+
+          {verificationVerifiedCount === verificationStepTotal && (
+            <View
+              style={[
+                styles.verificationSuccessBanner,
+                { backgroundColor: 'rgba(13, 148, 136, 0.15)', borderColor: 'rgba(13, 148, 136, 0.3)' },
+              ]}
+            >
+              <View style={styles.verificationSuccessIconCircle}>
+                <Ionicons name="checkmark" size={18} color="#fff" />
+              </View>
+              <Text style={[styles.verificationSuccessText, { color: VERIFICATION_SUCCESS_TEXT }]}>
+                {"You're verified! 3x more likely to match."}
+              </Text>
+            </View>
+          )}
         </Card>
 
         {/* Invite Friends — web parity glass-card */}
@@ -1238,35 +1492,6 @@ export default function ProfileScreen() {
             onPress={handleInviteFriends}
           />
         </Card>
-
-        {/* Safety Hub — web parity */}
-        <RNView style={[styles.safetyHubCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.safetyHubTitle, { color: theme.text }]}>Safety & Privacy</Text>
-          <Pressable
-            onPress={() => router.push('/settings/privacy')}
-            style={[styles.safetyHubRow, { borderBottomColor: theme.border }]}
-          >
-            <Ionicons name="shield-outline" size={20} color={theme.tint} />
-            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Privacy Settings</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/settings/account')}
-            style={[styles.safetyHubRow, { borderBottomColor: theme.border }]}
-          >
-            <Ionicons name="pause-circle-outline" size={20} color={theme.tint} />
-            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Pause Account</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
-          </Pressable>
-          <Pressable
-            onPress={() => Linking.openURL('https://vibelymeet.com/community-guidelines').catch(() => {})}
-            style={styles.safetyHubRowLast}
-          >
-            <Ionicons name="heart-outline" size={20} color={theme.tint} />
-            <Text style={[styles.safetyHubRowLabel, { color: theme.text }]}>Community Guidelines</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.mutedForeground} />
-          </Pressable>
-        </RNView>
 
         {/* Logout */}
         <DestructiveRow
@@ -1486,7 +1711,7 @@ export default function ProfileScreen() {
                   <View style={styles.manageGridOverlay}>
                     {i === 0 ? (
                       <View style={[styles.manageGridMainBadge, { backgroundColor: theme.glassSurface }]}>
-                        <Ionicons name="sparkles" size={10} color={theme.accent} />
+                        <Text style={styles.manageGridMainCrown}>👑</Text>
                         <Text style={[styles.manageGridMainLabel, { color: theme.accent }]}>Main</Text>
                       </View>
                     ) : (
@@ -1543,13 +1768,47 @@ export default function ProfileScreen() {
       visible={showPromptSheet}
       onClose={() => { setShowPromptSheet(false); setPromptEditIndex(null); }}
       mode={promptSheetMode}
-      initialQuestion={promptEditIndex !== null && profile?.prompts?.[promptEditIndex] ? profile.prompts[promptEditIndex].question : ''}
-      initialAnswer={promptEditIndex !== null && profile?.prompts?.[promptEditIndex] ? profile.prompts[promptEditIndex].answer : ''}
+      initialQuestion={promptEditIndex !== null ? (profile?.prompts?.[promptEditIndex]?.question ?? '') : ''}
+      initialAnswer={promptEditIndex !== null ? (profile?.prompts?.[promptEditIndex]?.answer ?? '') : ''}
       onSave={handlePromptSave}
       onAdd={handlePromptAdd}
       onRemove={promptEditIndex !== null ? () => handlePromptRemove(promptEditIndex) : undefined}
       existingQuestions={(profile?.prompts ?? []).map((p) => p.question).filter(Boolean)}
     />
+
+    <Modal visible={showVibeManageSheet} transparent animationType="fade" onRequestClose={() => setShowVibeManageSheet(false)}>
+      <Pressable style={styles.vibeManageBackdrop} onPress={() => setShowVibeManageSheet(false)}>
+        <Pressable
+          style={[styles.vibeManageSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <Text style={[styles.vibeManageSheetTitle, { color: theme.text }]}>Vibe Video</Text>
+          <Pressable
+            onPress={() => {
+              setShowVibeManageSheet(false);
+              handleVibeVideoPress();
+            }}
+            style={({ pressed }) => [styles.vibeManageRow, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="videocam-outline" size={22} color={theme.tint} />
+            <Text style={[styles.vibeManageRowLabel, { color: theme.text }]}>Record new</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setShowVibeManageSheet(false);
+              handleDeleteVibeVideo();
+            }}
+            style={({ pressed }) => [styles.vibeManageRow, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="trash-outline" size={22} color={theme.danger} />
+            <Text style={[styles.vibeManageRowLabel, { color: theme.danger }]}>Delete video</Text>
+          </Pressable>
+          <Pressable onPress={() => setShowVibeManageSheet(false)} style={styles.vibeManageCancel}>
+            <Text style={[styles.vibeManageCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
 
     <ProfilePreviewModal visible={showPreviewModal} onClose={() => setShowPreviewModal(false)} profile={profile ?? null} />
 
@@ -1574,12 +1833,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  heroGradient: {
-    height: 180,
-    paddingHorizontal: 16,
+  heroShell: {
     position: 'relative',
-    overflow: 'hidden',
     width: '100%',
+    overflow: 'visible',
+  },
+  heroGradientAbsolute: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 0,
+  },
+  heroTopBar: {
+    position: 'relative',
+    zIndex: 2,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    width: '100%',
+    backgroundColor: 'transparent',
   },
   glowOrb: {
     position: 'absolute',
@@ -1589,12 +1861,13 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 100,
     backgroundColor: 'rgba(139, 92, 246, 0.25)',
+    zIndex: 1,
   },
   heroControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    zIndex: 2,
+    width: '100%',
   },
   glassBtn: {
     width: 44,
@@ -1614,19 +1887,18 @@ const styles = StyleSheet.create({
   avatarOuter: {
     position: 'relative',
   },
-  avatarGlowRing: {
-    width: 124,
-    height: 124,
-    borderRadius: 62,
-    padding: 3,
-  },
-  avatarInner: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 60,
+  /** Web ProfilePhoto xl: w-32 h-32 + rounded-2xl + border-4 border-background + shadow-2xl */
+  heroAvatarCard: {
+    width: 128,
+    height: 128,
+    borderRadius: 16,
+    borderWidth: 4,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 16,
   },
   avatarImage: {
     width: '100%',
@@ -1639,27 +1911,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  verifyBadge: {
+  mediaFab: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    borderRadius: 12,
-    padding: 1,
-  },
-  avatarAction: {
-    position: 'absolute',
-    bottom: 4,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    bottom: -6,
   },
-  avatarActionRight: { right: 0 },
-  avatarActionLeft: { left: 0 },
+  mediaFabLeft: { left: -4 },
+  mediaFabRight: { right: -4 },
   main: {
     paddingHorizontal: layout.containerPadding,
     maxWidth: layout.contentWidth,
@@ -1690,54 +1952,143 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  tagline: {
-    fontSize: 15,
-    fontStyle: 'italic',
-    textAlign: 'center',
-  },
-  promptRow: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 0,
-  },
-  promptRowContent: {
+  premiumPill: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
-  promptEmojiSmall: {
-    fontSize: 18,
+  premiumPillText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
-  promptRowText: {
-    flex: 1,
-  },
-  addPromptBtn: {
+  taglineRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: spacing.md,
-    marginTop: spacing.sm,
-    borderWidth: 1,
-    borderRadius: radius.lg,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
   },
-  addPromptLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+  taglinePencil: {
+    flexShrink: 0,
   },
-  verificationBadgesWrap: {
+  tagline: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  promptCardsColumn: {
+    gap: spacing.lg,
     marginBottom: spacing.sm,
   },
-  promptQuestion: {
-    fontSize: 12,
-    marginBottom: 2,
+  promptStandaloneCard: {
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
   },
-  promptAnswer: {
+  promptGradientAccentWrap: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    zIndex: 0,
+  },
+  promptCardInner: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingLeft: 19,
+    zIndex: 1,
+  },
+  promptCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  promptCardTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  promptCardEmoji: {
+    fontSize: 18,
+    marginTop: 2,
+  },
+  promptCardQuestion: {
     fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  promptCardAnswer: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginTop: spacing.sm,
+    fontWeight: '600',
+  },
+  promptCardAnswerPlaceholder: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    marginTop: spacing.sm,
+  },
+  promptCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.md,
+  },
+  promptCardFooterLabel: {
+    fontSize: 12,
     fontWeight: '500',
   },
+  promptFirstEmptyCard: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderRadius: radius['2xl'],
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  promptSlotEmptyCard: {
+    borderWidth: 1,
+    borderRadius: radius['2xl'],
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  promptEmptyEmoji: {
+    fontSize: 40,
+  },
+  promptEmptyPlaceholder: {
+    fontSize: 15,
+    textAlign: 'center',
+  },
+  lookingForDisplayChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  lookingForEmoji: { fontSize: 18 },
+  lookingForLabelText: { fontSize: 15, fontWeight: '600' },
   taglinePlaceholder: {
     fontSize: 14,
-    marginBottom: spacing.xs,
   },
   locationRow: {
     flexDirection: 'row',
@@ -1746,23 +2097,6 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: 13,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 6,
-  },
-  statusChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  chipText: {
-    fontSize: 11,
-    fontWeight: '600',
   },
   vibeScoreCard: {
     marginBottom: spacing.xl,
@@ -1785,10 +2119,18 @@ const styles = StyleSheet.create({
   },
   vibeScoreActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.md,
   },
-  previewLink: {
+  vibePreviewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  vibePreviewBtnText: {
     fontSize: 14,
     fontWeight: '600',
   },
@@ -1914,49 +2256,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  intentChip: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  intentLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
   placeholder: {
     fontSize: 14,
   },
   aboutText: {
     fontSize: 14,
     lineHeight: 20,
-  },
-  verificationSubline: {
-    fontSize: 12,
-    marginBottom: spacing.md,
-  },
-  verificationSteps: {
-    gap: 0,
-  },
-  verificationStepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  verificationStepRowLast: {
-    borderBottomWidth: 0,
-  },
-  verificationStepContent: {
-    flex: 1,
-  },
-  verificationStepLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  verificationStepDesc: {
-    fontSize: 12,
-    marginTop: 2,
   },
   sectionLabel: {
     flexDirection: 'row',
@@ -1967,65 +2272,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...typography.titleMD,
-  },
-  safetyHubCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginTop: 24,
-  },
-  safetyHubTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    padding: 16,
-    paddingBottom: 8,
-  },
-  safetyHubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-    borderBottomWidth: 1,
-  },
-  safetyHubRowLast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  safetyHubRowLabel: {
-    flex: 1,
-    fontSize: 15,
-  },
-  promptsEmpty: {
-    marginBottom: spacing.md,
-  },
-  promptsEmptyCard: {
-    borderRadius: radius['2xl'],
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    padding: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  promptsEmptyInner: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    gap: spacing.sm,
-  },
-  promptsEmptyIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  promptsEmptyTitle: {
-    ...typography.titleMD,
-  },
-  promptsEmptySub: {
-    fontSize: 14,
   },
   vibeVideoShell: {
     borderRadius: radius['2xl'],
@@ -2087,30 +2333,79 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingTop: spacing.md,
   },
-  vibeVideoCaptionLabel: {
+  vibeVideoVibingOnLabel: {
     fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 1,
-    color: 'rgba(255,255,255,0.9)',
-    marginBottom: 2,
+    fontWeight: '700',
+    letterSpacing: 2,
+    color: '#06B6D4',
+    marginBottom: 4,
   },
   vibeVideoCaptionText: {
     fontSize: 14,
     fontWeight: '700',
     color: '#fff',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
-  vibeVideoActionsRow: {
+  vibeVideoManagePill: {
     position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
+    top: 12,
+    right: 12,
+    zIndex: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  vibeVideoManagePillText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  vibeManageBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  vibeManageSheet: {
+    borderTopLeftRadius: radius['2xl'],
+    borderTopRightRadius: radius['2xl'],
+    borderWidth: 1,
+    paddingTop: spacing.md,
+    paddingBottom: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
+  },
+  vibeManageSheetTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  vibeManageRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  vibeManageRowLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  vibeManageCancel: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  vibeManageCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   vibeVideoFullscreenBackdrop: {
     flex: 1,
@@ -2182,6 +2477,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
     borderWidth: 0,
+  },
+  photoMainBadgeCrown: {
+    fontSize: 11,
+    lineHeight: 12,
   },
   photoMainBadgeText: {
     fontSize: 10,
@@ -2348,6 +2647,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: radius.pill,
   },
+  manageGridMainCrown: {
+    fontSize: 11,
+    lineHeight: 12,
+  },
   manageGridMainLabel: {
     fontSize: 10,
     fontWeight: '600',
@@ -2380,32 +2683,118 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   basicsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  basicCard: {
+    width: '48%',
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+  },
+  basicCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
   },
-  basicRow: {
+  basicCardLabel: {
+    fontSize: 12,
+  },
+  basicCardValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  verificationHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  verificationTitleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  verificationTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  verificationCountLabel: {
+    fontSize: 14,
+  },
+  verificationProgressTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  verificationProgressFill: {
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  verificationCardsWrap: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  verificationCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     padding: spacing.md,
     borderRadius: radius.xl,
+    borderWidth: 1,
   },
-  basicRowText: {
+  verificationIconSquare: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verificationCardText: {
     flex: 1,
     minWidth: 0,
   },
-  basicLabel: {
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  basicValue: {
+  verificationCardTitle: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  verificationHeader: {
+  verificationCardSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  verificationTealCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: VERIFICATION_TEAL,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verificationSuccessBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
+    gap: 12,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    marginTop: spacing.md,
+  },
+  verificationSuccessIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: VERIFICATION_TEAL,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verificationSuccessText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
   },
   inviteRow: {
     flexDirection: 'row',

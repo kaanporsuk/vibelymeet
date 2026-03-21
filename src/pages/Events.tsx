@@ -254,7 +254,7 @@ const Events = () => {
   const featuredEvent = [...liveEvents, ...nearYou, ...globalEvents][0] || null;
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-[100px]">
       {/* Header */}
       <header className="pt-safe-top px-4 py-6">
         <div className="flex items-center gap-3">

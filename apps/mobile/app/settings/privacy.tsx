@@ -12,6 +12,8 @@ import {
   Modal,
   Linking,
   Alert,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +26,6 @@ import {
   getCameraPermissionsAsync,
   getMediaLibraryPermissionsAsync,
 } from 'expo-image-picker';
-import { Audio } from 'expo-av';
 import { format, formatDistanceStrict } from 'date-fns';
 
 import Colors from '@/constants/Colors';
@@ -81,6 +82,14 @@ type NormalizedPrivacyProfile = {
   show_distance: boolean;
   show_online_status: boolean;
 };
+
+async function getMicPermissionStatus(): Promise<'granted' | 'denied' | 'undetermined'> {
+  if (Platform.OS === 'android') {
+    const result = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+    return result ? 'granted' : 'denied';
+  }
+  return 'undetermined';
+}
 
 function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPrivacyProfile {
   return {
@@ -191,15 +200,15 @@ export default function PrivacySettingsScreen() {
   const [libStatus, setLibStatus] = useState<string | null>(null);
 
   const refreshPermissions = useCallback(async () => {
-    const [loc, cam, micPermission, lib] = await Promise.all([
+    const [loc, cam, mic, lib] = await Promise.all([
       Location.getForegroundPermissionsAsync(),
       getCameraPermissionsAsync(),
-      Audio.getPermissionsAsync(),
+      getMicPermissionStatus(),
       getMediaLibraryPermissionsAsync(),
     ]);
     setLocStatus(loc.status);
     setCamStatus(cam.status);
-    setMicStatus(micPermission.status);
+    setMicStatus(mic);
     setLibStatus(lib.status);
   }, []);
 
@@ -333,6 +342,12 @@ export default function PrivacySettingsScreen() {
   const permLabel = (status: string | null) => {
     if (status === 'granted') return { text: 'Allowed', ok: true };
     return { text: 'Not allowed', ok: false };
+  };
+
+  const micPermLabel = (status: string | null) => {
+    if (status === 'granted') return { text: 'Allowed', color: theme.success };
+    if (status === 'undetermined') return { text: 'Manage in Settings', color: theme.mutedForeground };
+    return { text: 'Not allowed', color: theme.danger };
   };
 
   const openLegal = (url: string) => {
@@ -573,8 +588,8 @@ export default function PrivacySettingsScreen() {
                 onPress={() => Linking.openSettings()}
                 right={
                   <View style={styles.rowRight}>
-                    <Text style={{ color: permLabel(micStatus).ok ? theme.success : theme.danger, fontSize: 12, fontWeight: '600' }}>
-                      {permLabel(micStatus).text}
+                    <Text style={{ color: micPermLabel(micStatus).color, fontSize: 12, fontWeight: '600' }}>
+                      {micPermLabel(micStatus).text}
                     </Text>
                     <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
                   </View>

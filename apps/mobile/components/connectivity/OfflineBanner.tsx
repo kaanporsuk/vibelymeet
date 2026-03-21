@@ -12,6 +12,7 @@ export function OfflineBanner() {
   const theme = Colors[scheme];
   const insets = useSafeAreaInsets();
   const netState = useConnectivity();
+  const showOfflineBanner = netState === 'offline' || netState === 'reconnecting';
 
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const toastAnim = useRef(new Animated.Value(0)).current;
@@ -20,13 +21,16 @@ export function OfflineBanner() {
   const topOffset = insets.top + 8;
 
   useEffect(() => {
-    const shouldShow = netState === 'offline' || netState === 'reconnecting';
-    Animated.spring(bannerAnim, {
-      toValue: shouldShow ? 1 : 0,
-      useNativeDriver: true,
-      tension: 80,
-      friction: 12,
-    }).start();
+    if (showOfflineBanner) {
+      Animated.spring(bannerAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 80,
+        friction: 12,
+      }).start();
+    } else {
+      bannerAnim.setValue(0);
+    }
 
     if (
       netState === 'online' &&
@@ -40,7 +44,7 @@ export function OfflineBanner() {
     }
 
     prevState.current = netState;
-  }, [netState, bannerAnim, toastAnim]);
+  }, [netState, showOfflineBanner, bannerAnim, toastAnim]);
 
   const bannerTranslateY = bannerAnim.interpolate({
     inputRange: [0, 1],
@@ -57,38 +61,40 @@ export function OfflineBanner() {
 
   return (
     <>
-      <Animated.View
-        style={[
-          styles.banner,
-          {
-            marginTop: topOffset,
-            backgroundColor: withAlpha('#1C1A2E', 0.97),
-            borderColor: withAlpha(AMBER, 0.35),
-            transform: [{ translateY: bannerTranslateY }],
-          },
-        ]}
-        pointerEvents={netState === 'online' ? 'none' : 'auto'}
-      >
-        <View style={styles.bannerInner}>
-          <View style={[styles.iconWrap, { backgroundColor: withAlpha(AMBER, 0.15) }]}>
-            {netState === 'reconnecting' ? (
-              <ActivityIndicatorIcon color={AMBER} />
-            ) : (
-              <Ionicons name="cloud-offline-outline" size={18} color={AMBER} />
-            )}
+      {showOfflineBanner ? (
+        <Animated.View
+          style={[
+            styles.banner,
+            {
+              marginTop: topOffset,
+              backgroundColor: withAlpha('#1C1A2E', 0.97),
+              borderColor: withAlpha(AMBER, 0.35),
+              transform: [{ translateY: bannerTranslateY }],
+            },
+          ]}
+          pointerEvents="auto"
+        >
+          <View style={styles.bannerInner}>
+            <View style={[styles.iconWrap, { backgroundColor: withAlpha(AMBER, 0.15) }]}>
+              {netState === 'reconnecting' ? (
+                <ActivityIndicatorIcon color={AMBER} />
+              ) : (
+                <Ionicons name="cloud-offline-outline" size={18} color={AMBER} />
+              )}
+            </View>
+            <View style={styles.textWrap}>
+              <Text style={[styles.title, { color: theme.text }]}>
+                {netState === 'reconnecting' ? 'Reconnecting…' : "You're offline"}
+              </Text>
+              <Text style={[styles.subtitle, { color: withAlpha(theme.text, 0.55) }]}>
+                {netState === 'reconnecting'
+                  ? 'Restoring your connection'
+                  : "We'll reconnect automatically"}
+              </Text>
+            </View>
           </View>
-          <View style={styles.textWrap}>
-            <Text style={[styles.title, { color: theme.text }]}>
-              {netState === 'reconnecting' ? 'Reconnecting…' : "You're offline"}
-            </Text>
-            <Text style={[styles.subtitle, { color: withAlpha(theme.text, 0.55) }]}>
-              {netState === 'reconnecting'
-                ? 'Restoring your connection'
-                : "We'll reconnect automatically"}
-            </Text>
-          </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      ) : null}
 
       <Animated.View
         style={[

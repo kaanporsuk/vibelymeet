@@ -276,7 +276,7 @@ const EventDetails = () => {
   }));
 
   return (
-    <div className="min-h-screen bg-background pb-28 overflow-y-auto">
+    <div className="min-h-screen bg-background pb-[100px] overflow-y-auto">
       {/* Parallax Hero */}
       <div className="relative w-full aspect-[16/9] max-h-[50vh] overflow-hidden">
         <motion.div
