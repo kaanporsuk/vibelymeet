@@ -1,4 +1,4 @@
--- Grant sequence permissions so nextval() succeeds when the trigger runs as
--- SECURITY INVOKER (default) during authenticated inserts on support_tickets.
+-- Grant sequence USAGE/SELECT for support_tickets reference_id generation.
+-- anon excluded: support tickets require auth.
 GRANT USAGE, SELECT ON SEQUENCE public.support_ticket_ref_seq
-  TO authenticated, anon, service_role;
+  TO authenticated, service_role;

@@ -54,7 +54,7 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 6;
 const MAX_ONBOARDING_PHOTOS = 6;
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
