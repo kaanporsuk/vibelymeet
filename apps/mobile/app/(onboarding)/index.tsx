@@ -54,6 +54,7 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
+/** Six user-facing steps: indices 0–5 (final step includes submit). */
 const TOTAL_STEPS = 6;
 const MAX_ONBOARDING_PHOTOS = 6;
 

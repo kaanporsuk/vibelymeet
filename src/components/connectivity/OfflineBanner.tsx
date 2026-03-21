@@ -3,34 +3,28 @@ import { getHealthUrl } from "@/lib/healthUrl";
 
 type NetState = "online" | "reconnecting" | "offline";
 
-async function probeHealthOk(timeoutMs: number): Promise<boolean> {
-  const url = getHealthUrl();
-  if (!url) return true;
-  if (typeof AbortSignal.timeout === "function") {
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
-  }
+async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timerId = window.setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(url, {
+    return await fetch(url, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
     });
+  } finally {
+    window.clearTimeout(timerId);
+  }
+}
+
+async function probeHealthOk(timeoutMs: number): Promise<boolean> {
+  const url = getHealthUrl();
+  if (!url) return true;
+  try {
+    const res = await fetchWithTimeout(url, timeoutMs);
     return res.ok;
   } catch {
     return false;
-  } finally {
-    window.clearTimeout(timeoutId);
   }
 }
 
@@ -49,7 +43,8 @@ function useWebConnectivity(): NetState {
     };
   }, []);
 
-  const setNetState = useCallback((next: NetState | ((s: NetState) => NetState)) => {
+  const safeSetNetState = useCallback((next: NetState | ((s: NetState) => NetState)) => {
+    if (!mountedRef.current) return;
     setStateRaw((prev) => {
       const resolved = typeof next === "function" ? (next as (s: NetState) => NetState)(prev) : next;
       if (startupGraceRef.current && resolved !== "online") return prev;
@@ -76,9 +71,9 @@ function useWebConnectivity(): NetState {
         const confirm = await probeHealthOk(5000);
         if (!mountedRef.current) return;
         if (confirm) {
-          setNetState("online");
+          safeSetNetState("online");
         } else {
-          setNetState("reconnecting");
+          safeSetNetState("reconnecting");
           probeLoopRef.current = window.setTimeout(() => {
             if (mountedRef.current) void probe();
           }, 8000);
@@ -87,11 +82,11 @@ function useWebConnectivity(): NetState {
       return;
     }
     if (!mountedRef.current) return;
-    setNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
+    safeSetNetState((s) => (s === "offline" || s === "online" ? "reconnecting" : s));
     probeLoopRef.current = window.setTimeout(() => {
       if (mountedRef.current) void probe();
     }, 8000);
-  }, [setNetState]);
+  }, [safeSetNetState]);
 
   useEffect(() => {
     const pendingTimers: number[] = [];
@@ -124,7 +119,7 @@ function useWebConnectivity(): NetState {
       debounceOfflineRef.current = window.setTimeout(() => {
         debounceOfflineRef.current = null;
         if (!mountedRef.current) return;
-        setNetState("offline");
+        safeSetNetState("offline");
         const loopId = window.setTimeout(() => {
           if (mountedRef.current) void probe();
         }, 8000);
@@ -149,7 +144,7 @@ function useWebConnectivity(): NetState {
         window.clearTimeout(debounceOfflineRef.current);
         debounceOfflineRef.current = null;
       }
-      setNetState("reconnecting");
+      safeSetNetState("reconnecting");
       scheduleProbe(400);
     };
 
@@ -172,7 +167,7 @@ function useWebConnectivity(): NetState {
         stabilityRef.current = null;
       }
     };
-  }, [probe, setNetState]);
+  }, [probe, safeSetNetState]);
 
   return state;
 }
