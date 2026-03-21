@@ -10,24 +10,12 @@ import {
   ChevronRight,
   MessageSquareText,
   Sparkles,
-  Eye,
-  EyeOff,
   Zap,
   Trash2,
   FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { BottomNav } from "@/components/BottomNav";
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { BottomNav } from "@/components/navigation/BottomNav";
 import { NotificationsDrawer } from "@/components/settings/NotificationsDrawer";
 import {
   AlertDialog,
@@ -41,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
 import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
+import { PrivacyDrawer } from "@/components/settings/PrivacyDrawer";
 import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
@@ -48,15 +37,6 @@ import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
 import { usePremium } from "@/hooks/usePremium";
 import { format } from "date-fns";
-import { toast } from "sonner";
-
-interface PrivacySettings {
-  showOnlineStatus: boolean;
-  showLastSeen: boolean;
-  showReadReceipts: boolean;
-  discoverableByLocation: boolean;
-  showAge: boolean;
-}
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -70,14 +50,6 @@ const Settings = () => {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
 
-  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>({
-    showOnlineStatus: true,
-    showLastSeen: true,
-    showReadReceipts: true,
-    discoverableByLocation: true,
-    showAge: true,
-  });
-
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
     await handleLogout();
@@ -87,13 +59,8 @@ const Settings = () => {
     await deleteAccount(reason);
   };
 
-  const updatePrivacy = (key: keyof PrivacySettings, value: boolean) => {
-    setPrivacySettings(prev => ({ ...prev, [key]: value }));
-    toast.success("Privacy setting updated");
-  };
-
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-[100px]">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
         <div className="flex items-center gap-4 max-w-lg mx-auto">
@@ -180,8 +147,8 @@ const Settings = () => {
                 <Shield className="w-5 h-5 text-neon-cyan" />
               </div>
               <div className="text-left">
-                <h3 className="font-display font-semibold text-foreground">Privacy</h3>
-                <p className="text-xs text-muted-foreground">Control who sees what</p>
+                <h3 className="font-display font-semibold text-foreground">Privacy &amp; Visibility</h3>
+                <p className="text-xs text-muted-foreground">Control who can see you and how</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -204,8 +171,8 @@ const Settings = () => {
                 <User className="w-5 h-5 text-accent" />
               </div>
               <div className="text-left">
-                <h3 className="font-display font-semibold text-foreground">Account</h3>
-                <p className="text-xs text-muted-foreground">Security, membership, and account control</p>
+                <h3 className="font-display font-semibold text-foreground">Account &amp; Security</h3>
+                <p className="text-xs text-muted-foreground">Manage your account and security settings</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
@@ -292,62 +259,21 @@ const Settings = () => {
         onOpenChange={(open) => !open && setActiveDrawer(null)}
       />
 
-      {/* Privacy Drawer */}
-      <Drawer open={activeDrawer === "privacy"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader>
-            <DrawerTitle className="font-display flex items-center gap-2">
-              <Shield className="w-5 h-5 text-neon-cyan" />
-              Privacy Settings
-            </DrawerTitle>
-            <DrawerDescription>
-              Control your visibility and data
-            </DrawerDescription>
-          </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4 overflow-y-auto">
-            <div className="space-y-3">
-              {[
-                { key: "showOnlineStatus" as const, icon: Eye, label: "Online Status", description: "Show when you're active" },
-                { key: "showLastSeen" as const, icon: Eye, label: "Last Seen", description: "Show when you were last online" },
-                { key: "showReadReceipts" as const, icon: Eye, label: "Read Receipts", description: "Show when you've read messages" },
-                { key: "discoverableByLocation" as const, icon: Eye, label: "Location Discovery", description: "Appear in nearby searches" },
-                { key: "showAge" as const, icon: User, label: "Show Age", description: "Display your age on profile" },
-              ].map(({ key, icon: Icon, label, description }) => (
-                <div key={key} className="flex items-center justify-between p-3 rounded-xl bg-secondary/40">
-                  <div className="flex items-center gap-3">
-                    {privacySettings[key] ? (
-                      <Eye className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <EyeOff className="w-4 h-4 text-muted-foreground" />
-                    )}
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{label}</p>
-                      <p className="text-xs text-muted-foreground">{description}</p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={privacySettings[key]}
-                    onCheckedChange={(checked) => updatePrivacy(key, checked)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-          <DrawerFooter>
-            <DrawerClose asChild>
-              <Button variant="gradient">Done</Button>
-            </DrawerClose>
-          </DrawerFooter>
-        </DrawerContent>
-      </Drawer>
+      <PrivacyDrawer
+        open={activeDrawer === "privacy"}
+        onOpenChange={(open) => !open && setActiveDrawer(null)}
+      />
 
-      {/* Account Drawer - Using new component */}
       <AccountSettingsDrawer
         open={activeDrawer === "account"}
         onOpenChange={(open) => !open && setActiveDrawer(null)}
         onDeleteAccount={() => {
           setActiveDrawer(null);
           setShowDeleteDialog(true);
+        }}
+        onRequestSignOut={() => {
+          setActiveDrawer(null);
+          setShowLogoutDialog(true);
         }}
       />
 

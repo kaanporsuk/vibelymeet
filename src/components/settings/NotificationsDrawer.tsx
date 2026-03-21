@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -31,24 +31,27 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatDistanceToNow } from "date-fns";
 
 interface NotificationsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+}
+
+function formatPauseRemaining(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "Off";
+  const totalMin = Math.ceil(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
 }
 
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
@@ -56,6 +59,12 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
   const { refreshSubscriptionState } = usePushNotifications();
   const { prefs, isLoading, isSaving, isPushSubscribed, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
+  const [pauseOptionsOpen, setPauseOptionsOpen] = useState(false);
+
+  const pauseChip = useMemo(() => {
+    if (!isPaused || !prefs.paused_until) return "Off";
+    return formatPauseRemaining(prefs.paused_until);
+  }, [isPaused, prefs.paused_until]);
 
   const handleEnablePush = async () => {
     if (!user?.id) return;
@@ -71,14 +80,31 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     const now = new Date();
     let until: Date;
     switch (duration) {
-      case "1h": until = new Date(now.getTime() + 3600000); break;
-      case "8h": until = new Date(now.getTime() + 28800000); break;
-      case "24h": until = new Date(now.getTime() + 86400000); break;
-      case "7d": until = new Date(now.getTime() + 604800000); break;
-      default: return;
+      case "1h":
+        until = new Date(now.getTime() + 3600000);
+        break;
+      case "8h":
+        until = new Date(now.getTime() + 28800000);
+        break;
+      case "24h":
+        until = new Date(now.getTime() + 86400000);
+        break;
+      case "7d":
+        until = new Date(now.getTime() + 604800000);
+        break;
+      case "tomorrow": {
+        until = new Date(now);
+        until.setDate(until.getDate() + 1);
+        until.setHours(8, 0, 0, 0);
+        if (until.getTime() <= now.getTime()) until.setDate(until.getDate() + 1);
+        break;
+      }
+      default:
+        return;
     }
     setPauseUntil(until.toISOString());
-    toast.success(`Notifications paused for ${duration.replace("h", " hours").replace("d", " days")}`);
+    setPauseOptionsOpen(false);
+    toast.success("Notifications paused");
   };
 
   const handleUnpause = () => {
@@ -170,36 +196,53 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
             </div>
           )}
 
-          {/* Pause All */}
-          <div className="p-3 rounded-xl bg-secondary/40">
-            <div className="flex items-center justify-between">
+          {/* Pause notifications — timed row (no master switch here) */}
+          <div className="rounded-xl bg-secondary/40 p-3">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 text-left"
+              onClick={() => setPauseOptionsOpen((o) => !o)}
+            >
               <div className="flex items-center gap-3">
-                <PauseCircle className="w-4 h-4 text-muted-foreground" />
+                <PauseCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div>
-                  <p className="text-sm font-medium text-foreground">Pause All Notifications</p>
-                  {isPaused && prefs.paused_until && (
-                    <p className="text-xs text-amber-500">
-                      Paused for {formatDistanceToNow(new Date(prefs.paused_until))}
-                    </p>
-                  )}
+                  <p className="text-sm font-medium text-foreground">Pause Notifications</p>
+                  <p className="text-xs text-muted-foreground">Silence pushes for a while</p>
                 </div>
               </div>
-              {isPaused ? (
-                <Button size="sm" variant="outline" onClick={handleUnpause}>Unpause</Button>
-              ) : (
-                <Select onValueChange={handlePause}>
-                  <SelectTrigger className="w-24 h-8 text-xs">
-                    <SelectValue placeholder="Pause" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1h">1 hour</SelectItem>
-                    <SelectItem value="8h">8 hours</SelectItem>
-                    <SelectItem value="24h">24 hours</SelectItem>
-                    <SelectItem value="7d">7 days</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold",
+                  isPaused
+                    ? "border-amber-500/40 bg-amber-500/15 text-amber-200"
+                    : "border-white/10 bg-white/5 text-white/70",
+                )}
+              >
+                {pauseChip}
+              </span>
+            </button>
+            {pauseOptionsOpen ? (
+              <div className="mt-3 flex flex-wrap gap-2 border-t border-border/40 pt-3">
+                {isPaused ? (
+                  <Button size="sm" variant="outline" className="w-full" onClick={handleUnpause}>
+                    Resume now
+                  </Button>
+                ) : null}
+                {(
+                  [
+                    ["1h", "1 hour"],
+                    ["8h", "8 hours"],
+                    ["tomorrow", "Until tomorrow"],
+                    ["24h", "24 hours"],
+                    ["7d", "1 week"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <Button key={key} size="sm" variant="secondary" type="button" onClick={() => handlePause(key)}>
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           {/* Master Toggle */}
@@ -215,6 +258,15 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
             </div>
             <Switch checked={prefs.push_enabled} onCheckedChange={() => toggle("push_enabled")} />
           </div>
+
+          {isPaused ? (
+            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
+              <p className="font-medium">Notifications are paused</p>
+              <p className="mt-1 text-xs text-amber-200/90">
+                Category toggles below are disabled until you resume or the timer ends.
+              </p>
+            </div>
+          ) : null}
 
           {/* Category Groups */}
           <SectionHeader label="Connections" />

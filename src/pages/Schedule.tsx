@@ -86,7 +86,7 @@ const SchedulePage = () => {
   const upcomingReminders = [...imminentReminders, ...soonReminders];
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col pb-20">
+    <div className="min-h-[100dvh] bg-background flex flex-col pb-[100px]">
       {/* Notification Permission Flow */}
       <NotificationPermissionFlow
         open={showNotificationFlow}

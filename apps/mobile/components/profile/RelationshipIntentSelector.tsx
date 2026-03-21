@@ -1,5 +1,5 @@
 /**
- * Relationship intent options — web parity (RelationshipIntent.tsx).
+ * Relationship intent — web parity (src/components/RelationshipIntent.tsx).
  * Values stored in profile.looking_for.
  */
 import React from 'react';
@@ -10,13 +10,28 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { VibelyText } from '@/components/ui';
 
-export const RELATIONSHIP_INTENT_OPTIONS: { id: string; label: string }[] = [
-  { id: 'long-term', label: 'Something serious' },
-  { id: 'something-casual', label: 'Something casual' },
-  { id: 'figuring-out', label: 'Not sure yet' },
-  { id: 'new-friends', label: 'New friends' },
-  { id: 'rather-not', label: 'Rather not say' },
+/** Same ids + labels + emoji as web `intentOptions` (+ `rather-not` for legacy rows). */
+export const RELATIONSHIP_INTENT_OPTIONS: {
+  id: string;
+  label: string;
+  emoji: string;
+  description?: string;
+}[] = [
+  { id: 'long-term', label: 'Long-term partner', emoji: '💍', description: 'Ready to settle down' },
+  { id: 'relationship', label: 'Relationship', emoji: '💕', description: 'Open to something real' },
+  { id: 'something-casual', label: 'Something casual', emoji: '✨', description: "Let's see where it goes" },
+  { id: 'new-friends', label: 'New friends', emoji: '👋', description: 'Expanding the squad' },
+  { id: 'figuring-out', label: 'Figuring it out', emoji: '🤷', description: 'Still exploring' },
+  { id: 'rather-not', label: 'Rather not say', emoji: '🤐' },
 ];
+
+export function getLookingForDisplay(
+  id: string | null | undefined
+): { label: string; emoji: string } | null {
+  if (!id) return null;
+  const opt = RELATIONSHIP_INTENT_OPTIONS.find((o) => o.id === id);
+  return opt ? { label: opt.label, emoji: opt.emoji } : { label: id, emoji: '💫' };
+}
 
 type RelationshipIntentSelectorProps = {
   selected: string;
@@ -28,11 +43,16 @@ export function RelationshipIntentSelector({ selected, onSelect, editable = true
   const theme = Colors[useColorScheme()];
 
   if (!editable) {
-    const opt = RELATIONSHIP_INTENT_OPTIONS.find((o) => o.id === selected);
-    if (!opt) return null;
+    const display = getLookingForDisplay(selected);
+    if (!display) return null;
     return (
-      <View style={[styles.chip, { backgroundColor: theme.tintSoft }]}>
-        <VibelyText variant="body" style={{ color: theme.tint }}>{opt.label}</VibelyText>
+      <View
+        style={[styles.displayChip, { backgroundColor: theme.tintSoft, borderColor: theme.border }]}
+      >
+        <Text style={styles.displayEmoji}>{display.emoji}</Text>
+        <VibelyText variant="body" style={{ color: theme.text, fontWeight: '600' }}>
+          {display.label}
+        </VibelyText>
       </View>
     );
   }
@@ -46,12 +66,26 @@ export function RelationshipIntentSelector({ selected, onSelect, editable = true
             key={opt.id}
             onPress={() => onSelect(opt.id)}
             style={[
-              styles.chip,
-              { backgroundColor: isSelected ? theme.tintSoft : theme.surfaceSubtle, borderWidth: 1, borderColor: isSelected ? theme.tint : theme.border },
+              styles.optionRow,
+              {
+                backgroundColor: isSelected ? theme.tintSoft : theme.surfaceSubtle,
+                borderWidth: isSelected ? 2 : 1,
+                borderColor: isSelected ? theme.tint : theme.border,
+              },
             ]}
           >
-            <VibelyText variant="body" style={{ color: isSelected ? theme.tint : theme.text }}>{opt.label}</VibelyText>
-            {isSelected && <Ionicons name="checkmark-circle" size={18} color={theme.tint} />}
+            <Text style={styles.optionEmoji}>{opt.emoji}</Text>
+            <View style={styles.optionTextWrap}>
+              <VibelyText variant="body" style={{ color: theme.text, fontWeight: '600' }}>
+                {opt.label}
+              </VibelyText>
+              {opt.description ? (
+                <VibelyText variant="caption" style={{ color: theme.textSecondary }}>
+                  {opt.description}
+                </VibelyText>
+              ) : null}
+            </View>
+            {isSelected && <Ionicons name="checkmark-circle" size={20} color={theme.tint} />}
           </Pressable>
         );
       })}
@@ -60,6 +94,26 @@ export function RelationshipIntentSelector({ selected, onSelect, editable = true
 }
 
 const styles = StyleSheet.create({
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: radius.lg },
+  wrap: { gap: spacing.sm },
+  displayChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  displayEmoji: { fontSize: 18 },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.xl,
+  },
+  optionEmoji: { fontSize: 22 },
+  optionTextWrap: { flex: 1, gap: 2 },
 });

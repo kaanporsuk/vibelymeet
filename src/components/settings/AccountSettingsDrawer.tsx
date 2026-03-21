@@ -14,6 +14,10 @@ import {
   Phone,
   Moon,
   PauseCircle,
+  Copy,
+  LogOut,
+  UserX,
+  Crown,
 } from "lucide-react";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { Button } from "@/components/ui/button";
@@ -33,11 +37,14 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { usePremium } from "@/hooks/usePremium";
+import { format } from "date-fns";
 
 interface AccountSettingsDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDeleteAccount: () => void;
+  onRequestSignOut?: () => void;
 }
 
 type ActiveSection = null | "email" | "password";
@@ -65,9 +72,13 @@ export const AccountSettingsDrawer = ({
   open,
   onOpenChange,
   onDeleteAccount,
+  onRequestSignOut,
 }: AccountSettingsDrawerProps) => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
+  const { isPremium, premiumUntil } = usePremium();
+  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
@@ -83,6 +94,13 @@ export const AccountSettingsDrawer = ({
   const [breakBusy, setBreakBusy] = useState(false);
 
   // Phone + take-a-break state from profile
+  useEffect(() => {
+    if (!open) return;
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      setEmailVerified(!!session?.user?.email_confirmed_at);
+    });
+  }, [open]);
+
   useEffect(() => {
     if (!open || !user) return;
     const fetchPhone = async () => {
@@ -291,28 +309,191 @@ export const AccountSettingsDrawer = ({
         <DrawerHeader>
           <DrawerTitle className="font-display flex items-center gap-2">
             <User className="w-5 h-5 text-accent" />
-            Account Settings
+            Account &amp; Security
           </DrawerTitle>
-          <DrawerDescription>
-            Manage your account and security
-          </DrawerDescription>
+          <DrawerDescription>Manage your account and security settings</DrawerDescription>
         </DrawerHeader>
 
         <div className="px-4 pb-4 space-y-3 overflow-y-auto">
-          {/* Take a break — same model as native Account & Security */}
-          <div className="p-4 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] space-y-3">
+          {/* Support ID */}
+          {user?.id ? (
+            <div className="rounded-xl border border-border/60 bg-secondary/30 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Support ID
+              </p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <code className="truncate text-sm text-foreground">{user.id.slice(0, 8)}…</code>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 gap-1"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(user.id);
+                    toast.success("Copied!", { description: "Full user ID copied to clipboard" });
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <p className="pt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Sign-in &amp; Security
+          </p>
+
+          {/* Current Email Display */}
+          <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
+              <Mail className="w-3 h-3" />
+              Current Email
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-foreground font-medium break-all">{user?.email || "No email set"}</p>
+              {emailVerified ? (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                  Verified ✓
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                  Unverified
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="text-xs font-medium text-primary hover:underline"
+              onClick={() => setActiveSection("email")}
+            >
+              Update email
+            </button>
+          </div>
+
+          {/* Phone Number Section */}
+          <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
+              <Phone className="w-3 h-3" />
+              Phone Number
+            </div>
+            {phoneVerified && phoneNumber ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-foreground font-medium">
+                    📱 {phoneNumber.replace(/(\+\d{1,3})\d+(\d{2})$/, "$1 •••• ••$2")}
+                  </p>
+                  <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                    Verified ✓
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordForPhone(true)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <p className="text-muted-foreground text-sm">📱 Not set</p>
+                <button
+                  type="button"
+                  onClick={() => setShowPhoneVerification(true)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Add / verify
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Verification</p>
+          <div className="space-y-2 rounded-xl bg-secondary/30 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-foreground">Phone</span>
+              {phoneVerified ? (
+                <span className="text-xs font-medium text-emerald-400">Verified</span>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setShowPhoneVerification(true)}>
+                  Verify now
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center justify-between border-t border-border/40 pt-2">
+              <span className="text-sm text-foreground">Email</span>
+              {emailVerified ? (
+                <span className="text-xs font-medium text-emerald-400">Verified</span>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setActiveSection("email")}>
+                  Verify via update
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Membership</p>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!isPremium) {
+                onOpenChange(false);
+                navigate("/premium");
+                return;
+              }
+              setPortalLoading(true);
+              const { data, error } = await supabase.functions.invoke("create-portal-session");
+              setPortalLoading(false);
+              if (error || !(data as { success?: boolean })?.success) {
+                toast.error("Could not open billing portal.");
+                return;
+              }
+              window.location.href = (data as { url: string }).url;
+            }}
+            className="flex w-full items-center justify-between rounded-xl bg-secondary/40 p-3 text-left transition-colors hover:bg-secondary/60"
+          >
+            <div className="flex items-center gap-3">
+              <Crown className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Current plan</p>
+                <p className="text-xs text-muted-foreground">
+                  {isPremium && premiumUntil
+                    ? `Renews ${format(premiumUntil, "MMM d, yyyy")}`
+                    : "Free tier — upgrade anytime"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                  isPremium ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {isPremium ? "Premium" : "Free"}
+              </span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </button>
+          {portalLoading ? <p className="text-center text-xs text-muted-foreground">Opening portal…</p> : null}
+
+          {/* Take a break */}
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Take a Break</p>
+          <div className="space-y-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4">
             {onBreak ? (
               <>
                 <div className="flex items-center gap-2">
-                  <PauseCircle className="w-6 h-6 text-amber-500 shrink-0" />
-                  <span className="font-semibold text-foreground">You&apos;re on a break</span>
+                  <PauseCircle className="h-6 w-6 shrink-0 text-amber-500" />
+                  <span className="font-semibold text-foreground">Paused</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {breakUntilIso
-                    ? `Hidden until ${new Date(breakUntilIso).toLocaleString()}`
-                    : "Hidden indefinitely"}
-                  <br />
-                  Your matches and chats are still active.
+                    ? `Paused · Resumes ${new Date(breakUntilIso).toLocaleString()}`
+                    : "Paused indefinitely"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Profile hidden from discovery. No notifications. Matches and messages stay put.
                 </p>
                 <Button
                   type="button"
@@ -321,18 +502,17 @@ export const AccountSettingsDrawer = ({
                   disabled={breakBusy}
                   onClick={() => void endBreak()}
                 >
-                  End break now
+                  Resume now
                 </Button>
               </>
             ) : (
               <>
                 <div className="flex items-center gap-2">
-                  <Moon className="w-6 h-6 text-amber-500 shrink-0" />
-                  <span className="font-semibold text-foreground">Need some time off?</span>
+                  <Moon className="h-6 w-6 shrink-0 text-amber-500" />
+                  <span className="font-semibold text-foreground">Pause your account temporarily</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Going on a break hides you from discovery while keeping your matches, chats, and account
-                  intact.
+                  Hidden from discovery; notifications off; you can still use the app.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {(
@@ -349,10 +529,10 @@ export const AccountSettingsDrawer = ({
                       type="button"
                       onClick={() => setBreakChip(key)}
                       className={cn(
-                        "px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                        "rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
                         breakChip === key
                           ? "border-primary bg-primary/15 text-foreground"
-                          : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary/60"
+                          : "border-border bg-secondary/40 text-muted-foreground hover:bg-secondary/60",
                       )}
                     >
                       {label}
@@ -369,48 +549,6 @@ export const AccountSettingsDrawer = ({
                   Take a break
                 </Button>
               </>
-            )}
-          </div>
-
-          {/* Current Email Display */}
-          <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-              <Mail className="w-3 h-3" />
-              Current Email
-            </div>
-            <p className="text-foreground font-medium break-all">
-              {user?.email || "No email set"}
-            </p>
-          </div>
-
-          {/* Phone Number Section */}
-          <div className="p-4 rounded-xl bg-secondary/40 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider">
-              <Phone className="w-3 h-3" />
-              Phone Number
-            </div>
-            {phoneVerified && phoneNumber ? (
-              <div className="flex items-center justify-between">
-                <p className="text-foreground font-medium">
-                  📱 {phoneNumber.replace(/(\+\d{1,3})\d+(\d{2})$/, "$1 •••• ••$2")}
-                </p>
-                <button
-                  onClick={() => setShowPasswordForPhone(true)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Change
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <p className="text-muted-foreground text-sm">📱 Not verified</p>
-                <button
-                  onClick={() => setShowPhoneVerification(true)}
-                  className="text-xs text-primary hover:underline font-medium"
-                >
-                  Verify now
-                </button>
-              </div>
             )}
           </div>
 
@@ -561,15 +699,19 @@ export const AccountSettingsDrawer = ({
             </AnimatePresence>
           </div>
 
-          {/* Change Password Section */}
+          {/* Password */}
           <div className="rounded-xl bg-secondary/40 overflow-hidden">
             <button
+              type="button"
               onClick={() => setActiveSection(activeSection === "password" ? null : "password")}
-              className="w-full flex items-center justify-between p-3 hover:bg-secondary/60 transition-colors"
+              className="flex w-full items-center justify-between p-3 transition-colors hover:bg-secondary/60"
             >
               <div className="flex items-center gap-3">
-                <Lock className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Change Password</span>
+                <Lock className="h-4 w-4 text-muted-foreground" />
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">Password</p>
+                  <p className="text-xs text-muted-foreground">••••••••</p>
+                </div>
               </div>
               <ChevronRight 
                 className={cn(
@@ -743,16 +885,54 @@ export const AccountSettingsDrawer = ({
             </AnimatePresence>
           </div>
 
-          {/* Danger Zone */}
-          <div className="pt-4 border-t border-border/50">
+          <div className="space-y-2 border-t border-border/50 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-destructive/90">Danger zone</p>
             <button
-              onClick={onDeleteAccount}
-              className="w-full flex items-center gap-3 p-3 rounded-xl bg-destructive/10 hover:bg-destructive/20 transition-colors text-destructive"
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Deactivate your account temporarily? You can sign in again later to reactivate.",
+                  )
+                ) {
+                  toast.message("Deactivation", {
+                    description: "Contact support@… or use Take a Break above for a self-serve pause.",
+                  });
+                }
+              }}
+              className="flex w-full items-center gap-3 rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-left text-destructive transition-colors hover:bg-destructive/10"
             >
-              <Trash2 className="w-4 h-4" />
-              <span className="text-sm font-medium">Delete Account</span>
+              <UserX className="h-4 w-4 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Deactivate account</p>
+                <p className="text-xs opacity-80">Temporarily — you can come back anytime</p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteAccount}
+              className="flex w-full items-center gap-3 rounded-xl bg-destructive/15 p-3 text-left text-destructive transition-colors hover:bg-destructive/25"
+            >
+              <Trash2 className="h-4 w-4 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold">Delete account permanently</p>
+                <p className="text-xs opacity-90">All data removed — use the guided flow</p>
+              </div>
             </button>
           </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4 w-full border-white/15 text-muted-foreground"
+            onClick={() => {
+              onOpenChange(false);
+              onRequestSignOut?.();
+            }}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign out
+          </Button>
         </div>
 
         <DrawerFooter>

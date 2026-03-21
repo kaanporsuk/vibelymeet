@@ -9,26 +9,30 @@ export const useAppBootstrap = () => {
   const { session } = useAuth();
   const { user } = useUserProfile();
 
-  // Auth-linked identities: Sentry + analytics + OneSignal
-  useEffect(() => {
-    const currentUser = session?.user;
+  // Auth-linked identities: Sentry + analytics + OneSignal.
+  // Depend on stable user id (not session?.user object) so TOKEN_REFRESHED / session refresh
+  // does not re-fire OneSignal login + DB sync on every page.
+  const userId = session?.user?.id ?? null;
+  const userEmail = session?.user?.email;
+  const userCreatedAt = session?.user?.created_at;
 
-    if (!currentUser) {
+  useEffect(() => {
+    if (!userId) {
       Sentry.setUser(null);
       resetAnalytics();
       removeExternalUserId();
       return;
     }
 
-    Sentry.setUser({ id: currentUser.id });
-    identifyUser(currentUser.id, {
-      email: currentUser.email,
-      created_at: currentUser.created_at,
+    Sentry.setUser({ id: userId });
+    identifyUser(userId, {
+      email: userEmail,
+      created_at: userCreatedAt,
     });
 
     const syncOneSignal = async () => {
       try {
-        setExternalUserId(currentUser.id);
+        setExternalUserId(userId);
         const playerId = await getPlayerId();
         const subscribed = await isSubscribed();
         if (playerId) {
@@ -36,7 +40,7 @@ export const useAppBootstrap = () => {
             .from("notification_preferences")
             .upsert(
               {
-                user_id: currentUser.id,
+                user_id: userId,
                 onesignal_player_id: playerId,
                 onesignal_subscribed: subscribed,
               },
@@ -49,7 +53,7 @@ export const useAppBootstrap = () => {
     };
 
     void syncOneSignal();
-  }, [session?.user]);
+  }, [userId, userEmail, userCreatedAt]);
 
   // Profile-linked analytics properties
   useEffect(() => {

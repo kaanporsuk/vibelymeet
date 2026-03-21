@@ -42,7 +42,7 @@ const HowItWorks = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-[100px]">
       {/* Header */}
       <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
         <div className="flex items-center gap-3 max-w-lg mx-auto">

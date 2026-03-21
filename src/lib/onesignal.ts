@@ -14,9 +14,27 @@ function isOneSignalDomainError(e: unknown): boolean {
   return /can only be used on|WrongSiteUrl|SdkInitError/i.test(msg);
 }
 
-export const initOneSignal = () => {
+let initEnqueued = false;
+let initFinished: Promise<void> | null = null;
+let resolveInit!: () => void;
+let sdkUsable = false;
+
+/** Last user id passed to OneSignal.login — avoids duplicate login spam on re-renders / token refresh. */
+let lastLoggedInUserId: string | null = null;
+
+function ensureDeferredArray() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
-  window.OneSignalDeferred.push(async (OneSignal: any) => {
+}
+
+export const initOneSignal = () => {
+  if (initEnqueued) return;
+  initEnqueued = true;
+  initFinished = new Promise<void>((resolve) => {
+    resolveInit = resolve;
+  });
+
+  ensureDeferredArray();
+  window.OneSignalDeferred!.push(async (OneSignal: any) => {
     try {
       await OneSignal.init({
         appId: ONESIGNAL_APP_ID,
@@ -25,7 +43,8 @@ export const initOneSignal = () => {
         serviceWorkerParam: { scope: "/" },
       });
 
-      // Deep link handler — navigate on notification tap
+      sdkUsable = true;
+
       OneSignal.Notifications.addEventListener("click", (event: any) => {
         const url = event.notification?.data?.url;
         if (url && typeof url === "string") {
@@ -33,19 +52,37 @@ export const initOneSignal = () => {
         }
       });
     } catch (e) {
+      sdkUsable = false;
       if (isOneSignalDomainError(e)) {
         console.warn("[OneSignal] Skipped on this origin (domain restriction).");
-        return;
+      } else {
+        console.warn("[OneSignal] init error:", e);
       }
-      throw e;
+    } finally {
+      resolveInit();
     }
   });
 };
 
+async function afterInit(): Promise<boolean> {
+  if (!initEnqueued || !initFinished) return false;
+  await initFinished;
+  return sdkUsable;
+}
+
 export const promptForPush = (): Promise<boolean> => {
   return new Promise((resolve) => {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal: any) => {
+    if (!initEnqueued || !initFinished) {
+      resolve(false);
+      return;
+    }
+    ensureDeferredArray();
+    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+      const ok = await afterInit();
+      if (!ok) {
+        resolve(false);
+        return;
+      }
       try {
         const permission = await OneSignal.Notifications.requestPermission();
         resolve(permission);
@@ -58,8 +95,17 @@ export const promptForPush = (): Promise<boolean> => {
 
 export const getPlayerId = (): Promise<string | null> => {
   return new Promise((resolve) => {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal: any) => {
+    if (!initEnqueued || !initFinished) {
+      resolve(null);
+      return;
+    }
+    ensureDeferredArray();
+    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+      const ok = await afterInit();
+      if (!ok) {
+        resolve(null);
+        return;
+      }
       try {
         for (let i = 0; i < 5; i++) {
           const id = await OneSignal.User.PushSubscription.id;
@@ -79,8 +125,17 @@ export const getPlayerId = (): Promise<string | null> => {
 
 export const isSubscribed = (): Promise<boolean> => {
   return new Promise((resolve) => {
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal: any) => {
+    if (!initEnqueued || !initFinished) {
+      resolve(false);
+      return;
+    }
+    ensureDeferredArray();
+    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+      const ok = await afterInit();
+      if (!ok) {
+        resolve(false);
+        return;
+      }
       try {
         const optedIn = OneSignal.User.PushSubscription.optedIn;
         resolve(!!optedIn);
@@ -91,24 +146,45 @@ export const isSubscribed = (): Promise<boolean> => {
   });
 };
 
+/**
+ * Link Supabase user to OneSignal. Waits for init; skips if already linked to this id (no TOKEN_REFRESHED spam).
+ */
 export const setExternalUserId = (userId: string) => {
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  window.OneSignalDeferred.push(async (OneSignal: any) => {
+  if (!initEnqueued || !initFinished) return;
+  if (lastLoggedInUserId === userId) return;
+
+  ensureDeferredArray();
+  window.OneSignalDeferred!.push(async (OneSignal: any) => {
+    const ok = await afterInit();
+    if (!ok) return;
+    if (lastLoggedInUserId === userId) return;
+    lastLoggedInUserId = userId;
     try {
       await OneSignal.login(userId);
     } catch (e) {
-      console.error("OneSignal login error:", e);
+      console.warn("OneSignal login failed:", e);
+      lastLoggedInUserId = null;
     }
   });
 };
 
+/**
+ * Clear OneSignal user. Sync-clear local link state so login isn't re-skipped, then SDK logout.
+ */
 export const removeExternalUserId = () => {
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  window.OneSignalDeferred.push(async (OneSignal: any) => {
+  if (!initEnqueued || !initFinished) return;
+  const hadLinked = lastLoggedInUserId !== null;
+  lastLoggedInUserId = null;
+  if (!hadLinked) return;
+
+  ensureDeferredArray();
+  window.OneSignalDeferred!.push(async (OneSignal: any) => {
+    const ok = await afterInit();
+    if (!ok) return;
     try {
       await OneSignal.logout();
     } catch (e) {
-      console.error("OneSignal logout error:", e);
+      console.warn("OneSignal logout failed:", e);
     }
   });
 };
