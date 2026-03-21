@@ -54,7 +54,8 @@ const GENDERS = [
   { label: 'Other', value: 'other' },
 ];
 
-const TOTAL_STEPS = 7;
+/** Six user-facing steps: indices 0–5 (final step includes submit). */
+const TOTAL_STEPS = 6;
 const MAX_ONBOARDING_PHOTOS = 6;
 
 const WEB_PROFILE_URL = 'https://vibelymeet.com/profile';
@@ -589,24 +590,26 @@ export default function OnboardingScreen() {
             {aboutMe.length > 0 && aboutMe.length < 10 ? (
               <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>Minimum 10 characters</Text>
             ) : null}
-            <Text style={[styles.inputLabel, { color: theme.text }]}>Height</Text>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Height (optional)</Text>
             <TextInput
-              placeholder="Height in cm (e.g., 175)"
+              placeholder="Height in cm (e.g. 175)"
               value={heightCm}
-              onChangeText={(t) => setHeightCm(t.replace(/\D/g, '').slice(0, 3))}
+              onChangeText={(t) => setHeightCm(t.replace(/[^0-9]/g, '').slice(0, 3))}
               keyboardType="number-pad"
               maxLength={3}
               style={[
                 styles.input,
-                {
-                  borderColor: theme.border,
-                  color: theme.text,
-                  backgroundColor: theme.background,
-                },
+                { borderColor: theme.border, color: theme.text, backgroundColor: theme.background },
               ]}
               placeholderTextColor={theme.mutedForeground}
               editable={!loading}
             />
+            {heightCm.length > 0 &&
+              (Number(heightCm) < 100 || Number(heightCm) > 250) && (
+                <Text style={{ fontSize: 11, color: theme.danger, marginTop: 2 }}>
+                  Enter a value between 100 and 250 cm
+                </Text>
+              )}
             <Text style={[styles.label, { color: theme.text }]}>Gender (required)</Text>
             <RNView style={[styles.genderRow, { backgroundColor: theme.surfaceSubtle }]}>
               {GENDERS.map((g) => (

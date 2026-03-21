@@ -1,0 +1,4 @@
+-- This migration was superseded by the final version of
+-- 20260322170000_support_ticket_reference_sequence.sql which already
+-- contains the btrim + schema-qualified sequence fix.
+-- Kept as an empty migration to preserve the migration history chain.
