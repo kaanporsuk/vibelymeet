@@ -95,10 +95,12 @@ export default function SubmitTicketScreen() {
       if (Object.keys(filledSmart).length > 0) {
         const body = Object.entries(filledSmart)
           .map(([k, v]) => {
-            const label = k.replace(/_/g, ' ');
-            return `**${label}:** ${v}`;
+            const label = k
+              .replace(/_/g, ' ')
+              .replace(/\b\w/g, (c) => c.toUpperCase());
+            return `${label}: ${v}`;
           })
-          .join('\n');
+          .join('\n\n');
         await supabase.from('support_ticket_replies').insert({
           ticket_id: ticket.id,
           sender_type: 'user',
