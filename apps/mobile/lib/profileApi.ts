@@ -134,19 +134,37 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
   };
 }
 
+/** Full profile row for PostgREST; vibe columns omitted on retry if schema lags migration. */
+const PROFILE_SELECT_WITH_VIBE =
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
+
+const PROFILE_SELECT_BASE =
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until';
+
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     const uid = user.id;
-    const [profileRes, vibesRes, counts] = await Promise.all([
-      supabase
+    let profileRes = await supabase
+      .from('profiles')
+      .select(PROFILE_SELECT_WITH_VIBE)
+      .eq('id', uid)
+      .maybeSingle();
+    const vibeColMissing =
+      profileRes.error &&
+      /vibe_score|vibe_score_label|column .* does not exist|schema cache/i.test(
+        profileRes.error.message ?? ''
+      );
+    if (vibeColMissing) {
+      profileRes = await supabase
         .from('profiles')
-        .select(
-          'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label'
-        )
+        .select(PROFILE_SELECT_BASE)
         .eq('id', uid)
-        .maybeSingle(),
+        .maybeSingle();
+    }
+
+    const [vibesRes, counts] = await Promise.all([
       supabase
         .from('profile_vibes')
         .select('vibe_tags(label)')
@@ -176,6 +194,9 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
         return [vt.label].filter(Boolean) as string[];
       });
 
+    const vibeScore = (row.vibe_score as number | null | undefined) ?? 0;
+    const vibeScoreLabel = (row.vibe_score_label as string | null | undefined) ?? 'New';
+
     return {
       ...row,
       events_attended: counts.events,
@@ -190,6 +211,8 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
       is_premium: (row.is_premium as boolean | null) ?? null,
       premium_until: (row.premium_until as string) ?? null,
+      vibe_score: vibeScore,
+      vibe_score_label: vibeScoreLabel,
     } as ProfileRow;
   } catch (e) {
     if (__DEV__) console.warn('[profileApi] fetchMyProfile failed:', e);
