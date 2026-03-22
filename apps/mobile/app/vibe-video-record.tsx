@@ -3,7 +3,7 @@
  * idle (camera + flip + record + library upload) → recording → preview (expo-av replay)
  * → upload (tus + `saveVibeVideoToProfile`). Entry: optional `libraryUri` from drawer upload.
  */
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,7 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
-import { Video, ResizeMode, Audio } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,6 +41,38 @@ const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
 
 type Stage = 'idle' | 'recording' | 'preview' | 'uploading';
+
+const RecordedPreview = memo(function RecordedPreview({
+  uri,
+  onError,
+}: {
+  uri: string;
+  onError: () => void;
+}) {
+  const warned = useRef(false);
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+  });
+
+  useEffect(() => {
+    player.replace(uri);
+    void player.play();
+  }, [uri, player]);
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'error' && !warned.current) {
+        warned.current = true;
+        onError();
+      }
+    });
+    return () => sub.remove();
+  }, [player, onError]);
+
+  return (
+    <VideoView style={StyleSheet.absoluteFill} player={player} nativeControls contentFit="contain" />
+  );
+});
 
 function useLibraryUriParam(): string | null {
   const params = useLocalSearchParams();
@@ -76,26 +108,6 @@ export default function VibeVideoRecordScreen() {
 
   const permission = !!(camPermission?.granted && micPermission?.granted);
   const skipCameraPermission = !!libraryParam;
-
-  const configurePlaybackAudio = useCallback(async () => {
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[vibe-video-record] Audio mode', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (stage === 'preview' && recordedUri) {
-      void configurePlaybackAudio();
-    }
-  }, [stage, recordedUri, configurePlaybackAudio]);
 
   useEffect(() => {
     if (libraryParam && !libraryHandled.current) {
@@ -272,16 +284,10 @@ export default function VibeVideoRecordScreen() {
   if (stage === 'preview' && recordedUri) {
     return (
       <View style={styles.container}>
-        <Video
-          key={recordedUri}
-          source={{ uri: recordedUri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.CONTAIN}
-          useNativeControls
-          isLooping
-          shouldPlay
-          onError={(e) => {
-            if (__DEV__) console.warn('[vibe-video-record] preview Video error', e);
+        <RecordedPreview
+          uri={recordedUri}
+          onError={() => {
+            if (__DEV__) console.warn('[vibe-video-record] preview playback error');
             Alert.alert(
               'Playback',
               'Could not play this clip on device. You can still upload — our servers may process it.',

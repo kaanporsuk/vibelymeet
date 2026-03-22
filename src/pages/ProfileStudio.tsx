@@ -35,7 +35,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
 import { BottomNav } from "@/components/BottomNav";
-import { VibeScore } from "@/components/VibeScore";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import PhotoManageDrawer from "@/components/photos/PhotoManageDrawer";
@@ -148,7 +147,7 @@ const initialProfile: UserProfile = {
   vibeCaption: "",
   stats: { events: 0, matches: 0, conversations: 0 },
   vibeScore: 0,
-  vibeScoreLabel: "Getting started",
+  vibeScoreLabel: "New",
 };
 
 type DrawerType =
@@ -227,9 +226,11 @@ const TIME_BLOCKS: TimeBlock[] = ["morning", "afternoon", "evening", "night"];
 // ────────────────────────────────────────────────────────────────────
 
 function vibeScoreRingColor(score: number): string {
-  if (score >= 75) return "#E84393";
-  if (score >= 50) return "#8B5CF6";
-  return "#06B6D4";
+  if (score >= 90) return "#E84393";
+  if (score >= 75) return "#F97316";
+  if (score >= 60) return "#8B5CF6";
+  if (score >= 45) return "#06B6D4";
+  return "#64748B";
 }
 
 function VibeScoreRing({ size, score }: { size: number; score: number }) {
@@ -454,7 +455,7 @@ const ProfileStudio = () => {
             vibeCaption: (data as any).vibeCaption || "",
             stats: data.stats,
             vibeScore: data.vibeScore ?? 0,
-            vibeScoreLabel: data.vibeScoreLabel ?? "Getting started",
+            vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
           const stored = data.lifestyle?.meeting_preference;
           if (stored === "events" || stored === "dates" || stored === "both") setMeetingPref(stored as any);
@@ -799,34 +800,34 @@ const ProfileStudio = () => {
           </div>
         </div>
 
-        {/* Vibe Score card — ring left; CTAs stacked on mobile, row on md+ with flex weighting */}
+        {/* Vibe Score — ring + title row; horizontal action buttons (backend scores only) */}
         <div className="mt-3 md:mt-4 rounded-2xl border border-white/10 bg-white/5 p-3.5 md:p-5">
           <div className="flex flex-row items-center gap-3 md:gap-4">
             <VibeScoreRing size={64} score={vibeScore} />
             <div className="flex-1 min-w-0 flex flex-col">
               <p className="text-[15px] md:text-base font-display font-bold text-white">Vibe Score</p>
               <p className="text-xs md:text-sm text-gray-400 mt-0.5">
-                {profile.vibeScoreLabel ?? "Getting started"}
+                {profile.vibeScoreLabel ?? "New"}
               </p>
-              <div className="flex flex-col gap-2 mt-2.5 md:flex-row md:gap-2 md:items-stretch">
-                <button
-                  type="button"
-                  onClick={() => navigate("/profile/preview")}
-                  className="w-full md:flex-1 min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-[10px] border border-violet-500/40 text-violet-400 text-sm font-semibold hover:bg-violet-500/10 transition-colors shrink-0"
-                >
-                  <Eye className="w-4 h-4 shrink-0" />
-                  <span className="truncate">Preview my profile</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNudgeAction}
-                  className="w-full md:flex-[1.25] md:min-w-0 min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-[10px] bg-gradient-to-r from-violet-500 to-pink-500 text-white text-sm font-bold hover:opacity-90 transition-opacity"
-                >
-                  <Sparkles className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{vibeScore >= 100 ? "All set!" : "Complete Profile"}</span>
-                </button>
-              </div>
             </div>
+          </div>
+          <div className="flex flex-row gap-2 mt-3 items-stretch">
+            <button
+              type="button"
+              onClick={() => navigate("/profile/preview")}
+              className="flex-1 min-h-[44px] min-w-0 flex items-center justify-center gap-2 py-2.5 px-2 rounded-[10px] border border-violet-500/40 text-violet-400 text-sm font-semibold hover:bg-violet-500/10 transition-colors bg-transparent"
+            >
+              <Eye className="w-4 h-4 shrink-0" />
+              <span className="truncate">Preview</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleNudgeAction}
+              className="flex-[1.3] min-h-[44px] min-w-0 flex items-center justify-center gap-2 py-2.5 px-2 rounded-[10px] bg-gradient-to-r from-violet-500 to-pink-500 text-white text-sm font-bold hover:opacity-90 transition-opacity"
+            >
+              <Sparkles className="w-4 h-4 shrink-0" />
+              <span className="truncate">{vibeScore >= 100 ? "All set!" : "Complete Profile"}</span>
+            </button>
           </div>
         </div>
 

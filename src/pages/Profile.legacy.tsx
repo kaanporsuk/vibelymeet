@@ -264,7 +264,7 @@ const initialProfile: UserProfile = {
     conversations: 0,
   },
   vibeScore: 0,
-  vibeScoreLabel: "Getting started",
+  vibeScoreLabel: "New",
 };
 
 import { usePremium } from "@/hooks/usePremium";
@@ -387,7 +387,7 @@ const Profile = () => {
             vibeCaption: (data as any).vibeCaption || "",
             stats: data.stats,
             vibeScore: data.vibeScore ?? 0,
-            vibeScoreLabel: data.vibeScoreLabel ?? "Getting started",
+            vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
         }
       } catch (error) {

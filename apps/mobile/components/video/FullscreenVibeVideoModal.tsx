@@ -1,8 +1,8 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-av; `playsInSilentModeIOS` so audio works when the device is muted.
+ * Uses expo-video (VideoView + useVideoPlayer).
  */
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -10,8 +10,9 @@ import {
   Pressable,
   StyleSheet,
   StatusBar,
+  Image,
 } from 'react-native';
-import { Video, ResizeMode, Audio } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,6 +31,65 @@ export interface FullscreenVibeVideoModalProps {
   posterUrl?: string | null;
 }
 
+function HlsVideoBody({
+  playbackUrl,
+  visible,
+  posterUrl,
+  onPlaybackIssue,
+}: {
+  playbackUrl: string;
+  visible: boolean;
+  posterUrl?: string | null;
+  onPlaybackIssue: () => void;
+}) {
+  const warnedRef = useRef(false);
+  const [showPoster, setShowPoster] = useState(!!posterUrl);
+  const player = useVideoPlayer(playbackUrl, (p) => {
+    p.loop = true;
+  });
+
+  useEffect(() => {
+    setShowPoster(!!posterUrl);
+  }, [playbackUrl, posterUrl]);
+
+  useEffect(() => {
+    player.replace(playbackUrl);
+  }, [playbackUrl, player]);
+
+  useEffect(() => {
+    if (visible) {
+      void player.play();
+    } else {
+      player.pause();
+    }
+  }, [visible, player]);
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'error' && !warnedRef.current) {
+        warnedRef.current = true;
+        onPlaybackIssue();
+      }
+    });
+    return () => sub.remove();
+  }, [player, onPlaybackIssue]);
+
+  return (
+    <>
+      {showPoster && posterUrl ? (
+        <Image source={{ uri: posterUrl }} style={[StyleSheet.absoluteFill, { zIndex: 0 }]} resizeMode="cover" />
+      ) : null}
+      <VideoView
+        style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
+        player={player}
+        nativeControls
+        contentFit="contain"
+        onFirstFrameRender={() => setShowPoster(false)}
+      />
+    </>
+  );
+}
+
 export function FullscreenVibeVideoModal({
   visible,
   onClose,
@@ -38,37 +98,13 @@ export function FullscreenVibeVideoModal({
   posterUrl,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
-  const videoRef = useRef<Video | null>(null);
-
-  const configureAudio = useCallback(async () => {
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[FullscreenVibeVideo] Audio.setAudioModeAsync', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!visible) return;
-    void configureAudio();
-  }, [visible, configureAudio]);
-
-  useEffect(() => {
-    if (!visible || !playbackUrl) return;
-    const t = setTimeout(() => {
-      videoRef.current?.playAsync?.().catch(() => {});
-    }, 120);
-    return () => clearTimeout(t);
-  }, [visible, playbackUrl]);
 
   const configMissing = !BUNNY_HOST;
   const showError = visible && !playbackUrl;
+
+  const handlePlaybackIssue = () => {
+    if (__DEV__) console.warn('[FullscreenVibeVideo] playback error');
+  };
 
   return (
     <Modal
@@ -93,24 +129,13 @@ export function FullscreenVibeVideoModal({
               <Text style={styles.errorCloseText}>Close</Text>
             </Pressable>
           </View>
-        ) : (
+        ) : playbackUrl ? (
           <>
-            <Video
-              key={playbackUrl ?? 'none'}
-              ref={(r) => {
-                videoRef.current = r;
-              }}
-              source={{ uri: playbackUrl! }}
-              style={StyleSheet.absoluteFill}
-              resizeMode={ResizeMode.CONTAIN}
-              useNativeControls
-              isLooping
-              shouldPlay={visible}
-              posterSource={posterUrl ? { uri: posterUrl } : undefined}
-              usePoster={!!posterUrl}
-              onError={(e) => {
-                if (__DEV__) console.warn('[FullscreenVibeVideo] playback error', e);
-              }}
+            <HlsVideoBody
+              playbackUrl={playbackUrl}
+              visible={visible}
+              posterUrl={posterUrl}
+              onPlaybackIssue={handlePlaybackIssue}
             />
 
             <Pressable
@@ -122,7 +147,7 @@ export function FullscreenVibeVideoModal({
               <Ionicons name="close" size={26} color="#fff" />
             </Pressable>
           </>
-        )}
+        ) : null}
 
         {vibeCaption.trim() && !showError ? (
           <LinearGradient
@@ -130,8 +155,8 @@ export function FullscreenVibeVideoModal({
             style={[styles.captionWrap, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}
             pointerEvents="none"
           >
-            <Text style={styles.captionKicker}>Vibing on</Text>
-            <Text style={styles.captionBody} numberOfLines={3}>
+            <Text style={styles.captionLabel}>VIBING ON</Text>
+            <Text style={[styles.captionText, { maxWidth: CAPTION_MAX_WIDTH }]} numberOfLines={3}>
               {vibeCaption.trim()}
             </Text>
           </LinearGradient>
@@ -145,14 +170,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#000',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   errorWrap: {
     flex: 1,
-    padding: 28,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 28,
     gap: 12,
   },
   errorTitle: {
@@ -162,29 +185,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   errorBody: {
-    color: 'rgba(255,255,255,0.75)',
+    color: 'rgba(255,255,255,0.72)',
     fontSize: 14,
-    textAlign: 'center',
     lineHeight: 20,
+    textAlign: 'center',
   },
   errorClose: {
-    marginTop: 20,
+    marginTop: 8,
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   errorCloseText: {
     color: '#fff',
+    fontSize: 15,
     fontWeight: '600',
   },
   closeBtn: {
     position: 'absolute',
     right: 16,
     zIndex: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -194,24 +218,19 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 24,
-    maxWidth: CAPTION_MAX_WIDTH,
-    alignSelf: 'center',
-    width: '100%',
+    paddingHorizontal: 20,
+    paddingTop: 48,
   },
-  captionKicker: {
+  captionLabel: {
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 2,
-    textTransform: 'uppercase',
-    color: '#a78bfa',
-    marginBottom: 4,
+    color: '#22d3ee',
+    marginBottom: 6,
   },
-  captionBody: {
-    fontSize: 18,
-    fontWeight: '700',
+  captionText: {
     color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
   },
 });
-
-export default FullscreenVibeVideoModal;

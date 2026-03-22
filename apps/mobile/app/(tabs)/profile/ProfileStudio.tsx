@@ -62,9 +62,11 @@ const MAX_ABOUT_ME_LENGTH = 140;
 // ────────────────────────────────────────────────────────────────────
 
 function vibeScoreRingColor(score: number): string {
-  if (score >= 75) return '#E84393';
-  if (score >= 50) return '#8B5CF6';
-  return '#06B6D4';
+  if (score >= 90) return '#E84393';
+  if (score >= 75) return '#F97316';
+  if (score >= 60) return '#8B5CF6';
+  if (score >= 45) return '#06B6D4';
+  return '#64748B';
 }
 
 function VibeScoreRing({ size, score }: { size: number; score: number }) {
@@ -220,7 +222,7 @@ export default function ProfileStudio() {
   );
 
   const vibeScore = profile?.vibe_score ?? 0;
-  const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'Getting started';
+  const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'New';
 
   const smartNudge = useMemo(() => {
     if (!profile) return null;
@@ -751,38 +753,38 @@ export default function ProfileStudio() {
         </RNView>
       </RNView>
 
-      {/* ═══ Vibe Score Card — ring left, text + stacked CTAs right ═══ */}
+      {/* ═══ Vibe Score — ring + labels row; horizontal CTAs (scores from DB only) ═══ */}
       <RNView style={[s.vibeScoreCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-        <RNView style={s.vibeScoreRow}>
+        <RNView style={s.vibeScoreTopRow}>
           <VibeScoreRing size={64} score={vibeScore} />
-          <RNView style={s.vibeScoreRight}>
-            <Text style={[s.vibeScoreLabel, { color: theme.text }]}>Vibe Score</Text>
+          <RNView style={s.vibeScoreTextCol}>
+            <Text style={[s.vibeScoreTitle, { color: theme.text }]}>Vibe Score</Text>
             <Text style={[s.vibeScoreStatus, { color: theme.textSecondary }]}>
               {vibeScoreStatusLabel}
             </Text>
-            <RNView style={s.vibeScoreBtnCol}>
-              <Pressable
-                onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
-                style={[s.vibeScorePreviewFull, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
-              >
-                <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
-                <Text style={s.vibeScorePreviewText}>Preview my profile</Text>
-              </Pressable>
-              <LinearGradient
-                colors={['#8B5CF6', '#E84393']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.vibeScoreGradOuter}
-              >
-                <Pressable onPress={handleNudgeAction} style={s.vibeScoreGradInner}>
-                  <Ionicons name="sparkles" size={16} color="white" />
-                  <Text style={s.vibeScoreGradText}>
-                    {vibeScore >= 100 ? 'All set!' : 'Complete Profile'}
-                  </Text>
-                </Pressable>
-              </LinearGradient>
-            </RNView>
           </RNView>
+        </RNView>
+        <RNView style={s.vibeScoreBtnRow}>
+          <Pressable
+            onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
+            style={[s.vibeScorePreviewBtn, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
+          >
+            <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
+            <Text style={s.vibeScorePreviewText}>Preview</Text>
+          </Pressable>
+          <LinearGradient
+            colors={['#8B5CF6', '#E84393']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={s.vibeScoreGradOuter}
+          >
+            <Pressable onPress={handleNudgeAction} style={s.vibeScoreGradInner}>
+              <Ionicons name="sparkles" size={16} color="white" />
+              <Text style={s.vibeScoreGradText}>
+                {vibeScore >= 100 ? 'All set!' : 'Complete Profile'}
+              </Text>
+            </Pressable>
+          </LinearGradient>
         </RNView>
       </RNView>
 
@@ -1873,16 +1875,16 @@ const s = StyleSheet.create({
     borderRadius: radius['2xl'],
     borderWidth: 1,
   },
-  vibeScoreRow: {
+  vibeScoreTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
   },
-  vibeScoreRight: {
+  vibeScoreTextCol: {
     flex: 1,
     minWidth: 0,
   },
-  vibeScoreLabel: {
+  vibeScoreTitle: {
     fontSize: 15,
     fontFamily: fonts.displayBold,
   },
@@ -1891,18 +1893,23 @@ const s = StyleSheet.create({
     fontFamily: fonts.body,
     marginTop: 1,
   },
-  vibeScoreBtnCol: {
-    gap: 8,
-    marginTop: 10,
+  vibeScoreBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    marginTop: 12,
   },
-  vibeScorePreviewFull: {
+  vibeScorePreviewBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
+    paddingHorizontal: 8,
     borderRadius: 10,
     borderWidth: 1,
+    minWidth: 0,
   },
   vibeScorePreviewText: {
     color: '#8B5CF6',
@@ -1911,8 +1918,10 @@ const s = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
   },
   vibeScoreGradOuter: {
+    flex: 1.3,
     borderRadius: 10,
     overflow: 'hidden',
+    minWidth: 0,
   },
   vibeScoreGradInner: {
     flexDirection: 'row',
