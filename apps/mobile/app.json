@@ -25,6 +25,8 @@
         "NSCameraUsageDescription": "Vibely needs camera access for video dates and vibe video.",
         "NSMicrophoneUsageDescription": "Vibely needs microphone access for video dates and vibe video.",
         "NSPhotoLibraryUsageDescription": "Vibely needs photo library access to add profile photos.",
+        "NSLocationWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -52,7 +54,9 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO"
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {

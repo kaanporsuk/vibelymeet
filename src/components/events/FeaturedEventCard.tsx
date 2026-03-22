@@ -8,6 +8,7 @@ import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
 import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverHeroUrl } from "@/utils/imageUrl";
+import { getLanguageLabel } from "@/lib/eventLanguages";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -19,6 +20,7 @@ interface FeaturedEventCardProps {
   tags: string[];
   status?: string;
   durationMinutes?: number;
+  language?: string | null;
 }
 
 export const FeaturedEventCard = ({
@@ -31,6 +33,7 @@ export const FeaturedEventCard = ({
   tags,
   status,
   durationMinutes = 60,
+  language,
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
   const { data: userRegistrations = [] } = useUserRegistrations();
@@ -174,6 +177,16 @@ export const FeaturedEventCard = ({
             </motion.span>
           ))}
         </div>
+
+        {(() => {
+          const lang = getLanguageLabel(language);
+          return lang ? (
+            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-xs text-white/80 backdrop-blur-sm mb-3 w-fit">
+              <span>{lang.flag}</span>
+              <span>{lang.label}</span>
+            </div>
+          ) : null;
+        })()}
 
         {/* Title & Description */}
         <motion.h2

@@ -80,6 +80,8 @@ export const ProfilePrompt = ({
 interface PromptSelectorProps {
   selectedPrompt: string;
   onSelect: (prompt: string) => void;
+  /** Prompt strings already used in other slots — shown disabled with "Already used". */
+  unavailablePrompts?: string[];
 }
 
 const availablePrompts = [
@@ -95,7 +97,7 @@ const availablePrompts = [
   "Two truths and a lie",
 ];
 
-export const PromptSelector = ({ selectedPrompt, onSelect }: PromptSelectorProps) => {
+export const PromptSelector = ({ selectedPrompt, onSelect, unavailablePrompts = [] }: PromptSelectorProps) => {
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">Choose a prompt</p>
@@ -103,24 +105,32 @@ export const PromptSelector = ({ selectedPrompt, onSelect }: PromptSelectorProps
         {availablePrompts.map((prompt) => {
           const emoji = promptEmojis[prompt] || "💭";
           const isSelected = selectedPrompt === prompt;
-          
+          const usedElsewhere =
+            unavailablePrompts.includes(prompt) && prompt !== (selectedPrompt || "").trim();
+
           return (
             <motion.button
               key={prompt}
-              onClick={() => onSelect(prompt)}
+              type="button"
+              disabled={usedElsewhere}
+              onClick={() => !usedElsewhere && onSelect(prompt)}
               className={cn(
                 "w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left",
+                usedElsewhere && "opacity-45 cursor-not-allowed",
                 isSelected
                   ? "bg-primary/20 border border-primary/40"
-                  : "bg-secondary hover:bg-secondary/80"
+                  : "bg-secondary hover:bg-secondary/80",
+                usedElsewhere && "hover:bg-secondary"
               )}
-              whileTap={{ scale: 0.98 }}
+              whileTap={usedElsewhere ? undefined : { scale: 0.98 }}
             >
               <span className="text-lg">{emoji}</span>
-              <span className="text-sm font-medium">{prompt}</span>
-              {isSelected && (
-                <Sparkles className="w-4 h-4 text-primary ml-auto" />
-              )}
+              <span className="text-sm font-medium flex-1 min-w-0">{prompt}</span>
+              {usedElsewhere ? (
+                <span className="text-[10px] text-muted-foreground shrink-0">Already used</span>
+              ) : isSelected ? (
+                <Sparkles className="w-4 h-4 text-primary ml-auto shrink-0" />
+              ) : null}
             </motion.button>
           );
         })}

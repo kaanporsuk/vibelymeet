@@ -33,7 +33,7 @@ export const PullToRefresh = ({
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (disabled || isRefreshing) return;
     
-    const scrollTop = containerRef.current?.scrollTop || 0;
+    const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
     if (scrollTop <= 0) {
       startY.current = e.touches[0].clientY;
       setIsPulling(true);
@@ -43,7 +43,7 @@ export const PullToRefresh = ({
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!isPulling || disabled || isRefreshing) return;
     
-    const scrollTop = containerRef.current?.scrollTop || 0;
+    const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
     if (scrollTop > 0) {
       setIsPulling(false);
       pullDistance.set(0);
@@ -118,7 +118,6 @@ export const PullToRefresh = ({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className="h-full overflow-y-auto overscroll-contain"
       >
         {children}
       </motion.div>

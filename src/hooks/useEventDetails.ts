@@ -33,6 +33,7 @@ export interface EventDetails {
   city: string | null;
   country: string | null;
   visibility: string | null;
+  language: string | null;
 }
 
 export interface EventAttendee {
@@ -158,6 +159,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         city: data.city ?? null,
         country: data.country ?? null,
         visibility: data.visibility ?? null,
+        language: data.language ?? null,
       };
     },
   });

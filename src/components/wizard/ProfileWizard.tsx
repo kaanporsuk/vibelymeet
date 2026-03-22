@@ -80,6 +80,36 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
   // Track which sections are incomplete (only show these)
   const [incompleteSteps, setIncompleteSteps] = useState<typeof steps>([]);
 
+  // Progress ring uses server-computed vibe score (profiles.vibe_score)
+  const [progress, setProgress] = useState(0);
+
+  const refreshProgressFromServer = useCallback(async () => {
+    try {
+      const { fetchMyProfile } = await import("@/services/profileService");
+      const profileData = await fetchMyProfile();
+      setProgress(profileData?.vibeScore ?? 0);
+    } catch {
+      setProgress(0);
+    }
+  }, []);
+
+  // Helper to get emoji for a prompt question
+  const getEmojiForQuestion = (question: string): string => {
+    const emojiMap: Record<string, string> = {
+      "A shower thought I had recently": "🚿",
+      "My simple pleasures": "✨",
+      "The way to win me over": "💫",
+      "I geek out on": "🤓",
+      "Together, we could": "🌙",
+      "My most controversial opinion": "🔥",
+      "I'm looking for": "🔮",
+      "A life goal of mine": "🎯",
+      "My love language is": "💕",
+      "Two truths and a lie": "🎭",
+    };
+    return emojiMap[question] || "💭";
+  };
+
   // Check if section is complete
   const isSectionComplete = (key: string, profilePhotos: string[], profilePrompts: Prompt[], profileVibes: string[], profileHasVideo: boolean) => {
     switch (key) {
@@ -157,6 +187,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           setShowLevelUp(true);
         }
 
+        setProgress(profile?.vibeScore ?? 0);
+
       } catch (error) {
         console.error('Failed to load existing profile:', error);
         // Default to showing all steps if load fails
@@ -168,70 +200,6 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
 
     loadExistingProfile();
   }, [isOpen, user]);
-  
-  // Helper to get emoji for a prompt question
-  const getEmojiForQuestion = (question: string): string => {
-    const emojiMap: Record<string, string> = {
-      "A shower thought I had recently": "🚿",
-      "My simple pleasures": "✨",
-      "The way to win me over": "💫",
-      "I geek out on": "🤓",
-      "Together, we could": "🌙",
-      "My most controversial opinion": "🔥",
-      "I'm looking for": "🔮",
-      "A life goal of mine": "🎯",
-      "My love language is": "💕",
-      "Two truths and a lie": "🎭",
-    };
-    return emojiMap[question] || "💭";
-  };
-
-  // Calculate progress using the shared Vibe Score function for consistency
-  const calculateProgress = useCallback(async () => {
-    // We need current profile data to calculate an accurate score
-    // Merge loaded profile data with current wizard selections
-    try {
-      const { fetchMyProfile } = await import("@/services/profileService");
-      const profileData = await fetchMyProfile();
-      
-      if (!profileData) return 0;
-      
-      const { calculateVibeScore } = await import("@/utils/calculateVibeScore");
-      
-      // Create a merged profile with wizard's current selections
-      const mergedProfile = {
-        name: profileData.name,
-        birthDate: profileData.birthDate,
-        job: profileData.job,
-        heightCm: profileData.heightCm,
-        location: profileData.location,
-        aboutMe: profileData.aboutMe,
-        lookingFor: profileData.lookingFor,
-        lifestyle: profileData.lifestyle,
-        verified: false,
-        tagline: profileData.tagline,
-        // Use wizard's current state for editable fields
-        photos: photos.filter(p => p !== ""),
-        vibes: vibes,
-        prompts: prompts.filter(p => p.answer && p.answer.trim()),
-        hasVibeVideo: hasVideo,
-      };
-      
-      return calculateVibeScore(mergedProfile);
-    } catch {
-      return 0;
-    }
-  }, [photos, vibes, prompts, hasVideo]);
-
-  // State for the calculated progress
-  const [progress, setProgress] = useState(0);
-  
-  // Update progress when wizard data changes
-  useEffect(() => {
-    calculateProgress().then(setProgress);
-  }, [calculateProgress]);
-
-  
 
   // Auto-save indicator
   useEffect(() => {
@@ -346,6 +314,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
         vibes: vibes.length > 0 ? vibes : undefined,
       });
+
+      await refreshProgressFromServer();
 
       toast.success("Profile updated! 🎉");
       onComplete();
@@ -640,6 +610,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                   prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
                                   vibes: vibes.length > 0 ? vibes : undefined,
                                 });
+                                await refreshProgressFromServer();
                                 toast.success("Progress saved!");
                               } catch (error) {
                                 console.error("Failed to save progress:", error);

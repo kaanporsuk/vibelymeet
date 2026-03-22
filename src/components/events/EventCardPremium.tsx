@@ -5,6 +5,7 @@ import { Ticket, Sparkles, MapPin, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { getLanguageLabel } from "@/lib/eventLanguages";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
 import { isEventExpired } from "@/utils/eventUtils";
@@ -26,6 +27,7 @@ interface EventCardPremiumProps {
   distanceKm?: number | null;
   eventDateRaw?: string;
   durationMinutes?: number;
+  language?: string | null;
 }
 
 const tagEmojis: Record<string, string> = {
@@ -58,6 +60,7 @@ export const EventCardPremium = ({
   distanceKm,
   eventDateRaw,
   durationMinutes,
+  language,
 }: EventCardPremiumProps) => {
   const isLive = status === "live";
   const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
@@ -240,6 +243,16 @@ export const EventCardPremium = ({
             <span>Global Event</span>
           </div>
         )}
+
+        {(() => {
+          const lang = getLanguageLabel(language);
+          return lang ? (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs text-muted-foreground -mt-0.5 w-fit">
+              <span>{lang.flag}</span>
+              <span>{lang.label}</span>
+            </div>
+          ) : null;
+        })()}
 
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>{date} • {time}</span>

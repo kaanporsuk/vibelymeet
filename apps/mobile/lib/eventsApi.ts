@@ -42,6 +42,7 @@ export type EventRow = {
   status: string | null;
   duration_minutes: number | null;
   max_attendees: number | null;
+  language?: string | null;
 };
 
 export type EventListItem = {
@@ -56,6 +57,7 @@ export type EventListItem = {
   status: string;
   eventDate: Date;
   duration_minutes: number;
+  language?: string | null;
 };
 
 /** Row shape from get_visible_events RPC (web parity). */
@@ -91,6 +93,7 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
     status: isLive ? 'live' : rawStatus,
     eventDate,
     duration_minutes: row.duration_minutes ?? 60,
+    language: (row as any).language ?? null,
   };
 }
 
@@ -129,7 +132,7 @@ export function useEvents(userId: string | null | undefined, isPremium: boolean)
     queryFn: async (): Promise<EventListItem[]> => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language')
         .order('event_date', { ascending: true });
       if (error) throw error;
       const rows = (data ?? []) as EventRow[];
@@ -159,6 +162,7 @@ export function useEvents(userId: string | null | undefined, isPremium: boolean)
             status: isLive ? 'live' : (e.status || 'upcoming'),
             eventDate,
             duration_minutes: e.duration_minutes ?? 60,
+            language: e.language ?? null,
           };
         });
     },
@@ -177,6 +181,7 @@ export type EventDetailsRow = EventRow & {
   vibes?: string[] | null;
   is_free?: boolean | null;
   visibility?: string | null;
+  language?: string | null;
 };
 
 export function useEventDetails(eventId: string | undefined) {
@@ -209,6 +214,56 @@ export function useRegisteredEventIds(userId: string | null | undefined) {
         .eq('profile_id', userId);
       if (error) throw error;
       return (data ?? []).map((r) => r.event_id).filter(Boolean) as string[];
+    },
+  });
+}
+
+/** Upcoming events the user is registered for — invite sheet event picker (not ended). */
+export type InviteSheetEventRow = {
+  id: string;
+  title: string;
+  cover_url?: string;
+  start_time: string;
+  city?: string;
+};
+
+export function useRegisteredUpcomingEventsForInvite(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['registered-upcoming-events-invite', userId],
+    enabled: !!userId,
+    queryFn: async (): Promise<InviteSheetEventRow[]> => {
+      if (!userId) return [];
+      const now = new Date();
+      const { data: regRows, error: regError } = await supabase
+        .from('event_registrations')
+        .select('event_id')
+        .eq('profile_id', userId);
+      if (regError) throw regError;
+      const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean) as string[];
+      if (eventIds.length === 0) return [];
+
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, cover_image, event_date, duration_minutes, status, location_name')
+        .in('id', eventIds)
+        .order('event_date', { ascending: true });
+      if (eventsError) throw eventsError;
+      const rows = (eventsData ?? []) as (EventRow & { location_name?: string | null })[];
+      const out: InviteSheetEventRow[] = [];
+      for (const e of rows) {
+        if (!isEventVisible(e)) continue;
+        const eventDate = new Date(e.event_date);
+        const end = getEventEndTime(e.event_date, e.duration_minutes);
+        if (now >= end) continue;
+        out.push({
+          id: e.id,
+          title: e.title,
+          cover_url: e.cover_image || undefined,
+          start_time: e.event_date,
+          city: e.location_name?.trim() || undefined,
+        });
+      }
+      return out;
     },
   });
 }
@@ -259,7 +314,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, isPrem
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
 

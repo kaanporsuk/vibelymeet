@@ -30,6 +30,9 @@ export type ProfileRow = {
   email_verified: boolean | null;
   is_premium: boolean | null;
   premium_until: string | null;
+  /** Server-computed profile completeness (0–100). */
+  vibe_score?: number | null;
+  vibe_score_label?: string | null;
 };
 
 /** Zodiac sign from birth date (web parity). */
@@ -132,58 +135,66 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 }
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const uid = user.id;
-  const [profileRes, vibesRes, counts] = await Promise.all([
-    supabase
-      .from('profiles')
-      .select(
-        'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until'
-      )
-      .eq('id', uid)
-      .maybeSingle(),
-    supabase
-      .from('profile_vibes')
-      .select('vibe_tags(label)')
-      .eq('profile_id', uid),
-    fetchProfileLiveCounts(uid),
-  ]);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const uid = user.id;
+    const [profileRes, vibesRes, counts] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select(
+          'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label'
+        )
+        .eq('id', uid)
+        .maybeSingle(),
+      supabase
+        .from('profile_vibes')
+        .select('vibe_tags(label)')
+        .eq('profile_id', uid),
+      fetchProfileLiveCounts(uid),
+    ]);
 
-  if (profileRes.error) throw profileRes.error;
-  const row = profileRes.data as Record<string, unknown> | null;
-  if (!row) return null;
-  if (vibesRes.error) {
-    if (__DEV__) console.warn('[profileApi] failed to load vibes:', vibesRes.error.message);
+    if (profileRes.error) {
+      if (__DEV__) console.warn('[profileApi] profiles row:', profileRes.error.message);
+      return null;
+    }
+    const row = profileRes.data as Record<string, unknown> | null;
+    if (!row) return null;
+    if (vibesRes.error) {
+      if (__DEV__) console.warn('[profileApi] failed to load vibes:', vibesRes.error.message);
+    }
+
+    type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
+    const vibeRows: VibeRow[] = (vibesRes.data as VibeRow[] | null) ?? [];
+    const vibes: string[] = vibeRows
+      .flatMap((v) => {
+        const vt = v.vibe_tags;
+        if (!vt) return [];
+        if (Array.isArray(vt)) {
+          return vt.map((tag) => tag.label).filter(Boolean) as string[];
+        }
+        return [vt.label].filter(Boolean) as string[];
+      });
+
+    return {
+      ...row,
+      events_attended: counts.events,
+      total_matches: counts.matches,
+      total_conversations: counts.convos,
+      prompts: (row.prompts as ProfileRow['prompts']) ?? null,
+      vibes,
+      lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
+      vibe_caption: (row.vibe_caption as string) ?? null,
+      photo_verified: (row.photo_verified as boolean | null) ?? null,
+      phone_verified: (row.phone_verified as boolean | null) ?? null,
+      email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
+      is_premium: (row.is_premium as boolean | null) ?? null,
+      premium_until: (row.premium_until as string) ?? null,
+    } as ProfileRow;
+  } catch (e) {
+    if (__DEV__) console.warn('[profileApi] fetchMyProfile failed:', e);
+    return null;
   }
-
-  type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
-  const vibeRows: VibeRow[] = (vibesRes.data as VibeRow[] | null) ?? [];
-  const vibes: string[] = vibeRows
-    .flatMap((v) => {
-      const vt = v.vibe_tags;
-      if (!vt) return [];
-      if (Array.isArray(vt)) {
-        return vt.map((tag) => tag.label).filter(Boolean) as string[];
-      }
-      return [vt.label].filter(Boolean) as string[];
-    });
-
-  return {
-    ...row,
-    events_attended: counts.events,
-    total_matches: counts.matches,
-    total_conversations: counts.convos,
-    prompts: (row.prompts as ProfileRow['prompts']) ?? null,
-    vibes,
-    lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
-    vibe_caption: (row.vibe_caption as string) ?? null,
-    photo_verified: (row.photo_verified as boolean | null) ?? null,
-    phone_verified: (row.phone_verified as boolean | null) ?? null,
-    email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
-    is_premium: (row.is_premium as boolean | null) ?? null,
-    premium_until: (row.premium_until as string) ?? null,
-  } as ProfileRow;
 }
 
 export async function updateMyProfile(updates: Partial<{
@@ -204,6 +215,8 @@ export async function updateMyProfile(updates: Partial<{
   birth_date: string | null;
   height_cm: number | null;
   location_data: { lat: number; lng: number } | null;
+  /** Vibe tag labels — persisted via `profile_vibes` + `vibe_tags` (not a column on `profiles`). */
+  vibes: string[];
 }>): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -230,9 +243,36 @@ export async function updateMyProfile(updates: Partial<{
   }
   if (updates.height_cm !== undefined) db.height_cm = updates.height_cm;
   if (updates.location_data !== undefined) db.location_data = updates.location_data;
-  if (Object.keys(db).length === 0) return;
-  const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
-  if (error) throw error;
+  if (Object.keys(db).length > 0) {
+    const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
+    if (error) throw error;
+  }
+  if (updates.vibes !== undefined) {
+    await syncProfileVibes(user.id, updates.vibes);
+  }
+}
+
+/** Sync `profile_vibes` junction from vibe tag labels — same as web `profileService.syncProfileVibes`. */
+export async function syncProfileVibes(profileId: string, vibeLabels: string[]): Promise<void> {
+  const { error: deleteError } = await supabase.from('profile_vibes').delete().eq('profile_id', profileId);
+  if (deleteError) throw deleteError;
+  if (vibeLabels.length === 0) return;
+
+  const { data: vibeTags, error: fetchError } = await supabase
+    .from('vibe_tags')
+    .select('id, label')
+    .in('label', vibeLabels);
+
+  if (fetchError) throw fetchError;
+  if (!vibeTags?.length) return;
+
+  const inserts = vibeTags.map((tag) => ({
+    profile_id: profileId,
+    vibe_tag_id: tag.id,
+  }));
+
+  const { error: insertError } = await supabase.from('profile_vibes').insert(inserts);
+  if (insertError) throw insertError;
 }
 
 /** Create/upsert profile during onboarding. Same contract as web createProfile. */

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { connectivityService, type NetworkState } from '@/lib/connectivityService';
 
 export function useConnectivity(): NetworkState {

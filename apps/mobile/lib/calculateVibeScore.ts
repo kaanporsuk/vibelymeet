@@ -1,5 +1,6 @@
 /**
- * Same algorithm as web `src/utils/calculateVibeScore.ts` — Profile + wizard parity.
+ * @deprecated Use `profiles.vibe_score` / `vibe_score_label` from Supabase (server-computed).
+ * Kept for reference/tests only — same legacy math as web `src/utils/calculateVibeScore.ts`.
  */
 
 export interface VibeScoreProfile {

@@ -1,6 +1,9 @@
 /**
- * Shared Vibe Score calculation used across the app.
- * This ensures Profile page and Complete Profile wizard show identical scores.
+ * @deprecated Profile completeness is computed server-side and stored on `profiles.vibe_score`
+ * (see Supabase migration `vibe_score_backend`). Do not use this in UI — read `vibe_score` /
+ * `vibe_score_label` from the profile row instead.
+ *
+ * Kept for reference/tests only.
  */
 
 export interface VibeScoreProfile {
