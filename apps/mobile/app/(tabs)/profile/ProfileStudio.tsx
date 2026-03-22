@@ -115,15 +115,23 @@ type SmartNudge = {
 };
 
 function getSmartNudge(profile: ProfileRow): SmartNudge {
-  const hasVideo = resolveVibeVideoState(profile).state === 'ready';
+  const videoState = resolveVibeVideoState(profile).state;
   const photoCount = profile.photos?.length ?? 0;
   const promptCount = (profile.prompts ?? []).filter(p => p.question?.trim() && p.answer?.trim()).length;
 
-  if (!hasVideo) {
+  if (videoState === 'none' || videoState === 'error') {
     return {
       icon: 'videocam-outline',
       title: 'Add a Vibe Video',
       subtitle: 'Profiles with video get 3x more conversations',
+      action: 'video',
+    };
+  }
+  if (videoState === 'failed') {
+    return {
+      icon: 'videocam-outline',
+      title: 'Re-record your Vibe Video',
+      subtitle: 'Your last video failed to process — try again',
       action: 'video',
     };
   }

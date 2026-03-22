@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import type { SelectedCity } from '@/components/events/EventFilterSheet';
 
 const GRACE_HOURS = 6;
 
@@ -58,6 +59,9 @@ export type EventListItem = {
   eventDate: Date;
   duration_minutes: number;
   language?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  scope?: string | null;
 };
 
 /** Row shape from get_visible_events RPC (web parity). */
@@ -73,6 +77,10 @@ type VisibleEventRpcRow = {
   tags: string[] | null;
   status: string;
   computed_status?: string | null;
+  scope?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  language?: string | null;
 };
 
 function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
@@ -93,28 +101,74 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
     status: isLive ? 'live' : rawStatus,
     eventDate,
     duration_minutes: row.duration_minutes ?? 60,
-    language: (row as any).language ?? null,
+    language: row.language ?? null,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
+    scope: row.scope ?? null,
   };
 }
 
-/** Same RPC as web `useVisibleEvents` — used for list + dashboard fallback. */
-export async function fetchVisibleEventsList(userId: string, isPremium: boolean): Promise<EventListItem[]> {
+export type DiscoverEventsParams = {
+  locationMode: 'nearby' | 'city';
+  selectedCity: SelectedCity | null;
+  distanceKm: number;
+  deviceCoords: { lat: number; lng: number } | null;
+  /** When false, city browse coordinates are not sent (server also enforces subscription). */
+  isPremium: boolean;
+};
+
+/**
+ * Same RPC as web `useVisibleEvents` — premium browse + radius enforced server-side.
+ */
+export async function fetchVisibleEventsList(
+  userId: string,
+  _legacyIsPremium: boolean,
+  discover?: DiscoverEventsParams,
+): Promise<EventListItem[]> {
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('location_data')
     .eq('id', userId)
     .maybeSingle();
-  if (profileError) {
-    if (__DEV__) console.warn('[eventsApi] profile location fetch failed:', profileError.message);
+  if (profileError && __DEV__) {
+    console.warn('[eventsApi] profile location fetch failed:', profileError.message);
   }
   const loc = profile?.location_data as { lat?: number; lng?: number } | null;
+
+  const d = discover;
+  const mode = !d?.isPremium ? 'nearby' : (d.locationMode ?? 'nearby');
+  const deviceLat = d?.deviceCoords?.lat ?? null;
+  const deviceLng = d?.deviceCoords?.lng ?? null;
+  const p_user_lat = (deviceLat ?? loc?.lat) ?? undefined;
+  const p_user_lng = (deviceLng ?? loc?.lng) ?? undefined;
+
+  let p_browse_lat: number | null = null;
+  let p_browse_lng: number | null = null;
+  if (mode === 'city' && d?.isPremium && d.selectedCity) {
+    p_browse_lat = d.selectedCity.lat;
+    p_browse_lng = d.selectedCity.lng;
+  }
+
+  const hasRefPoint =
+    (mode === 'city' && !!d?.selectedCity && !!d?.isPremium) ||
+    (mode === 'nearby' && p_user_lat != null && p_user_lng != null);
+
+  const filterKm = d?.distanceKm ?? 50;
+  const p_filter_radius_km =
+    hasRefPoint && filterKm > 0
+      ? mode === 'city' && (!d?.selectedCity || !d?.isPremium)
+        ? null
+        : filterKm
+      : null;
+
   const { data, error } = await supabase.rpc('get_visible_events', {
     p_user_id: userId,
-    p_user_lat: loc?.lat ?? undefined,
-    p_user_lng: loc?.lng ?? undefined,
-    p_is_premium: isPremium,
-    p_browse_lat: null,
-    p_browse_lng: null,
+    p_user_lat: p_user_lat ?? null,
+    p_user_lng: p_user_lng ?? null,
+    p_is_premium: false,
+    p_browse_lat,
+    p_browse_lng,
+    p_filter_radius_km,
   });
   if (error) throw error;
   const rows = (data ?? []) as VisibleEventRpcRow[];
@@ -124,49 +178,37 @@ export async function fetchVisibleEventsList(userId: string, isPremium: boolean)
 }
 
 /**
- * Event browse list — same RPC as web (city/radius, premium scope, visibility rules).
+ * Discover events list — `get_visible_events` with location/radius (web parity).
  */
-export function useEvents(userId: string | null | undefined, isPremium: boolean) {
+export function useDiscoverEvents(
+  userId: string | null | undefined,
+  params: DiscoverEventsParams,
+) {
   return useQuery({
-    queryKey: ['events'],
-    queryFn: async (): Promise<EventListItem[]> => {
-      const { data, error } = await supabase
-        .from('events')
-        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language')
-        .order('event_date', { ascending: true });
-      if (error) throw error;
-      const rows = (data ?? []) as EventRow[];
-      return rows
-        .filter((e) =>
-          isEventVisible({
-            event_date: e.event_date,
-            duration_minutes: e.duration_minutes,
-            status: e.status,
-          })
-        )
-        .map((e) => {
-          const eventDate = new Date(e.event_date);
-          const durationMs = (e.duration_minutes || 60) * 60 * 1000;
-          const end = new Date(eventDate.getTime() + durationMs);
-          const now = new Date();
-          const isLive = now >= eventDate && now < end;
-          return {
-            id: e.id,
-            title: e.title,
-            description: e.description,
-            image: e.cover_image,
-            date: formatEventDate(eventDate),
-            time: formatEventTime(eventDate),
-            attendees: e.current_attendees ?? 0,
-            tags: e.tags ?? [],
-            status: isLive ? 'live' : (e.status || 'upcoming'),
-            eventDate,
-            duration_minutes: e.duration_minutes ?? 60,
-            language: e.language ?? null,
-          };
-        });
-    },
+    queryKey: [
+      'events-discover',
+      userId,
+      params.isPremium,
+      params.locationMode,
+      params.selectedCity?.lat,
+      params.selectedCity?.lng,
+      params.distanceKm,
+      params.deviceCoords?.lat,
+      params.deviceCoords?.lng,
+    ],
+    queryFn: () => fetchVisibleEventsList(userId!, false, params),
     enabled: !!userId,
+  });
+}
+
+/** Dashboard / simple callers: nearby list via RPC (profile location + default radius). */
+export function useEvents(userId: string | null | undefined, isPremium: boolean) {
+  return useDiscoverEvents(userId, {
+    locationMode: 'nearby',
+    selectedCity: null,
+    distanceKm: 50,
+    deviceCoords: null,
+    isPremium: !!isPremium,
   });
 }
 
@@ -395,7 +437,7 @@ export function useRegisterForEvent() {
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
-      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events-discover'] });
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
@@ -414,7 +456,7 @@ export function useRegisterForEvent() {
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
-      qc.invalidateQueries({ queryKey: ['events'] });
+      qc.invalidateQueries({ queryKey: ['events-discover'] });
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });

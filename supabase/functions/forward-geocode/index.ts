@@ -3,15 +3,138 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 const RATE_LIMIT_REQUESTS = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
+/** Canonical with web/native useSubscription: active or trialing in subscriptions, or admin. */
+async function canUsePremiumGeocode(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<boolean> {
+  const { data: adminRow } = await supabaseAdmin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (adminRow) return true;
+
+  const { data: subRows } = await supabaseAdmin
+    .from("subscriptions")
+    .select("id")
+    .eq("user_id", userId)
+    .in("status", ["active", "trialing"])
+    .limit(1);
+  return (subRows?.length ?? 0) > 0;
+}
+
+type NominatimItem = {
+  lat: string;
+  lon: string;
+  display_name?: string;
+  class?: string;
+  type?: string;
+  address?: Record<string, string>;
+};
+
+const PLACE_TYPES = new Set([
+  "city",
+  "town",
+  "village",
+  "hamlet",
+  "municipality",
+  "administrative",
+]);
+
+function pickCityName(addr: Record<string, string>): string {
+  return (
+    addr.city ||
+    addr.town ||
+    addr.village ||
+    addr.municipality ||
+    addr.hamlet ||
+    addr.county ||
+    ""
+  ).trim();
+}
+
+function pickRegion(addr: Record<string, string>): string {
+  return (addr.state || addr.region || addr.state_district || "").trim();
+}
+
+function isSettlementLike(item: NominatimItem): boolean {
+  const c = item.class;
+  const t = (item.type || "").toLowerCase();
+  if (c === "place" && PLACE_TYPES.has(t)) return true;
+  if (c === "boundary" && (t === "administrative" || t === "political")) {
+    const a = item.address || {};
+    return !!(pickCityName(a) || a.city || a.town || a.village);
+  }
+  return false;
+}
+
+function normalizeResults(raw: NominatimItem[], _queryFallback: string): Array<{
+  lat: number;
+  lng: number;
+  city: string;
+  country: string;
+  region: string;
+  display_name: string;
+}> {
+  const seen = new Set<string>();
+  const out: Array<{
+    lat: number;
+    lng: number;
+    city: string;
+    country: string;
+    region: string;
+    display_name: string;
+  }> = [];
+
+  for (const item of raw) {
+    if (!isSettlementLike(item)) continue;
+    const addr = item.address || {};
+    const city = pickCityName(addr);
+    if (!city) continue;
+    const country = (addr.country || "").trim();
+    const region = pickRegion(addr);
+    const lat = parseFloat(item.lat);
+    const lng = parseFloat(item.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    const dedupeKey = [
+      city.toLowerCase(),
+      region.toLowerCase(),
+      country.toLowerCase(),
+      Math.round(lat * 100) / 100,
+      Math.round(lng * 100) / 100,
+    ].join("|");
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const line2 = [region, country].filter(Boolean).join(", ");
+    const display_name = line2 ? `${city}, ${line2}` : city;
+
+    out.push({
+      lat,
+      lng,
+      city,
+      country,
+      region,
+      display_name,
+    });
+    if (out.length >= 8) break;
+  }
+
+  return out;
+}
+
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
@@ -41,25 +164,12 @@ Deno.serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Allow admin users OR premium subscribers
-    const { data: roleRow } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-    if (!roleRow) {
-      const { data: profile } = await supabaseAdmin
-        .from("profiles")
-        .select("is_premium")
-        .eq("id", user.id)
-        .single();
-      if (!profile?.is_premium) {
-        return new Response(JSON.stringify({ error: "Premium subscription required" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+    const allowed = await canUsePremiumGeocode(supabaseAdmin, user.id);
+    if (!allowed) {
+      return new Response(JSON.stringify({ error: "Premium subscription required" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const rateResult = await checkRateLimit(user.id, {
@@ -75,17 +185,20 @@ Deno.serve(async (req) => {
 
     if (!query || query.trim().length < 2) {
       return new Response(JSON.stringify([]), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const encoded = encodeURIComponent(query.trim());
-    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=5&addressdetails=1`;
+    const q = query.trim();
+    const encoded = encodeURIComponent(q);
+    // Settlement-focused search (cities/towns/villages), not street/POI-first
+    const url =
+      `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=15&addressdetails=1&featuretype=settlement`;
 
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'ViblyApp/1.0 (contact@vibelymeet.com)',
-        'Accept-Language': 'en',
+        "User-Agent": "ViblyApp/1.0 (contact@vibelymeet.com)",
+        "Accept-Language": "en",
       },
     });
 
@@ -93,30 +206,17 @@ Deno.serve(async (req) => {
       throw new Error(`Nominatim error: ${response.status}`);
     }
 
-    const data = await response.json();
-
-    const results = data.map((item: any) => {
-      const addr = item.address || {};
-      const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || query;
-      const country = addr.country || '';
-
-      return {
-        lat: parseFloat(item.lat),
-        lng: parseFloat(item.lon),
-        city,
-        country,
-        display_name: item.display_name,
-      };
-    });
+    const data = (await response.json()) as NominatimItem[];
+    const results = normalizeResults(Array.isArray(data) ? data : [], q);
 
     return new Response(JSON.stringify(results), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error('Forward geocode error:', error);
-    return new Response(JSON.stringify({ error: 'Geocoding failed' }), {
+    console.error("Forward geocode error:", error);
+    return new Response(JSON.stringify({ error: "Geocoding failed" }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

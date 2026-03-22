@@ -10,6 +10,8 @@ export interface SelectedCity {
   country: string;
   lat: number;
   lng: number;
+  /** State / province when useful for disambiguation */
+  region?: string | null;
 }
 
 interface EventsFilterBarProps {
@@ -46,6 +48,7 @@ interface GeoResult {
   lng: number;
   city: string;
   country: string;
+  region?: string;
   display_name: string;
 }
 
@@ -144,7 +147,13 @@ export const EventsFilterBar = ({
   }, []);
 
   const selectCity = useCallback((result: GeoResult) => {
-    onSelectedCityChange({ name: result.city, country: result.country, lat: result.lat, lng: result.lng });
+    onSelectedCityChange({
+      name: result.city,
+      country: result.country,
+      lat: result.lat,
+      lng: result.lng,
+      region: result.region?.trim() || null,
+    });
     setCityQuery('');
     setCityResults([]);
   }, [onSelectedCityChange]);
@@ -405,7 +414,8 @@ export const EventsFilterBar = ({
                         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
                           <MapPin className="w-4 h-4 text-primary shrink-0" />
                           <span className="text-sm font-medium text-foreground flex-1 truncate">
-                            📍 {selectedCity.name}, {selectedCity.country}
+                            📍 {selectedCity.name}
+                            {selectedCity.region ? `, ${selectedCity.region}` : ''}, {selectedCity.country}
                           </span>
                           <button
                             onClick={() => { onSelectedCityChange(null); setCityQuery(''); setCityResults([]); }}
@@ -438,7 +448,9 @@ export const EventsFilterBar = ({
                                   <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
                                   <div className="flex-1 min-w-0">
                                     <span className="font-medium text-foreground">{result.city}</span>
-                                    <span className="text-muted-foreground ml-1.5">{result.country}</span>
+                                    <span className="text-muted-foreground ml-1.5">
+                                      {result.region ? `${result.region}, ` : ''}{result.country}
+                                    </span>
                                   </div>
                                 </button>
                               ))}

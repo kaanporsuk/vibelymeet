@@ -38,6 +38,7 @@ export interface SelectedCity {
   country: string;
   lat: number;
   lng: number;
+  region?: string | null;
 }
 
 export interface EventFilters {
@@ -63,6 +64,7 @@ interface GeoResult {
   lng: number;
   city: string;
   country: string;
+  region?: string;
   display_name: string;
 }
 
@@ -99,7 +101,7 @@ export default function EventFilterSheet({
       setCityQuery('');
       setCityResults([]);
     }
-  }, [visible]);
+  }, [visible, filters, isPremium]);
 
   useEffect(() => {
     (async () => {
@@ -164,7 +166,13 @@ export default function EventFilterSheet({
   const selectCity = useCallback((result: GeoResult) => {
     setDraft(prev => ({
       ...prev,
-      selectedCity: { name: result.city, country: result.country, lat: result.lat, lng: result.lng },
+      selectedCity: {
+        name: result.city,
+        country: result.country,
+        lat: result.lat,
+        lng: result.lng,
+        region: result.region?.trim() || null,
+      },
     }));
     setCityQuery('');
     setCityResults([]);
@@ -360,7 +368,8 @@ export default function EventFilterSheet({
                   <View style={[s.selectedCityRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
                     <Ionicons name="location" size={16} color={theme.tint} />
                     <Text style={[s.selectedCityText, { color: theme.text }]} numberOfLines={1}>
-                      📍 {draft.selectedCity.name}, {draft.selectedCity.country}
+                      📍 {draft.selectedCity.name}
+                      {draft.selectedCity.region ? `, ${draft.selectedCity.region}` : ''}, {draft.selectedCity.country}
                     </Text>
                     <Pressable onPress={clearCity} hitSlop={8}>
                       <Ionicons name="close-circle" size={18} color={theme.textSecondary} />
@@ -396,7 +405,7 @@ export default function EventFilterSheet({
                             <View style={s.cityResultTextWrap}>
                               <Text style={[s.cityResultName, { color: theme.text }]}>{result.city}</Text>
                               <Text style={[s.cityResultCountry, { color: theme.textSecondary }]} numberOfLines={1}>
-                                {result.country}
+                                {result.region ? `${result.region}, ` : ''}{result.country}
                               </Text>
                             </View>
                           </Pressable>

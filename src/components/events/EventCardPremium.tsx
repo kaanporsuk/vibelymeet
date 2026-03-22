@@ -89,6 +89,7 @@ export const EventCardPremium = ({
       setShowConfetti(true);
       queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
       
       toast.success("You're on the list! 🎉", {
         description: `See you at ${title}`,
