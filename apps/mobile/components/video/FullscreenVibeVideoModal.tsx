@@ -1,8 +1,8 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-video (VideoView + useVideoPlayer).
+ * Uses expo-video (VideoView + useVideoPlayer); expo-av Audio only for iOS silent-mode playback.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -12,20 +12,23 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
 const CAPTION_MAX_WIDTH = 400;
-
-const BUNNY_HOST = (process.env.EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME ?? '').replace(/^["']|["']$/g, '').trim();
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
   onClose: () => void;
   /** Local file:// or remote https HLS (.m3u8) — must match web URL shape */
   playbackUrl: string | null;
+  /** Helps distinguish “still processing” vs CDN/config issues when URL is null */
+  bunnyVideoUid?: string | null;
   vibeCaption?: string;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
@@ -49,6 +52,10 @@ function HlsVideoBody({
   });
 
   useEffect(() => {
+    warnedRef.current = false;
+  }, [playbackUrl, visible]);
+
+  useEffect(() => {
     setShowPoster(!!posterUrl);
   }, [playbackUrl, posterUrl]);
 
@@ -68,6 +75,9 @@ function HlsVideoBody({
     const sub = player.addListener('statusChange', (payload) => {
       if (payload.status === 'error' && !warnedRef.current) {
         warnedRef.current = true;
+        vibeVideoDiagVerbose('fullscreen.player_status_error', {
+          hint: 'Often Bunny CDN hotlink/referrer, 403 manifest, or HLS not ready yet.',
+        });
         onPlaybackIssue();
       }
     });
@@ -94,17 +104,87 @@ export function FullscreenVibeVideoModal({
   visible,
   onClose,
   playbackUrl,
+  bunnyVideoUid,
   vibeCaption = '',
   posterUrl,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
+  const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
 
-  const configMissing = !BUNNY_HOST;
-  const showError = visible && !playbackUrl;
+  const { source: hostnameSource } = resolveVibeVideoStreamHostnameSync();
+  const configMissing = hostnameSource === 'none';
+  const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
 
-  const handlePlaybackIssue = () => {
-    if (__DEV__) console.warn('[FullscreenVibeVideo] playback error');
-  };
+  const errorKind: 'none' | 'config' | 'url' | 'playback' = (() => {
+    if (!visible) return 'none';
+    if (configMissing) return 'config';
+    if (!playbackUrl) return uid ? 'url' : 'url';
+    if (playbackSurfaceError) return 'playback';
+    return 'none';
+  })();
+
+  useEffect(() => {
+    setPlaybackSurfaceError(false);
+    setRetryKey(0);
+  }, [visible, playbackUrl]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    void Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+      interruptionModeAndroid: 2,
+    });
+
+    return () => {
+      void Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        interruptionModeAndroid: 2,
+      });
+    };
+  }, [visible]);
+
+  const handlePlaybackIssue = useCallback(() => {
+    setPlaybackSurfaceError(true);
+  }, []);
+
+  const handleRetryPlayback = useCallback(() => {
+    setPlaybackSurfaceError(false);
+    setRetryKey((k) => k + 1);
+  }, []);
+
+  const renderErrorCard = (title: string, body: string, showRetry?: boolean) => (
+    <View style={styles.errorWrap}>
+      <Ionicons name="alert-circle-outline" size={40} color="#fbbf24" />
+      <Text style={styles.errorTitle}>{title}</Text>
+      <Text style={styles.errorBody}>{body}</Text>
+      {showRetry ? (
+        <Pressable onPress={handleRetryPlayback} style={styles.errorSecondary}>
+          <Text style={styles.errorSecondaryText}>Try again</Text>
+        </Pressable>
+      ) : null}
+      <Pressable onPress={onClose} style={styles.errorClose}>
+        <Text style={styles.errorCloseText}>Close</Text>
+      </Pressable>
+    </View>
+  );
+
+  const configBody =
+    'Set EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME to match web (see apps/mobile/.env.example), or upload a video once so the app can cache the hostname from the server.';
+
+  const urlBody = uid
+    ? 'The video may still be processing, or the stream is not reachable from this device (CDN hotlink/referrer rules, 403/404). Pull to refresh on Profile.'
+    : 'No video ID on your profile. Pull to refresh or record again.';
+
+  const playbackBody =
+    'Manifest or HLS failed to load. If this persists, check Bunny Stream/CDN settings (hotlink, token auth) or try again after refresh.';
 
   return (
     <Modal
@@ -116,40 +196,36 @@ export function FullscreenVibeVideoModal({
     >
       <StatusBar hidden={visible} />
       <View style={styles.root}>
-        {showError ? (
-          <View style={styles.errorWrap}>
-            <Ionicons name="warning-outline" size={40} color="#fbbf24" />
-            <Text style={styles.errorTitle}>Video unavailable</Text>
-            <Text style={styles.errorBody}>
-              {configMissing
-                ? 'Set EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME to the same value as web VITE_BUNNY_STREAM_CDN_HOSTNAME (see apps/mobile/.env.example).'
-                : 'Playback URL could not be built, or the video is still processing. Pull to refresh on Profile and try again.'}
-            </Text>
-            <Pressable onPress={onClose} style={styles.errorClose}>
-              <Text style={styles.errorCloseText}>Close</Text>
-            </Pressable>
-          </View>
-        ) : playbackUrl ? (
-          <>
-            <HlsVideoBody
-              playbackUrl={playbackUrl}
-              visible={visible}
-              posterUrl={posterUrl}
-              onPlaybackIssue={handlePlaybackIssue}
-            />
+        {errorKind === 'config'
+          ? renderErrorCard('Video unavailable', configBody, false)
+          : errorKind === 'url'
+            ? renderErrorCard('Video unavailable', urlBody, false)
+            : errorKind === 'playback'
+              ? renderErrorCard('Video unavailable', playbackBody, true)
+              : playbackUrl
+                ? (
+                    <>
+                      <HlsVideoBody
+                        key={retryKey}
+                        playbackUrl={playbackUrl}
+                        visible={visible}
+                        posterUrl={posterUrl}
+                        onPlaybackIssue={handlePlaybackIssue}
+                      />
 
-            <Pressable
-              onPress={onClose}
-              style={[styles.closeBtn, { top: insets.top + 12 }]}
-              hitSlop={12}
-              accessibilityLabel="Close video"
-            >
-              <Ionicons name="close" size={26} color="#fff" />
-            </Pressable>
-          </>
-        ) : null}
+                      <Pressable
+                        onPress={onClose}
+                        style={[styles.closeBtn, { top: insets.top + 12 }]}
+                        hitSlop={12}
+                        accessibilityLabel="Close video"
+                      >
+                        <Ionicons name="close" size={26} color="#fff" />
+                      </Pressable>
+                    </>
+                  )
+                : null}
 
-        {vibeCaption.trim() && !showError ? (
+        {vibeCaption.trim() && errorKind === 'none' && playbackUrl ? (
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.85)']}
             style={[styles.captionWrap, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}
@@ -165,6 +241,8 @@ export function FullscreenVibeVideoModal({
     </Modal>
   );
 }
+
+export default FullscreenVibeVideoModal;
 
 const styles = StyleSheet.create({
   root: {
@@ -189,6 +267,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
+  },
+  errorSecondary: {
+    marginTop: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+  },
+  errorSecondaryText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
   errorClose: {
     marginTop: 8,

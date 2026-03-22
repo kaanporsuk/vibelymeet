@@ -22,6 +22,7 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { avatarUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import { VibelyText } from '@/components/ui';
+import { getVibeVideoSurface } from '@/lib/vibeVideoStatus';
 
 export type MatchForProfile = {
   id: string;
@@ -225,7 +226,7 @@ export function ProfileDetailSheet({ visible, onClose, match }: ProfileDetailShe
                     </View>
                   ) : null}
 
-                  {profile.bunnyVideoUid && profile.bunnyVideoStatus === 'ready' ? (
+                  {getVibeVideoSurface(profile.bunnyVideoUid, profile.bunnyVideoStatus).kind === 'ready' ? (
                     <View style={[styles.videoChip, { backgroundColor: theme.tintSoft }]}>
                       <Ionicons name="videocam" size={18} color={theme.tint} />
                       <VibelyText variant="body" style={{ color: theme.tint }}>Has a Vibe Video</VibelyText>

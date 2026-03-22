@@ -269,9 +269,11 @@ export const VibeStudioModal = ({
       }
     );
 
-    const creds = await credResponse.json();
-    if (!creds.success) {
-      throw new Error(creds.error || "Failed to get upload credentials");
+    const creds = await credResponse.json().catch(() => ({}));
+    if (!credResponse.ok || !creds.success) {
+      throw new Error(
+        creds.error || `Failed to get upload credentials (${credResponse.status})`
+      );
     }
 
     const { videoId, libraryId, expirationTime, signature } = creds;

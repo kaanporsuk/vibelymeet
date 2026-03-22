@@ -6,6 +6,13 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function json(body: Record<string, unknown>, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -14,42 +21,36 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ success: false, error: "No authorization header" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "No authorization header", code: "auth_header_missing" }, 401);
     }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader } } },
     );
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ success: false, error: "Unauthorized", code: "unauthorized" }, 401);
     }
 
     const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     const apiKey = Deno.env.get("BUNNY_STREAM_API_KEY");
 
     if (!libraryId || !apiKey) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Bunny credentials not configured" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      console.error("[delete-vibe-video] missing BUNNY_STREAM_LIBRARY_ID or BUNNY_STREAM_API_KEY");
+      return json(
+        { success: false, error: "Bunny credentials not configured", code: "bunny_config_missing" },
+        503,
       );
     }
 
     const adminSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Fetch current video UID
     const { data: profile } = await adminSupabase
       .from("profiles")
       .select("bunny_video_uid")
@@ -59,42 +60,72 @@ serve(async (req) => {
     const videoId = profile?.bunny_video_uid;
 
     if (!videoId) {
-      return new Response(
-        JSON.stringify({ success: true, message: "No video to delete" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      return json(
+        {
+          success: true,
+          message: "No video to delete",
+          hadVideoToDelete: false,
+          dbProfileCleared: false,
+          bunnyRemoteDeleteOk: null,
+          bunnyRemoteDeleteHttpStatus: null,
+        },
+        200,
       );
     }
 
-    // Delete from Bunny Stream library
+    let bunnyRemoteDeleteHttpStatus: number | null = null;
+    let bunnyRemoteDeleteOk = false;
     try {
       const deleteResponse = await fetch(
         `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`,
         {
           method: "DELETE",
           headers: { "AccessKey": apiKey },
-        }
+        },
       );
-      console.log(`[delete-vibe-video] Deleted Bunny video ${videoId}: ${deleteResponse.status}`);
+      bunnyRemoteDeleteHttpStatus = deleteResponse.status;
+      bunnyRemoteDeleteOk = deleteResponse.ok;
+      console.log(
+        `[delete-vibe-video] outcome ${JSON.stringify({
+          userId: user.id,
+          videoId,
+          bunnyRemoteDeleteHttpStatus,
+          bunnyRemoteDeleteOk,
+        })}`,
+      );
+      if (!deleteResponse.ok) {
+        const errBody = await deleteResponse.text().catch(() => "");
+        console.error(
+          `[delete-vibe-video] Bunny DELETE non-OK body snippet: ${errBody.slice(0, 200)}`,
+        );
+      }
     } catch (deleteErr) {
-      console.error("[delete-vibe-video] Bunny delete failed:", deleteErr);
-      // Continue to clear DB even if Bunny delete fails
+      console.error("[delete-vibe-video] Bunny delete network/error:", deleteErr);
     }
 
-    // Clear DB fields
     await adminSupabase
       .from("profiles")
       .update({ bunny_video_uid: null, bunny_video_status: "none", vibe_caption: null })
       .eq("id", user.id);
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    console.log(
+      `[delete-vibe-video] db_cleared userId=${user.id} hadVideoToDelete=true bunnyOk=${bunnyRemoteDeleteOk}`,
+    );
+
+    return json(
+      {
+        success: true,
+        hadVideoToDelete: true,
+        dbProfileCleared: true,
+        bunnyRemoteDeleteOk,
+        bunnyRemoteDeleteHttpStatus,
+        /** True when profile row cleared but Bunny API did not return OK — possible orphan asset in Stream library. */
+        possibleBunnyOrphan: !bunnyRemoteDeleteOk,
+      },
+      200,
     );
   } catch (err) {
     console.error("[delete-vibe-video] Unexpected error:", err);
-    return new Response(
-      JSON.stringify({ success: false, error: "Internal server error" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ success: false, error: "Internal server error", code: "internal" }, 500);
   }
 });

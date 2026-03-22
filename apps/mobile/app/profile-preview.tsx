@@ -6,6 +6,7 @@ import {
   Pressable,
   View as RNView,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,6 +24,7 @@ import { LoadingState, ErrorState } from '@/components/ui';
 import { fetchMyProfile, formatBirthdayUsWithZodiac, type ProfileRow } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
 import { getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
+import { getVibeVideoSurface } from '@/lib/vibeVideoStatus';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
@@ -99,7 +101,11 @@ export default function ProfilePreviewScreen() {
   const age = profile?.age;
   const tagline = profile?.tagline?.trim();
   const location = profile?.location?.trim();
-  const hasVibeVideo = !!(profile?.bunny_video_uid && profile?.bunny_video_status === 'ready');
+  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
+  const hasVibeVideo = vibeSurface.kind === 'ready';
+  const vibeProcessing =
+    vibeSurface.kind === 'processing' || vibeSurface.kind === 'inconsistent_unknown_status';
+  const vibeFailed = vibeSurface.kind === 'failed';
   const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
   const caption = profile?.vibe_caption?.trim() ?? '';
   const aboutMe = profile?.about_me?.trim();
@@ -203,13 +209,37 @@ export default function ProfilePreviewScreen() {
         <RNView style={s.main}>
 
           {/* ═══ Vibe Video ═══ */}
+          {vibeProcessing ? (
+            <RNView style={s.section}>
+              <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
+                <ActivityIndicator size="large" color="#8B5CF6" />
+                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Processing your video…</Text>
+                <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
+                  This usually takes 15–30 seconds. Pull to refresh on Profile if it sticks.
+                </Text>
+              </RNView>
+            </RNView>
+          ) : null}
+          {vibeFailed ? (
+            <RNView style={s.section}>
+              <RNView style={[s.videoCard, s.videoFailedCard, { borderColor: theme.glassBorder }]}>
+                <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
+                <Text style={[s.videoFailedTitle, { color: theme.text }]}>Video processing failed</Text>
+                <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
+                  Record a new clip from Profile Studio.
+                </Text>
+              </RNView>
+            </RNView>
+          ) : null}
           {hasVibeVideo && (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, { borderColor: theme.glassBorder }]}>
                 {thumbnailUrl ? (
                   <Image source={{ uri: thumbnailUrl }} style={s.videoThumbnail} resizeMode="cover" />
                 ) : (
-                  <RNView style={[s.videoThumbnail, { backgroundColor: theme.surface }]} />
+                  <RNView style={[s.videoThumbnail, { backgroundColor: theme.surface, justifyContent: 'center', alignItems: 'center' }]}>
+                    <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Thumbnail unavailable</Text>
+                  </RNView>
                 )}
                 <LinearGradient
                   pointerEvents="none"
@@ -503,6 +533,36 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     position: 'relative',
+  },
+  videoProcessingCard: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    gap: 10,
+    backgroundColor: 'rgba(139,92,246,0.06)',
+  },
+  videoProcessingTitle: {
+    fontSize: 16,
+    fontFamily: fonts.displayBold,
+    textAlign: 'center',
+  },
+  videoProcessingSub: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  videoFailedCard: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.08)',
+  },
+  videoFailedTitle: {
+    fontSize: 16,
+    fontFamily: fonts.displayBold,
+    textAlign: 'center',
   },
   videoThumbnail: {
     ...StyleSheet.absoluteFillObject,

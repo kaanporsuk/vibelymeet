@@ -15,7 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
 import { useBadgeCount } from '@/lib/useBadgeCount';
@@ -33,6 +33,7 @@ import { connectivityService } from '@/lib/connectivityService';
 import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
+import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -153,10 +154,15 @@ function BadgeCountUpdater() {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   useCurrentRouteTracker();
+  const [, setCdnHostInitTick] = useState(0);
 
   useEffect(() => {
     initRevenueCat();
     connectivityService.init();
+  }, []);
+
+  useEffect(() => {
+    void initStreamCdnHostname().then(() => setCdnHostInitTick((t) => t + 1));
   }, []);
 
   const stack = (
