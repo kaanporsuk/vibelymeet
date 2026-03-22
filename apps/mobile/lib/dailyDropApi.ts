@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { avatarUrl } from '@/lib/imageUrl';
+
+/** Aligns with public.daily_drops.status CHECK */
+export type DailyDropStatus =
+  | 'active_unopened'
+  | 'active_viewed'
+  | 'active_opener_sent'
+  | 'matched'
+  | 'passed'
+  | 'expired_no_action'
+  | 'expired_no_reply'
+  | 'invalidated';
 
 export type DailyDropRow = {
   id: string;
@@ -9,7 +19,7 @@ export type DailyDropRow = {
   drop_date: string;
   starts_at: string;
   expires_at: string;
-  status: string;
+  status: DailyDropStatus;
   user_a_viewed: boolean;
   user_b_viewed: boolean;
   opener_sender_id: string | null;
@@ -52,7 +62,7 @@ function mapDrop(data: Record<string, unknown>): DailyDropRow {
     drop_date: data.drop_date as string,
     starts_at: data.starts_at as string,
     expires_at: data.expires_at as string,
-    status: data.status as string,
+    status: data.status as DailyDropStatus,
     user_a_viewed: (data.user_a_viewed as boolean) ?? false,
     user_b_viewed: (data.user_b_viewed as boolean) ?? false,
     opener_sender_id: data.opener_sender_id as string | null,
@@ -73,6 +83,7 @@ export function useDailyDrop(userId: string | null | undefined) {
   const [drop, setDrop] = useState<DailyDropRow | null>(null);
   const [partner, setPartner] = useState<DailyDropPartner | null>(null);
   const [pastDrops, setPastDrops] = useState<PastDropRow[]>([]);
+  const [generationRanToday, setGenerationRanToday] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(0);
 
@@ -108,6 +119,7 @@ export function useDailyDrop(userId: string | null | undefined) {
 
   const fetchDrop = useCallback(async () => {
     if (!userId) {
+      setGenerationRanToday(false);
       setIsLoading(false);
       return;
     }
@@ -120,6 +132,9 @@ export function useDailyDrop(userId: string | null | undefined) {
       .order('drop_date', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    const { data: genRan } = await supabase.rpc('daily_drops_generation_ran_today');
+    setGenerationRanToday(Boolean(genRan));
 
     if (error) {
       setDrop(null);
@@ -274,6 +289,7 @@ export function useDailyDrop(userId: string | null | undefined) {
     pickReasons,
     affinityScore,
     pastDrops,
+    generationRanToday,
     markViewed,
     sendOpener,
     sendReply,

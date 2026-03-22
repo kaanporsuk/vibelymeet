@@ -14,6 +14,17 @@ export interface DailyDropPartner {
   vibes: string[]; // vibe tag labels
 }
 
+/** Matches `daily_drops.status` CHECK constraint */
+export type DailyDropStatus =
+  | 'active_unopened'
+  | 'active_viewed'
+  | 'active_opener_sent'
+  | 'matched'
+  | 'passed'
+  | 'expired_no_action'
+  | 'expired_no_reply'
+  | 'invalidated';
+
 export interface DailyDropData {
   id: string;
   user_a_id: string;
@@ -21,7 +32,7 @@ export interface DailyDropData {
   drop_date: string;
   starts_at: string;
   expires_at: string;
-  status: string;
+  status: DailyDropStatus;
   user_a_viewed: boolean;
   user_b_viewed: boolean;
   opener_sender_id: string | null;
@@ -39,6 +50,7 @@ export interface DailyDropData {
 
 export interface PastDrop {
   id: string;
+  partner_id: string;
   partner_name: string;
   partner_avatar: string | null;
   drop_date: string;

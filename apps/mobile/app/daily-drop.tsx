@@ -41,6 +41,7 @@ export default function DailyDropScreen() {
     isExpired,
     hasDrop,
     isLoading,
+    generationRanToday,
     markViewed,
     sendOpener,
     sendReply,
@@ -57,7 +58,7 @@ export default function DailyDropScreen() {
 
   const viewedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (!drop || !user?.id) return;
+    if (!drop || !user?.id || drop.status === 'invalidated') return;
     const myRole = drop.user_a_id === user.id ? 'a' : 'b';
     const notViewed = myRole === 'a' ? !drop.user_a_viewed : !drop.user_b_viewed;
     if (notViewed && !viewedRef.current.has(drop.id)) {
@@ -108,6 +109,9 @@ export default function DailyDropScreen() {
   }
 
   if (!hasDrop || !drop) {
+    const emptySub = generationRanToday
+      ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
+      : 'Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.';
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <GlassHeaderBar insets={insets} style={styles.headerBar}>
@@ -118,7 +122,25 @@ export default function DailyDropScreen() {
             <Ionicons name="gift-outline" size={40} color={theme.tint} />
           </View>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>No drop for today</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>Check back tomorrow for a new match.</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>{emptySub}</Text>
+          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+        </View>
+      </View>
+    );
+  }
+
+  if (drop.status === 'invalidated') {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <GlassHeaderBar insets={insets} style={styles.headerBar}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        </GlassHeaderBar>
+        <View style={styles.centered}>
+          <Text style={{ fontSize: 40, marginBottom: spacing.sm }}>⚡</Text>
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>Drop no longer available</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+            This drop was removed. Check back at 6 PM for your next one.
+          </Text>
           <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
         </View>
       </View>

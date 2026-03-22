@@ -5,11 +5,6 @@ import posthog from 'posthog-js';
 import App from "./App.tsx";
 import "./index.css";
 
-// P0: Stale/callback reference — avoid "scheduleDailyDropNotification is not defined" (e.g. from SW or legacy config).
-if (typeof window !== "undefined") {
-  (window as unknown as { scheduleDailyDropNotification?: () => void }).scheduleDailyDropNotification = () => {};
-}
-
 const SENTRY_DSN_FALLBACK =
   "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088";
 const SENTRY_DSN =

@@ -67,6 +67,7 @@ export function DropsTabContent({ userId }: Props) {
     isLoading,
     pickReasons,
     pastDrops,
+    generationRanToday,
     markViewed,
     sendOpener,
     sendReply,
@@ -91,6 +92,22 @@ export function DropsTabContent({ userId }: Props) {
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.tint} />
       </View>
+    );
+  }
+
+  if (hasDrop && drop?.status === 'invalidated') {
+    return (
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.stateCard}>
+          <Text style={styles.invalidatedEmoji} accessibilityRole="text">⚡</Text>
+          <Text style={[styles.stateTitle, { color: theme.text }]}>Drop no longer available</Text>
+          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>
+            This drop was removed. Check back at 6 PM for your next one.
+          </Text>
+          <Text style={[styles.nextDrop, { color: theme.tint }]}>Next drop in {formatNextDrop()}</Text>
+        </View>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
+      </ScrollView>
     );
   }
 
@@ -124,14 +141,15 @@ export function DropsTabContent({ userId }: Props) {
 
   // No drop today
   if (!hasDrop) {
+    const emptyBody = generationRanToday
+      ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
+      : 'Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.';
     return (
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.stateCard}>
           <Ionicons name="water-outline" size={56} color={theme.mutedForeground} />
           <Text style={[styles.stateTitle, { color: theme.text }]}>No Daily Drop today</Text>
-          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>
-            We only create a drop when there's a real fit. Your next chance is at 6 PM.
-          </Text>
+          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>{emptyBody}</Text>
           <Text style={[styles.nextDrop, { color: theme.tint }]}>Next drop in {formatNextDrop()}</Text>
         </View>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
@@ -381,7 +399,9 @@ function PastDropsSection({
           {pastDrops.map((d) => (
             <Pressable
               key={d.id}
-              onPress={() => d.match_id && (router as { push: (p: string) => void }).push(`/chat/${d.partner_id}`)}
+              onPress={() =>
+                d.match_id && d.partner_id && (router as { push: (p: string) => void }).push(`/chat/${d.partner_id}`)
+              }
               style={[styles.pastRow, { backgroundColor: theme.surfaceSubtle }]}
             >
               {d.partner_avatar ? (
@@ -419,6 +439,7 @@ const styles = StyleSheet.create({
   },
   stateTitle: { ...typography.titleMD, marginBottom: spacing.sm, textAlign: 'center' },
   stateSub: { ...typography.body, textAlign: 'center', marginBottom: spacing.sm },
+  invalidatedEmoji: { fontSize: 40, marginBottom: spacing.sm, textAlign: 'center' },
   nextDrop: { fontSize: 14, fontWeight: '600' },
   revealCard: {
     padding: spacing.xl,
