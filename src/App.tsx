@@ -53,6 +53,8 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
+import { SpeedInsights } from "@vercel/speed-insights/react";
+import { Analytics } from "@vercel/analytics/react";
 
 const PostHogPageTracker = () => {
   const location = useLocation();
@@ -155,6 +157,8 @@ const App = () => (
         </TooltipProvider>
       </NotificationProvider>
     </AuthProvider>
+    <SpeedInsights />
+    <Analytics />
   </QueryClientProvider>
 );
 
