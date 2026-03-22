@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getLanguageLabel } from '@/lib/eventLanguages';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { Card, GlassHeaderBar, ErrorState, Skeleton, VibelyButton } from '@/components/ui';
@@ -39,8 +40,20 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { Linking } from 'react-native';
 import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
+import EventFilterSheet, {
+  type EventFilters,
+  DEFAULT_FILTERS,
+  countActiveFilters,
+} from '@/components/events/EventFilterSheet';
+import * as Location from 'expo-location';
 
-const DATE_FILTERS = ['Tonight', 'This Weekend', 'This Week', 'Upcoming'] as const;
+const TIME_FILTERS = [
+  { key: 'tonight', label: 'Tonight' },
+  { key: 'this_weekend', label: 'This Weekend' },
+  { key: 'this_week', label: 'This Week' },
+  { key: 'upcoming', label: 'Upcoming' },
+] as const;
+
 
 function isTonight(ed: Date, now: Date): boolean {
   return ed.toDateString() === now.toDateString();
@@ -59,6 +72,17 @@ function isThisWeek(ed: Date, now: Date): boolean {
   const end = new Date(now);
   end.setDate(now.getDate() + (7 - now.getDay()));
   return ed <= end && ed >= now;
+}
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── Location prompt banner: show when profile has no location_data; Enable opens web to set location
@@ -234,6 +258,15 @@ function FeaturedEventCard({
         <Text style={[featuredStyles.metaDate, { color: theme.textSecondary }]}>
           {event.date} · {event.time}
         </Text>
+        {(() => {
+          const lang = getLanguageLabel(event.language);
+          return lang ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
+              <Text style={{ fontSize: 12 }}>{lang.flag}</Text>
+              <Text style={{ fontSize: 11, color: theme.textSecondary }}>{lang.label}</Text>
+            </View>
+          ) : null;
+        })()}
         {event.description ? (
           <Text style={[featuredStyles.desc, { color: theme.textSecondary }]} numberOfLines={2}>
             {event.description}
@@ -428,6 +461,15 @@ function EventRailCard({
         <Text style={[railCardStyles.meta, { color: theme.textSecondary }]}>
           {event.date} · {event.time}
         </Text>
+        {(() => {
+          const lang = getLanguageLabel(event.language);
+          return lang ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
+              <Text style={{ fontSize: 11 }}>{lang.flag}</Text>
+              <Text style={{ fontSize: 10, color: theme.textSecondary }}>{lang.label}</Text>
+            </View>
+          ) : null;
+        })()}
         <View style={railCardStyles.row}>
           <View style={railCardStyles.avatars}>
             {[1, 2, 3].map((i) => (
@@ -604,28 +646,68 @@ export default function EventsListScreen() {
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [timeFilter, setTimeFilter] = useState<string | null>(null);
+  const [filters, setFilters] = useState<EventFilters>(DEFAULT_FILTERS);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
   const { data: profileLocation } = useQuery({
     queryKey: ['profile-location', user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      const { data } = await supabase.from('profiles').select('location_data').eq('id', user.id).maybeSingle();
-      return data as { location_data?: { lat?: number; lng?: number } | null } | null;
+      try {
+        const { data, error } = await supabase.from('profiles').select('location_data').eq('id', user.id).maybeSingle();
+        if (error) {
+          if (__DEV__) console.warn('[events] profile location:', error.message);
+          return null;
+        }
+        return data as { location_data?: { lat?: number; lng?: number } | null } | null;
+      } catch (e) {
+        if (__DEV__) console.warn('[events] profile location fetch failed:', e);
+        return null;
+      }
     },
     enabled: !!user?.id,
   });
   const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
   const showLocationPrompt = !hasLocation;
 
-  const isFiltering = searchQuery.length > 0 || activeFilters.length > 0;
+  useEffect(() => {
+    if (!filters.locationEnabled) return;
+    (async () => {
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch (error) {
+        if (__DEV__) console.warn('[events] getCurrentPosition failed:', error);
+        setUserCoords(null);
+      }
+    })();
+  }, [filters.locationEnabled]);
+
+  const sheetFilterCount = countActiveFilters(filters);
+  const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
+  const isFiltering = searchQuery.length > 0 || timeFilter !== null || sheetFilterCount > 0;
   const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
   const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
 
   const filteredEvents = useMemo(() => {
     const registered = new Set(registeredEventIds);
     const now = new Date();
-    let list = upcomingEvents;
+    let list: EventListItem[] = [...events];
+
+    // 1. Upcoming-only filter (default ON — hides ended events)
+    if (filters.upcomingOnly) {
+      list = list.filter(event => {
+        const eventEnd = new Date(event.eventDate.getTime() + (event.duration_minutes ?? 60) * 60 * 1000);
+        return eventEnd > now;
+      });
+    }
+
+    // 2. Hide already-registered events
+    list = list.filter(e => !registered.has(e.id));
+
+    // 3. Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -634,25 +716,46 @@ export default function EventsListScreen() {
           (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
       );
     }
-    if (activeFilters.length > 0) {
-      list = list.filter((event) => {
+
+    // 4. Time filter
+    if (timeFilter) {
+      list = list.filter(event => {
         const ed = event.eventDate;
-        const dateMatch =
-          (activeFilters.includes('Tonight') && isTonight(ed, now)) ||
-          (activeFilters.includes('This Weekend') && isThisWeekend(ed, now)) ||
-          (activeFilters.includes('This Week') && isThisWeek(ed, now)) ||
-          (activeFilters.includes('Upcoming') && ed > now);
-        return dateMatch;
+        switch (timeFilter) {
+          case 'tonight': return isTonight(ed, now) && ed.getTime() > now.getTime();
+          case 'this_weekend': return isThisWeekend(ed, now);
+          case 'this_week': return isThisWeek(ed, now);
+          case 'upcoming': return ed > now;
+          default: return true;
+        }
       });
     }
-    return list.filter((event) => {
-      if (registered.has(event.id)) return false;
-      const eventEnd = new Date(
-        event.eventDate.getTime() + (event.duration_minutes ?? 60) * 60 * 1000
+
+    // 5. Category filter (match against event tags)
+    if (filters.categories.length > 0) {
+      const cats = new Set(filters.categories.map(c => c.toLowerCase()));
+      list = list.filter(e =>
+        (e.tags ?? []).some(t => cats.has(t.toLowerCase()))
       );
-      return eventEnd > now;
-    });
-  }, [upcomingEvents, registeredEventIds, searchQuery, activeFilters]);
+    }
+
+    // 6. Language filter
+    if (filters.language) {
+      list = list.filter(e => e.language === filters.language);
+    }
+
+    // 7. Location filter (client-side haversine)
+    if (filters.locationEnabled && filters.distanceKm > 0 && userCoords) {
+      list = list.filter(e => {
+        const row = e as any;
+        if (row.latitude == null || row.longitude == null) return true;
+        const d = haversineKm(userCoords.lat, userCoords.lng, row.latitude, row.longitude);
+        return d <= filters.distanceKm;
+      });
+    }
+
+    return list;
+  }, [events, registeredEventIds, searchQuery, timeFilter, filters, userCoords]);
   const discoverUpcomingEvents = useMemo(() => {
     const now = new Date();
     const registered = new Set(registeredEventIds);
@@ -666,16 +769,13 @@ export default function EventsListScreen() {
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
   const { data: featuredAttendees = [] } = useEventAttendees(featuredEvent?.id);
 
-  const toggleFilter = (filter: string) => {
-    if (activeFilters.includes(filter)) {
-      setActiveFilters(activeFilters.filter((f) => f !== filter));
-    } else {
-      setActiveFilters([...activeFilters, filter]);
-    }
+  const toggleTimeFilter = (key: string) => {
+    setTimeFilter(prev => prev === key ? null : key);
   };
 
-  const clearFilters = () => {
-    setActiveFilters([]);
+  const clearAllFilters = () => {
+    setTimeFilter(null);
+    setFilters(DEFAULT_FILTERS);
     setSearchQuery('');
   };
 
@@ -750,37 +850,63 @@ export default function EventsListScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chipsRow}
         >
-          {DATE_FILTERS.map((filter) => {
-            const active = activeFilters.includes(filter);
+          {/* Filters button */}
+          <Pressable
+            onPress={() => setShowFilterSheet(true)}
+            style={[
+              styles.filterBtn,
+              sheetFilterCount > 0
+                ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(139,92,246,0.4)' },
+            ]}
+          >
+            <Ionicons name="options-outline" size={16} color={sheetFilterCount > 0 ? '#fff' : '#8B5CF6'} />
+            <Text style={[styles.filterBtnText, { color: sheetFilterCount > 0 ? '#fff' : '#8B5CF6' }]}>
+              Filters
+            </Text>
+            {sheetFilterCount > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{sheetFilterCount}</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* Time filter pills */}
+          {TIME_FILTERS.map(tf => {
+            const active = timeFilter === tf.key;
             return (
               <Pressable
-                key={filter}
+                key={tf.key}
                 style={[
                   styles.chip,
                   active
-                    ? { backgroundColor: theme.accentSoft, borderColor: theme.tint }
-                    : { backgroundColor: theme.surfaceSubtle, borderColor: theme.border },
+                    ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                    : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' },
                 ]}
-                onPress={() => toggleFilter(filter)}
+                onPress={() => toggleTimeFilter(tf.key)}
               >
-                <Text
-                  style={[
-                    styles.chipText,
-                    { color: active ? theme.tint : theme.textSecondary },
-                  ]}
-                >
-                  {filter}
+                <Text style={[styles.chipText, { color: active ? '#fff' : theme.textSecondary }]}>
+                  {tf.label}
                 </Text>
               </Pressable>
             );
           })}
-          {activeFilters.length > 0 && (
-            <Pressable style={styles.clearChips} onPress={clearFilters}>
+
+          {totalActiveCount > 0 && (
+            <Pressable style={styles.clearChips} onPress={clearAllFilters}>
               <Text style={[styles.clearChipsText, { color: theme.accent }]}>Clear all</Text>
             </Pressable>
           )}
         </ScrollView>
       </View>
+
+      {/* Filter sheet */}
+      <EventFilterSheet
+        visible={showFilterSheet}
+        onClose={() => setShowFilterSheet(false)}
+        filters={filters}
+        onApply={setFilters}
+      />
 
       {/* Content — max width for tablet parity */}
       <View style={[styles.content, { maxWidth: layout.contentWidth, alignSelf: 'center', width: '100%' }]}>
@@ -993,6 +1119,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipText: { fontSize: 13, fontWeight: '500' },
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  filterBtnText: { fontSize: 13, fontWeight: '600' },
+  filterBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EC4899',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
+  },
+  filterBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   clearChips: { paddingVertical: 8, paddingHorizontal: spacing.sm },
   clearChipsText: { fontSize: 14, fontWeight: '500' },
   content: { paddingTop: layout.mainContentPaddingTop },

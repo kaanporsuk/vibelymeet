@@ -1,129 +1,181 @@
 /**
- * Sheet to edit a single prompt answer or add a new prompt. Saves via onSave(question, answer) or onAdd(question, answer).
+ * Conversation starters editor — parity with web ProfileStudio prompt drawer.
  */
-import React, { useState, useEffect } from 'react';
-import { View, Text, Modal, Pressable, TextInput, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  View,
+  Text,
+  Modal,
+  Pressable,
+  TextInput,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { spacing, radius } from '@/constants/theme';
-import { VibelyText } from '@/components/ui';
+import { spacing, radius, fonts } from '@/constants/theme';
 import { PROMPT_EMOJIS, AVAILABLE_PROMPTS } from './PROMPT_CONSTANTS';
 
-type PromptEditSheetProps = {
+const MAX_ANSWER = 200;
+
+export interface PromptEditSheetProps {
   visible: boolean;
   onClose: () => void;
-  mode: 'edit' | 'add';
+  /** Single save path — both add and edit */
+  onSave: (prompt: { question: string; answer: string }) => void | Promise<void>;
+  onRemove?: () => void | Promise<void>;
   initialQuestion?: string;
   initialAnswer?: string;
-  onSave: (question: string, answer: string) => void;
-  onAdd?: (question: string, answer: string) => void;
-  onRemove?: () => void;
-  existingQuestions?: string[];
-};
+  /** Prompt questions already used by other slots (current slot’s selection stays allowed). */
+  usedQuestions: string[];
+  mode: 'add' | 'edit';
+  saving?: boolean;
+}
 
 export function PromptEditSheet({
   visible,
   onClose,
-  mode,
+  onSave,
+  onRemove,
   initialQuestion = '',
   initialAnswer = '',
-  onSave,
-  onAdd,
-  onRemove,
-  existingQuestions = [],
+  usedQuestions,
+  mode,
+  saving = false,
 }: PromptEditSheetProps) {
   const theme = Colors[useColorScheme()];
-  const [question, setQuestion] = useState(initialQuestion);
-  const [answer, setAnswer] = useState(initialAnswer);
-  const [showQuestionPicker, setShowQuestionPicker] = useState(mode === 'add');
+  const insets = useSafeAreaInsets();
+  const [selectedQuestion, setSelectedQuestion] = useState(initialQuestion);
+  const [answerText, setAnswerText] = useState(initialAnswer);
 
   useEffect(() => {
-    if (visible) {
-      setQuestion(initialQuestion);
-      setAnswer(initialAnswer);
-      setShowQuestionPicker(mode === 'add');
-    }
-  }, [visible, mode, initialQuestion, initialAnswer]);
+    if (!visible) return;
+    setSelectedQuestion(initialQuestion);
+    setAnswerText(initialAnswer);
+  }, [visible, initialQuestion, initialAnswer]);
 
-  const handleDone = () => {
-    const q = question.trim();
-    const a = answer.trim();
-    if (!q) return;
-    if (mode === 'edit') {
-      onSave(q, a);
-    } else if (onAdd) {
-      onAdd(q, a);
-    }
-    onClose();
+  const isValid = useMemo(() => {
+    return selectedQuestion.trim().length > 0 && answerText.trim().length > 0;
+  }, [selectedQuestion, answerText]);
+
+  const isPromptDisabled = useCallback(
+    (prompt: string) => {
+      const used = usedQuestions.some((q) => q === prompt);
+      return used && prompt !== selectedQuestion.trim();
+    },
+    [usedQuestions, selectedQuestion],
+  );
+
+  const handleSavePress = async () => {
+    if (!isValid || saving) return;
+    await onSave({
+      question: selectedQuestion.trim(),
+      answer: answerText.trim(),
+    });
   };
-  const remaining = AVAILABLE_PROMPTS.filter((p) => !existingQuestions.includes(p));
+
+  const title = mode === 'add' ? 'Add Prompt' : 'Edit Prompt';
 
   if (!visible) return null;
 
   return (
-    <Modal transparent visible animationType="slide">
+    <Modal transparent visible animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={[styles.sheet, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
+          onPress={(e) => e.stopPropagation()}
+        >
           <View style={[styles.handle, { backgroundColor: theme.muted }]} />
-          <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
-            {mode === 'edit' ? 'Edit prompt' : 'Add prompt'}
-          </VibelyText>
 
-          {mode === 'add' && showQuestionPicker ? (
-            <View style={styles.pickerBlock}>
-              <VibelyText variant="overline" style={[styles.label, { color: theme.textSecondary }]}>Choose a prompt</VibelyText>
-              <View style={styles.questionList}>
-                {remaining.slice(0, 10).map((p) => (
-                  <Pressable
-                    key={p}
-                    onPress={() => { setQuestion(p); setShowQuestionPicker(false); }}
-                    style={[styles.questionRow, { backgroundColor: theme.surfaceSubtle }]}
-                  >
-                    <Text style={styles.questionEmoji}>{PROMPT_EMOJIS[p] ?? '💭'}</Text>
-                    <VibelyText variant="body" style={{ color: theme.text }} numberOfLines={1}>{p}</VibelyText>
-                  </Pressable>
-                ))}
-              </View>
-              <Pressable onPress={onClose} style={[styles.cancelBtn, { borderColor: theme.border }]}>
-                <VibelyText variant="body" style={{ color: theme.text }}>Cancel</VibelyText>
-              </Pressable>
-            </View>
-          ) : (
-            <>
-              <View style={[styles.promptHeader, { backgroundColor: theme.surfaceSubtle }]}>
-                <Text style={styles.promptEmoji}>{PROMPT_EMOJIS[question] ?? '💭'}</Text>
-                <VibelyText variant="body" style={{ color: theme.textSecondary }}>{question || 'Prompt'}</VibelyText>
-                {mode === 'add' && (
-                  <Pressable onPress={() => setShowQuestionPicker(true)} style={styles.changeQuestion}>
-                    <VibelyText variant="caption" style={{ color: theme.tint }}>Change</VibelyText>
-                  </Pressable>
-                )}
-              </View>
-              <VibelyText variant="overline" style={[styles.label, { color: theme.textSecondary }]}>Your answer</VibelyText>
-              <TextInput
-                value={answer}
-                onChangeText={setAnswer}
-                placeholder="Tap to add your answer..."
-                placeholderTextColor={theme.mutedForeground}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                multiline
-                numberOfLines={3}
-              />
-              {mode === 'edit' && onRemove ? (
-                <Pressable onPress={() => { onRemove(); onClose(); }} style={styles.removeWrap}>
-                  <VibelyText variant="body" style={styles.btnDangerText}>Remove this prompt</VibelyText>
+          <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+            Spark conversations with your answer.
+          </Text>
+
+          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Choose a prompt</Text>
+          <ScrollView
+            style={styles.promptScroll}
+            nestedScrollEnabled
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {AVAILABLE_PROMPTS.map((p) => {
+              const disabled = isPromptDisabled(p);
+              const selected = selectedQuestion.trim() === p;
+              return (
+                <Pressable
+                  key={p}
+                  disabled={disabled}
+                  onPress={() => !disabled && setSelectedQuestion(p)}
+                  style={[
+                    styles.promptRow,
+                    {
+                      backgroundColor: selected ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.04)',
+                      borderColor: selected ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.08)',
+                      opacity: disabled ? 0.45 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={styles.promptEmoji}>{PROMPT_EMOJIS[p] ?? '💭'}</Text>
+                  <Text style={[styles.promptText, { color: theme.text }]} numberOfLines={2}>
+                    {p}
+                  </Text>
+                  {disabled ? (
+                    <Text style={[styles.usedBadge, { color: theme.textSecondary }]}>Already used</Text>
+                  ) : null}
                 </Pressable>
-              ) : null}
-              <View style={styles.actions}>
-                <Pressable onPress={onClose} style={[styles.btn, { backgroundColor: theme.muted }]}>
-                  <VibelyText variant="body" style={{ color: theme.text }}>Cancel</VibelyText>
-                </Pressable>
-                <Pressable onPress={handleDone} style={[styles.btn, { backgroundColor: theme.tint }]} disabled={!question.trim()}>
-                  <VibelyText variant="body" style={styles.btnPrimaryText}>{mode === 'edit' ? 'Save' : 'Add'}</VibelyText>
-                </Pressable>
-              </View>
-            </>
-          )}
+              );
+            })}
+          </ScrollView>
+
+          <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Your Answer</Text>
+          <TextInput
+            value={answerText}
+            onChangeText={(t) => setAnswerText(t.slice(0, MAX_ANSWER))}
+            placeholder="Be authentic, be interesting..."
+            placeholderTextColor="rgba(255,255,255,0.4)"
+            multiline
+            maxLength={MAX_ANSWER}
+            style={styles.answerInput}
+          />
+          <Text style={[styles.charCount, { color: theme.textSecondary }]}>{answerText.length}/{MAX_ANSWER}</Text>
+
+          <Pressable
+            onPress={() => void handleSavePress()}
+            disabled={!isValid || saving}
+            style={[styles.saveBtnWrap, (!isValid || saving) && { opacity: 0.4 }]}
+          >
+            <LinearGradient
+              colors={['#8B5CF6', '#E84393']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.saveGradient}
+            >
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save Prompt</Text>
+              )}
+            </LinearGradient>
+          </Pressable>
+
+          {mode === 'edit' && onRemove ? (
+            <Pressable
+              onPress={() => void onRemove()}
+              disabled={saving}
+              style={styles.removeBtn}
+            >
+              <Text style={styles.removeText}>Remove Prompt</Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable onPress={onClose} style={styles.cancelBtn}>
+            <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
+          </Pressable>
         </Pressable>
       </Pressable>
     </Modal>
@@ -131,28 +183,105 @@ export function PromptEditSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   sheet: {
     borderTopLeftRadius: radius['2xl'],
     borderTopRightRadius: radius['2xl'],
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing['2xl'],
+    maxHeight: '88%',
   },
-  handle: { width: 100, height: 8, borderRadius: 999, alignSelf: 'center', marginTop: 16, marginBottom: 12 },
-  title: { marginBottom: spacing.md },
-  label: { marginBottom: spacing.xs },
-  pickerBlock: {},
-  questionList: { maxHeight: 280, marginBottom: spacing.md },
-  questionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 12, paddingHorizontal: spacing.md, borderRadius: radius.lg, marginBottom: spacing.xs },
-  questionEmoji: { fontSize: 20 },
-  cancelBtn: { paddingVertical: 14, borderRadius: radius.lg, alignItems: 'center', borderWidth: 1 },
-  promptHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.md },
-  promptEmoji: { fontSize: 22 },
-  changeQuestion: { marginLeft: 'auto' },
-  input: { borderWidth: 1, borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: 12, minHeight: 88, fontSize: 14, textAlignVertical: 'top' },
-  actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg },
-  btn: { flex: 1, paddingVertical: 14, borderRadius: radius.lg, alignItems: 'center' },
-  btnPrimaryText: { color: '#fff', fontWeight: '600' },
-  removeWrap: { alignSelf: 'center', paddingVertical: spacing.sm, marginBottom: spacing.sm },
-  btnDangerText: { color: '#ef4444', fontWeight: '600' },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 12 },
+  title: {
+    fontSize: 20,
+    fontFamily: fonts.displayBold,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  subtitle: {
+    fontSize: 14,
+    fontFamily: fonts.body,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+    paddingHorizontal: spacing.sm,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontFamily: fonts.bodySemiBold,
+    marginBottom: spacing.sm,
+  },
+  promptScroll: {
+    maxHeight: 220,
+    marginBottom: spacing.sm,
+  },
+  promptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  promptEmoji: { fontSize: 18 },
+  promptText: { flex: 1, fontSize: 14, fontFamily: fonts.body },
+  usedBadge: { fontSize: 11, fontFamily: fonts.bodyMedium },
+  answerInput: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    padding: 16,
+    color: '#FFFFFF',
+    fontSize: 15,
+    minHeight: 120,
+    fontFamily: fonts.body,
+    textAlignVertical: 'top',
+  },
+  charCount: {
+    fontSize: 13,
+    textAlign: 'right',
+    marginTop: spacing.xs,
+    fontFamily: fonts.body,
+  },
+  saveBtnWrap: {
+    marginTop: spacing.lg,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+  },
+  saveGradient: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  saveBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.bodyBold,
+  },
+  removeBtn: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  removeText: {
+    color: '#F87171',
+    fontSize: 16,
+    fontFamily: fonts.bodySemiBold,
+  },
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+  },
+  cancelText: {
+    fontSize: 16,
+    fontFamily: fonts.bodySemiBold,
+  },
 });
+
+export default PromptEditSheet;

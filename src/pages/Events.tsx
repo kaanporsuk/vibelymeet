@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
@@ -13,6 +13,17 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -166,6 +177,11 @@ const Events = () => {
   const { data: events = [], isLoading } = useVisibleEvents();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const [distanceKm, setDistanceKm] = useState(0);
+  const [upcomingOnly, setUpcomingOnly] = useState(true);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
 
   // Check if user has location set
@@ -178,6 +194,21 @@ const Events = () => {
     };
     checkLocation();
   }, [user?.id]);
+
+  const handleLocationToggle = useCallback((enabled: boolean) => {
+    setLocationEnabled(enabled);
+    if (enabled && !userCoords) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {
+          toast.error("Could not get location. Check your browser permissions.");
+          setLocationEnabled(false);
+        }
+      );
+    }
+  }, [userCoords]);
+
+  const extraFilterCount = (selectedLanguage ? 1 : 0) + (locationEnabled ? 1 : 0) + (!upcomingOnly ? 1 : 0);
 
   // Map to the shape EventCardPremium / EventsRail expect
   const mappedEvents = useMemo(() =>
@@ -199,20 +230,35 @@ const Events = () => {
       country: e.country,
       distance_km: e.distance_km,
       is_registered: e.is_registered,
+      language: e.language,
+      latitude: e.latitude,
+      longitude: e.longitude,
     })), [events]);
 
   // Filtered
   const filteredEvents = useMemo(() => {
+    const now = new Date();
     let filtered = mappedEvents;
+
+    // 1. Upcoming-only (default ON — hides ended events)
+    if (upcomingOnly) {
+      filtered = filtered.filter(event => {
+        const eventEnd = new Date(event.eventDate.getTime() + (event.duration_minutes || 60) * 60 * 1000);
+        return eventEnd > now;
+      });
+    }
+
+    // 2. Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
         e.title.toLowerCase().includes(q) || e.tags.some(t => t.toLowerCase().includes(q))
       );
     }
+
+    // 3. Date + interest filters
     if (activeFilters.length > 0) {
       filtered = filtered.filter(event => {
-        const now = new Date();
         const ed = event.eventDate;
         const isTonight = ed.toDateString() === now.toDateString();
         const isThisWeekend = (() => {
@@ -226,25 +272,39 @@ const Events = () => {
           return ed <= end;
         })();
 
-        const dateFilters = ["Tonight","This Weekend","This Week","Upcoming"];
-        const interestFilters = activeFilters.filter(f => !dateFilters.includes(f));
+        const dateFilterNames = ["Tonight","This Weekend","This Week","Upcoming"];
+        const interestFilterNames = activeFilters.filter(f => !dateFilterNames.includes(f));
         const dateMatch = (activeFilters.includes("Tonight") && isTonight) ||
           (activeFilters.includes("This Weekend") && isThisWeekend) ||
           (activeFilters.includes("This Week") && isThisWeek) ||
           (activeFilters.includes("Upcoming") && ed > now);
-        const interestMatch = interestFilters.length === 0 ||
-          event.tags.some(t => interestFilters.includes(t));
+        const interestMatch = interestFilterNames.length === 0 ||
+          event.tags.some(t => interestFilterNames.includes(t));
 
-        const hasDateFilter = activeFilters.some(f => dateFilters.includes(f));
+        const hasDateFilter = activeFilters.some(f => dateFilterNames.includes(f));
         if (!hasDateFilter) return interestMatch;
-        if (interestFilters.length === 0) return dateMatch;
+        if (interestFilterNames.length === 0) return dateMatch;
         return dateMatch && interestMatch;
       });
     }
-    return filtered;
-  }, [mappedEvents, searchQuery, activeFilters]);
 
-  const isFiltering = searchQuery || activeFilters.length > 0;
+    // 4. Language filter
+    if (selectedLanguage) {
+      filtered = filtered.filter(e => e.language === selectedLanguage);
+    }
+
+    // 5. Location filter (client-side haversine)
+    if (locationEnabled && distanceKm > 0 && userCoords) {
+      filtered = filtered.filter(e => {
+        if (e.latitude == null || e.longitude == null) return true;
+        return haversineKm(userCoords.lat, userCoords.lng, e.latitude, e.longitude) <= distanceKm;
+      });
+    }
+
+    return filtered;
+  }, [mappedEvents, searchQuery, activeFilters, selectedLanguage, locationEnabled, distanceKm, userCoords, upcomingOnly]);
+
+  const isFiltering = searchQuery || activeFilters.length > 0 || selectedLanguage || locationEnabled || !upcomingOnly;
 
   // Group for discovery
   const liveEvents = mappedEvents.filter(e => e.status === 'live');
@@ -272,8 +332,15 @@ const Events = () => {
       {hasLocation === false && <LocationPromptBanner />}
 
       {/* Filter Bar */}
-      <EventsFilterBar searchQuery={searchQuery} onSearchChange={setSearchQuery}
-        activeFilters={activeFilters} onFiltersChange={setActiveFilters} />
+      <EventsFilterBar
+        searchQuery={searchQuery} onSearchChange={setSearchQuery}
+        activeFilters={activeFilters} onFiltersChange={setActiveFilters}
+        selectedLanguage={selectedLanguage} onLanguageChange={setSelectedLanguage}
+        locationEnabled={locationEnabled} onLocationEnabledChange={handleLocationToggle}
+        distanceKm={distanceKm} onDistanceChange={setDistanceKm}
+        upcomingOnly={upcomingOnly} onUpcomingOnlyChange={setUpcomingOnly}
+        extraFilterCount={extraFilterCount}
+      />
 
       {/* Content */}
       <div className="space-y-8 pt-6">
@@ -298,7 +365,8 @@ const Events = () => {
                         date={event.date} time={event.time} attendees={event.attendees}
                         tags={event.tags} status={event.status}
                         scope={(event as any).scope} city={(event as any).city}
-                        country={(event as any).country} distanceKm={(event as any).distance_km} />
+                        country={(event as any).country} distanceKm={(event as any).distance_km}
+                        language={(event as any).language} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -322,7 +390,7 @@ const Events = () => {
                 <FeaturedEventCard id={featuredEvent.id} title={featuredEvent.title}
                   description={featuredEvent.description} image={featuredEvent.image}
                   eventDate={featuredEvent.eventDate} attendees={featuredEvent.attendees}
-                  tags={featuredEvent.tags} />
+                  tags={featuredEvent.tags} language={(featuredEvent as any).language} />
               </div>
             )}
 

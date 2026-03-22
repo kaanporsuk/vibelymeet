@@ -65,6 +65,10 @@
     <string>Vibely needs microphone access for video dates and vibe video.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Vibely needs photo library access to add profile photos.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Vibely uses your location to show events and people near you.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Vibely uses your location to show events and people near you.</string>
     <key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

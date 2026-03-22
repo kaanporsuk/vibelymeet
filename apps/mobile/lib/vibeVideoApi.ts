@@ -75,6 +75,31 @@ export async function uploadVibeVideoToBunny(
   });
 }
 
+/**
+ * After a successful tus upload, persist Bunny video id + processing status on the profile
+ * (same as web `VibeStudioModal` handleUpload). Required for playback + webhooks.
+ */
+export async function saveVibeVideoToProfile(
+  videoId: string,
+  options?: { vibeCaption?: string | null }
+): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const payload: Record<string, unknown> = {
+    bunny_video_uid: videoId,
+    bunny_video_status: 'processing',
+  };
+  if (options && 'vibeCaption' in options) {
+    payload.vibe_caption = options.vibeCaption ?? null;
+  }
+
+  const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+  if (error) throw error;
+}
+
 export async function deleteVibeVideo(): Promise<void> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');

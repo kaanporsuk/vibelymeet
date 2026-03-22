@@ -23,14 +23,14 @@ import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateR
 import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { ActiveCallBanner } from "@/components/events/ActiveCallBanner";
-import { useNextRegisteredEvent, useEvents, useRealtimeEvents } from "@/hooks/useEvents";
+import { useNextRegisteredEvent, useRealtimeEvents } from "@/hooks/useEvents";
+import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { differenceInSeconds, differenceInMinutes, differenceInHours, format, startOfDay } from "date-fns";
@@ -147,7 +147,7 @@ const Dashboard = () => {
   }, [user?.id]);
 
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
-  const { data: events = [], isLoading: eventsLoading, refetch: refetchEvents } = useEvents();
+  const { data: visibleEventsRaw = [], isLoading: eventsLoading, refetch: refetchEvents } = useVisibleEvents();
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { proposals } = useSchedule();
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
@@ -255,6 +255,23 @@ const Dashboard = () => {
     const aboutScore = aboutLen >= 10 ? 1 : Math.min(aboutLen / 10, 1);
     return Math.round(((photoScore + vibeScore + aboutScore) / 3) * 100);
   }, [homeProfile?.photos, homeProfile?.vibeCount, homeProfile?.about_me]);
+
+  const events = useMemo(() => {
+    return visibleEventsRaw.map((e) => {
+      const eventDate = new Date(e.event_date);
+      return {
+        id: e.id,
+        title: e.title,
+        image: e.cover_image,
+        date: format(eventDate, "MMM d"),
+        time: format(eventDate, "h a"),
+        attendees: e.current_attendees,
+        tags: e.tags,
+        status: e.computed_status || e.status,
+        eventDate,
+      };
+    });
+  }, [visibleEventsRaw]);
 
   const upcomingEvents = useMemo(() => {
     const start = startOfDay(new Date());

@@ -200,16 +200,23 @@ export default function PrivacySettingsScreen() {
   const [libStatus, setLibStatus] = useState<string | null>(null);
 
   const refreshPermissions = useCallback(async () => {
-    const [loc, cam, mic, lib] = await Promise.all([
-      Location.getForegroundPermissionsAsync(),
-      getCameraPermissionsAsync(),
-      getMicPermissionStatus(),
-      getMediaLibraryPermissionsAsync(),
-    ]);
-    setLocStatus(loc.status);
-    setCamStatus(cam.status);
-    setMicStatus(mic);
-    setLibStatus(lib.status);
+    try {
+      const [loc, cam, mic, lib] = await Promise.all([
+        Location.getForegroundPermissionsAsync().catch((e) => {
+          if (__DEV__) console.warn('[privacy] location permission read failed:', e);
+          return { status: Location.PermissionStatus.DENIED as const };
+        }),
+        getCameraPermissionsAsync(),
+        getMicPermissionStatus(),
+        getMediaLibraryPermissionsAsync(),
+      ]);
+      setLocStatus(loc.status);
+      setCamStatus(cam.status);
+      setMicStatus(mic);
+      setLibStatus(lib.status);
+    } catch (e) {
+      if (__DEV__) console.warn('[privacy] refreshPermissions failed:', e);
+    }
   }, []);
 
   useFocusEffect(

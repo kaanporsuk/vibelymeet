@@ -1,3 +1,7 @@
+import ProfileStudio from './ProfileStudio';
+
+const USE_PROFILE_STUDIO = true; // flip to false to rollback
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   ScrollView,
@@ -59,7 +63,6 @@ import {
   formatBirthdayUsWithZodiac,
   type ProfileRow,
 } from '@/lib/profileApi';
-import { calculateVibeScore } from '@/lib/calculateVibeScore';
 import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo } from '@/lib/vibeVideoApi';
@@ -110,41 +113,6 @@ const MAX_PHOTOS = 6;
 
 const MAX_CONVERSATION_PROMPTS = 3;
 
-function parseBirthDateForVibeScore(birth_date: string | null | undefined): Date | null {
-  if (!birth_date) return null;
-  const parts = birth_date.split('-');
-  if (parts.length === 3) {
-    const y = Number(parts[0]);
-    const m = Number(parts[1]);
-    const d = Number(parts[2]);
-    if (Number.isInteger(y) && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return new Date(y, m - 1, d);
-    }
-  }
-  const t = new Date(birth_date);
-  return Number.isNaN(t.getTime()) ? null : t;
-}
-
-/** Maps DB row → shared calculator input (web `Profile.tsx` uses `verified: false` after load). */
-function profileRowToVibeScoreProfile(p: ProfileRow) {
-  return {
-    name: p.name ?? undefined,
-    birthDate: parseBirthDateForVibeScore(p.birth_date) ?? undefined,
-    job: p.job ?? undefined,
-    heightCm: p.height_cm ?? undefined,
-    location: p.location ?? undefined,
-    aboutMe: p.about_me ?? undefined,
-    photos: p.photos ?? [],
-    vibes: p.vibes ?? [],
-    prompts: p.prompts ?? [],
-    lookingFor: p.looking_for ?? undefined,
-    lifestyle: p.lifestyle ?? {},
-    verified: false as boolean,
-    tagline: p.tagline ?? undefined,
-    hasVibeVideo: !!(p.bunny_video_uid && p.bunny_video_status === 'ready'),
-  };
-}
-
 function getVibeScoreLabel(score: number): string {
   if (score >= 90) return 'Iconic';
   if (score >= 75) return 'Fire';
@@ -164,12 +132,15 @@ function VibeScoreDisplay({
   score,
   size = 100,
   theme,
+  label: labelOverride,
 }: {
   score: number;
   size?: number;
   theme: { text: string; textSecondary: string; tint: string; muted: string };
+  /** From profiles.vibe_score_label when available */
+  label?: string | null;
 }) {
-  const label = getVibeScoreLabel(score);
+  const label = labelOverride?.trim() ? labelOverride : getVibeScoreLabel(score);
   const stroke = 8;
   const r = (size - stroke) / 2;
   const c = size / 2;
@@ -219,6 +190,8 @@ const vibeScoreStyles = StyleSheet.create({
 });
 
 export default function ProfileScreen() {
+  if (USE_PROFILE_STUDIO) return <ProfileStudio />;
+
   const insets = useSafeAreaInsets();
   const { width: winWidth } = useWindowDimensions();
   const [photoGridWidth, setPhotoGridWidth] = useState<number | null>(null);
@@ -259,8 +232,12 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!user?.id) return;
-      void refetch();
-      void refetchLiveCounts();
+      void refetch().catch((e) => {
+        if (__DEV__) console.warn('[profile] refetch failed:', e);
+      });
+      void refetchLiveCounts().catch((e) => {
+        if (__DEV__) console.warn('[profile] refetchLiveCounts failed:', e);
+      });
     }, [user?.id, refetch, refetchLiveCounts]),
   );
 
@@ -376,59 +353,53 @@ export default function ProfileScreen() {
     }
   };
 
-  const handlePromptSave = async (question: string, answer: string) => {
-    const current = [...(profile?.prompts ?? [])];
-    const idx = promptEditIndex ?? -1;
-    if (idx >= 0) {
-      while (current.length <= idx) {
-        current.push({ question: '', answer: '' });
-      }
-      current[idx] = { question, answer };
-      while (
-        current.length > 0 &&
-        !current[current.length - 1]?.question?.trim() &&
-        !current[current.length - 1]?.answer?.trim()
-      ) {
-        current.pop();
-      }
-      await updateMyProfile({ prompts: current });
-    }
-    qc.invalidateQueries({ queryKey: ['my-profile'] });
-    setShowPromptSheet(false);
-    setPromptEditIndex(null);
-  };
+  const usedPromptQuestionsElsewhere = useMemo(() => {
+    if (promptEditIndex === null) return [];
+    return (profile?.prompts ?? [])
+      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
+      .filter((q): q is string => !!q);
+  }, [profile?.prompts, promptEditIndex]);
 
-  const handlePromptAdd = async (question: string, answer: string) => {
-    const current = [...(profile?.prompts ?? [])];
-    const slotIdx = promptEditIndex;
-    if (slotIdx !== null && slotIdx >= 0) {
-      while (current.length <= slotIdx) {
-        current.push({ question: '', answer: '' });
-      }
-      current[slotIdx] = { question, answer };
+  const handlePromptCommit = async (payload: { question: string; answer: string }) => {
+    const idx = promptEditIndex;
+    if (idx === null || idx < 0) return;
+    setSaving(true);
+    try {
+      const current = [...(profile?.prompts ?? [])];
+      while (current.length <= idx) current.push({ question: '', answer: '' });
+      current[idx] = { question: payload.question, answer: payload.answer };
       while (
         current.length > 0 &&
-        !current[current.length - 1]?.question?.trim() &&
-        !current[current.length - 1]?.answer?.trim()
+        (!String(current[current.length - 1]?.question ?? '').trim() ||
+          !String(current[current.length - 1]?.answer ?? '').trim())
       ) {
         current.pop();
       }
       await updateMyProfile({ prompts: current });
-    } else {
-      await updateMyProfile({ prompts: [...current, { question, answer }] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
+      setShowPromptSheet(false);
+      setPromptEditIndex(null);
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save prompt');
+    } finally {
+      setSaving(false);
     }
-    qc.invalidateQueries({ queryKey: ['my-profile'] });
-    setShowPromptSheet(false);
-    setPromptEditIndex(null);
   };
 
   const handlePromptRemove = async (index: number) => {
-    const current = profile?.prompts ?? [];
-    const next = current.filter((_, i) => i !== index);
-    await updateMyProfile({ prompts: next.length ? next : [] });
-    qc.invalidateQueries({ queryKey: ['my-profile'] });
-    setShowPromptSheet(false);
-    setPromptEditIndex(null);
+    setSaving(true);
+    try {
+      const current = profile?.prompts ?? [];
+      const next = current.filter((_, i) => i !== index);
+      await updateMyProfile({ prompts: next.length ? next : [] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
+      setShowPromptSheet(false);
+      setPromptEditIndex(null);
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to remove prompt');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const inviteLink = `https://vibelymeet.com/auth?mode=signup&ref=${profile?.id ?? ''}`;
@@ -636,10 +607,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const vibeScore = useMemo(() => {
-    if (!profile) return 0;
-    return calculateVibeScore(profileRowToVibeScoreProfile(profile));
-  }, [profile]);
+  const vibeScore = profile?.vibe_score ?? 0;
 
   if (isLoading && !profile) {
     return (
@@ -655,8 +623,30 @@ export default function ProfileScreen() {
         <ErrorState
           message={error instanceof Error ? error.message : "We couldn't load your profile."}
           onActionPress={() => {
-            void refetch();
-            void refetchLiveCounts();
+            void refetch().catch((e) => {
+              if (__DEV__) console.warn('[profile] refetch failed:', e);
+            });
+            void refetchLiveCounts().catch((e) => {
+              if (__DEV__) console.warn('[profile] refetchLiveCounts failed:', e);
+            });
+          }}
+        />
+      </View>
+    );
+  }
+
+  if (!isLoading && user?.id && !profile) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+        <ErrorState
+          message="We couldn't load your profile. Check your connection and try again."
+          onActionPress={() => {
+            void refetch().catch((e) => {
+              if (__DEV__) console.warn('[profile] refetch failed:', e);
+            });
+            void refetchLiveCounts().catch((e) => {
+              if (__DEV__) console.warn('[profile] refetchLiveCounts failed:', e);
+            });
           }}
         />
       </View>
@@ -694,8 +684,12 @@ export default function ProfileScreen() {
         <RefreshControl
           refreshing={isRefetching && !isLoading}
           onRefresh={() => {
-            void refetch();
-            void refetchLiveCounts();
+            void refetch().catch((e) => {
+              if (__DEV__) console.warn('[profile] pull refresh refetch failed:', e);
+            });
+            void refetchLiveCounts().catch((e) => {
+              if (__DEV__) console.warn('[profile] pull refresh counts failed:', e);
+            });
           }}
           tintColor={theme.tint}
         />
@@ -844,7 +838,12 @@ export default function ProfileScreen() {
         {/* Vibe Score card — web parity glass-card */}
         <Card variant="glass" style={styles.vibeScoreCard}>
           <View style={styles.vibeScoreRow}>
-            <VibeScoreDisplay score={vibeScore} size={90} theme={theme} />
+            <VibeScoreDisplay
+              score={vibeScore}
+              size={90}
+              theme={theme}
+              label={profile?.vibe_score_label}
+            />
             <View style={styles.vibeScoreCopy}>
               <Text style={[styles.vibeScoreTitle, { color: theme.text }]}>
                 Your Vibe Score
@@ -959,16 +958,23 @@ export default function ProfileScreen() {
         </View>
         {(() => {
           const list = profile?.prompts ?? [];
+          const slots = [...list];
+          while (slots.length < MAX_CONVERSATION_PROMPTS) {
+            slots.push({ question: '', answer: '' });
+          }
+          const displaySlots = slots.slice(0, MAX_CONVERSATION_PROMPTS);
           const hasAnyPromptContent = list.some((p) => p.question?.trim() || p.answer?.trim());
 
           const openFirstPrompt = () => {
             setPromptSheetMode('add');
-            setPromptEditIndex(null);
+            setPromptEditIndex(0);
             setShowPromptSheet(true);
           };
 
-          const openSlot = (index: number, mode: 'edit' | 'add') => {
-            setPromptSheetMode(mode);
+          const openSlot = (index: number) => {
+            const slot = displaySlots[index] ?? { question: '', answer: '' };
+            const filled = !!(slot.question?.trim() && slot.answer?.trim());
+            setPromptSheetMode(filled ? 'edit' : 'add');
             setPromptEditIndex(index);
             setShowPromptSheet(true);
           };
@@ -994,28 +1000,23 @@ export default function ProfileScreen() {
             );
           }
 
-          const slots = [...list];
-          while (slots.length < MAX_CONVERSATION_PROMPTS) {
-            slots.push({ question: '', answer: '' });
-          }
-          const displaySlots = slots.slice(0, MAX_CONVERSATION_PROMPTS);
-
           return (
             <View style={styles.promptCardsColumn}>
               {displaySlots.map((slot, index) => {
-                const hasQuestion = !!slot.question?.trim();
                 const answerTrim = slot.answer?.trim() ?? '';
+                const filled = !!(slot.question?.trim() && answerTrim);
 
-                if (!hasQuestion) {
+                if (!filled) {
                   return (
                     <Pressable
                       key={`empty-${index}`}
-                      onPress={() => openSlot(index, 'add')}
+                      onPress={() => openSlot(index)}
                       style={({ pressed }) => [
                         styles.promptSlotEmptyCard,
                         {
-                          borderColor: theme.border,
-                          backgroundColor: theme.surfaceSubtle,
+                          borderStyle: 'dashed',
+                          borderColor: 'rgba(255,255,255,0.12)',
+                          backgroundColor: 'rgba(255,255,255,0.03)',
                         },
                         pressed && { opacity: 0.92 },
                       ]}
@@ -1032,7 +1033,7 @@ export default function ProfileScreen() {
                 return (
                   <Pressable
                     key={`prompt-${index}-${slot.question}`}
-                    onPress={() => openSlot(index, 'edit')}
+                    onPress={() => openSlot(index)}
                     style={({ pressed }) => [
                       styles.promptStandaloneCard,
                       {
@@ -1060,21 +1061,13 @@ export default function ProfileScreen() {
                         </View>
                         <Ionicons name="pencil-outline" size={18} color={theme.textSecondary} />
                       </View>
-                      {answerTrim ? (
-                        <Text style={[styles.promptCardAnswer, { color: theme.text }]}>{answerTrim}</Text>
-                      ) : (
-                        <Text style={[styles.promptCardAnswerPlaceholder, { color: theme.textSecondary }]}>
-                          Tap to add your answer...
+                      <Text style={[styles.promptCardAnswer, { color: theme.text }]}>{answerTrim}</Text>
+                      <View style={styles.promptCardFooter}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.tint} />
+                        <Text style={[styles.promptCardFooterLabel, { color: theme.textSecondary }]}>
+                          Conversation starter
                         </Text>
-                      )}
-                      {answerTrim ? (
-                        <View style={styles.promptCardFooter}>
-                          <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.tint} />
-                          <Text style={[styles.promptCardFooterLabel, { color: theme.textSecondary }]}>
-                            Conversation starter
-                          </Text>
-                        </View>
-                      ) : null}
+                      </View>
                     </View>
                   </Pressable>
                 );
@@ -1766,14 +1759,21 @@ export default function ProfileScreen() {
 
     <PromptEditSheet
       visible={showPromptSheet}
-      onClose={() => { setShowPromptSheet(false); setPromptEditIndex(null); }}
+      onClose={() => {
+        setShowPromptSheet(false);
+        setPromptEditIndex(null);
+      }}
       mode={promptSheetMode}
       initialQuestion={promptEditIndex !== null ? (profile?.prompts?.[promptEditIndex]?.question ?? '') : ''}
       initialAnswer={promptEditIndex !== null ? (profile?.prompts?.[promptEditIndex]?.answer ?? '') : ''}
-      onSave={handlePromptSave}
-      onAdd={handlePromptAdd}
-      onRemove={promptEditIndex !== null ? () => handlePromptRemove(promptEditIndex) : undefined}
-      existingQuestions={(profile?.prompts ?? []).map((p) => p.question).filter(Boolean)}
+      onSave={handlePromptCommit}
+      onRemove={
+        promptSheetMode === 'edit' && promptEditIndex !== null
+          ? () => handlePromptRemove(promptEditIndex)
+          : undefined
+      }
+      usedQuestions={usedPromptQuestionsElsewhere}
+      saving={saving}
     />
 
     <Modal visible={showVibeManageSheet} transparent animationType="fade" onRequestClose={() => setShowVibeManageSheet(false)}>

@@ -1,3 +1,7 @@
+import ProfileStudio from "./ProfileStudio";
+
+const USE_PROFILE_STUDIO = true; // flip to false to rollback
+
 // Bunny Stream CDN playback — no Supabase signed URLs for vibe videos
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -229,6 +233,8 @@ interface UserProfile {
     matches: number;
     conversations: number;
   };
+  vibeScore: number;
+  vibeScoreLabel: string;
 }
 
 // Empty initial state for new users - no mock data
@@ -261,20 +267,18 @@ const initialProfile: UserProfile = {
     matches: 0,
     conversations: 0,
   },
+  vibeScore: 0,
+  vibeScoreLabel: "Getting started",
 };
 
-// Import shared score calculation
-import { calculateVibeScore as calculateVibeScoreShared } from "@/utils/calculateVibeScore";
 import { usePremium } from "@/hooks/usePremium";
 import { Crown } from "lucide-react";
-
-const calculateVibeScore = (profile: UserProfile): number => {
-  return calculateVibeScoreShared(profile);
-};
 
 type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | "tagline" | null;
 
 const Profile = () => {
+  if (USE_PROFILE_STUDIO) return <ProfileStudio />;
+
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { isPremium, premiumUntil } = usePremium();
@@ -298,6 +302,7 @@ const Profile = () => {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<"none" | "pending" | "approved" | "rejected" | "expired">("none");
   const [photoVerificationExpiresAt, setPhotoVerificationExpiresAt] = useState<string | null>(null);
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
 
   // Fetch profile and user email on mount
   useEffect(() => {
@@ -387,6 +392,8 @@ const Profile = () => {
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
             vibeCaption: (data as any).vibeCaption || "",
             stats: data.stats,
+            vibeScore: data.vibeScore ?? 0,
+            vibeScoreLabel: data.vibeScoreLabel ?? "Getting started",
           });
         }
       } catch (error) {
@@ -397,7 +404,7 @@ const Profile = () => {
     };
 
     loadProfile();
-  }, []);
+  }, [profileRefreshKey]);
 
   // Resolve playable URL for vibe video — prefer Bunny Stream CDN
   useEffect(() => {
@@ -418,7 +425,7 @@ const Profile = () => {
     }
   }, [showVibeStudio]);
 
-  const vibeScore = calculateVibeScore(profile);
+  const vibeScore = profile.vibeScore ?? 0;
 
   const handleSave = async (type: DrawerType) => {
     setIsSaving(true);
@@ -466,23 +473,7 @@ const Profile = () => {
       }
 
       await updateMyProfile(updates);
-
-      // Update local state with recalculated values
-      const updatedProfile: UserProfile = {
-        ...editForm,
-        ...(type === "photos" && updates.photos ? { photos: updates.photos as string[] } : {}),
-      };
-
-      if (updatedProfile.birthDate) {
-        updatedProfile.age = calculateAge(updatedProfile.birthDate);
-        updatedProfile.zodiac = getZodiacSign(updatedProfile.birthDate);
-      }
-
-      if (type === "photos" && updates.photos) {
-        updatedProfile.photos = updates.photos as string[];
-      }
-
-      setProfile(updatedProfile);
+      setProfileRefreshKey((k) => k + 1);
       setActiveDrawer(null);
       setEditingPromptIndex(null);
       setEditPhotoFiles([]);
@@ -1325,9 +1316,10 @@ const Profile = () => {
             </DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-y-auto">
-            <VibeTagSelector 
-              selectedVibes={editForm.vibes} 
+            <VibeTagSelector
+              selectedVibes={editForm.vibes}
               onVibesChange={(vibes) => setEditForm({ ...editForm, vibes })}
+              categoriesOnly={["energy", "social_style"]}
             />
           </div>
           <DrawerFooter>
@@ -1726,6 +1718,8 @@ const Profile = () => {
               bunnyVideoUid: refreshed.bunnyVideoUid || null,
               bunnyVideoStatus: refreshed.bunnyVideoStatus || "none",
               vibeCaption: caption || "",
+              vibeScore: refreshed.vibeScore ?? prev.vibeScore,
+              vibeScoreLabel: refreshed.vibeScoreLabel ?? prev.vibeScoreLabel,
             }));
           }
         }}

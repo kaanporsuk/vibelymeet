@@ -34,6 +34,9 @@ export interface ProfileData {
     matches: number;
     conversations: number;
   };
+  /** Server-computed profile completeness (0–100). Read-only from DB. */
+  vibeScore: number;
+  vibeScoreLabel: string;
 }
 
 // Database profile interface (snake_case)
@@ -64,6 +67,8 @@ interface DbProfile {
   events_attended: number | null;
   total_matches: number | null;
   total_conversations: number | null;
+  vibe_score?: number | null;
+  vibe_score_label?: string | null;
 }
 
 // Zodiac sign calculation from birth date
@@ -153,6 +158,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
       matches: dbProfile.total_matches || 0,
       conversations: dbProfile.total_conversations || 0,
     },
+    vibeScore: dbProfile.vibe_score ?? 0,
+    vibeScoreLabel: dbProfile.vibe_score_label ?? "Getting started",
   };
 };
 
@@ -195,7 +202,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (!user) return null;
 
   const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
-    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, vibe_video_status, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, vibe_video_status, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),

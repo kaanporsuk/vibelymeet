@@ -1,183 +1,109 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, View, Text, StyleSheet } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import Colors from '@/constants/Colors';
-import { withAlpha } from '@/lib/colorUtils';
 import { useConnectivity } from '@/lib/useConnectivity';
-import { useColorScheme } from '@/components/useColorScheme';
 
 export function OfflineBanner() {
-  const scheme = useColorScheme() ?? 'dark';
-  const theme = Colors[scheme];
+  const state = useConnectivity();
   const insets = useSafeAreaInsets();
-  const netState = useConnectivity();
-  const showOfflineBanner = netState === 'offline' || netState === 'reconnecting';
-
-  const bannerAnim = useRef(new Animated.Value(0)).current;
-  const toastAnim = useRef(new Animated.Value(0)).current;
-  const prevState = useRef(netState);
-
-  const topOffset = insets.top + 8;
+  const [showToast, setShowToast] = useState(false);
+  const prevState = useRef(state);
+  const mountTime = useRef(Date.now());
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (showOfflineBanner) {
-      Animated.spring(bannerAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 80,
-        friction: 12,
-      }).start();
-    } else {
-      bannerAnim.setValue(0);
-    }
-
+    // Only show "back online" toast if:
+    // 1. Previous state was 'offline'
+    // 2. New state is 'online'
+    // 3. App has been running for at least 12 seconds (past startup)
     if (
-      netState === 'online' &&
-      (prevState.current === 'offline' || prevState.current === 'reconnecting')
+      prevState.current === 'offline' &&
+      state === 'online' &&
+      Date.now() - mountTime.current > 12000
     ) {
-      Animated.sequence([
-        Animated.spring(toastAnim, { toValue: 1, useNativeDriver: true, tension: 80, friction: 12 }),
-        Animated.delay(2500),
-        Animated.timing(toastAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ]).start();
+      setShowToast(true);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setShowToast(false), 3000);
     }
+    prevState.current = state;
 
-    prevState.current = netState;
-  }, [netState, showOfflineBanner, bannerAnim, toastAnim]);
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, [state]);
 
-  const bannerTranslateY = bannerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-80, 0],
-  });
-
-  const toastTranslateY = toastAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-80, 0],
-  });
-
-  const AMBER = '#F59E0B';
-  const CYAN = '#22D3EE';
-
-  return (
-    <>
-      {showOfflineBanner ? (
-        <Animated.View
-          style={[
-            styles.banner,
-            {
-              marginTop: topOffset,
-              backgroundColor: withAlpha('#1C1A2E', 0.97),
-              borderColor: withAlpha(AMBER, 0.35),
-              transform: [{ translateY: bannerTranslateY }],
-            },
-          ]}
-          pointerEvents="auto"
-        >
-          <View style={styles.bannerInner}>
-            <View style={[styles.iconWrap, { backgroundColor: withAlpha(AMBER, 0.15) }]}>
-              {netState === 'reconnecting' ? (
-                <ActivityIndicatorIcon color={AMBER} />
-              ) : (
-                <Ionicons name="cloud-offline-outline" size={18} color={AMBER} />
-              )}
-            </View>
-            <View style={styles.textWrap}>
-              <Text style={[styles.title, { color: theme.text }]}>
-                {netState === 'reconnecting' ? 'Reconnecting…' : "You're offline"}
-              </Text>
-              <Text style={[styles.subtitle, { color: withAlpha(theme.text, 0.55) }]}>
-                {netState === 'reconnecting'
-                  ? 'Restoring your connection'
-                  : "We'll reconnect automatically"}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-      ) : null}
-
-      <Animated.View
-        style={[
-          styles.toast,
-          {
-            marginTop: topOffset,
-            backgroundColor: withAlpha('#0F1F1F', 0.97),
-            borderColor: withAlpha(CYAN, 0.4),
-            transform: [{ translateY: toastTranslateY }],
-          },
-        ]}
-        pointerEvents="none"
-      >
-        <Ionicons name="wifi" size={16} color={CYAN} />
-        <Text style={[styles.toastText, { color: CYAN }]}>Back online</Text>
-        <Text style={[styles.toastSub, { color: withAlpha(CYAN, 0.65) }]}>· Live updates resumed</Text>
-      </Animated.View>
-    </>
-  );
-}
-
-function ActivityIndicatorIcon({ color }: { color: string }) {
-  const spin = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 1000, useNativeDriver: true })
+  if (state === 'offline') {
+    return (
+      <View style={[styles.banner, styles.offlineBanner, { paddingTop: insets.top + 4 }]}>
+        <Text style={styles.offlineIcon}>☁</Text>
+        <View>
+          <Text style={styles.title}>You&apos;re offline</Text>
+          <Text style={styles.subtitle}>We&apos;ll reconnect automatically</Text>
+        </View>
+      </View>
     );
-    loop.start();
-    return () => loop.stop();
-  }, [spin]);
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  return (
-    <Animated.View style={{ transform: [{ rotate }] }}>
-      <Ionicons name="sync-outline" size={18} color={color} />
-    </Animated.View>
-  );
+  }
+
+  if (showToast) {
+    return (
+      <View style={[styles.toast, { top: insets.top + 8 }]}>
+        <Text style={styles.toastText}>✦ Back online</Text>
+      </View>
+    );
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
   banner: {
     position: 'absolute',
     top: 0,
-    left: 12,
-    right: 12,
-    borderRadius: 16,
-    borderWidth: 1,
+    left: 0,
+    right: 0,
     zIndex: 9999,
-    elevation: 20,
-  },
-  bannerInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    paddingBottom: 10,
   },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
+  offlineBanner: {
+    backgroundColor: 'rgba(15, 12, 30, 0.97)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(245, 158, 11, 0.3)',
   },
-  textWrap: { flex: 1 },
-  title: { fontSize: 14, fontWeight: '600', letterSpacing: 0.1 },
-  subtitle: { fontSize: 12, marginTop: 1 },
+  title: {
+    color: '#F5F5F5',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  subtitle: {
+    color: 'rgba(245,245,245,0.55)',
+    fontSize: 12,
+    marginTop: 1,
+  },
+  offlineIcon: {
+    fontSize: 18,
+  },
   toast: {
     position: 'absolute',
-    top: 0,
-    alignSelf: 'center',
-    left: 12,
-    right: 12,
+    left: '50%',
+    transform: [{ translateX: -80 }],
+    zIndex: 9998,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 20,
+    backgroundColor: 'rgba(10, 30, 30, 0.97)',
     borderWidth: 1,
-    zIndex: 9998,
-    elevation: 19,
+    borderColor: 'rgba(6, 182, 212, 0.3)',
   },
-  toastText: { fontSize: 13, fontWeight: '700' },
-  toastSub: { fontSize: 13, fontWeight: '400' },
+  toastText: {
+    color: '#06B6D4',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });

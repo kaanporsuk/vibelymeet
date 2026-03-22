@@ -51,12 +51,15 @@ interface VibeTagSelectorProps {
   selectedVibes: string[];
   onVibesChange: (vibes: string[]) => void;
   maxSelections?: number;
+  /** Profile edit: only Energy + Social Style (omit Shared Scenes). Onboarding: omit for all categories. */
+  categoriesOnly?: ("energy" | "social_style" | "shared_scenes")[];
 }
 
 export const VibeTagSelector = ({
   selectedVibes,
   onVibesChange,
   maxSelections = 5,
+  categoriesOnly,
 }: VibeTagSelectorProps) => {
   const { data: vibeTags, isLoading } = useVibeTags();
 
@@ -64,6 +67,10 @@ export const VibeTagSelector = ({
     ? vibeTags.map((t: any) => ({ label: t.label, emoji: t.emoji, category: t.category || "shared_scenes" }))
     : fallbackVibes
   ).filter(Boolean);
+
+  const order = categoriesOnly?.length
+    ? categoryOrder.filter((c) => categoriesOnly.includes(c as "energy" | "social_style" | "shared_scenes"))
+    : categoryOrder;
 
   const toggleVibe = (vibe: string) => {
     if (selectedVibes.includes(vibe)) {
@@ -73,7 +80,7 @@ export const VibeTagSelector = ({
     }
   };
 
-  const grouped = categoryOrder.map((cat) => ({
+  const grouped = order.map((cat) => ({
     key: cat,
     ...categoryConfig[cat],
     vibes: vibeOptions.filter((v) => v.category === cat),

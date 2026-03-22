@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
+import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
 
 interface AdminEventFormModalProps {
@@ -131,6 +132,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   // ── Basic Info ──
   const [title, setTitle] = useState(event?.title || "");
   const [description, setDescription] = useState(event?.description || "");
+  const [language, setLanguage] = useState<string>(event?.language || "");
   const [coverImage, setCoverImage] = useState(event?.cover_image || "");
   const [eventDate, setEventDate] = useState(
     event?.event_date ? format(new Date(event.event_date), "yyyy-MM-dd") : ""
@@ -254,6 +256,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       const eventData: any = {
         title, description,
         cover_image: coverImage,
+        language: language || null,
         event_date: eventDateTime.toISOString(),
         duration_minutes: parseInt(duration),
         max_attendees: totalCapacity || 50,
@@ -383,6 +386,23 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               <Label htmlFor="description">Description</Label>
               <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Tell guests what to expect..." className="bg-secondary/50 min-h-[80px]" />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="language">Language (optional)</Label>
+              <Select value={language || "none"} onValueChange={(v) => setLanguage(v === "none" ? "" : v)}>
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue placeholder="Any language / Multilingual" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No preference</SelectItem>
+                  {EVENT_LANGUAGES.map((lang) => (
+                    <SelectItem key={lang.code} value={lang.code}>
+                      {lang.flag} {lang.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

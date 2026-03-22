@@ -9,6 +9,7 @@ import { GlassHeaderBar, Card, LoadingState, ErrorState, VibelyButton } from '@/
 import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
+import { getLanguageLabel } from '@/lib/eventLanguages';
 import {
   useEventDetails,
   useIsRegisteredForEvent,
@@ -21,6 +22,7 @@ import {
   type EventVibeMutual,
 } from '@/lib/eventsApi';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
+import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { VenueCard } from '@/components/events/VenueCard';
 import { PricingBar } from '@/components/events/PricingBar';
 import { ManageBookingModal } from '@/components/events/ManageBookingModal';
@@ -47,6 +49,7 @@ export default function EventDetailScreen() {
   const [showTicket, setShowTicket] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
 
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
@@ -286,6 +289,17 @@ export default function EventDetailScreen() {
               </Text>
             </View>
           ) : null}
+          {(() => {
+            const lang = getLanguageLabel(eventRow.language);
+            return lang ? (
+              <View style={styles.venueRow}>
+                <Ionicons name="language-outline" size={18} color={theme.textSecondary} />
+                <Text style={[styles.venueText, { color: theme.textSecondary }]}>
+                  {lang.flag} {lang.label}
+                </Text>
+              </View>
+            ) : null;
+          })()}
           {tags.length > 0 && (
             <View style={styles.tagsRow}>
               {tags.slice(0, 5).map((tag) => (
@@ -320,6 +334,14 @@ export default function EventDetailScreen() {
             </Text>
           )}
         </Card>
+
+        <Pressable
+          onPress={() => setShowInviteSheet(true)}
+          style={({ pressed }) => [styles.inviteFriendsBtn, { opacity: pressed ? 0.85 : 1 }]}
+        >
+          <Ionicons name="people-outline" size={18} color="#8B5CF6" />
+          <Text style={styles.inviteFriendsBtnText}>Invite friends to this event</Text>
+        </Pressable>
 
         <WhosGoingSection
           attendees={attendeeDisplays}
@@ -387,6 +409,14 @@ export default function EventDetailScreen() {
                 style={styles.cta}
               />
             ) : null}
+            {!eventEnded ? (
+              <Pressable
+                onPress={() => setShowInviteSheet(true)}
+                style={({ pressed }) => [styles.bringFriendRow, pressed && { opacity: 0.85 }]}
+              >
+                <Text style={[styles.bringFriendText, { color: theme.tint }]}>Bring a friend? →</Text>
+              </Pressable>
+            ) : null}
           </>
         ) : (
           <View style={styles.spacerForPricingBar} />
@@ -430,6 +460,18 @@ export default function EventDetailScreen() {
         venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
+      />
+
+      <InviteFriendsSheet
+        visible={showInviteSheet}
+        onClose={() => setShowInviteSheet(false)}
+        event={{
+          id: event.id,
+          title: event.title,
+          cover_url: eventCoverUrl(event.cover_image),
+          start_time: event.event_date,
+          city: eventRow.location_name ?? undefined,
+        }}
       />
     </View>
   );
@@ -509,4 +551,26 @@ const styles = StyleSheet.create({
   cta: { marginTop: spacing.md },
   ctaPrimary: { marginTop: spacing.lg, alignSelf: 'stretch' },
   spacerForPricingBar: { height: 24 },
+  inviteFriendsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    marginBottom: spacing.lg,
+  },
+  inviteFriendsBtnText: {
+    color: '#8B5CF6',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  bringFriendRow: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: spacing.sm,
+  },
+  bringFriendText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

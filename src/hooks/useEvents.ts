@@ -18,6 +18,7 @@ export interface Event {
   eventDate: Date;
   event_date_raw: string;
   duration_minutes: number;
+  language?: string | null;
 }
 
 const PAGE_SIZE = 12;
@@ -63,7 +64,7 @@ export const useEvents = () => {
     queryFn: async (): Promise<Event[]> => {
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true });
 
       if (error) throw error;
@@ -109,6 +110,7 @@ export const useEvents = () => {
             eventDate,
             event_date_raw: event.event_date,
             duration_minutes: event.duration_minutes || 60,
+            language: (event as any).language ?? null,
           };
         });
     },
@@ -125,7 +127,7 @@ export const useInfiniteEvents = () => {
 
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true })
         .range(from, to);
 
@@ -172,6 +174,7 @@ export const useInfiniteEvents = () => {
           eventDate,
           event_date_raw: event.event_date,
           duration_minutes: event.duration_minutes || 60,
+          language: (event as any).language ?? null,
         };
       });
 

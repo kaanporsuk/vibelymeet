@@ -9,6 +9,7 @@ interface ExtendedEvent extends Event {
   city?: string | null;
   country?: string | null;
   distance_km?: number | null;
+  language?: string | null;
 }
 
 interface EventsRailProps {
@@ -103,6 +104,7 @@ export const EventsRail = ({
               distanceKm={event.distance_km}
               eventDateRaw={(event as any).event_date_raw}
               durationMinutes={(event as any).duration_minutes}
+              language={event.language}
             />
           </motion.div>
         ))}

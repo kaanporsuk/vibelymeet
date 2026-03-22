@@ -24,7 +24,7 @@ module.exports = () => {
       'expo-location',
       {
         locationWhenInUsePermission:
-          'Vibely uses your location to show nearby events and approximate distance.',
+          'Vibely uses your location to show events and people near you.',
       },
     ]);
   }
