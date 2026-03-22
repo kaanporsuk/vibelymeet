@@ -6,7 +6,7 @@ import { useConnectivity } from '@/lib/useConnectivity';
 
 export function LiveSurfaceOfflineStrip() {
   const state = useConnectivity();
-  if (state === 'online') return null;
+  if (state !== 'offline') return null;
 
   const AMBER = '#F59E0B';
   return (
@@ -19,16 +19,8 @@ export function LiveSurfaceOfflineStrip() {
         },
       ]}
     >
-      <Ionicons
-        name={state === 'reconnecting' ? 'sync-outline' : 'cloud-offline-outline'}
-        size={14}
-        color={AMBER}
-      />
-      <Text style={[styles.text, { color: AMBER }]}>
-        {state === 'reconnecting'
-          ? 'Connection lost · Reconnecting…'
-          : 'Connection lost · Live updates paused'}
-      </Text>
+      <Ionicons name="cloud-offline-outline" size={14} color={AMBER} />
+      <Text style={[styles.text, { color: AMBER }]}>Connection lost · Live updates paused</Text>
     </View>
   );
 }

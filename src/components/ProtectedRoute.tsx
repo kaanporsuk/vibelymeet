@@ -116,7 +116,9 @@ export function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/auth" replace />;
+    // Preserve ?ref= (and other query params) so invite / event links attribute referrals after signup.
+    const search = location.search;
+    return <Navigate to={search ? `/auth${search}` : "/auth"} replace />;
   }
 
   // Server-side verified admin check - cannot be bypassed via client-side manipulation

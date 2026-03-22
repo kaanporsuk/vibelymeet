@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { EventCover } from "@/components/ui/ProfilePhoto";
 import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useQueryClient } from "@tanstack/react-query";
+import { getLanguageLabel } from "@/lib/eventLanguages";
 
 interface EventCardProps {
   id: string;
@@ -17,6 +18,7 @@ interface EventCardProps {
   attendees: number;
   tags: string[];
   isRegistered?: boolean;
+  language?: string | null;
 }
 
 export const EventCard = ({
@@ -28,6 +30,7 @@ export const EventCard = ({
   attendees,
   tags,
   isRegistered: initialRegistered = false,
+  language,
 }: EventCardProps) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -98,6 +101,14 @@ export const EventCard = ({
             <Users className="w-4 h-4" />
             <span>{attendees}</span>
           </div>
+          {(() => {
+            const lang = getLanguageLabel(language);
+            return lang ? (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs text-muted-foreground">
+                {lang.flag} {lang.label}
+              </span>
+            ) : null;
+          })()}
         </div>
 
         <Button

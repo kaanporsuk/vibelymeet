@@ -19,6 +19,7 @@ import EventLobby from "./pages/EventLobby";
 import Matches from "./pages/Matches";
 import Chat from "./pages/Chat";
 import Profile from "./pages/Profile";
+import ProfilePreview from "./pages/ProfilePreview";
 import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
 import ReadyGate from "./pages/ReadyRedirect";
@@ -29,6 +30,8 @@ import Schedule from "./pages/Schedule";
 import HowItWorks from "./pages/HowItWorks";
 import UserProfile from "./pages/UserProfile";
 import ResetPassword from "./pages/ResetPassword";
+import InviteRedirect from "./pages/InviteRedirect";
+import EventShortRedirect from "./pages/EventShortRedirect";
 import NotFound from "./pages/NotFound";
 import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
 import TermsOfService from "./pages/legal/TermsOfService";
@@ -110,6 +113,8 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/invite" element={<InviteRedirect />} />
+                <Route path="/event/:eventId" element={<EventShortRedirect />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -120,6 +125,7 @@ const App = () => (
                 <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
                 <Route path="/chat/:id" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreview /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
                 <Route path="/ready/:id" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />

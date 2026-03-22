@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   TextInput,
@@ -17,7 +17,8 @@ import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
-import { createProfile } from '@/lib/profileApi';
+import { createProfile, syncProfileVibes } from '@/lib/profileApi';
+import { VIBE_TAXONOMY } from '@/lib/vibeTagTaxonomy';
 import { trackEvent } from '@/lib/analytics';
 import { supabase } from '@/lib/supabase';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
@@ -82,20 +83,12 @@ export default function OnboardingScreen() {
   const [aboutMe, setAboutMe] = useState('');
   const [heightCm, setHeightCm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [vibeTags, setVibeTags] = useState<{ id: string; label: string; emoji?: string | null }[]>([]);
-  const [selectedVibeIds, setSelectedVibeIds] = useState<string[]>([]);
+  const [selectedVibeLabels, setSelectedVibeLabels] = useState<string[]>([]);
   const [relationshipIntent, setRelationshipIntent] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from('vibe_tags').select('id, label, emoji').order('label');
-      if (data) setVibeTags(data as { id: string; label: string; emoji?: string | null }[]);
-    })();
-  }, []);
 
   const dobFilled = dobDay.length > 0 && dobMonth.length > 0 && dobYear.length === 4;
   const d = dobFilled ? Number(dobDay) : NaN;
@@ -115,7 +108,7 @@ export default function OnboardingScreen() {
         : step === 2
           ? true
           : step === 3
-            ? selectedVibeIds.length >= 3
+            ? selectedVibeLabels.length >= 3 && selectedVibeLabels.length <= 5
             : step === 4
               ? !!relationshipIntent
               : step === 5
@@ -155,7 +148,7 @@ export default function OnboardingScreen() {
       if (name.trim().length >= 2) setStep(2);
     } else if (step === 2) {
       setStep(3);
-    } else if (step === 3 && selectedVibeIds.length >= 3) {
+    } else if (step === 3 && selectedVibeLabels.length >= 3 && selectedVibeLabels.length <= 5) {
       setStep(4);
     } else if (step === 4 && relationshipIntent) {
       setStep(5);
@@ -223,21 +216,14 @@ export default function OnboardingScreen() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (user && selectedVibeIds.length > 0) {
-        const vibeRows = selectedVibeIds.map((tagId: string) => ({
-          profile_id: user.id,
-          vibe_tag_id: tagId,
-        }));
-        const { error: vibesError } = await supabase
-          .from('profile_vibes')
-          .upsert(vibeRows, { onConflict: 'profile_id,vibe_tag_id' });
-        if (vibesError) throw vibesError;
+      if (user && selectedVibeLabels.length > 0) {
+        await syncProfileVibes(user.id, selectedVibeLabels);
       }
       trackEvent('onboarding_completed', {
         has_photo: photos.length > 0,
         has_bio: !!aboutMeTrim,
-        has_vibes: selectedVibeIds.length > 0,
-        vibe_count: selectedVibeIds.length,
+        has_vibes: selectedVibeLabels.length > 0,
+        vibe_count: selectedVibeLabels.length,
       });
       await refreshOnboarding();
       router.replace('/(tabs)');
@@ -450,49 +436,65 @@ export default function OnboardingScreen() {
           </>
         )}
 
-        {/* Step 3: Vibes — web Step 5 parity */}
+        {/* Step 3: Vibes — shared taxonomy (all categories); labels synced via profile_vibes */}
         {step === 3 && (
           <>
             <Text style={[styles.title, { color: theme.text }]}>Pick your vibes</Text>
             <Text style={[styles.stepSub, { color: theme.textSecondary }]}>
-              Choose at least 3 vibes that describe you. This helps us find your people.
+              Choose 3–5 vibes that describe you. This helps us find your people.
             </Text>
-            <RNView style={styles.vibeChipWrap}>
-              {vibeTags.map((tag) => {
-                const selected = selectedVibeIds.includes(tag.id);
-                return (
-                  <Pressable
-                    key={tag.id}
-                    onPress={() => {
-                      setSelectedVibeIds((prev: string[]) =>
-                        selected ? prev.filter((id: string) => id !== tag.id) : [...prev, tag.id]
-                      );
-                    }}
-                    style={[
-                      styles.vibeChip,
-                      {
-                        borderColor: selected ? theme.tint : theme.border,
-                        backgroundColor: selected ? theme.tintSoft : 'transparent',
-                      },
-                    ]}
-                  >
-                    <Text style={{ fontSize: 14, color: selected ? theme.tint : theme.text }}>
-                      {tag.emoji ? `${tag.emoji} ` : ''}
-                      {tag.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </RNView>
+            {VIBE_TAXONOMY.map((cat) => (
+              <RNView key={cat.key} style={{ marginBottom: 20 }}>
+                <Text style={[styles.vibeCategoryTitle, { color: theme.text }]}>{cat.title}</Text>
+                <Text style={[styles.vibeCategorySub, { color: theme.textSecondary }]}>{cat.subtitle}</Text>
+                <RNView style={styles.vibeChipWrap}>
+                  {cat.options.map((opt) => {
+                    const selected = selectedVibeLabels.includes(opt.label);
+                    const atMax = selectedVibeLabels.length >= 5;
+                    const disabled = !selected && atMax;
+                    return (
+                      <Pressable
+                        key={opt.label}
+                        disabled={disabled}
+                        onPress={() => {
+                          setSelectedVibeLabels((prev) =>
+                            selected
+                              ? prev.filter((x) => x !== opt.label)
+                              : prev.length >= 5
+                                ? prev
+                                : [...prev, opt.label]
+                          );
+                        }}
+                        style={[
+                          styles.vibeChip,
+                          {
+                            borderColor: selected ? theme.tint : theme.border,
+                            backgroundColor: selected ? theme.tintSoft : 'transparent',
+                            opacity: disabled ? 0.4 : 1,
+                          },
+                        ]}
+                      >
+                        <Text style={{ fontSize: 14, color: selected ? theme.tint : theme.text }}>
+                          {opt.emoji} {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </RNView>
+              </RNView>
+            ))}
             <Text
               style={[
                 styles.vibeMinHint,
                 {
-                  color: selectedVibeIds.length >= 3 ? theme.success : theme.mutedForeground,
+                  color:
+                    selectedVibeLabels.length >= 3 && selectedVibeLabels.length <= 5
+                      ? theme.success
+                      : theme.mutedForeground,
                 },
               ]}
             >
-              {selectedVibeIds.length}/3 minimum selected
+              {selectedVibeLabels.length}/5 selected (minimum 3)
             </Text>
             <VibelyButton
               label="Continue"
@@ -761,6 +763,8 @@ const styles = StyleSheet.create({
   },
   dobInputYear: { flex: 1.4 },
   dobHint: { fontSize: 13, marginBottom: 8 },
+  vibeCategoryTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
+  vibeCategorySub: { fontSize: 13, marginBottom: 10 },
   vibeChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   vibeChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1 },
   vibeMinHint: { fontSize: 13, marginBottom: 8 },

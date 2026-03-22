@@ -2,7 +2,7 @@ import React, { useMemo, useState, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
-import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Linking, Share, Platform, Image, Alert } from 'react-native';
+import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Platform, Image, Alert } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -36,6 +36,7 @@ import { SwipeableMatchConversationRow } from '@/components/matches/SwipeableMat
 import { DropsTabContent } from '@/components/matches/DropsTabContent';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
+import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 
 export default function MatchesListScreen() {
   const router = useRouter();
@@ -82,6 +83,7 @@ export default function MatchesListScreen() {
   const scrollCloseNonceSV = useSharedValue(0);
   const [activeSwipeMatchId, setActiveSwipeMatchId] = useState<string | null>(null);
   const [unmatchSheetMatch, setUnmatchSheetMatch] = useState<MatchListItem | null>(null);
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
 
   const handleUnmatch = useCallback(
     (matchId: string, name: string) => {
@@ -199,17 +201,8 @@ export default function MatchesListScreen() {
   }, [unmatchSheetMatch, initiateUnmatch]);
 
   const handleInviteFriends = useCallback(() => {
-    const link = `https://vibelymeet.com/auth?mode=signup&ref=${user?.id ?? ''}`;
-    if (Platform.OS !== 'web' && Share.share) {
-      Share.share({
-        title: 'Join me on Vibely!',
-        message: "I'm using Vibely for video dates — come find your vibe! 💜",
-        url: link,
-      }).catch(() => {});
-    } else {
-      Linking.openURL(link);
-    }
-  }, [user?.id]);
+    setShowInviteSheet(true);
+  }, []);
 
   if (error) {
     return (
@@ -244,6 +237,15 @@ export default function MatchesListScreen() {
             onActionPress={() => router.push('/(tabs)/events')}
           />
           <Pressable
+            onPress={() => setShowInviteSheet(true)}
+            style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="people-outline" size={18} color={theme.tint} />
+            <RNText style={[styles.emptyInviteCtaText, { color: theme.tint }]}>
+              Invite friends to get started
+            </RNText>
+          </Pressable>
+          <Pressable
             onPress={() => router.push('/how-it-works' as Href)}
             style={({ pressed }) => [styles.howItWorksLink, pressed && { opacity: 0.8 }]}
           >
@@ -252,6 +254,7 @@ export default function MatchesListScreen() {
             </VibelyText>
           </Pressable>
         </ScrollView>
+        <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
       </ScreenContainer>
     );
   }
@@ -681,6 +684,8 @@ export default function MatchesListScreen() {
           }
         }}
       />
+
+      <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
     </ScreenContainer>
   );
 }
@@ -934,6 +939,18 @@ const styles = StyleSheet.create({
   newVibesSkeletonRail: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  emptyInviteCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  emptyInviteCtaText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
   howItWorksLink: {
     alignSelf: 'center',

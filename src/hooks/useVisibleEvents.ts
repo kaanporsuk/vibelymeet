@@ -25,6 +25,7 @@ export interface VisibleEvent {
   is_recurring: boolean;
   parent_event_id: string | null;
   occurrence_number: number | null;
+  language?: string | null;
 }
 
 export interface OtherCityEvent {

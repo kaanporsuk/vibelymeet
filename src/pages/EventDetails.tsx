@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, 
@@ -11,8 +11,10 @@ import {
   MapPin,
   Globe,
   RefreshCw,
+  Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getLanguageLabel } from "@/lib/eventLanguages";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { format } from "date-fns";
@@ -41,6 +43,7 @@ import { trackEvent } from "@/lib/analytics";
 
 const EventDetails = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useUserProfile();
@@ -57,6 +60,18 @@ const EventDetails = () => {
   
   // Event vibes hook for pre-event interest expressions
   const eventVibes = useEventVibes(id || "");
+
+  // Shared links like /events/:id?ref= — keep referral for signup (Auth also reads ?ref= on /auth).
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    if (ref) {
+      try {
+        localStorage.setItem("vibely_referrer_id", ref);
+      } catch {
+        /* quota / private mode */
+      }
+    }
+  }, [searchParams]);
 
   // Next event in series (for recurring indicator)
   const { data: nextInSeries } = useQuery({
@@ -371,6 +386,16 @@ const EventDetails = () => {
             <span>Global Event — open to everyone</span>
           </div>
         )}
+
+        {(() => {
+          const lang = getLanguageLabel(event.language);
+          return lang ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground -mt-2">
+              <Languages className="w-4 h-4 shrink-0 text-primary" />
+              <span>Language: {lang.flag} {lang.label}</span>
+            </div>
+          ) : null;
+        })()}
 
         {/* Recurring series indicator */}
         {event.parentEventId && (

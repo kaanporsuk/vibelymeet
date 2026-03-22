@@ -18,7 +18,7 @@ import { router } from 'expo-router';
 import { format } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSchedule, type ScheduleTimeBucket } from '@/lib/useSchedule';
+import { useSchedule, SCHEDULE_QUERY_KEY, type ScheduleTimeBucket } from '@/lib/useSchedule';
 import { supabase } from '@/lib/supabase';
 import {
   useScheduleProposals,
@@ -103,6 +103,9 @@ export default function ScheduleScreen() {
     setRollLoading(true);
     try {
       await rollPreviousWeek();
+      if (user?.id) {
+        void qc.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY(user.id) });
+      }
       setBanner('success');
       setTimeout(() => setBanner(null), 3000);
     } catch {
@@ -111,11 +114,13 @@ export default function ScheduleScreen() {
     } finally {
       setRollLoading(false);
     }
-  }, [rollPreviousWeek]);
+  }, [rollPreviousWeek, qc, user?.id]);
 
   const handleToggleSlot = useCallback(
     (isoDate: string, bucket: ScheduleTimeBucket) => {
-      void toggleSlot(isoDate, bucket);
+      void toggleSlot(isoDate, bucket).catch((e) => {
+        if (__DEV__) console.warn('[schedule] toggleSlot failed:', e);
+      });
     },
     [toggleSlot],
   );
