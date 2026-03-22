@@ -2290,6 +2290,10 @@ export type Database = {
         Args: { p_action: string; p_drop_id: string; p_text?: string }
         Returns: Json
       }
+      daily_drops_generation_ran_today: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean

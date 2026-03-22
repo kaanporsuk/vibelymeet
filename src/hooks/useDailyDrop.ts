@@ -8,6 +8,7 @@ export function useDailyDrop() {
   const [drop, setDrop] = useState<DailyDropData | null>(null);
   const [partner, setPartner] = useState<DailyDropPartner | null>(null);
   const [pastDrops, setPastDrops] = useState<PastDrop[]>([]);
+  const [generationRanToday, setGenerationRanToday] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
@@ -68,7 +69,11 @@ export function useDailyDrop() {
 
   // Fetch current drop
   const fetchDrop = useCallback(async () => {
-    if (!user) { setIsLoading(false); return; }
+    if (!user) {
+      setGenerationRanToday(false);
+      setIsLoading(false);
+      return;
+    }
 
     const now = new Date().toISOString();
     const { data, error } = await supabase
@@ -79,6 +84,9 @@ export function useDailyDrop() {
       .order('drop_date', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    const { data: genRan } = await supabase.rpc('daily_drops_generation_ran_today');
+    setGenerationRanToday(Boolean(genRan));
 
     if (error) {
       console.error('Error fetching daily drop:', error);
@@ -94,7 +102,7 @@ export function useDailyDrop() {
         drop_date: data.drop_date,
         starts_at: data.starts_at,
         expires_at: data.expires_at,
-        status: data.status,
+        status: data.status as DailyDropData['status'],
         user_a_viewed: data.user_a_viewed ?? false,
         user_b_viewed: data.user_b_viewed ?? false,
         opener_sender_id: data.opener_sender_id,
@@ -150,6 +158,7 @@ export function useDailyDrop() {
       const p = profileMap[pid];
       return {
         id: d.id,
+        partner_id: pid,
         partner_name: p?.name ?? 'Unknown',
         partner_avatar: p?.avatar_url ?? null,
         drop_date: d.drop_date,
@@ -411,6 +420,7 @@ export function useDailyDrop() {
     hasDrop,
     isLoading,
     pastDrops,
+    generationRanToday,
     markViewed,
     sendOpener,
     sendReply,

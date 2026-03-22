@@ -20,14 +20,27 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let requestBody: { force?: boolean } = {};
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    try {
+      requestBody = await req.json();
+    } catch {
+      requestBody = {};
+    }
+  }
+  const forceRegenerate = Boolean(requestBody.force);
+
   const cronSecret = Deno.env.get("CRON_SECRET");
   const cronSecretMissing = !cronSecret || cronSecret.trim() === "";
   const incoming = req.headers.get("Authorization");
 
+  let isCron = false;
+  let isAdminJwt = false;
+
   if (incoming && !cronSecretMissing && incoming === `Bearer ${cronSecret}`) {
-    // Cron path: allow
+    isCron = true;
   } else {
-    // JWT path: require valid admin
     if (!incoming) {
       return authError(401, { error: "Unauthorized" }, cronSecretMissing);
     }
@@ -51,6 +64,14 @@ serve(async (req) => {
     if (!roleRow) {
       return authError(403, { error: "Forbidden" }, cronSecretMissing);
     }
+    isAdminJwt = true;
+  }
+
+  if (forceRegenerate && !isAdminJwt) {
+    return new Response(
+      JSON.stringify({ success: false, error: "force_regenerate_requires_admin_jwt" }),
+      { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   try {
@@ -79,11 +100,15 @@ serve(async (req) => {
       .lt("expires_at", now.toISOString())
       .eq("status", "active_opener_sent");
 
-    // STEP 2: Apply cooldowns from expired drops
+    // STEP 2: Apply cooldowns for yesterday's drops only (avoid rows touched today for unrelated reasons)
+    const yesterday = new Date(now);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const yesterdayDate = yesterday.toISOString().split("T")[0];
+
     const { data: newlyExpired } = await supabase
       .from("daily_drops")
       .select("user_a_id, user_b_id, status")
-      .gte("updated_at", today + "T00:00:00Z")
+      .eq("drop_date", yesterdayDate)
       .in("status", ["expired_no_action", "expired_no_reply", "passed"]);
 
     if (newlyExpired) {
@@ -114,10 +139,14 @@ serve(async (req) => {
       .eq("drop_date", today);
 
     if ((existingCount || 0) > 0) {
-      return new Response(
-        JSON.stringify({ success: false, reason: "Drops already generated for today", existing: existingCount }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      if (forceRegenerate && isAdminJwt) {
+        await supabase.from("daily_drops").delete().eq("drop_date", today);
+      } else {
+        return new Response(
+          JSON.stringify({ success: false, reason: "Drops already generated for today", existing: existingCount }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
     }
 
     // STEP 4: Get eligible users (active in last 7 days)

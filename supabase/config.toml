@@ -78,6 +78,7 @@ verify_jwt = false
 [functions.revenuecat-webhook]
 verify_jwt = false
 
+# generate-daily-drops: set CRON_SECRET in Dashboard (Edge secrets) for Bearer auth from pg_cron (see migration 20260322200000_daily_drop_cron.sql).
 [functions.generate-daily-drops]
 verify_jwt = false
 

@@ -32,7 +32,7 @@ export function DropsTabContent() {
   const {
     drop, partner, status, iHaveViewed, openerText, openerSentByMe,
     replyText, chatUnlocked, matchId, pickReasons, timeRemaining,
-    isExpired, hasDrop, isLoading, pastDrops,
+    isExpired, hasDrop, isLoading, pastDrops, generationRanToday,
     markViewed, sendOpener, sendReply, passDrop,
   } = useDailyDrop();
 
@@ -44,6 +44,22 @@ export function DropsTabContent() {
     return (
       <div className="flex items-center justify-center py-16">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (hasDrop && drop?.status === 'invalidated') {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+          <div className="text-4xl mb-3" aria-hidden>⚡</div>
+          <h3 className="font-semibold text-foreground mb-1">Drop no longer available</h3>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            This drop was removed. Check back at 6 PM for your next one.
+          </p>
+          <p className="text-xs text-primary font-medium mt-3">Next drop in {formatNextDrop()}</p>
+        </div>
+        <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
     );
   }
@@ -84,14 +100,15 @@ export function DropsTabContent() {
 
   // STATE 1 — No drop today
   if (!hasDrop) {
+    const emptyBody = generationRanToday
+      ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
+      : "Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.";
     return (
       <div className="space-y-6">
         <div className="text-center py-12">
           <Droplet className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-semibold text-foreground mb-2">No Daily Drop today</h3>
-          <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-3">
-            We only create a drop when there's a real fit. Your next chance is at 6 PM.
-          </p>
+          <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-3">{emptyBody}</p>
           <p className="text-xs text-primary font-medium">Next drop in {formatNextDrop()}</p>
         </div>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
@@ -127,7 +144,12 @@ export function DropsTabContent() {
             )}
           </div>
 
-          <Button variant="gradient" onClick={() => navigate(`/chat/${matchId}`)} className="gap-2">
+          <Button
+            variant="gradient"
+            onClick={() => partner?.id && navigate(`/chat/${partner.id}`)}
+            className="gap-2"
+            disabled={!partner?.id}
+          >
             <MessageCircle className="w-4 h-4" />
             Start Chatting
           </Button>
@@ -360,8 +382,11 @@ function PastDropsSection({ pastDrops, showPastDrops, setShowPastDrops }: {
             {pastDrops.map(d => (
               <div
                 key={d.id}
-                className={cn("flex items-center gap-3 p-3 rounded-xl bg-secondary/30", d.match_id && "cursor-pointer hover:bg-secondary/50")}
-                onClick={() => d.match_id && navigate(`/chat/${d.match_id}`)}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-xl bg-secondary/30",
+                  d.match_id && d.partner_id && "cursor-pointer hover:bg-secondary/50"
+                )}
+                onClick={() => d.match_id && d.partner_id && navigate(`/chat/${d.partner_id}`)}
               >
                 <div className="w-10 h-10 rounded-full overflow-hidden bg-secondary shrink-0">
                   {d.partner_avatar ? (
@@ -389,6 +414,9 @@ function PastDropsSection({ pastDrops, showPastDrops, setShowPastDrops }: {
 function StatusBadge({ status }: { status: string }) {
   if (status === 'matched') {
     return <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center gap-1"><Check className="w-3 h-3" />Connected</span>;
+  }
+  if (status === 'invalidated') {
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Removed</span>;
   }
   if (status === 'passed') {
     return <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Passed</span>;
