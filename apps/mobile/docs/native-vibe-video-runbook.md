@@ -48,7 +48,7 @@ No invented hostnames in code.
 
 ## Fullscreen playback surfaces (native)
 
-All of these use **`FullscreenVibeVideoModal`** (same expo-video + expo-av audio session + error/retry):
+All of these use **`FullscreenVibeVideoModal`** (same expo-video playback + error/retry; on iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration):
 
 - `app/(tabs)/profile/ProfileStudio.tsx` (`USE_PROFILE_STUDIO === true`)
 - `app/(tabs)/profile/index.tsx` — legacy branch (`USE_PROFILE_STUDIO === false`)

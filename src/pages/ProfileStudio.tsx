@@ -175,12 +175,19 @@ type SmartNudge = {
 };
 
 function getSmartNudge(profile: UserProfile, phoneVerified: boolean): SmartNudge {
-  const hasVideo = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready");
+  const videoStatus = (profile.bunnyVideoStatus ?? "").toLowerCase().trim();
+  const hasUid = !!profile.bunnyVideoUid;
+  const isProcessing = hasUid && (videoStatus === "uploading" || videoStatus === "processing");
+  const isFailed = hasUid && videoStatus === "failed";
+  const isReady = hasUid && videoStatus === "ready";
   const photoCount = profile.photos.length;
   const promptCount = profile.prompts.filter((p) => p.question?.trim() && p.answer?.trim()).length;
 
-  if (!hasVideo) {
+  if (!hasUid || (!isProcessing && !isFailed && !isReady)) {
     return { icon: Video, title: "Add a Vibe Video", subtitle: "Profiles with video get 3x more conversations", action: "video" };
+  }
+  if (isFailed) {
+    return { icon: Video, title: "Re-record your Vibe Video", subtitle: "Your last video failed to process — try again", action: "video" };
   }
   if (photoCount < 3) {
     return { icon: Camera, title: "Add more photos", subtitle: "Profiles with 4+ photos get 2x more vibes", action: "photos" };
@@ -488,6 +495,8 @@ const ProfileStudio = () => {
   const vibeScore = profile.vibeScore ?? 0;
   const smartNudge = useMemo(() => getSmartNudge(profile, phoneVerified), [profile, phoneVerified]);
   const hasVibeVideo = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready");
+  const isVibeVideoProcessing = !!(profile.bunnyVideoUid && (profile.bunnyVideoStatus === "uploading" || profile.bunnyVideoStatus === "processing"));
+  const isVibeVideoFailed = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "failed");
   const thumbnailUrl = profile.bunnyVideoUid ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg` : null;
   const filledPromptCount = profile.prompts.filter((p) => p.question?.trim() && p.answer?.trim()).length;
   const storedMeetingPref = profile.lifestyle?.meeting_preference ?? "both";
@@ -908,7 +917,25 @@ const ProfileStudio = () => {
             <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
           </div>
 
-          {hasVibeVideo ? (
+          {isVibeVideoProcessing ? (
+            <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10">
+              <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
+              <p className="text-base font-display font-semibold text-white">Processing your video…</p>
+              <p className="text-sm text-gray-400 text-center px-6">This usually takes 15–30 seconds</p>
+            </div>
+          ) : isVibeVideoFailed ? (
+            <div className="rounded-2xl bg-white/5 backdrop-blur border border-red-500/20 flex flex-col items-center justify-center gap-3 py-10">
+              <Video className="w-12 h-12 text-red-400/50" />
+              <p className="text-base font-display font-semibold text-white">Processing failed</p>
+              <p className="text-sm text-gray-400 text-center px-6">Something went wrong — try recording again</p>
+              <button
+                onClick={() => setShowVibeStudio(true)}
+                className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
+              >
+                Record again
+              </button>
+            </div>
+          ) : hasVibeVideo ? (
             <div className="relative w-full rounded-2xl overflow-hidden bg-secondary" style={{ aspectRatio: "16/9" }}>
               {thumbnailUrl && !thumbnailError ? (
                 <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={() => setThumbnailError(true)} />

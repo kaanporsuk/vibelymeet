@@ -27,12 +27,13 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import {
-  useEvents,
+  useDiscoverEvents,
   useIsRegisteredForEvent,
   useEventAttendees,
   useRegisteredEventIds,
   type EventListItem,
   type EventAttendee,
+  type DiscoverEventsParams,
 } from '@/lib/eventsApi';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
@@ -72,17 +73,6 @@ function isThisWeek(ed: Date, now: Date): boolean {
   const end = new Date(now);
   end.setDate(now.getDate() + (7 - now.getDay()));
   return ed <= end && ed >= now;
-}
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 // ── Location prompt banner: show when profile has no location_data; Enable opens web to set location
@@ -641,9 +631,6 @@ export default function EventsListScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { isPremium } = useBackendSubscription(user?.id);
-  const { data: events = [], isLoading, error, refetch, isRefetching } = useEvents(user?.id ?? null, isPremium);
-  const { data: registeredEventIds = [] } = useRegisteredEventIds(user?.id);
-  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
@@ -673,17 +660,42 @@ export default function EventsListScreen() {
   const showLocationPrompt = !hasLocation;
 
   useEffect(() => {
-    if (!filters.locationEnabled) return;
+    if (userCoords) return;
     (async () => {
       try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
       } catch (error) {
         if (__DEV__) console.warn('[events] getCurrentPosition failed:', error);
-        setUserCoords(null);
       }
     })();
-  }, [filters.locationEnabled]);
+  }, [userCoords]);
+
+  useEffect(() => {
+    if (!isPremium) {
+      setFilters((prev) => {
+        if (prev.locationMode === 'nearby' && prev.selectedCity == null) return prev;
+        return { ...prev, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
+      });
+    }
+  }, [isPremium]);
+
+  const discoverParams = useMemo((): DiscoverEventsParams => ({
+    locationMode: !isPremium ? 'nearby' : filters.locationMode,
+    selectedCity: isPremium && filters.locationMode === 'city' ? filters.selectedCity : null,
+    distanceKm: filters.distanceKm,
+    deviceCoords: userCoords,
+    isPremium: !!isPremium,
+  }), [isPremium, filters.locationMode, filters.selectedCity, filters.distanceKm, userCoords]);
+
+  const { data: events = [], isLoading, error, refetch, isRefetching } = useDiscoverEvents(
+    user?.id ?? null,
+    discoverParams,
+  );
+  const { data: registeredEventIds = [] } = useRegisteredEventIds(user?.id);
+  const { data: otherCities = [] } = useOtherCityEvents(user?.id);
 
   const sheetFilterCount = countActiveFilters(filters);
   const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
@@ -744,18 +756,8 @@ export default function EventsListScreen() {
       list = list.filter(e => e.language === filters.language);
     }
 
-    // 7. Location filter (client-side haversine)
-    if (filters.locationEnabled && filters.distanceKm > 0 && userCoords) {
-      list = list.filter(e => {
-        const row = e as any;
-        if (row.latitude == null || row.longitude == null) return true;
-        const d = haversineKm(userCoords.lat, userCoords.lng, row.latitude, row.longitude);
-        return d <= filters.distanceKm;
-      });
-    }
-
     return list;
-  }, [events, registeredEventIds, searchQuery, timeFilter, filters, userCoords]);
+  }, [events, registeredEventIds, searchQuery, timeFilter, filters]);
   const discoverUpcomingEvents = useMemo(() => {
     const now = new Date();
     const registered = new Set(registeredEventIds);
@@ -906,6 +908,8 @@ export default function EventsListScreen() {
         onClose={() => setShowFilterSheet(false)}
         filters={filters}
         onApply={setFilters}
+        isPremium={isPremium}
+        onPremiumUpgrade={() => router.push('/premium')}
       />
 
       {/* Content — max width for tablet parity */}

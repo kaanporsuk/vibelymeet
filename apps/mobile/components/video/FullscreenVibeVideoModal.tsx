@@ -1,6 +1,6 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-video (VideoView + useVideoPlayer); expo-av Audio only for iOS silent-mode playback.
+ * Uses expo-video (VideoView + useVideoPlayer). setSafeAudioMode is a no-op until native AV is linked.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -12,13 +12,13 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { setSafeAudioMode } from '@/lib/safeAudioMode';
 
 const CAPTION_MAX_WIDTH = 400;
 
@@ -132,21 +132,19 @@ export function FullscreenVibeVideoModal({
   useEffect(() => {
     if (!visible) return;
 
-    void Audio.setAudioModeAsync({
+    void setSafeAudioMode({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
-      interruptionModeAndroid: 2,
     });
 
     return () => {
-      void Audio.setAudioModeAsync({
+      void setSafeAudioMode({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: false,
         staysActiveInBackground: false,
         shouldDuckAndroid: true,
-        interruptionModeAndroid: 2,
       });
     };
   }, [visible]);
@@ -176,15 +174,18 @@ export function FullscreenVibeVideoModal({
     </View>
   );
 
+  const configTitle = 'Playback configuration missing';
   const configBody =
     'Set EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME to match web (see apps/mobile/.env.example), or upload a video once so the app can cache the hostname from the server.';
 
+  const urlTitle = uid ? 'Video not ready yet' : 'No video found';
   const urlBody = uid
-    ? 'The video may still be processing, or the stream is not reachable from this device (CDN hotlink/referrer rules, 403/404). Pull to refresh on Profile.'
+    ? 'The video may still be processing, or the stream is not reachable from this device. Pull to refresh on Profile.'
     : 'No video ID on your profile. Pull to refresh or record again.';
 
+  const playbackTitle = 'Playback failed';
   const playbackBody =
-    'Manifest or HLS failed to load. If this persists, check Bunny Stream/CDN settings (hotlink, token auth) or try again after refresh.';
+    'The video stream failed to load. If this persists, try again after pulling to refresh on Profile.';
 
   return (
     <Modal
@@ -197,11 +198,11 @@ export function FullscreenVibeVideoModal({
       <StatusBar hidden={visible} />
       <View style={styles.root}>
         {errorKind === 'config'
-          ? renderErrorCard('Video unavailable', configBody, false)
+          ? renderErrorCard(configTitle, configBody, false)
           : errorKind === 'url'
-            ? renderErrorCard('Video unavailable', urlBody, false)
+            ? renderErrorCard(urlTitle, urlBody, false)
             : errorKind === 'playback'
-              ? renderErrorCard('Video unavailable', playbackBody, true)
+              ? renderErrorCard(playbackTitle, playbackBody, true)
               : playbackUrl
                 ? (
                     <>

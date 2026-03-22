@@ -168,8 +168,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           loadedVibes = profile.vibes || [];
           setVibes(loadedVibes);
           
-          // Check video
-          loadedHasVideo = profile.bunnyVideoStatus === "ready";
+          // Video step: complete if user has uploaded (UID present), matching score semantics
+          loadedHasVideo = !!(profile.bunnyVideoUid || profile.bunnyVideoStatus === "ready");
           setHasVideo(loadedHasVideo);
         }
 

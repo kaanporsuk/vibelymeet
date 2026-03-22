@@ -23,7 +23,6 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
-import { Audio } from 'expo-av';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -41,6 +40,7 @@ import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
+import { setSafeAudioMode } from '@/lib/safeAudioMode';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -97,6 +97,51 @@ function useLibraryUriParam(): string | null {
   const raw = params.libraryUri;
   const v = Array.isArray(raw) ? raw[0] : raw;
   return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+function ProcessingScreen({
+  theme,
+  onGoBack,
+}: {
+  theme: typeof Colors.light;
+  onGoBack: () => void;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const message =
+    elapsed < 10
+      ? 'Preparing your video…'
+      : elapsed < 30
+        ? 'Almost there…'
+        : elapsed < 60
+          ? 'Taking a bit longer than usual…'
+          : 'Still working on it. You can go back and we\u2019ll notify you.';
+
+  return (
+    <View style={[styles.centered, { backgroundColor: theme.background, paddingHorizontal: 28 }]}>
+      <ActivityIndicator size="large" color={theme.tint} />
+      <Text style={[styles.copy, { color: theme.text, marginTop: 20 }]}>Processing your video…</Text>
+      <Text style={[styles.copy, { color: theme.textSecondary, fontSize: 14, marginTop: 8 }]}>
+        {message}
+      </Text>
+      <Text style={[styles.processingElapsed, { color: theme.textSecondary }]}>
+        {elapsed}s
+      </Text>
+      <Text style={[styles.processingHint, { color: theme.textSecondary }]}>
+        You can return to your profile — we'll keep checking in the background.
+      </Text>
+      <Pressable
+        style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
+        onPress={onGoBack}
+      >
+        <Text style={styles.btnLabel}>Back to profile</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 export default function VibeVideoRecordScreen() {
@@ -175,14 +220,14 @@ export default function VibeVideoRecordScreen() {
 
   useEffect(() => {
     if (stage !== 'preview' || !recordedUri) return;
-    void Audio.setAudioModeAsync({
+    void setSafeAudioMode({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
     });
     return () => {
-      void Audio.setAudioModeAsync({
+      void setSafeAudioMode({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: false,
         staysActiveInBackground: false,
@@ -257,13 +302,20 @@ export default function VibeVideoRecordScreen() {
           signal: pollSignal,
         });
 
-        await qc.invalidateQueries({ queryKey: ['my-profile'] });
+        // Refetch (not just invalidate) so ProfileStudio gets fresh data before we navigate
+        await qc.refetchQueries({ queryKey: ['my-profile'] });
 
         if (!mountedRef.current || runId !== uploadRunIdRef.current) return;
-        if (leftProcessingEarlyRef.current) return;
+        if (leftProcessingEarlyRef.current) {
+          // User already left — the refetch above ensures profile is fresh when they return
+          return;
+        }
 
         if (result === 'ready') {
-          router.replace('/(tabs)/profile');
+          safeSetStage('idle');
+          Alert.alert('Your Vibe Video is live!', 'It\u2019s now visible on your profile.', [
+            { text: 'OK', onPress: () => router.replace('/(tabs)/profile') },
+          ]);
           return;
         }
         if (result === 'failed') {
@@ -421,25 +473,14 @@ export default function VibeVideoRecordScreen() {
 
   if (stage === 'processing') {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background, paddingHorizontal: 28 }]}>
-        <ActivityIndicator size="large" color={theme.tint} />
-        <Text style={[styles.copy, { color: theme.text, marginTop: 20 }]}>Processing your video…</Text>
-        <Text style={[styles.copy, { color: theme.textSecondary, fontSize: 14, marginTop: 8 }]}>
-          This usually takes 15–30 seconds
-        </Text>
-        <Text style={[styles.processingHint, { color: theme.textSecondary }]}>
-          You can return to your profile — we will keep checking in the background.
-        </Text>
-        <Pressable
-          style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
-          onPress={() => {
-            leftProcessingEarlyRef.current = true;
-            router.replace('/(tabs)/profile');
-          }}
-        >
-          <Text style={styles.btnLabel}>Back to profile</Text>
-        </Pressable>
-      </View>
+      <ProcessingScreen
+        theme={theme}
+        onGoBack={() => {
+          leftProcessingEarlyRef.current = true;
+          qc.refetchQueries({ queryKey: ['my-profile'] });
+          router.replace('/(tabs)/profile');
+        }}
+      />
     );
   }
 
@@ -563,6 +604,11 @@ const styles = StyleSheet.create({
   btn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginTop: 16 },
   btnLabel: { color: '#fff', fontWeight: '600' },
   backBtn: { marginTop: 24 },
+  processingElapsed: {
+    fontSize: 13,
+    marginTop: 12,
+    opacity: 0.6,
+  },
   processingHint: {
     fontSize: 13,
     textAlign: 'center',

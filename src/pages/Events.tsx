@@ -1,6 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
+import type { UseVisibleEventsOptions } from "@/hooks/useVisibleEvents";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
+import { useSubscription } from "@/hooks/useSubscription";
+import type { SelectedCity } from "@/components/events/EventsFilterBar";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { BottomNav } from "@/components/BottomNav";
@@ -13,17 +17,6 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -174,15 +167,43 @@ const ScopeLabel = ({ scope, city, country, distanceKm }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const Events = () => {
   const { user } = useUserProfile();
-  const { data: events = [], isLoading } = useVisibleEvents();
+  const { isPremium } = useSubscription();
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const [locationEnabled, setLocationEnabled] = useState(false);
-  const [distanceKm, setDistanceKm] = useState(0);
+  const [locationMode, setLocationMode] = useState<'nearby' | 'city'>('nearby');
+  const [selectedCity, setSelectedCity] = useState<SelectedCity | null>(null);
+  const [distanceKm, setDistanceKm] = useState(50);
   const [upcomingOnly, setUpcomingOnly] = useState(true);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!isPremium) {
+      if (locationMode !== "nearby" || selectedCity) {
+        setLocationMode("nearby");
+        setSelectedCity(null);
+        setDistanceKm(50);
+      }
+    }
+  }, [isPremium, locationMode, selectedCity]);
+
+  const visibleOpts = useMemo((): UseVisibleEventsOptions => {
+    const mode: "nearby" | "city" = !isPremium ? "nearby" : locationMode;
+    const city = mode === "city" && isPremium ? selectedCity : null;
+    const filterRadiusKm =
+      distanceKm > 0 && (mode === "city" ? !!city : true) ? distanceKm : null;
+    return {
+      deviceLat: userCoords?.lat ?? null,
+      deviceLng: userCoords?.lng ?? null,
+      locationMode: mode,
+      selectedCity: city,
+      filterRadiusKm,
+    };
+  }, [isPremium, locationMode, selectedCity, distanceKm, userCoords]);
+
+  const { data: events = [], isLoading } = useVisibleEvents(visibleOpts);
 
   // Check if user has location set
   useEffect(() => {
@@ -195,20 +216,37 @@ const Events = () => {
     checkLocation();
   }, [user?.id]);
 
-  const handleLocationToggle = useCallback((enabled: boolean) => {
-    setLocationEnabled(enabled);
-    if (enabled && !userCoords) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => {
-          toast.error("Could not get location. Check your browser permissions.");
-          setLocationEnabled(false);
+  useEffect(() => {
+    if (userCoords) return;
+    if ('permissions' in navigator) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        if (result.state === 'granted') {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+            () => {}
+          );
         }
-      );
+      }).catch(() => {});
     }
   }, [userCoords]);
 
-  const extraFilterCount = (selectedLanguage ? 1 : 0) + (locationEnabled ? 1 : 0) + (!upcomingOnly ? 1 : 0);
+  const handleLocationModeChange = useCallback((mode: 'nearby' | 'city') => {
+    setLocationMode(mode);
+    if (mode === 'nearby') {
+      setSelectedCity(null);
+      setDistanceKm(50);
+      if (!userCoords) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => { toast.error("Could not get location. Check your browser permissions."); }
+        );
+      }
+    } else {
+      setDistanceKm(25);
+    }
+  }, [userCoords]);
+
+  const extraFilterCount = (selectedLanguage ? 1 : 0) + (locationMode === 'city' && selectedCity ? 1 : 0) + (!upcomingOnly ? 1 : 0);
 
   // Map to the shape EventCardPremium / EventsRail expect
   const mappedEvents = useMemo(() =>
@@ -293,18 +331,10 @@ const Events = () => {
       filtered = filtered.filter(e => e.language === selectedLanguage);
     }
 
-    // 5. Location filter (client-side haversine)
-    if (locationEnabled && distanceKm > 0 && userCoords) {
-      filtered = filtered.filter(e => {
-        if (e.latitude == null || e.longitude == null) return true;
-        return haversineKm(userCoords.lat, userCoords.lng, e.latitude, e.longitude) <= distanceKm;
-      });
-    }
-
     return filtered;
-  }, [mappedEvents, searchQuery, activeFilters, selectedLanguage, locationEnabled, distanceKm, userCoords, upcomingOnly]);
+  }, [mappedEvents, searchQuery, activeFilters, selectedLanguage, upcomingOnly]);
 
-  const isFiltering = searchQuery || activeFilters.length > 0 || selectedLanguage || locationEnabled || !upcomingOnly;
+  const isFiltering = searchQuery || activeFilters.length > 0 || selectedLanguage || (locationMode === 'city' && selectedCity) || !upcomingOnly;
 
   // Group for discovery
   const liveEvents = mappedEvents.filter(e => e.status === 'live');
@@ -336,10 +366,13 @@ const Events = () => {
         searchQuery={searchQuery} onSearchChange={setSearchQuery}
         activeFilters={activeFilters} onFiltersChange={setActiveFilters}
         selectedLanguage={selectedLanguage} onLanguageChange={setSelectedLanguage}
-        locationEnabled={locationEnabled} onLocationEnabledChange={handleLocationToggle}
+        locationMode={locationMode} onLocationModeChange={handleLocationModeChange}
+        selectedCity={selectedCity} onSelectedCityChange={setSelectedCity}
         distanceKm={distanceKm} onDistanceChange={setDistanceKm}
         upcomingOnly={upcomingOnly} onUpcomingOnlyChange={setUpcomingOnly}
         extraFilterCount={extraFilterCount}
+        isPremium={isPremium}
+        onPremiumUpgrade={() => navigate('/premium')}
       />
 
       {/* Content */}

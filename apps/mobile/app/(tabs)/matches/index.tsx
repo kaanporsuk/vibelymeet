@@ -204,6 +204,87 @@ export default function MatchesListScreen() {
     setShowInviteSheet(true);
   }, []);
 
+  const handleMatchPress = useCallback(
+    (item: (typeof matches)[0]) => {
+      if (item.isNew) setOpenedVibeIds((prev) => new Set(prev).add(item.matchId));
+      if (item.unread) {
+        const params = new URLSearchParams({
+          otherUserId: item.id,
+          name: item.name ?? '',
+          image: item.image ?? '',
+        });
+        (router as { push: (p: string) => void }).push(`/match-celebration?${params.toString()}`);
+      } else {
+        (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
+      }
+    },
+    [router]
+  );
+
+  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = useCallback(
+    ({ item }) => {
+      const row = (
+        <MatchListRow
+          imageUri={item.image}
+          name={item.name}
+          age={item.age}
+          time={item.time}
+          lastMessage={item.lastMessage}
+          unread={item.unread}
+          isNew={item.isNew}
+        />
+      );
+
+      if (isUserBlocked(item.id)) {
+        return (
+          <Pressable
+            onPress={() => handleMatchPress(item)}
+            onLongPress={() => setActionsMatch(item)}
+            style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+          >
+            {row}
+          </Pressable>
+        );
+      }
+
+      return (
+        <SwipeableMatchConversationRow
+          matchId={item.matchId}
+          backgroundColor={theme.background}
+          activeSwipeMatchId={activeSwipeMatchId}
+          scrollCloseNonce={scrollCloseNonceSV}
+          onSwipeBegin={setActiveSwipeMatchId}
+          onSwipeEnd={() => setActiveSwipeMatchId(null)}
+          onPress={() => handleMatchPress(item)}
+          onLongPress={() => setActionsMatch(item)}
+          onSwipeRightCommit={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            (router as { push: (p: string) => void }).push(`/user/${item.id}`);
+          }}
+          onSwipeLeftCommit={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setUnmatchSheetMatch(item);
+          }}
+        >
+          {row}
+        </SwipeableMatchConversationRow>
+      );
+    },
+    [
+      activeSwipeMatchId,
+      handleMatchPress,
+      isUserBlocked,
+      router,
+      scrollCloseNonceSV,
+      theme.background,
+    ]
+  );
+
+  // ═══════════════════════════════════════════════
+  // ALL HOOKS ABOVE — NO HOOKS BELOW THIS LINE
+  // Early returns for loading/error states follow
+  // ═══════════════════════════════════════════════
+
   if (error) {
     return (
       <RNView style={[styles.centeredError, { backgroundColor: theme.background }]}>
@@ -311,82 +392,6 @@ export default function MatchesListScreen() {
       </ScreenContainer>
     );
   }
-
-  const handleMatchPress = useCallback(
-    (item: (typeof matches)[0]) => {
-      if (item.isNew) setOpenedVibeIds((prev) => new Set(prev).add(item.matchId));
-      if (item.unread) {
-        const params = new URLSearchParams({
-          otherUserId: item.id,
-          name: item.name ?? '',
-          image: item.image ?? '',
-        });
-        (router as { push: (p: string) => void }).push(`/match-celebration?${params.toString()}`);
-      } else {
-        (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
-      }
-    },
-    [router]
-  );
-
-  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = useCallback(
-    ({ item }) => {
-      const row = (
-        <MatchListRow
-          imageUri={item.image}
-          name={item.name}
-          age={item.age}
-          time={item.time}
-          lastMessage={item.lastMessage}
-          unread={item.unread}
-          isNew={item.isNew}
-        />
-      );
-
-      if (isUserBlocked(item.id)) {
-        return (
-          <Pressable
-            onPress={() => handleMatchPress(item)}
-            onLongPress={() => setActionsMatch(item)}
-            style={({ pressed }) => [pressed && { opacity: 0.8 }]}
-          >
-            {row}
-          </Pressable>
-        );
-      }
-
-      return (
-        <SwipeableMatchConversationRow
-          matchId={item.matchId}
-          backgroundColor={theme.background}
-          activeSwipeMatchId={activeSwipeMatchId}
-          scrollCloseNonce={scrollCloseNonceSV}
-          onSwipeBegin={setActiveSwipeMatchId}
-          onSwipeEnd={() => setActiveSwipeMatchId(null)}
-          onPress={() => handleMatchPress(item)}
-          onLongPress={() => setActionsMatch(item)}
-          onSwipeRightCommit={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            (router as { push: (p: string) => void }).push(`/user/${item.id}`);
-          }}
-          onSwipeLeftCommit={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setUnmatchSheetMatch(item);
-          }}
-        >
-          {row}
-        </SwipeableMatchConversationRow>
-      );
-    },
-    [
-      activeSwipeMatchId,
-      handleMatchPress,
-      isUserBlocked,
-      router,
-      scrollCloseNonceSV,
-      theme.background,
-    ]
-  );
 
   return (
     <ScreenContainer>

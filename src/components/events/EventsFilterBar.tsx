@@ -1,8 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, X, SlidersHorizontal, MapPin, ChevronDown } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, ChevronDown, Globe, Lock, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
+import { supabase } from "@/integrations/supabase/client";
+
+export interface SelectedCity {
+  name: string;
+  country: string;
+  lat: number;
+  lng: number;
+  /** State / province when useful for disambiguation */
+  region?: string | null;
+}
 
 interface EventsFilterBarProps {
   searchQuery: string;
@@ -11,24 +21,36 @@ interface EventsFilterBarProps {
   onFiltersChange: (filters: string[]) => void;
   selectedLanguage: string | null;
   onLanguageChange: (code: string | null) => void;
-  locationEnabled: boolean;
-  onLocationEnabledChange: (enabled: boolean) => void;
+  locationMode: 'nearby' | 'city';
+  onLocationModeChange: (mode: 'nearby' | 'city') => void;
+  selectedCity: SelectedCity | null;
+  onSelectedCityChange: (city: SelectedCity | null) => void;
   distanceKm: number;
   onDistanceChange: (km: number) => void;
   upcomingOnly: boolean;
   onUpcomingOnlyChange: (val: boolean) => void;
   extraFilterCount: number;
+  isPremium: boolean;
+  onPremiumUpgrade: () => void;
 }
 
 const dateFilters = ["Tonight", "This Weekend", "This Week", "Upcoming"];
 const interestFilters = ["Music", "Tech", "Art", "Gaming", "Food", "Wellness", "Outdoor"];
 const distanceOptions = [
-  { km: 0, label: "Anywhere" },
   { km: 10, label: "10 km" },
   { km: 25, label: "25 km" },
   { km: 50, label: "50 km" },
   { km: 100, label: "100 km" },
 ];
+
+interface GeoResult {
+  lat: number;
+  lng: number;
+  city: string;
+  country: string;
+  region?: string;
+  display_name: string;
+}
 
 export const EventsFilterBar = ({
   searchQuery,
@@ -37,19 +59,29 @@ export const EventsFilterBar = ({
   onFiltersChange,
   selectedLanguage,
   onLanguageChange,
-  locationEnabled,
-  onLocationEnabledChange,
+  locationMode,
+  onLocationModeChange,
+  selectedCity,
+  onSelectedCityChange,
   distanceKm,
   onDistanceChange,
   upcomingOnly,
   onUpcomingOnlyChange,
   extraFilterCount,
+  isPremium,
+  onPremiumUpgrade,
 }: EventsFilterBarProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
   const [showPanel, setShowPanel] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+
+  // City search state
+  const [cityQuery, setCityQuery] = useState('');
+  const [cityResults, setCityResults] = useState<GeoResult[]>([]);
+  const [isCitySearching, setIsCitySearching] = useState(false);
+  const geocodeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -89,10 +121,42 @@ export const EventsFilterBar = ({
     onFiltersChange([]);
     onSearchChange("");
     onLanguageChange(null);
-    onLocationEnabledChange(false);
-    onDistanceChange(0);
+    onLocationModeChange('nearby');
+    onSelectedCityChange(null);
+    onDistanceChange(50);
     onUpcomingOnlyChange(true);
+    setCityQuery('');
+    setCityResults([]);
   };
+
+  const handleCitySearch = useCallback((q: string) => {
+    setCityQuery(q);
+    if (geocodeRef.current) clearTimeout(geocodeRef.current);
+    if (q.length < 2) { setCityResults([]); return; }
+    geocodeRef.current = setTimeout(async () => {
+      setIsCitySearching(true);
+      try {
+        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
+        if (!error && Array.isArray(data)) setCityResults(data);
+        else setCityResults([]);
+      } catch {
+        setCityResults([]);
+      }
+      setIsCitySearching(false);
+    }, 300);
+  }, []);
+
+  const selectCity = useCallback((result: GeoResult) => {
+    onSelectedCityChange({
+      name: result.city,
+      country: result.country,
+      lat: result.lat,
+      lng: result.lng,
+      region: result.region?.trim() || null,
+    });
+    setCityQuery('');
+    setCityResults([]);
+  }, [onSelectedCityChange]);
 
   const totalBadge = activeFilters.length + extraFilterCount;
   const langEntry = selectedLanguage
@@ -291,20 +355,118 @@ export const EventsFilterBar = ({
                 {/* Location */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Location</p>
-                  <div className="flex items-center gap-3 flex-wrap">
+
+                  {/* Mode pills */}
+                  <div className="flex items-center gap-2 mb-3">
                     <button
-                      onClick={() => onLocationEnabledChange(!locationEnabled)}
+                      onClick={() => onLocationModeChange('nearby')}
                       className={cn(
                         "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border transition-all duration-200",
-                        locationEnabled
+                        locationMode === 'nearby'
                           ? "bg-neon-cyan/15 border-neon-cyan/50 text-neon-cyan"
                           : "bg-muted/30 border-border/30 text-muted-foreground hover:border-neon-cyan/30"
                       )}
                     >
                       <MapPin className="w-3.5 h-3.5" />
-                      Near me
+                      Nearby
                     </button>
-                    {locationEnabled && distanceOptions.map(opt => (
+                    <button
+                      onClick={() => onLocationModeChange('city')}
+                      className={cn(
+                        "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border transition-all duration-200",
+                        locationMode === 'city'
+                          ? "bg-neon-cyan/15 border-neon-cyan/50 text-neon-cyan"
+                          : "bg-muted/30 border-border/30 text-muted-foreground hover:border-neon-cyan/30"
+                      )}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      Choose a city
+                      {!isPremium && <Lock className="w-3 h-3 opacity-60" />}
+                    </button>
+                  </div>
+
+                  {/* City mode: upsell for free users */}
+                  {locationMode === 'city' && !isPremium && (
+                    <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 to-accent/10 p-4 mb-3">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl">💎</span>
+                        <div className="flex-1">
+                          <p className="font-semibold text-foreground text-sm">Discover events in other cities</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Search and join events anywhere in the world with Vibely Premium
+                          </p>
+                          <button
+                            onClick={onPremiumUpgrade}
+                            className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-primary to-accent text-primary-foreground"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Upgrade to Premium
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* City mode: search (premium users) */}
+                  {locationMode === 'city' && isPremium && (
+                    <div className="mb-3">
+                      {selectedCity ? (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
+                          <MapPin className="w-4 h-4 text-primary shrink-0" />
+                          <span className="text-sm font-medium text-foreground flex-1 truncate">
+                            📍 {selectedCity.name}
+                            {selectedCity.region ? `, ${selectedCity.region}` : ''}, {selectedCity.country}
+                          </span>
+                          <button
+                            onClick={() => { onSelectedCityChange(null); setCityQuery(''); setCityResults([]); }}
+                            className="p-0.5 rounded-full hover:bg-muted transition-colors shrink-0"
+                          >
+                            <X className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">
+                            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                            <input
+                              type="text"
+                              value={cityQuery}
+                              onChange={(e) => handleCitySearch(e.target.value)}
+                              placeholder="Search for a city..."
+                              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                            />
+                            {isCitySearching && <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />}
+                          </div>
+                          {cityResults.length > 0 && (
+                            <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-border bg-card shadow-xl z-50 max-h-48 overflow-y-auto">
+                              {cityResults.map((result, i) => (
+                                <button
+                                  key={`${result.lat}-${result.lng}-${i}`}
+                                  onClick={() => selectCity(result)}
+                                  className="w-full text-left px-3 py-2.5 flex items-center gap-2 hover:bg-muted/50 transition-colors text-sm"
+                                >
+                                  <MapPin className="w-4 h-4 text-muted-foreground shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="font-medium text-foreground">{result.city}</span>
+                                    <span className="text-muted-foreground ml-1.5">
+                                      {result.region ? `${result.region}, ` : ''}{result.country}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {cityQuery.length >= 2 && !isCitySearching && cityResults.length === 0 && (
+                            <p className="text-xs text-muted-foreground text-center py-2">No cities found</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Distance pills */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {distanceOptions.map(opt => (
                       <button
                         key={opt.km}
                         onClick={() => onDistanceChange(opt.km)}

@@ -1,6 +1,5 @@
 /**
- * Vibe Video manage sheet — matches web `ProfileStudio` drawer (src/pages/ProfileStudio.tsx ~1520–1601).
- * Caption is read-only on the thumbnail (edited only in the record/studio flow like web VibeStudioModal).
+ * Vibe Video manage sheet — state-aware, synced with ProfileStudio via resolveVibeVideoState.
  */
 import React, { useState, useEffect } from 'react';
 import {
@@ -13,14 +12,15 @@ import {
   Dimensions,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius, fonts } from '@/constants/theme';
-import { getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { DeleteVibeVideoError } from '@/lib/vibeVideoApi';
+import type { VibeVideoInfo } from '@/lib/vibeVideoState';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_HEIGHT = Math.min(SCREEN_H * 0.72, 640);
@@ -28,11 +28,7 @@ const SHEET_HEIGHT = Math.min(SCREEN_H * 0.72, 640);
 export type VibeVideoDrawerProps = {
   visible: boolean;
   onClose: () => void;
-  /** Profile has a ready Bunny video */
-  hasVibeVideo: boolean;
-  bunnyVideoUid?: string | null;
-  /** Read-only overlay on thumbnail (same as web drawer) */
-  vibeCaption: string;
+  videoInfo: VibeVideoInfo;
   onRecordNew: () => void;
   onOpenFullscreen: () => void;
   onDelete: () => void | Promise<void>;
@@ -41,22 +37,19 @@ export type VibeVideoDrawerProps = {
 export default function VibeVideoDrawer({
   visible,
   onClose,
-  hasVibeVideo,
-  bunnyVideoUid,
-  vibeCaption,
+  videoInfo,
   onRecordNew,
   onOpenFullscreen,
   onDelete,
 }: VibeVideoDrawerProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const thumbnailUrl = getVibeVideoThumbnailUrl(bunnyVideoUid);
   const [thumbError, setThumbError] = useState(false);
   const thumbMissing = hasVibeVideo && (!thumbnailUrl || thumbError);
 
   useEffect(() => {
     if (visible) setThumbError(false);
-  }, [visible, bunnyVideoUid]);
+  }, [visible, videoInfo.uid]);
 
   const handleDelete = () => {
     Alert.alert('Delete vibe video?', 'This cannot be undone.', [
@@ -76,6 +69,181 @@ export default function VibeVideoDrawer({
         },
       },
     ]);
+  };
+
+  const thumbnailUrl = videoInfo.thumbnailUrl;
+  const thumbMissing = videoInfo.state === 'ready' && (!thumbnailUrl || thumbError);
+
+  const renderProcessing = () => (
+    <View style={s.emptyWrap}>
+      <ActivityIndicator size="large" color="#8B5CF6" />
+      <Text style={[s.emptyTitle, { color: theme.text }]}>
+        {videoInfo.state === 'uploading' ? 'Uploading your video…' : 'Processing your video…'}
+      </Text>
+      <Text style={[s.emptySub, { color: theme.textSecondary }]}>
+        {videoInfo.state === 'uploading'
+          ? 'This may take a moment depending on your connection.'
+          : 'This usually takes 15–30 seconds.'}
+      </Text>
+      {videoInfo.canDelete ? (
+        <Pressable onPress={handleDelete} style={s.destructiveLink}>
+          <Text style={[s.destructiveLinkText, { color: theme.danger }]}>Cancel & delete</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  const renderFailed = () => (
+    <View style={s.emptyWrap}>
+      <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ opacity: 0.85 }} />
+      <Text style={[s.emptyTitle, { color: theme.text }]}>Video processing failed</Text>
+      <Text style={[s.emptySub, { color: theme.textSecondary }]}>
+        Record a new clip — it only takes a moment.
+      </Text>
+      <Pressable
+        onPress={() => { onClose(); onRecordNew(); }}
+        style={s.primaryCta}
+      >
+        <LinearGradient
+          colors={['#8B5CF6', '#E84393']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <Text style={s.primaryCtaText}>Record again</Text>
+      </Pressable>
+      {videoInfo.canDelete ? (
+        <Pressable onPress={handleDelete} style={s.destructiveLink}>
+          <Text style={[s.destructiveLinkText, { color: theme.danger }]}>Delete video</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+
+  const renderEmpty = () => (
+    <View style={s.emptyWrap}>
+      <Ionicons name="videocam-outline" size={56} color={theme.textSecondary} style={{ opacity: 0.35 }} />
+      <Text style={[s.emptyTitle, { color: theme.text }]}>Record your Vibe Video</Text>
+      <Text style={[s.emptySub, { color: theme.textSecondary }]}>
+        Profiles with video get 3x more quality conversations
+      </Text>
+      <Pressable
+        onPress={() => { onClose(); onRecordNew(); }}
+        style={s.primaryCta}
+      >
+        <LinearGradient
+          colors={['#8B5CF6', '#E84393']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <Text style={s.primaryCtaText}>Record now</Text>
+      </Pressable>
+    </View>
+  );
+
+  const renderReady = () => (
+    <>
+      <Pressable
+        style={[s.preview, { borderColor: theme.glassBorder }]}
+        onPress={() => {
+          if (videoInfo.canPlay) { onClose(); onOpenFullscreen(); }
+        }}
+      >
+        {thumbnailUrl && !thumbError ? (
+          <Image
+            source={{ uri: thumbnailUrl }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            onError={() => setThumbError(true)}
+          />
+        ) : (
+          <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
+        )}
+        {thumbMissing ? (
+          <View style={s.thumbFallback} pointerEvents="none">
+            <Ionicons name="image-outline" size={28} color="rgba(255,255,255,0.5)" />
+            <Text style={s.thumbFallbackText}>Thumbnail loading</Text>
+          </View>
+        ) : null}
+        <LinearGradient
+          pointerEvents="none"
+          colors={['transparent', 'rgba(0,0,0,0.72)']}
+          locations={[0.35, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        {videoInfo.canPlay ? (
+          <View style={s.previewPlay}>
+            <Ionicons name="play" size={24} color="#fff" />
+          </View>
+        ) : null}
+        {(videoInfo.caption ?? '').trim() ? (
+          <View style={s.previewCaption} pointerEvents="none">
+            <Text style={s.previewCaptionLabel}>VIBING ON</Text>
+            <Text style={s.previewCaptionText} numberOfLines={2}>
+              {(videoInfo.caption ?? '').trim()}
+            </Text>
+          </View>
+        ) : null}
+      </Pressable>
+
+      <View style={s.infoRow}>
+        <View style={s.statusBadge}>
+          <View style={[s.statusDot, { backgroundColor: '#22c55e' }]} />
+          <Text style={[s.statusLabel, { color: theme.text }]}>Live</Text>
+        </View>
+      </View>
+
+      <View style={[s.divider, { backgroundColor: theme.glassBorder }]} />
+
+      {videoInfo.canRecord ? (
+        <ActionRow
+          icon="videocam-outline"
+          label="Record new video"
+          color={theme.text}
+          iconColor={theme.tint}
+          onPress={() => { onClose(); onRecordNew(); }}
+          showChevron
+        />
+      ) : null}
+      {videoInfo.canPlay ? (
+        <ActionRow
+          icon="eye-outline"
+          label="Preview as others see it"
+          color={theme.text}
+          iconColor={theme.tint}
+          onPress={() => { onClose(); onOpenFullscreen(); }}
+          showChevron
+        />
+      ) : null}
+
+      <View style={[s.divider, { backgroundColor: theme.glassBorder }]} />
+
+      {videoInfo.canDelete ? (
+        <ActionRow
+          icon="trash-outline"
+          label="Delete video"
+          color={theme.danger}
+          iconColor={theme.danger}
+          onPress={handleDelete}
+        />
+      ) : null}
+    </>
+  );
+
+  const renderBody = () => {
+    switch (videoInfo.state) {
+      case 'uploading':
+      case 'processing':
+        return renderProcessing();
+      case 'failed':
+      case 'error':
+        return renderFailed();
+      case 'ready':
+        return renderReady();
+      default:
+        return renderEmpty();
+    }
   };
 
   return (
@@ -103,116 +271,7 @@ export default function VibeVideoDrawer({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {!hasVibeVideo ? (
-                <View style={s.emptyWrap}>
-                  <Ionicons name="videocam-outline" size={56} color={theme.textSecondary} style={{ opacity: 0.35 }} />
-                  <Text style={[s.emptyTitle, { color: theme.text }]}>Record your Vibe Video</Text>
-                  <Text style={[s.emptySub, { color: theme.textSecondary }]}>
-                    Profiles with video get 3x more quality conversations
-                  </Text>
-                  <Pressable
-                    onPress={() => {
-                      onClose();
-                      onRecordNew();
-                    }}
-                    style={s.primaryCta}
-                  >
-                    <LinearGradient
-                      colors={['#8B5CF6', '#E84393']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={StyleSheet.absoluteFill}
-                    />
-                    <Text style={s.primaryCtaText}>Record now</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <>
-                  <Pressable
-                    style={[s.preview, { borderColor: theme.glassBorder }]}
-                    onPress={() => {
-                      onClose();
-                      onOpenFullscreen();
-                    }}
-                  >
-                    {thumbnailUrl && !thumbError ? (
-                      <Image
-                        source={{ uri: thumbnailUrl }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                        onError={() => setThumbError(true)}
-                      />
-                    ) : (
-                      <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
-                    )}
-                    {thumbMissing ? (
-                      <View style={s.thumbFallback} pointerEvents="none">
-                        <Ionicons name="image-outline" size={28} color="rgba(255,255,255,0.5)" />
-                        <Text style={s.thumbFallbackText}>Thumbnail unavailable</Text>
-                      </View>
-                    ) : null}
-                    <LinearGradient
-                      pointerEvents="none"
-                      colors={['transparent', 'rgba(0,0,0,0.72)']}
-                      locations={[0.35, 1]}
-                      style={StyleSheet.absoluteFill}
-                    />
-                    <View style={s.previewPlay}>
-                      <Ionicons name="play" size={24} color="#fff" />
-                    </View>
-                    {vibeCaption.trim() ? (
-                      <View style={s.previewCaption} pointerEvents="none">
-                        <Text style={s.previewCaptionLabel}>VIBING ON</Text>
-                        <Text style={s.previewCaptionText} numberOfLines={2}>
-                          {vibeCaption.trim()}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-
-                  <View style={s.infoRow}>
-                    <View style={s.statusBadge}>
-                      <View style={[s.statusDot, { backgroundColor: '#22c55e' }]} />
-                      <Text style={[s.statusLabel, { color: theme.text }]}>Live</Text>
-                    </View>
-                  </View>
-
-                  <View style={[s.divider, { backgroundColor: theme.glassBorder }]} />
-
-                  <ActionRow
-                    icon="videocam-outline"
-                    label="Record new video"
-                    color={theme.text}
-                    iconColor={theme.tint}
-                    onPress={() => {
-                      onClose();
-                      onRecordNew();
-                    }}
-                    showChevron
-                  />
-                  <ActionRow
-                    icon="eye-outline"
-                    label="Preview as others see it"
-                    color={theme.text}
-                    iconColor={theme.tint}
-                    onPress={() => {
-                      onClose();
-                      onOpenFullscreen();
-                    }}
-                    showChevron
-                  />
-
-                  <View style={[s.divider, { backgroundColor: theme.glassBorder }]} />
-
-                  <ActionRow
-                    icon="trash-outline"
-                    label="Delete video"
-                    color={theme.danger}
-                    iconColor={theme.danger}
-                    onPress={handleDelete}
-                  />
-                </>
-              )}
+              {renderBody()}
             </ScrollView>
           </Pressable>
         </View>
@@ -419,6 +478,14 @@ const s = StyleSheet.create({
   primaryCtaText: {
     color: '#fff',
     fontSize: 16,
+    fontFamily: fonts.bodySemiBold,
+  },
+  destructiveLink: {
+    marginTop: spacing.md,
+    paddingVertical: 8,
+  },
+  destructiveLinkText: {
+    fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },
 });

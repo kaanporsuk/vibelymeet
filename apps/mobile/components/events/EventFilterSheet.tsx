@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,13 +8,15 @@ import {
   Modal,
   Dimensions,
   Switch,
-  Platform,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { spacing, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { EVENT_LANGUAGES } from '@/lib/eventLanguages';
+import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -29,13 +31,21 @@ const DISTANCE_OPTIONS = [
   { km: 25, label: '25 km' },
   { km: 50, label: '50 km' },
   { km: 100, label: '100 km' },
-  { km: 0, label: 'Anywhere' },
 ] as const;
+
+export interface SelectedCity {
+  name: string;
+  country: string;
+  lat: number;
+  lng: number;
+  region?: string | null;
+}
 
 export interface EventFilters {
   categories: string[];
   language: string | null;
-  locationEnabled: boolean;
+  locationMode: 'nearby' | 'city';
+  selectedCity: SelectedCity | null;
   distanceKm: number;
   upcomingOnly: boolean;
 }
@@ -43,36 +53,62 @@ export interface EventFilters {
 export const DEFAULT_FILTERS: EventFilters = {
   categories: [],
   language: null,
-  locationEnabled: false,
+  locationMode: 'nearby',
+  selectedCity: null,
   distanceKm: 50,
   upcomingOnly: true,
 };
+
+interface GeoResult {
+  lat: number;
+  lng: number;
+  city: string;
+  country: string;
+  region?: string;
+  display_name: string;
+}
 
 interface EventFilterSheetProps {
   visible: boolean;
   onClose: () => void;
   filters: EventFilters;
   onApply: (filters: EventFilters) => void;
+  isPremium: boolean;
+  onPremiumUpgrade: () => void;
 }
 
-export default function EventFilterSheet({ visible, onClose, filters, onApply }: EventFilterSheetProps) {
+export default function EventFilterSheet({
+  visible, onClose, filters, onApply, isPremium, onPremiumUpgrade,
+}: EventFilterSheetProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
 
   const [draft, setDraft] = useState<EventFilters>(filters);
   const [locationStatus, setLocationStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
 
+  const [cityQuery, setCityQuery] = useState('');
+  const [cityResults, setCityResults] = useState<GeoResult[]>([]);
+  const [isCitySearching, setIsCitySearching] = useState(false);
+  const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (visible) setDraft(filters);
-  }, [visible]);
+    if (visible) {
+      let f = filters;
+      if (f.locationMode === 'city' && !isPremium) {
+        f = { ...f, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
+      }
+      setDraft(f);
+      setCityQuery('');
+      setCityResults([]);
+    }
+  }, [visible, filters, isPremium]);
 
   useEffect(() => {
     (async () => {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
         setLocationStatus(status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'unknown');
-      } catch (error) {
-        console.warn('[EventFilterSheet] location permission read failed:', error);
+      } catch {
         setLocationStatus('unknown');
       }
     })();
@@ -91,26 +127,72 @@ export default function EventFilterSheet({ visible, onClose, filters, onApply }:
     setDraft(prev => ({ ...prev, language: code }));
   };
 
-  const toggleLocation = async (enabled: boolean) => {
-    if (enabled && locationStatus !== 'granted') {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        setLocationStatus(status === 'granted' ? 'granted' : 'denied');
-        if (status !== 'granted') return;
-      } catch (error) {
-        console.warn('[EventFilterSheet] location permission request failed:', error);
-        setLocationStatus('denied');
-        return;
-      }
+  const setLocationMode = (mode: 'nearby' | 'city') => {
+    if (mode === 'nearby') {
+      setDraft(prev => ({ ...prev, locationMode: 'nearby', selectedCity: null, distanceKm: 50 }));
+      setCityQuery('');
+      setCityResults([]);
+    } else {
+      setDraft(prev => ({ ...prev, locationMode: 'city', distanceKm: 25 }));
     }
-    setDraft(prev => ({ ...prev, locationEnabled: enabled }));
   };
+
+  const requestLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationStatus(status === 'granted' ? 'granted' : 'denied');
+    } catch {
+      setLocationStatus('denied');
+    }
+  };
+
+  const handleCitySearch = useCallback((q: string) => {
+    setCityQuery(q);
+    if (geocodeTimeout.current) clearTimeout(geocodeTimeout.current);
+    if (q.length < 2) { setCityResults([]); return; }
+    geocodeTimeout.current = setTimeout(async () => {
+      setIsCitySearching(true);
+      try {
+        const { data, error } = await supabase.functions.invoke('forward-geocode', { body: { query: q } });
+        if (!error && Array.isArray(data)) setCityResults(data);
+        else setCityResults([]);
+      } catch {
+        setCityResults([]);
+      }
+      setIsCitySearching(false);
+    }, 300);
+  }, []);
+
+  const selectCity = useCallback((result: GeoResult) => {
+    setDraft(prev => ({
+      ...prev,
+      selectedCity: {
+        name: result.city,
+        country: result.country,
+        lat: result.lat,
+        lng: result.lng,
+        region: result.region?.trim() || null,
+      },
+    }));
+    setCityQuery('');
+    setCityResults([]);
+  }, []);
+
+  const clearCity = useCallback(() => {
+    setDraft(prev => ({ ...prev, selectedCity: null }));
+    setCityQuery('');
+    setCityResults([]);
+  }, []);
 
   const setDistance = (km: number) => {
     setDraft(prev => ({ ...prev, distanceKm: km }));
   };
 
-  const clearAll = () => setDraft(DEFAULT_FILTERS);
+  const clearAll = () => {
+    setDraft(DEFAULT_FILTERS);
+    setCityQuery('');
+    setCityResults([]);
+  };
 
   const activeCount = countActiveFilters(draft);
 
@@ -142,6 +224,7 @@ export default function EventFilterSheet({ visible, onClose, filters, onApply }:
             contentContainerStyle={s.bodyContent}
             showsVerticalScrollIndicator={false}
             bounces={false}
+            keyboardShouldPersistTaps="handled"
           >
             {/* ── Categories ── */}
             <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
@@ -208,49 +291,157 @@ export default function EventFilterSheet({ visible, onClose, filters, onApply }:
               })}
             </ScrollView>
 
-            {/* ── Location / Distance ── */}
+            {/* ── Location ── */}
             <Text style={[s.sectionTitle, { color: theme.text, marginTop: spacing.xl }]}>Location</Text>
-            <View style={[s.toggleRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-              <View style={s.toggleLabel}>
-                <Ionicons name="navigate-outline" size={18} color={theme.tint} />
-                <Text style={[s.toggleText, { color: theme.text }]}>Near me</Text>
-              </View>
-              <Switch
-                value={draft.locationEnabled}
-                onValueChange={toggleLocation}
-                trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#8B5CF680' }}
-                thumbColor={draft.locationEnabled ? '#8B5CF6' : '#888'}
-                ios_backgroundColor="rgba(255,255,255,0.1)"
-              />
+
+            {/* Mode pills */}
+            <View style={s.locationModeRow}>
+              <Pressable
+                onPress={() => setLocationMode('nearby')}
+                style={[
+                  s.modePill,
+                  draft.locationMode === 'nearby'
+                    ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                    : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Ionicons name="navigate" size={14} color={draft.locationMode === 'nearby' ? '#fff' : theme.textSecondary} />
+                <Text style={[s.modePillText, { color: draft.locationMode === 'nearby' ? '#fff' : theme.textSecondary }]}>
+                  Nearby
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setLocationMode('city')}
+                style={[
+                  s.modePill,
+                  draft.locationMode === 'city'
+                    ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                    : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Ionicons name="globe" size={14} color={draft.locationMode === 'city' ? '#fff' : theme.textSecondary} />
+                <Text style={[s.modePillText, { color: draft.locationMode === 'city' ? '#fff' : theme.textSecondary }]}>
+                  Choose a city
+                </Text>
+                {!isPremium && (
+                  <Ionicons name="lock-closed" size={11} color={draft.locationMode === 'city' ? '#fff' : theme.textSecondary} style={{ marginLeft: 2 }} />
+                )}
+              </Pressable>
             </View>
-            {locationStatus === 'denied' && (
-              <Text style={[s.helperText, { color: theme.accent }]}>
-                Location permission denied. Enable it in Settings.
-              </Text>
+
+            {/* Nearby: permission helper */}
+            {draft.locationMode === 'nearby' && locationStatus !== 'granted' && (
+              <Pressable
+                onPress={requestLocation}
+                style={[s.permissionHelper, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
+              >
+                <Ionicons name="location-outline" size={16} color={theme.tint} />
+                <Text style={[s.permissionHelperText, { color: theme.textSecondary }]}>
+                  {locationStatus === 'denied'
+                    ? 'Location permission denied — enable in Settings'
+                    : 'Tap to enable location for nearby events'}
+                </Text>
+              </Pressable>
             )}
-            {draft.locationEnabled && (
-              <View style={s.distanceRow}>
-                {DISTANCE_OPTIONS.map(opt => {
-                  const active = draft.distanceKm === opt.km;
-                  return (
-                    <Pressable
-                      key={opt.km}
-                      onPress={() => setDistance(opt.km)}
-                      style={[
-                        s.distChip,
-                        active
-                          ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
-                          : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' },
-                      ]}
-                    >
-                      <Text style={[s.distChipText, { color: active ? '#fff' : theme.textSecondary }]}>
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+
+            {/* City mode: upsell for free users */}
+            {draft.locationMode === 'city' && !isPremium && (
+              <View style={[s.upsellCard, { borderColor: 'rgba(139,92,246,0.25)' }]}>
+                <Text style={s.upsellEmoji}>💎</Text>
+                <View style={s.upsellContent}>
+                  <Text style={[s.upsellTitle, { color: theme.text }]}>Discover events in other cities</Text>
+                  <Text style={[s.upsellDesc, { color: theme.textSecondary }]}>
+                    Search and join events anywhere in the world with Vibely Premium
+                  </Text>
+                  <Pressable onPress={onPremiumUpgrade} style={s.upsellCta}>
+                    <Ionicons name="sparkles" size={14} color="#fff" />
+                    <Text style={s.upsellCtaText}>Upgrade to Premium</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
+
+            {/* City mode: search (premium users) */}
+            {draft.locationMode === 'city' && isPremium && (
+              <>
+                {draft.selectedCity ? (
+                  <View style={[s.selectedCityRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                    <Ionicons name="location" size={16} color={theme.tint} />
+                    <Text style={[s.selectedCityText, { color: theme.text }]} numberOfLines={1}>
+                      📍 {draft.selectedCity.name}
+                      {draft.selectedCity.region ? `, ${draft.selectedCity.region}` : ''}, {draft.selectedCity.country}
+                    </Text>
+                    <Pressable onPress={clearCity} hitSlop={8}>
+                      <Ionicons name="close-circle" size={18} color={theme.textSecondary} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <View style={[s.citySearchWrap, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                      <Ionicons name="search" size={16} color={theme.textSecondary} />
+                      <TextInput
+                        style={[s.citySearchInput, { color: theme.text }]}
+                        value={cityQuery}
+                        onChangeText={handleCitySearch}
+                        placeholder="Search for a city..."
+                        placeholderTextColor={theme.textSecondary}
+                        autoCapitalize="words"
+                        returnKeyType="search"
+                      />
+                      {isCitySearching && <ActivityIndicator size="small" color={theme.tint} />}
+                    </View>
+                    {cityResults.length > 0 && (
+                      <View style={[s.cityResultsList, { borderColor: theme.border }]}>
+                        {cityResults.map((result, i) => (
+                          <Pressable
+                            key={`${result.lat}-${result.lng}-${i}`}
+                            onPress={() => selectCity(result)}
+                            style={[
+                              s.cityResultItem,
+                              i < cityResults.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+                            ]}
+                          >
+                            <Ionicons name="location-outline" size={16} color={theme.textSecondary} />
+                            <View style={s.cityResultTextWrap}>
+                              <Text style={[s.cityResultName, { color: theme.text }]}>{result.city}</Text>
+                              <Text style={[s.cityResultCountry, { color: theme.textSecondary }]} numberOfLines={1}>
+                                {result.region ? `${result.region}, ` : ''}{result.country}
+                              </Text>
+                            </View>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                    {cityQuery.length >= 2 && !isCitySearching && cityResults.length === 0 && (
+                      <Text style={[s.noResultsText, { color: theme.textSecondary }]}>No cities found</Text>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Distance pills */}
+            <View style={s.distanceRow}>
+              {DISTANCE_OPTIONS.map(opt => {
+                const active = draft.distanceKm === opt.km;
+                return (
+                  <Pressable
+                    key={opt.km}
+                    onPress={() => setDistance(opt.km)}
+                    style={[
+                      s.distChip,
+                      active
+                        ? { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                        : { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' },
+                    ]}
+                  >
+                    <Text style={[s.distChipText, { color: active ? '#fff' : theme.textSecondary }]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {/* ── Event Status ── */}
             <Text style={[s.sectionTitle, { color: theme.text, marginTop: spacing.xl }]}>Event Status</Text>
@@ -293,7 +484,7 @@ export function countActiveFilters(f: EventFilters): number {
   let count = 0;
   if (f.categories.length > 0) count++;
   if (f.language) count++;
-  if (f.locationEnabled) count++;
+  if (f.locationMode === 'city' && f.selectedCity) count++;
   if (!f.upcomingOnly) count++;
   return count;
 }
@@ -308,7 +499,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {
-    height: SCREEN_HEIGHT * 0.7,
+    height: SCREEN_HEIGHT * 0.75,
     borderTopLeftRadius: radius['2xl'],
     borderTopRightRadius: radius['2xl'],
     borderWidth: StyleSheet.hairlineWidth,
@@ -379,6 +570,158 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+
+  // ── Location ──
+  locationModeRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  modePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  modePillText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  permissionHelper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.md,
+  },
+  permissionHelperText: {
+    fontSize: 12,
+    flex: 1,
+  },
+  upsellCard: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    backgroundColor: 'rgba(139,92,246,0.08)',
+    marginBottom: spacing.md,
+  },
+  upsellEmoji: {
+    fontSize: 24,
+  },
+  upsellContent: {
+    flex: 1,
+  },
+  upsellTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  upsellDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: spacing.md,
+  },
+  upsellCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+    backgroundColor: '#8B5CF6',
+  },
+  upsellCtaText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedCityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.md,
+  },
+  selectedCityText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  citySearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    height: 42,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.sm,
+  },
+  citySearchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  cityResultsList: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  cityResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  cityResultTextWrap: {
+    flex: 1,
+  },
+  cityResultName: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  cityResultCountry: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  noResultsText: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: spacing.md,
+  },
+
+  // ── Distance ──
+  distanceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  distChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  distChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  // ── Shared ──
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -401,22 +744,6 @@ const s = StyleSheet.create({
     fontSize: 12,
     marginTop: 6,
     marginLeft: 4,
-  },
-  distanceRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-  },
-  distChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-  },
-  distChipText: {
-    fontSize: 13,
-    fontWeight: '500',
   },
   footer: {
     flexDirection: 'row',

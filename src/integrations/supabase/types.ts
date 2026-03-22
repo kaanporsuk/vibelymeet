@@ -2361,6 +2361,7 @@ export type Database = {
         Args: {
           p_browse_lat?: number
           p_browse_lng?: number
+          p_filter_radius_km?: number
           p_is_premium?: boolean
           p_user_id: string
           p_user_lat?: number
