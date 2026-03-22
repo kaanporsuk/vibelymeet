@@ -578,7 +578,10 @@ export default function ProfileStudio() {
     }
   };
 
-  // ── Loading / Error ──────────────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // ALL HOOKS ABOVE — NO HOOKS BELOW THIS LINE
+  // Early returns for loading/error states follow
+  // ═══════════════════════════════════════════════
 
   if (isLoading && !profile) {
     return (

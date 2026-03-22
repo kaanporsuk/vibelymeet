@@ -103,9 +103,26 @@ function VoiceMessageBubble({
 }
 
 function ChatVideoPlayer({ uri, style }: { uri: string; style?: object }) {
+  const [hasError, setHasError] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'error') setHasError(true);
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  if (hasError) {
+    return (
+      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 12 }]}>
+        <Ionicons name="videocam-off-outline" size={24} color="#999" />
+      </View>
+    );
+  }
+
   return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
 }
 

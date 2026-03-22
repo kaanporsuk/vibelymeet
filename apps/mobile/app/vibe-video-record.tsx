@@ -23,7 +23,6 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
-import { Audio } from 'expo-av';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -41,6 +40,7 @@ import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
+import { setSafeAudioMode } from '@/lib/safeAudioMode';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -175,14 +175,14 @@ export default function VibeVideoRecordScreen() {
 
   useEffect(() => {
     if (stage !== 'preview' || !recordedUri) return;
-    void Audio.setAudioModeAsync({
+    void setSafeAudioMode({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
     });
     return () => {
-      void Audio.setAudioModeAsync({
+      void setSafeAudioMode({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: false,
         staysActiveInBackground: false,

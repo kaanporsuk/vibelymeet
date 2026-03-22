@@ -1,6 +1,6 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-video (VideoView + useVideoPlayer); expo-av Audio only for iOS silent-mode playback.
+ * Uses expo-video (VideoView + useVideoPlayer). setSafeAudioMode is a no-op until native AV is linked.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -12,13 +12,13 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { setSafeAudioMode } from '@/lib/safeAudioMode';
 
 const CAPTION_MAX_WIDTH = 400;
 
@@ -132,21 +132,19 @@ export function FullscreenVibeVideoModal({
   useEffect(() => {
     if (!visible) return;
 
-    void Audio.setAudioModeAsync({
+    void setSafeAudioMode({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,
       staysActiveInBackground: false,
       shouldDuckAndroid: true,
-      interruptionModeAndroid: 2,
     });
 
     return () => {
-      void Audio.setAudioModeAsync({
+      void setSafeAudioMode({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: false,
         staysActiveInBackground: false,
         shouldDuckAndroid: true,
-        interruptionModeAndroid: 2,
       });
     };
   }, [visible]);

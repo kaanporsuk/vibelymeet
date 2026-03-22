@@ -161,7 +161,19 @@ const vibeScoreStyles = StyleSheet.create({
 
 export default function ProfileScreen() {
   if (USE_PROFILE_STUDIO) return <ProfileStudio />;
+  return <LegacyProfileScreen />;
+}
 
+// ═══════════════════════════════════════════════
+// ALL HOOKS ABOVE — NO HOOKS BELOW THIS LINE
+// Early returns for loading/error states follow
+// ═══════════════════════════════════════════════
+
+/**
+ * Legacy profile screen retained behind `USE_PROFILE_STUDIO === false`.
+ * Extracted to its own component so hooks are unconditional per-component.
+ */
+function LegacyProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width: winWidth } = useWindowDimensions();
   const [photoGridWidth, setPhotoGridWidth] = useState<number | null>(null);
