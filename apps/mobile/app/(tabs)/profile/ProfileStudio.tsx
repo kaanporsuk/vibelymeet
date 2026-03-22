@@ -37,10 +37,9 @@ import {
   type ProfileRow,
 } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
-import { getVibeVideoThumbnailUrl, getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
-import { getVibeVideoSurface } from '@/lib/vibeVideoStatus';
-import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
@@ -116,7 +115,7 @@ type SmartNudge = {
 };
 
 function getSmartNudge(profile: ProfileRow): SmartNudge {
-  const hasVideo = getVibeVideoSurface(profile.bunny_video_uid, profile.bunny_video_status).kind === 'ready';
+  const hasVideo = resolveVibeVideoState(profile).state === 'ready';
   const photoCount = profile.photos?.length ?? 0;
   const promptCount = (profile.prompts ?? []).filter(p => p.question?.trim() && p.answer?.trim()).length;
 
@@ -326,8 +325,7 @@ export default function ProfileStudio() {
     if (!smartNudge) return;
     switch (smartNudge.action) {
       case 'video': {
-        const vibeReady =
-          getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status).kind === 'ready';
+        const vibeReady = resolveVibeVideoState(profile).state === 'ready';
         if (vibeReady) setShowVideoDrawer(true);
         else (router as { push: (p: string) => void }).push('/vibe-video-record');
         break;
@@ -633,18 +631,15 @@ export default function ProfileStudio() {
   const mainPhoto = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayName = profile?.name ?? 'Your name';
   const age = profile?.age;
-  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
-  if (vibeSurface.kind === 'inconsistent_ready_no_uid') {
-    vibeVideoDiagVerbose('studio.profile_inconsistent_ready_no_uid');
-  }
-
-  const hasVibeVideo = vibeSurface.kind === 'ready';
-  const isVibeVideoProcessing =
-    vibeSurface.kind === 'processing' || vibeSurface.kind === 'inconsistent_unknown_status';
-  const isVibeVideoFailed = vibeSurface.kind === 'failed';
-  const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
-  const showVibeVideoThumbError = hasVibeVideo && (!thumbnailUrl || thumbnailError);
-  const caption = profile?.vibe_caption?.trim() ?? '';
+  const videoInfo = useMemo(
+    () => resolveVibeVideoState(profile),
+    [profile?.bunny_video_uid, profile?.bunny_video_status, profile?.vibe_caption],
+  );
+  const hasVibeVideo = videoInfo.state === 'ready';
+  const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'uploading';
+  const isVibeVideoFailed = videoInfo.state === 'failed';
+  const thumbnailUrl = videoInfo.thumbnailUrl;
+  const caption = videoInfo.caption ?? '';
   const profilePhotos = profile?.photos ?? [];
   const lookingForDisplay = getLookingForDisplay(profile?.looking_for);
   const storedMeetingPref = (profile?.lifestyle as Record<string, string> | null)?.meeting_preference ?? 'both';
@@ -911,18 +906,7 @@ export default function ProfileStudio() {
             </RNView>
           ) : hasVibeVideo ? (
             <RNView style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-              {showVibeVideoThumbError ? (
-                <RNView style={[s.videoThumbnail, s.videoErrorCard]}>
-                  <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
-                  <RNView style={s.videoErrorCardInner}>
-                    <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
-                    <Text style={s.videoErrorTitle}>Video unavailable</Text>
-                    <Text style={[s.videoErrorSubtitle, { color: 'rgba(255,255,255,0.72)' }]}>
-                      Try recording a new video or pull to refresh
-                    </Text>
-                  </RNView>
-                </RNView>
-              ) : thumbnailUrl ? (
+              {thumbnailUrl && !thumbnailError ? (
                 <Image
                   source={{ uri: thumbnailUrl }}
                   style={s.videoThumbnail}
@@ -933,41 +917,28 @@ export default function ProfileStudio() {
                 <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={s.videoThumbnail} />
               )}
 
-              {/* Bottom gradient overlay */}
-              {!showVibeVideoThumbError ? (
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={['transparent', 'rgba(0,0,0,0.72)']}
-                  locations={[0.3, 1]}
-                  style={StyleSheet.absoluteFill}
-                />
-              ) : null}
+              <LinearGradient
+                pointerEvents="none"
+                colors={['transparent', 'rgba(0,0,0,0.72)']}
+                locations={[0.3, 1]}
+                style={StyleSheet.absoluteFill}
+              />
 
-              {/* Viewfinder corners */}
-              {!showVibeVideoThumbError ? (
-                <>
-                  <RNView pointerEvents="none" style={s.viewfinderTL} />
-                  <RNView pointerEvents="none" style={s.viewfinderTR} />
-                  <RNView pointerEvents="none" style={s.viewfinderBL} />
-                  <RNView pointerEvents="none" style={s.viewfinderBR} />
-                </>
-              ) : null}
+              <RNView pointerEvents="none" style={s.viewfinderTL} />
+              <RNView pointerEvents="none" style={s.viewfinderTR} />
+              <RNView pointerEvents="none" style={s.viewfinderBL} />
+              <RNView pointerEvents="none" style={s.viewfinderBR} />
 
-              {/* Top-left: Live dot */}
-              {!showVibeVideoThumbError ? (
-                <RNView style={s.videoLiveBadge}>
-                  <RNView style={s.videoLiveDot} />
-                  <Text style={s.videoLiveText}>LIVE</Text>
-                </RNView>
-              ) : null}
+              <RNView style={s.videoLiveBadge}>
+                <RNView style={s.videoLiveDot} />
+                <Text style={s.videoLiveText}>LIVE</Text>
+              </RNView>
 
-              {/* Top-right: Manage pill */}
               <Pressable onPress={() => setShowVideoDrawer(true)} style={s.videoManagePill}>
                 <Text style={s.videoManagePillText}>Manage</Text>
               </Pressable>
 
-              {/* Center play — hidden when thumbnail/CDN failed */}
-              {!showVibeVideoThumbError ? (
+              {videoInfo.canPlay ? (
                 <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
                   <Pressable style={s.videoPlayBtn} onPress={() => setShowFullscreenVibe(true)}>
                     <Ionicons name="play" size={28} color="#fff" />
@@ -975,21 +946,20 @@ export default function ProfileStudio() {
                 </RNView>
               ) : null}
 
-              {/* Caption strip */}
-              {!showVibeVideoThumbError ? (
-                <RNView style={s.videoCaptionStrip} pointerEvents="none">
-                  {caption ? (
-                    <>
-                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
-                      <Text style={s.videoCaptionText} numberOfLines={2}>
-                        {caption}
-                      </Text>
-                    </>
-                  ) : (
-                    <Text style={[s.videoCaptionText, { opacity: 0.7 }]}>Tap to play</Text>
-                  )}
-                </RNView>
-              ) : null}
+              <RNView style={s.videoCaptionStrip} pointerEvents="none">
+                {caption ? (
+                  <>
+                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    <Text style={s.videoCaptionText} numberOfLines={2}>
+                      {caption}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={[s.videoCaptionText, { opacity: 0.7 }]}>
+                    {videoInfo.canPlay ? 'Tap to play' : 'Video ready'}
+                  </Text>
+                )}
+              </RNView>
             </RNView>
           ) : isVibeVideoFailed ? (
             <Card variant="glass" style={s.videoEmptyCard}>
@@ -1814,9 +1784,7 @@ export default function ProfileStudio() {
       <VibeVideoDrawer
         visible={showVideoDrawer}
         onClose={() => setShowVideoDrawer(false)}
-        hasVibeVideo={hasVibeVideo}
-        bunnyVideoUid={profile?.bunny_video_uid}
-        vibeCaption={caption}
+        videoInfo={videoInfo}
         onRecordNew={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
         onOpenFullscreen={() => setShowFullscreenVibe(true)}
         onDelete={async () => {
@@ -1835,12 +1803,12 @@ export default function ProfileStudio() {
       />
 
       <FullscreenVibeVideoModal
-        visible={showFullscreenVibe && hasVibeVideo}
+        visible={showFullscreenVibe && videoInfo.canPlay}
         onClose={() => setShowFullscreenVibe(false)}
-        playbackUrl={getVibeVideoPlaybackUrl(profile?.bunny_video_uid)}
-        bunnyVideoUid={profile?.bunny_video_uid}
+        playbackUrl={videoInfo.playbackUrl}
+        bunnyVideoUid={videoInfo.uid}
         vibeCaption={caption}
-        posterUrl={thumbnailUrl}
+        posterUrl={videoInfo.thumbnailUrl}
       />
     </ScrollView>
   );

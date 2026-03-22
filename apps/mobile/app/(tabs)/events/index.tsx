@@ -673,17 +673,18 @@ export default function EventsListScreen() {
   const showLocationPrompt = !hasLocation;
 
   useEffect(() => {
-    if (!filters.locationEnabled) return;
+    if (userCoords) return;
     (async () => {
       try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
         const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
       } catch (error) {
         if (__DEV__) console.warn('[events] getCurrentPosition failed:', error);
-        setUserCoords(null);
       }
     })();
-  }, [filters.locationEnabled]);
+  }, [userCoords]);
 
   const sheetFilterCount = countActiveFilters(filters);
   const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
@@ -745,11 +746,14 @@ export default function EventsListScreen() {
     }
 
     // 7. Location filter (client-side haversine)
-    if (filters.locationEnabled && filters.distanceKm > 0 && userCoords) {
+    const locationCoords = (filters.locationMode === 'city' && filters.selectedCity)
+      ? { lat: filters.selectedCity.lat, lng: filters.selectedCity.lng }
+      : (filters.locationMode === 'nearby' ? userCoords : null);
+    if (locationCoords && filters.distanceKm > 0) {
       list = list.filter(e => {
         const row = e as any;
         if (row.latitude == null || row.longitude == null) return true;
-        const d = haversineKm(userCoords.lat, userCoords.lng, row.latitude, row.longitude);
+        const d = haversineKm(locationCoords.lat, locationCoords.lng, row.latitude, row.longitude);
         return d <= filters.distanceKm;
       });
     }
@@ -906,6 +910,8 @@ export default function EventsListScreen() {
         onClose={() => setShowFilterSheet(false)}
         filters={filters}
         onApply={setFilters}
+        isPremium={isPremium}
+        onPremiumUpgrade={() => router.push('/premium')}
       />
 
       {/* Content — max width for tablet parity */}

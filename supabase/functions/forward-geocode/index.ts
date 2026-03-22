@@ -40,6 +40,8 @@ Deno.serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Allow admin users OR premium subscribers
     const { data: roleRow } = await supabaseAdmin
       .from("user_roles")
       .select("role")
@@ -47,10 +49,17 @@ Deno.serve(async (req) => {
       .eq("role", "admin")
       .maybeSingle();
     if (!roleRow) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const { data: profile } = await supabaseAdmin
+        .from("profiles")
+        .select("is_premium")
+        .eq("id", user.id)
+        .single();
+      if (!profile?.is_premium) {
+        return new Response(JSON.stringify({ error: "Premium subscription required" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const rateResult = await checkRateLimit(user.id, {
