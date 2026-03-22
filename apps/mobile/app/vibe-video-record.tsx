@@ -1,9 +1,9 @@
 /**
  * Vibe Video capture — UX parity with web `VibeStudioModal`:
- * idle (camera + flip + record + library upload) → recording → preview (expo-av replay)
- * → upload (tus + `saveVibeVideoToProfile`). Entry: optional `libraryUri` from drawer upload.
+ * idle (camera + flip + record + library upload) → recording → preview (expo-video replay)
+ * → upload (tus + `saveVibeVideoToProfile`) → processing poll. Entry: optional `libraryUri` from drawer upload.
  */
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
@@ -21,7 +23,8 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
-import { Video, ResizeMode, Audio } from 'expo-av';
+import { Audio } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +36,8 @@ import {
   uploadVibeVideoToBunny,
   saveVibeVideoToProfile,
 } from '@/lib/vibeVideoApi';
+import { pollVibeVideoUntilTerminal } from '@/lib/vibeVideoPoll';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
@@ -40,7 +45,52 @@ import { fetchMyProfile } from '@/lib/profileApi';
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
 
-type Stage = 'idle' | 'recording' | 'preview' | 'uploading';
+type Stage = 'idle' | 'recording' | 'preview' | 'uploading' | 'processing';
+
+function isAbortError(e: unknown): boolean {
+  return (
+    e !== null &&
+    typeof e === 'object' &&
+    'name' in e &&
+    (e as { name?: string }).name === 'AbortError'
+  );
+}
+
+const RecordedPreview = memo(function RecordedPreview({
+  uri,
+  onError,
+}: {
+  uri: string;
+  onError: () => void;
+}) {
+  const warned = useRef(false);
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+  });
+
+  useEffect(() => {
+    warned.current = false;
+  }, [uri]);
+
+  useEffect(() => {
+    player.replace(uri);
+    void player.play();
+  }, [uri, player]);
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'error' && !warned.current) {
+        warned.current = true;
+        onError();
+      }
+    });
+    return () => sub.remove();
+  }, [player, onError]);
+
+  return (
+    <VideoView style={StyleSheet.absoluteFill} player={player} nativeControls contentFit="contain" />
+  );
+});
 
 function useLibraryUriParam(): string | null {
   const params = useLocalSearchParams();
@@ -65,6 +115,13 @@ export default function VibeVideoRecordScreen() {
   const libraryHandled = useRef(false);
   const captionSeededFromProfile = useRef(false);
 
+  const mountedRef = useRef(true);
+  const uploadRunIdRef = useRef(0);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
+  const uploadInFlightRef = useRef(false);
+  const leftProcessingEarlyRef = useRef(false);
+
   const [stage, setStage] = useState<Stage>('idle');
   const [facing, setFacing] = useState<CameraType>('front');
   const [recording, setRecording] = useState(false);
@@ -74,28 +131,31 @@ export default function VibeVideoRecordScreen() {
   const [captionModal, setCaptionModal] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
 
-  const permission = !!(camPermission?.granted && micPermission?.granted);
-  const skipCameraPermission = !!libraryParam;
-
-  const configurePlaybackAudio = useCallback(async () => {
-    try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-    } catch (e) {
-      if (__DEV__) console.warn('[vibe-video-record] Audio mode', e);
-    }
+  const safeSetStage = useCallback((s: Stage) => {
+    if (mountedRef.current) setStage(s);
   }, []);
 
   useEffect(() => {
-    if (stage === 'preview' && recordedUri) {
-      void configurePlaybackAudio();
-    }
-  }, [stage, recordedUri, configurePlaybackAudio]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      uploadAbortRef.current?.abort();
+      pollAbortRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next === 'active') {
+        void qc.invalidateQueries({ queryKey: ['my-profile'] });
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [qc]);
+
+  const permission = !!(camPermission?.granted && micPermission?.granted);
+  const skipCameraPermission = !!libraryParam;
 
   useEffect(() => {
     if (libraryParam && !libraryHandled.current) {
@@ -105,7 +165,6 @@ export default function VibeVideoRecordScreen() {
     }
   }, [libraryParam]);
 
-  // Match web `VibeStudioModal` `existingCaption` — prefill when replacing / re-recording.
   useEffect(() => {
     if (captionSeededFromProfile.current) return;
     const existing = myProfile?.vibe_caption?.trim();
@@ -113,6 +172,24 @@ export default function VibeVideoRecordScreen() {
     captionSeededFromProfile.current = true;
     setVibeCaption(existing);
   }, [myProfile?.vibe_caption]);
+
+  useEffect(() => {
+    if (stage !== 'preview' || !recordedUri) return;
+    void Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+    return () => {
+      void Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+    };
+  }, [stage, recordedUri]);
 
   const requestPermission = async () => {
     await requestCamPermission();
@@ -147,8 +224,10 @@ export default function VibeVideoRecordScreen() {
   };
 
   const retake = () => {
+    uploadAbortRef.current?.abort();
+    pollAbortRef.current?.abort();
     setRecordedUri(null);
-    setStage('idle');
+    safeSetStage('idle');
     setUploadProgress(0);
   };
 
@@ -168,29 +247,100 @@ export default function VibeVideoRecordScreen() {
     setStage('preview');
   };
 
+  const runPostUploadPoll = useCallback(
+    (expectedVideoId: string, runId: number, pollSignal: AbortSignal) => {
+      void (async () => {
+        const result = await pollVibeVideoUntilTerminal({
+          expectedVideoId,
+          maxAttempts: 30,
+          intervalMs: 5000,
+          signal: pollSignal,
+        });
+
+        await qc.invalidateQueries({ queryKey: ['my-profile'] });
+
+        if (!mountedRef.current || runId !== uploadRunIdRef.current) return;
+        if (leftProcessingEarlyRef.current) return;
+
+        if (result === 'ready') {
+          router.replace('/(tabs)/profile');
+          return;
+        }
+        if (result === 'failed') {
+          Alert.alert(
+            'Video Processing Failed',
+            'Your video could not be processed. Please try again.',
+          );
+          safeSetStage('preview');
+          return;
+        }
+        if (result === 'superseded') {
+          vibeVideoDiagVerbose('upload.poll_superseded_navigate', { expectedVideoId });
+          router.replace('/(tabs)/profile');
+          return;
+        }
+        if (result === 'aborted') {
+          vibeVideoDiagVerbose('upload.poll_aborted', { expectedVideoId });
+          return;
+        }
+        Alert.alert(
+          'Still Processing',
+          'Your video is taking longer than expected. It will appear on your profile once ready. Pull down on Profile to refresh.',
+        );
+        router.replace('/(tabs)/profile');
+      })();
+    },
+    [qc, router, safeSetStage],
+  );
+
   const doUpload = async () => {
     if (!recordedUri) {
       Alert.alert('No video', 'Record or choose a video first.');
       return;
     }
-    setStage('uploading');
+    if (uploadInFlightRef.current) return;
+
+    uploadInFlightRef.current = true;
+    const runId = ++uploadRunIdRef.current;
+    leftProcessingEarlyRef.current = false;
+
+    pollAbortRef.current?.abort();
+    const pollAc = new AbortController();
+    pollAbortRef.current = pollAc;
+
+    const uploadAc = new AbortController();
+    uploadAbortRef.current = uploadAc;
+
+    safeSetStage('uploading');
     setUploadProgress(0);
+
     try {
       const creds = await getCreateVideoUploadCredentials();
-      await uploadVibeVideoToBunny(recordedUri, creds, (bytesUploaded, bytesTotal) => {
-        if (bytesTotal > 0) {
-          setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
-        }
-      });
+      await uploadVibeVideoToBunny(
+        recordedUri,
+        creds,
+        (bytesUploaded, bytesTotal) => {
+          if (bytesTotal > 0 && mountedRef.current) {
+            setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
+          }
+        },
+        { signal: uploadAc.signal },
+      );
       await saveVibeVideoToProfile(creds.videoId, {
         vibeCaption: vibeCaption.trim() || null,
       });
       trackEvent('vibe_video_uploaded');
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-      router.replace('/(tabs)/profile');
+      safeSetStage('processing');
+      runPostUploadPoll(creds.videoId, runId, pollAc.signal);
     } catch (e) {
+      if (isAbortError(e)) {
+        vibeVideoDiagVerbose('upload.cancelled_or_unmounted');
+        return;
+      }
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Please try again.');
-      setStage('preview');
+      safeSetStage('preview');
+    } finally {
+      uploadInFlightRef.current = false;
     }
   };
 
@@ -269,19 +419,37 @@ export default function VibeVideoRecordScreen() {
     );
   }
 
+  if (stage === 'processing') {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background, paddingHorizontal: 28 }]}>
+        <ActivityIndicator size="large" color={theme.tint} />
+        <Text style={[styles.copy, { color: theme.text, marginTop: 20 }]}>Processing your video…</Text>
+        <Text style={[styles.copy, { color: theme.textSecondary, fontSize: 14, marginTop: 8 }]}>
+          This usually takes 15–30 seconds
+        </Text>
+        <Text style={[styles.processingHint, { color: theme.textSecondary }]}>
+          You can return to your profile — we will keep checking in the background.
+        </Text>
+        <Pressable
+          style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
+          onPress={() => {
+            leftProcessingEarlyRef.current = true;
+            router.replace('/(tabs)/profile');
+          }}
+        >
+          <Text style={styles.btnLabel}>Back to profile</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (stage === 'preview' && recordedUri) {
     return (
       <View style={styles.container}>
-        <Video
-          key={recordedUri}
-          source={{ uri: recordedUri }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.CONTAIN}
-          useNativeControls
-          isLooping
-          shouldPlay
-          onError={(e) => {
-            if (__DEV__) console.warn('[vibe-video-record] preview Video error', e);
+        <RecordedPreview
+          uri={recordedUri}
+          onError={() => {
+            if (__DEV__) console.warn('[vibe-video-record] preview playback error');
             Alert.alert(
               'Playback',
               'Could not play this clip on device. You can still upload — our servers may process it.',
@@ -395,6 +563,13 @@ const styles = StyleSheet.create({
   btn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginTop: 16 },
   btnLabel: { color: '#fff', fontWeight: '600' },
   backBtn: { marginTop: 24 },
+  processingHint: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 18,
+    maxWidth: 320,
+  },
   closeBtn: {
     position: 'absolute',
     right: 16,

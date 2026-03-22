@@ -159,7 +159,7 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
       conversations: dbProfile.total_conversations || 0,
     },
     vibeScore: dbProfile.vibe_score ?? 0,
-    vibeScoreLabel: dbProfile.vibe_score_label ?? "Getting started",
+    vibeScoreLabel: dbProfile.vibe_score_label ?? "New",
   };
 };
 

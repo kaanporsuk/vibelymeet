@@ -24,6 +24,9 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `geocode` | Edge Function | Resolve location for events | Same |
 | `upload-image` (Bunny) | Edge Function | Profile photo upload | Same (Bunny adapter) |
 | profileService (profiles, profile_vibes, event_registrations, matches) | Queries | Load profile + related counts | Same queries or shared API layer |
+| `create-video-upload` | Edge Function | Bunny Stream object + TUS signature | Native `vibeVideoApi`; web `VibeStudioModal`. Hard failures use **non-2xx** HTTP + JSON `{ success: false, error, code? }` (success remains **200** + `{ success: true, ... }`). |
+| `delete-vibe-video` | Edge Function | Delete Bunny video + clear profile fields | Native + web Profile; response includes `bunnyRemoteDeleteOk` / `possibleBunnyOrphan` for ops. |
+| `video-webhook` | Edge Function | Bunny encoding callbacks → `profiles.bunny_video_status` | **No JWT**; `?token=` must match `BUNNY_VIDEO_WEBHOOK_TOKEN`. See `docs/vibe-video-webhook-operator.md`. |
 
 ---
 

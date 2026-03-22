@@ -61,10 +61,11 @@ import {
 } from '@/lib/profileApi';
 import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
-import { deleteVibeVideo } from '@/lib/vibeVideoApi';
+import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
+import { getVibeVideoSurface, normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
 import { avatarUrl, getImageUrl } from '@/lib/imageUrl';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
@@ -72,37 +73,6 @@ import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSe
 import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
-
-function VibeVideoPlayer({ playbackUrl, thumbnailUrl, style }: { playbackUrl: string; thumbnailUrl?: string | null; style?: object }) {
-  const [playbackError, setPlaybackError] = useState(false);
-  const source = playbackUrl.endsWith('.m3u8') ? { uri: playbackUrl, contentType: 'hls' as const } : playbackUrl;
-  const player = useVideoPlayer(source, (p) => {
-    p.loop = false;
-  });
-
-  useEffect(() => {
-    const sub = player.addListener?.('statusChange', (payload: { status?: string }) => {
-      if (payload?.status === 'error') setPlaybackError(true);
-    });
-    return () => sub?.remove?.();
-  }, [player]);
-
-  if (playbackError) {
-    return (
-      <View style={[styles.vibeVideoUnavailable, style]}>
-        {thumbnailUrl ? (
-          <Image source={{ uri: thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : null}
-        <View style={styles.vibeVideoUnavailableOverlay}>
-          <Ionicons name="videocam-off-outline" size={32} color="#fff" />
-          <Text style={styles.vibeVideoUnavailableText}>Video unavailable</Text>
-        </View>
-      </View>
-    );
-  }
-
-  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
-}
 
 // Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
 const MAX_PHOTOS = 6;
@@ -409,10 +379,16 @@ export default function ProfileScreen() {
     }
   };
 
-  const vibeStatus = (profile?.bunny_video_status ?? 'none') as string;
+  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
+  const vibeNorm = normalizeBunnyVideoStatus(profile?.bunny_video_status);
+  const showLegacyVibeUploading = vibeNorm === 'uploading';
+  const showLegacyVibeProcessing =
+    vibeSurface.kind === 'processing' && !showLegacyVibeUploading;
+  const showLegacyVibeEmpty =
+    vibeSurface.kind === 'empty' || vibeSurface.kind === 'inconsistent_ready_no_uid';
 
   const handleVibeVideoPress = () => {
-    if (vibeStatus === 'uploading' || vibeStatus === 'processing') return;
+    if (showLegacyVibeUploading || showLegacyVibeProcessing) return;
     (router as { push: (p: string) => void }).push('/vibe-video-record');
   };
 
@@ -429,8 +405,10 @@ export default function ProfileScreen() {
             try {
               await deleteVibeVideo();
               qc.invalidateQueries({ queryKey: ['my-profile'] });
-            } catch {
-              Alert.alert('Error', 'Could not delete. Try again.');
+            } catch (e) {
+              const msg =
+                e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
+              Alert.alert('Error', msg);
             }
           },
         },
@@ -718,7 +696,7 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {profile?.bunny_video_uid && vibeStatus === 'ready' ? (
+          {vibeSurface.kind === 'ready' ? (
             <Pressable
               onPress={handleVibeVideoPress}
               style={[styles.mediaFab, styles.mediaFabLeft, { backgroundColor: '#06B6D4' }, shadows.glowCyan]}
@@ -1079,19 +1057,19 @@ export default function ProfileScreen() {
           <VibelyText variant="titleSM" style={{ color: theme.text }}>Vibe Video</VibelyText>
         </View>
         <View style={[styles.vibeVideoCard16x9, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-          {vibeStatus === 'uploading' && (
+          {showLegacyVibeUploading && (
             <View style={styles.vibeVideoCardInner}>
               <Ionicons name="cloud-upload-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.6 }} />
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Uploading…</Text>
             </View>
           )}
-          {vibeStatus === 'processing' && (
+          {showLegacyVibeProcessing && (
             <View style={styles.vibeVideoCardInner}>
               <Ionicons name="sync-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.6 }} />
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing your video…</Text>
             </View>
           )}
-          {vibeStatus === 'ready' && (() => {
+          {vibeSurface.kind === 'ready' && (() => {
             const playbackUrl = getVibeVideoPlaybackUrl(profile?.bunny_video_uid);
             const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
             const caption = profile?.vibe_caption?.trim() ?? '';
@@ -1135,14 +1113,14 @@ export default function ProfileScreen() {
               </>
             );
           })()}
-          {vibeStatus === 'failed' && (
+          {vibeSurface.kind === 'failed' && (
             <View style={styles.vibeVideoCardInner}>
               <Ionicons name="alert-circle-outline" size={48} color={theme.danger} style={{ opacity: 0.8 }} />
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing failed. Try recording again.</Text>
               <VibelyButton label="Record again" onPress={handleVibeVideoPress} variant="secondary" style={{ marginTop: spacing.sm }} />
             </View>
           )}
-          {(vibeStatus === 'none' || !vibeStatus) && (
+          {showLegacyVibeEmpty && (
             <View style={styles.vibeVideoCardInner}>
               <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>
@@ -1593,24 +1571,17 @@ export default function ProfileScreen() {
       </Animated.View>
     </Modal>
 
-    {/* Vibe Video fullscreen — tap play on 16:9 card; ErrorBoundary handles Bunny 403 gracefully */}
-    <Modal visible={showVibeVideoFullscreen} transparent animationType="fade">
-      <View style={styles.vibeVideoFullscreenBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowVibeVideoFullscreen(false)} />
-        <View style={styles.vibeVideoFullscreenContent} pointerEvents="box-none">
-          {getVibeVideoPlaybackUrl(profile?.bunny_video_uid) && (
-            <VibeVideoPlayer
-              playbackUrl={getVibeVideoPlaybackUrl(profile!.bunny_video_uid)!}
-              thumbnailUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
-              style={styles.vibeVideoFullscreenPlayer}
-            />
-          )}
-          <Pressable style={styles.vibeVideoFullscreenClose} onPress={() => setShowVibeVideoFullscreen(false)}>
-            <Ionicons name="close" size={28} color="#fff" />
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
+    <FullscreenVibeVideoModal
+      visible={
+        showVibeVideoFullscreen &&
+        getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status).kind === 'ready'
+      }
+      onClose={() => setShowVibeVideoFullscreen(false)}
+      playbackUrl={getVibeVideoPlaybackUrl(profile?.bunny_video_uid)}
+      bunnyVideoUid={profile?.bunny_video_uid}
+      vibeCaption={profile?.vibe_caption ?? ''}
+      posterUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
+    />
 
     {/* Manage — visual media grid (web PhotoManager parity) */}
     <Modal

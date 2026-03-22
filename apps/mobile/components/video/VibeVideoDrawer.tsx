@@ -20,6 +20,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius, fonts } from '@/constants/theme';
 import { getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
+import { DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_HEIGHT = Math.min(SCREEN_H * 0.72, 640);
@@ -51,10 +52,11 @@ export default function VibeVideoDrawer({
   const theme = Colors[colorScheme];
   const thumbnailUrl = getVibeVideoThumbnailUrl(bunnyVideoUid);
   const [thumbError, setThumbError] = useState(false);
+  const thumbMissing = hasVibeVideo && (!thumbnailUrl || thumbError);
 
   useEffect(() => {
     if (visible) setThumbError(false);
-  }, [visible]);
+  }, [visible, bunnyVideoUid]);
 
   const handleDelete = () => {
     Alert.alert('Delete vibe video?', 'This cannot be undone.', [
@@ -66,8 +68,10 @@ export default function VibeVideoDrawer({
           try {
             await onDelete();
             onClose();
-          } catch {
-            Alert.alert('Error', 'Could not delete. Try again.');
+          } catch (e) {
+            const msg =
+              e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
+            Alert.alert('Error', msg);
           }
         },
       },
@@ -141,6 +145,12 @@ export default function VibeVideoDrawer({
                     ) : (
                       <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
                     )}
+                    {thumbMissing ? (
+                      <View style={s.thumbFallback} pointerEvents="none">
+                        <Ionicons name="image-outline" size={28} color="rgba(255,255,255,0.5)" />
+                        <Text style={s.thumbFallbackText}>Thumbnail unavailable</Text>
+                      </View>
+                    ) : null}
                     <LinearGradient
                       pointerEvents="none"
                       colors={['transparent', 'rgba(0,0,0,0.72)']}
@@ -291,6 +301,20 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     marginBottom: spacing.md,
+    position: 'relative',
+  },
+  thumbFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    zIndex: 2,
+  },
+  thumbFallbackText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontFamily: fonts.bodySemiBold,
+    color: 'rgba(255,255,255,0.75)',
   },
   previewPlay: {
     position: 'absolute',

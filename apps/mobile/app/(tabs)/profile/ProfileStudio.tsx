@@ -12,6 +12,7 @@ import {
   Linking,
   ActionSheetIOS,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -37,13 +38,15 @@ import {
 } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
 import { getVibeVideoThumbnailUrl, getVibeVideoPlaybackUrl } from '@/lib/vibeVideoPlaybackUrl';
-import { deleteVibeVideo } from '@/lib/vibeVideoApi';
+import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
+import { getVibeVideoSurface } from '@/lib/vibeVideoStatus';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
 import PhotoManageDrawer from '@/components/photos/PhotoManageDrawer';
 import VibeVideoDrawer from '@/components/video/VibeVideoDrawer';
-import { FullscreenVibeVideoModal } from '@/components/video/FullscreenVibeVideoModal';
+import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
@@ -62,9 +65,11 @@ const MAX_ABOUT_ME_LENGTH = 140;
 // ────────────────────────────────────────────────────────────────────
 
 function vibeScoreRingColor(score: number): string {
-  if (score >= 75) return '#E84393';
-  if (score >= 50) return '#8B5CF6';
-  return '#06B6D4';
+  if (score >= 90) return '#E84393';
+  if (score >= 75) return '#F97316';
+  if (score >= 60) return '#8B5CF6';
+  if (score >= 45) return '#06B6D4';
+  return '#64748B';
 }
 
 function VibeScoreRing({ size, score }: { size: number; score: number }) {
@@ -111,7 +116,7 @@ type SmartNudge = {
 };
 
 function getSmartNudge(profile: ProfileRow): SmartNudge {
-  const hasVideo = !!(profile.bunny_video_uid && profile.bunny_video_status === 'ready');
+  const hasVideo = getVibeVideoSurface(profile.bunny_video_uid, profile.bunny_video_status).kind === 'ready';
   const photoCount = profile.photos?.length ?? 0;
   const promptCount = (profile.prompts ?? []).filter(p => p.question?.trim() && p.answer?.trim()).length;
 
@@ -220,7 +225,7 @@ export default function ProfileStudio() {
   );
 
   const vibeScore = profile?.vibe_score ?? 0;
-  const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'Getting started';
+  const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'New';
 
   const smartNudge = useMemo(() => {
     if (!profile) return null;
@@ -322,7 +327,7 @@ export default function ProfileStudio() {
     switch (smartNudge.action) {
       case 'video': {
         const vibeReady =
-          !!(profile?.bunny_video_uid && (profile?.bunny_video_status ?? 'none') === 'ready');
+          getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status).kind === 'ready';
         if (vibeReady) setShowVideoDrawer(true);
         else (router as { push: (p: string) => void }).push('/vibe-video-record');
         break;
@@ -531,6 +536,14 @@ export default function ProfileStudio() {
     setShowBioDrawer(false);
   }, [profile?.about_me]);
 
+  /** Prompt questions used in other slots — native prompt picker disables these. */
+  const usedPromptQuestionsElsewhere = useMemo(() => {
+    if (promptEditIndex === null) return [];
+    return (profile?.prompts ?? [])
+      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
+      .filter((q): q is string => !!q);
+  }, [promptEditIndex, profile?.prompts]);
+
   // ── Tagline save ─────────────────────────────────────────────
 
   const handleSaveTagline = async (value: string) => {
@@ -617,23 +630,23 @@ export default function ProfileStudio() {
   const mainPhoto = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayName = profile?.name ?? 'Your name';
   const age = profile?.age;
-  const vibeStatus = (profile?.bunny_video_status ?? 'none') as string;
-  const hasVibeVideo = !!(profile?.bunny_video_uid && vibeStatus === 'ready');
+  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
+  if (vibeSurface.kind === 'inconsistent_ready_no_uid') {
+    vibeVideoDiagVerbose('studio.profile_inconsistent_ready_no_uid');
+  }
+
+  const hasVibeVideo = vibeSurface.kind === 'ready';
+  const isVibeVideoProcessing =
+    vibeSurface.kind === 'processing' || vibeSurface.kind === 'inconsistent_unknown_status';
+  const isVibeVideoFailed = vibeSurface.kind === 'failed';
   const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
+  const showVibeVideoThumbError = hasVibeVideo && (!thumbnailUrl || thumbnailError);
   const caption = profile?.vibe_caption?.trim() ?? '';
   const profilePhotos = profile?.photos ?? [];
   const lookingForDisplay = getLookingForDisplay(profile?.looking_for);
   const storedMeetingPref = (profile?.lifestyle as Record<string, string> | null)?.meeting_preference ?? 'both';
   const promptList = profile?.prompts ?? [];
   const filledPromptCount = promptList.filter(p => p.question?.trim() && p.answer?.trim()).length;
-
-  /** Prompt questions used in other slots — native prompt picker disables these. */
-  const usedPromptQuestionsElsewhere = useMemo(() => {
-    if (promptEditIndex === null) return [];
-    return (profile?.prompts ?? [])
-      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
-      .filter((q): q is string => !!q);
-  }, [profile?.prompts, promptEditIndex]);
 
   const VERIFICATION_TEAL = '#0D9488';
   const VERIFICATION_GRADIENT = ['#8B5CF6', '#E84393'] as const;
@@ -751,38 +764,38 @@ export default function ProfileStudio() {
         </RNView>
       </RNView>
 
-      {/* ═══ Vibe Score Card — ring left, text + stacked CTAs right ═══ */}
+      {/* ═══ Vibe Score — ring + labels row; horizontal CTAs (scores from DB only) ═══ */}
       <RNView style={[s.vibeScoreCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-        <RNView style={s.vibeScoreRow}>
+        <RNView style={s.vibeScoreTopRow}>
           <VibeScoreRing size={64} score={vibeScore} />
-          <RNView style={s.vibeScoreRight}>
-            <Text style={[s.vibeScoreLabel, { color: theme.text }]}>Vibe Score</Text>
+          <RNView style={s.vibeScoreTextCol}>
+            <Text style={[s.vibeScoreTitle, { color: theme.text }]}>Vibe Score</Text>
             <Text style={[s.vibeScoreStatus, { color: theme.textSecondary }]}>
               {vibeScoreStatusLabel}
             </Text>
-            <RNView style={s.vibeScoreBtnCol}>
-              <Pressable
-                onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
-                style={[s.vibeScorePreviewFull, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
-              >
-                <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
-                <Text style={s.vibeScorePreviewText}>Preview my profile</Text>
-              </Pressable>
-              <LinearGradient
-                colors={['#8B5CF6', '#E84393']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.vibeScoreGradOuter}
-              >
-                <Pressable onPress={handleNudgeAction} style={s.vibeScoreGradInner}>
-                  <Ionicons name="sparkles" size={16} color="white" />
-                  <Text style={s.vibeScoreGradText}>
-                    {vibeScore >= 100 ? 'All set!' : 'Complete Profile'}
-                  </Text>
-                </Pressable>
-              </LinearGradient>
-            </RNView>
           </RNView>
+        </RNView>
+        <RNView style={s.vibeScoreBtnRow}>
+          <Pressable
+            onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
+            style={[s.vibeScorePreviewBtn, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
+          >
+            <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
+            <Text style={s.vibeScorePreviewText}>Preview</Text>
+          </Pressable>
+          <LinearGradient
+            colors={['#8B5CF6', '#E84393']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={s.vibeScoreGradOuter}
+          >
+            <Pressable onPress={handleNudgeAction} style={s.vibeScoreGradInner}>
+              <Ionicons name="sparkles" size={16} color="white" />
+              <Text style={s.vibeScoreGradText}>
+                {vibeScore >= 100 ? 'All set!' : 'Complete Profile'}
+              </Text>
+            </Pressable>
+          </LinearGradient>
         </RNView>
       </RNView>
 
@@ -879,9 +892,34 @@ export default function ProfileStudio() {
             <Text style={[s.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
           </RNView>
 
-          {hasVibeVideo ? (
+          {isVibeVideoProcessing ? (
+            <RNView
+              style={[
+                s.videoCard,
+                s.videoProcessingCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+              ]}
+            >
+              <ActivityIndicator size="large" color="#8B5CF6" />
+              <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Processing your video…</Text>
+              <Text style={[s.videoProcessingSubtitle, { color: theme.textSecondary }]}>
+                This usually takes 15–30 seconds
+              </Text>
+            </RNView>
+          ) : hasVibeVideo ? (
             <RNView style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-              {thumbnailUrl && !thumbnailError ? (
+              {showVibeVideoThumbError ? (
+                <RNView style={[s.videoThumbnail, s.videoErrorCard]}>
+                  <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
+                  <RNView style={s.videoErrorCardInner}>
+                    <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
+                    <Text style={s.videoErrorTitle}>Video unavailable</Text>
+                    <Text style={[s.videoErrorSubtitle, { color: 'rgba(255,255,255,0.72)' }]}>
+                      Try recording a new video or pull to refresh
+                    </Text>
+                  </RNView>
+                </RNView>
+              ) : thumbnailUrl ? (
                 <Image
                   source={{ uri: thumbnailUrl }}
                   style={s.videoThumbnail}
@@ -893,52 +931,84 @@ export default function ProfileStudio() {
               )}
 
               {/* Bottom gradient overlay */}
-              <LinearGradient
-                pointerEvents="none"
-                colors={['transparent', 'rgba(0,0,0,0.72)']}
-                locations={[0.3, 1]}
-                style={StyleSheet.absoluteFill}
-              />
+              {!showVibeVideoThumbError ? (
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={['transparent', 'rgba(0,0,0,0.72)']}
+                  locations={[0.3, 1]}
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : null}
 
               {/* Viewfinder corners */}
-              <RNView pointerEvents="none" style={s.viewfinderTL} />
-              <RNView pointerEvents="none" style={s.viewfinderTR} />
-              <RNView pointerEvents="none" style={s.viewfinderBL} />
-              <RNView pointerEvents="none" style={s.viewfinderBR} />
+              {!showVibeVideoThumbError ? (
+                <>
+                  <RNView pointerEvents="none" style={s.viewfinderTL} />
+                  <RNView pointerEvents="none" style={s.viewfinderTR} />
+                  <RNView pointerEvents="none" style={s.viewfinderBL} />
+                  <RNView pointerEvents="none" style={s.viewfinderBR} />
+                </>
+              ) : null}
 
               {/* Top-left: Live dot */}
-              <RNView style={s.videoLiveBadge}>
-                <RNView style={s.videoLiveDot} />
-                <Text style={s.videoLiveText}>LIVE</Text>
-              </RNView>
+              {!showVibeVideoThumbError ? (
+                <RNView style={s.videoLiveBadge}>
+                  <RNView style={s.videoLiveDot} />
+                  <Text style={s.videoLiveText}>LIVE</Text>
+                </RNView>
+              ) : null}
 
               {/* Top-right: Manage pill */}
-              <Pressable
-                onPress={() => setShowVideoDrawer(true)}
-                style={s.videoManagePill}
-              >
+              <Pressable onPress={() => setShowVideoDrawer(true)} style={s.videoManagePill}>
                 <Text style={s.videoManagePillText}>Manage</Text>
               </Pressable>
 
-              {/* Center play button — fullscreen review (web: opens HLS player) */}
-              <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
-                <Pressable style={s.videoPlayBtn} onPress={() => setShowFullscreenVibe(true)}>
-                  <Ionicons name="play" size={28} color="#fff" />
-                </Pressable>
-              </RNView>
+              {/* Center play — hidden when thumbnail/CDN failed */}
+              {!showVibeVideoThumbError ? (
+                <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
+                  <Pressable style={s.videoPlayBtn} onPress={() => setShowFullscreenVibe(true)}>
+                    <Ionicons name="play" size={28} color="#fff" />
+                  </Pressable>
+                </RNView>
+              ) : null}
 
               {/* Caption strip */}
-              <RNView style={s.videoCaptionStrip} pointerEvents="none">
-                {caption ? (
-                  <>
-                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
-                    <Text style={s.videoCaptionText} numberOfLines={2}>{caption}</Text>
-                  </>
-                ) : (
-                  <Text style={[s.videoCaptionText, { opacity: 0.7 }]}>Tap to play</Text>
-                )}
-              </RNView>
+              {!showVibeVideoThumbError ? (
+                <RNView style={s.videoCaptionStrip} pointerEvents="none">
+                  {caption ? (
+                    <>
+                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                      <Text style={s.videoCaptionText} numberOfLines={2}>
+                        {caption}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text style={[s.videoCaptionText, { opacity: 0.7 }]}>Tap to play</Text>
+                  )}
+                </RNView>
+              ) : null}
             </RNView>
+          ) : isVibeVideoFailed ? (
+            <Card variant="glass" style={s.videoEmptyCard}>
+              <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ opacity: 0.85 }} />
+              <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Video processing failed</Text>
+              <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
+                Record a new clip — it only takes a moment.
+              </Text>
+              <LinearGradient
+                colors={['#8B5CF6', '#E84393']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={s.videoEmptyCta}
+              >
+                <Pressable
+                  onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
+                  style={s.videoEmptyCtaInner}
+                >
+                  <Text style={s.videoEmptyCtaText}>Record again</Text>
+                </Pressable>
+              </LinearGradient>
+            </Card>
           ) : (
             <Card variant="glass" style={s.videoEmptyCard}>
               <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
@@ -1749,9 +1819,14 @@ export default function ProfileStudio() {
         onDelete={async () => {
           try {
             await deleteVibeVideo();
+            setShowFullscreenVibe(false);
+            setThumbnailError(false);
             await qc.invalidateQueries({ queryKey: ['my-profile'] });
-          } catch {
-            Alert.alert('Error', 'Could not delete. Try again.');
+          } catch (e) {
+            const msg =
+              e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
+            Alert.alert('Error', msg);
+            throw e;
           }
         }}
       />
@@ -1760,6 +1835,7 @@ export default function ProfileStudio() {
         visible={showFullscreenVibe && hasVibeVideo}
         onClose={() => setShowFullscreenVibe(false)}
         playbackUrl={getVibeVideoPlaybackUrl(profile?.bunny_video_uid)}
+        bunnyVideoUid={profile?.bunny_video_uid}
         vibeCaption={caption}
         posterUrl={thumbnailUrl}
       />
@@ -1873,16 +1949,16 @@ const s = StyleSheet.create({
     borderRadius: radius['2xl'],
     borderWidth: 1,
   },
-  vibeScoreRow: {
+  vibeScoreTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
   },
-  vibeScoreRight: {
+  vibeScoreTextCol: {
     flex: 1,
     minWidth: 0,
   },
-  vibeScoreLabel: {
+  vibeScoreTitle: {
     fontSize: 15,
     fontFamily: fonts.displayBold,
   },
@@ -1891,18 +1967,23 @@ const s = StyleSheet.create({
     fontFamily: fonts.body,
     marginTop: 1,
   },
-  vibeScoreBtnCol: {
-    gap: 8,
-    marginTop: 10,
+  vibeScoreBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    marginTop: 12,
   },
-  vibeScorePreviewFull: {
+  vibeScorePreviewBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 11,
+    paddingHorizontal: 8,
     borderRadius: 10,
     borderWidth: 1,
+    minWidth: 0,
   },
   vibeScorePreviewText: {
     color: '#8B5CF6',
@@ -1911,8 +1992,10 @@ const s = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
   },
   vibeScoreGradOuter: {
+    flex: 1.3,
     borderRadius: 10,
     overflow: 'hidden',
+    minWidth: 0,
   },
   vibeScoreGradInner: {
     flexDirection: 'row',
@@ -2097,6 +2180,46 @@ const s = StyleSheet.create({
   },
   videoThumbnail: {
     ...StyleSheet.absoluteFillObject,
+  },
+  videoProcessingCard: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: spacing.xl,
+  },
+  videoProcessingTitle: {
+    fontSize: 16,
+    fontFamily: fonts.display,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  videoProcessingSubtitle: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  videoErrorCard: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoErrorCardInner: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: spacing.lg,
+    zIndex: 2,
+  },
+  videoErrorTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: fonts.bodyBold,
+    textAlign: 'center',
+  },
+  videoErrorSubtitle: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+    textAlign: 'center',
+    maxWidth: 280,
   },
   viewfinderTL: {
     position: 'absolute',
