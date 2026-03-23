@@ -914,7 +914,18 @@ export default function ProfileStudio() {
             </RNView>
           ) : hasVibeVideo ? (
             <RNView style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-              {thumbnailUrl && !thumbnailError ? (
+              {showVibeVideoThumbError ? (
+                <RNView style={[s.videoThumbnail, s.videoErrorCard]}>
+                  <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
+                  <RNView style={s.videoErrorCardInner}>
+                    <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
+                    <Text style={s.videoErrorTitle}>Video unavailable</Text>
+                    <Text style={[s.videoErrorSubtitle, { color: 'rgba(255,255,255,0.72)' }]}>
+                      Try recording a new video or pull to refresh
+                    </Text>
+                  </RNView>
+                </RNView>
+              ) : thumbnailUrl ? (
                 <Image
                   source={{ uri: thumbnailUrl }}
                   style={s.videoThumbnail}
