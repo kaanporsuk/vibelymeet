@@ -109,5 +109,11 @@ verify_jwt = true
 [functions.health]
 verify_jwt = false
 
+[functions.date-suggestion-actions]
+verify_jwt = true
+
+[functions.date-suggestion-expiry]
+verify_jwt = false
+
 [functions.send-support-reply]
 verify_jwt = true

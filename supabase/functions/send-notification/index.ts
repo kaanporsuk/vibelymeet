@@ -66,6 +66,12 @@ const NOTIFICATION_TYPE_TO_PREF: Record<string, string> = {
   weekly_summary: 'pref_marketing',
   recommendations: 'pref_marketing',
   product_updates: 'pref_marketing',
+  date_suggestion_proposed: 'pref_messages',
+  date_suggestion_countered: 'pref_messages',
+  date_suggestion_accepted: 'pref_messages',
+  date_suggestion_declined: 'pref_messages',
+  date_suggestion_cancelled: 'pref_messages',
+  date_suggestion_expiring_soon: 'pref_messages',
 }
 
 // Categories that bypass quiet hours (time-critical / safety)
@@ -87,6 +93,12 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   partner_ready: { title: 'Your match is ready!', body: () => 'Tap to start your video date' },
   date_proposal_received: { title: 'Date suggestion 📅', body: (ctx) => `${ctx?.senderName ?? 'Someone'} suggested a date` },
   date_proposal_accepted: { title: 'Date accepted! 🎉', body: (ctx) => `${ctx?.partnerName ?? 'Someone'} accepted your date suggestion` },
+  date_suggestion_proposed: { title: 'Date suggestion 📅', body: (ctx) => `${ctx?.senderName ?? 'Someone'} suggested a date` },
+  date_suggestion_countered: { title: 'New counter proposal 📅', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent a counter` },
+  date_suggestion_accepted: { title: 'Date accepted! 🎉', body: (ctx) => `${ctx?.senderName ?? 'Someone'} accepted your date suggestion` },
+  date_suggestion_declined: { title: 'Date suggestion declined', body: (ctx) => `${ctx?.senderName ?? 'Someone'} declined` },
+  date_suggestion_cancelled: { title: 'Date suggestion cancelled', body: (ctx) => `${ctx?.senderName ?? 'Someone'} cancelled the suggestion` },
+  date_suggestion_expiring_soon: { title: 'Date suggestion expiring soon ⏳', body: () => 'Your date suggestion is about to expire. Open chat to respond.' },
   welcome: { title: 'Welcome to Vibely! 💜', body: () => 'Complete your profile to start matching' },
   profile_incomplete: { title: 'Almost there! 📸', body: () => 'Add photos to get 3x more matches' },
 }
@@ -276,8 +288,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 8. Check per-match mute (messages and new_match categories)
-    if ((category === 'messages' || category === 'new_match') && data?.match_id) {
+    const isDateSuggestionCategory =
+      typeof category === 'string' && category.startsWith('date_suggestion_')
+
+    // 8. Check per-match mute (messages, new_match, and date suggestion categories)
+    if ((category === 'messages' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
       // Check match_mutes table (written by useMuteMatch on the client)
       const { data: matchMute } = await supabase
         .from('match_mutes')
@@ -376,7 +391,11 @@ Deno.serve(async (req) => {
     // - match_id is included in data for muting, bundling, and client logic — not for the chat URL path.
     let webPath = '/'
     const osData: Record<string, unknown> = { ...(data || {}), category }
-    if (category === 'messages' && data?.match_id && data?.sender_id) {
+    if (
+      (category === 'messages' || isDateSuggestionCategory) &&
+      data?.match_id &&
+      data?.sender_id
+    ) {
       const chatPath = `/chat/${data.sender_id}`
       osData.match_id = data.match_id
       osData.other_user_id = data.sender_id

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import {
   StyleSheet,
   View,
@@ -18,6 +18,8 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser';
 import {
   useAudioPlayer,
   useAudioPlayerStatus,
@@ -28,7 +30,7 @@ import {
 } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
-import { GlassHeaderBar, LoadingState, ErrorState } from '@/components/ui';
+import { LoadingState, ErrorState } from '@/components/ui';
 import { spacing, radius, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -54,55 +56,95 @@ import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
 import { MessageStatus } from '@/components/chat/MessageStatus';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
-import { DateSuggestionSheet } from '@/components/chat/DateSuggestionSheet';
+import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
+import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
-import {
-  useCreateDateProposal,
-  useChatDateProposals,
-  useRespondToDateProposal,
-  getTimeBlockLabel,
-  type TimeBlock,
-} from '@/lib/dateProposalsApi';
+import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
 import { useIsOffline } from '@/lib/useNetworkStatus';
 import { avatarUrl } from '@/lib/imageUrl';
-import { Linking } from 'react-native';
+import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
+import { supabase } from '@/lib/supabase';
+import { formatChatImageMessageContent, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 
-function VoiceMessageBubble({
+const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
+
+/** No native Vibe Arcade in-app yet; Games opens web chat (authenticated session may be required). */
+const GAMES_WEB_FALLBACK = true;
+
+/** Message list + chrome background (slightly lifted from pure black). */
+const CHAT_CANVAS_BG = 'hsl(240, 10%, 6%)';
+
+function formatAudioClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+  const s = Math.floor(seconds % 60);
+  const m = Math.floor(seconds / 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function VoiceMessagePlayer({
   uri,
-  duration,
-  textColor,
-  timeColor,
-  time,
+  durationSeconds,
+  isMine,
+  theme,
+  footer,
 }: {
   uri: string;
-  duration?: number | null;
-  textColor: string;
-  timeColor: string;
-  time: string;
+  durationSeconds?: number | null;
+  isMine: boolean;
+  theme: (typeof Colors)['light'];
+  footer: ReactNode;
 }) {
   const player = useAudioPlayer(uri);
   const status = useAudioPlayerStatus(player);
   const playing = status.playing;
-  const onPress = () => {
+  const position = status.currentTime ?? 0;
+  const reportedDur =
+    durationSeconds != null && durationSeconds > 0
+      ? durationSeconds
+      : status.duration != null && status.duration > 0
+        ? status.duration
+        : 0;
+  const progress = reportedDur > 0 ? Math.min(1, position / reportedDur) : 0;
+  const fg = isMine ? 'rgba(255,255,255,0.95)' : theme.text;
+  const track = isMine ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)';
+  const fill = isMine ? 'rgba(255,255,255,0.95)' : theme.tint;
+
+  const toggle = () => {
     if (playing) player.pause();
     else player.play();
   };
+
   return (
-    <View>
-      <Pressable onPress={onPress} style={styles.voiceRow}>
-        <Ionicons name={playing ? 'pause' : 'play'} size={24} color={textColor} />
-        <Text style={[styles.voiceLabel, { color: textColor }]}>
-          Voice {duration != null ? `· ${duration}s` : ''}
-        </Text>
+    <View style={styles.voicePlayerWrap}>
+      <Pressable onPress={toggle} style={styles.voicePlayerRow} accessibilityRole="button">
+        <Ionicons name={playing ? 'pause' : 'play'} size={22} color={fg} />
+        <View style={styles.voicePlayerMid}>
+          <View style={[styles.voiceProgressTrack, { backgroundColor: track }]}>
+            <View style={[styles.voiceProgressFill, { width: `${progress * 100}%`, backgroundColor: fill }]} />
+          </View>
+          <Text style={[styles.voiceTimeRow, { color: isMine ? 'rgba(255,255,255,0.75)' : theme.textSecondary }]}>
+            {formatAudioClock(position)}
+            {reportedDur > 0 ? ` · ${formatAudioClock(reportedDur)}` : ''}
+          </Text>
+        </View>
       </Pressable>
-      <Text style={[styles.bubbleTime, { color: timeColor }]}>{time}</Text>
+      {footer}
     </View>
   );
 }
 
-function ChatVideoPlayer({ uri, style }: { uri: string; style?: object }) {
+function ChatImageCard({ uri }: { uri: string }) {
+  return (
+    <View style={[styles.chatImageOuter, { borderColor: 'rgba(255,255,255,0.1)' }]}>
+      <Image source={{ uri }} style={styles.chatImage} resizeMode="cover" accessibilityIgnoresInvertColors />
+    </View>
+  );
+}
+
+function ChatVideoCard({ uri, durationSec, theme }: { uri: string; durationSec?: number | null; theme: (typeof Colors)['light'] }) {
   const [hasError, setHasError] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
@@ -117,13 +159,30 @@ function ChatVideoPlayer({ uri, style }: { uri: string; style?: object }) {
 
   if (hasError) {
     return (
-      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.1)', borderRadius: 12 }]}>
-        <Ionicons name="videocam-off-outline" size={24} color="#999" />
+      <View style={[styles.chatVideoCard, styles.chatVideoError, { borderColor: theme.border }]}>
+        <Ionicons name="videocam-off-outline" size={28} color={theme.textSecondary} />
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>Couldn't load video</Text>
       </View>
     );
   }
 
-  return <VideoView style={style} player={player} nativeControls contentFit="contain" />;
+  const durLabel =
+    durationSec != null && durationSec > 0
+      ? `${Math.floor(durationSec / 60)}:${Math.floor(durationSec % 60)
+          .toString()
+          .padStart(2, '0')}`
+      : null;
+
+  return (
+    <View style={styles.chatVideoCardOuter}>
+      <VideoView style={styles.chatVideoInner} player={player} nativeControls contentFit="cover" />
+      {durLabel ? (
+        <View style={[styles.videoDurationBadge, { backgroundColor: 'rgba(0,0,0,0.65)' }]}>
+          <Text style={styles.videoDurationText}>{durLabel}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 export default function ChatThreadScreen() {
@@ -134,10 +193,12 @@ export default function ChatThreadScreen() {
   const { user } = useAuth();
   const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
   const { data: matches = [] } = useMatches(user?.id);
+  const queryClient = useQueryClient();
   const { mutateAsync: sendMessage, isPending: sending } = useSendMessage();
   const { mutateAsync: sendVoiceMessage, isPending: sendingVoice } = useSendVoiceMessage();
   const { mutateAsync: sendChatVideoMessage, isPending: sendingVideo } = useSendChatVideoMessage();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
+  const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(data?.matchId);
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -151,19 +212,83 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
+  const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
+  const [composerCounter, setComposerCounter] = useState<{
+    suggestionId: string;
+    previousRevision: DateSuggestionWithRelations['revisions'][0];
+  } | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const voiceRecordStartedAtRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
-  const isSending = sending || sendingVoice || sendingVideo;
-  const { mutateAsync: createDateProposal } = useCreateDateProposal();
-  const { data: chatDateProposals = [] } = useChatDateProposals(data?.matchId ?? null, user?.id, !!data?.matchId && !!user?.id);
-  const { mutateAsync: respondToProposal, isPending: respondingProposal } = useRespondToDateProposal();
-  const pendingDateProposalsForMe = chatDateProposals.filter(
-    (p) => p.recipient_id === user?.id && p.status === 'pending'
+  const [sendingPhoto, setSendingPhoto] = useState(false);
+  const isSending = sending || sendingVoice || sendingVideo || sendingPhoto;
+  const displayMessages = useMemo(() => {
+    const msgs = data?.messages ?? [];
+    const lastByRef = new Map<string, string>();
+    for (const m of msgs) {
+      if (m.refId && (m.messageKind === 'date_suggestion' || m.messageKind === 'date_suggestion_event')) {
+        lastByRef.set(m.refId, m.id);
+      }
+    }
+    return msgs.filter((m) => {
+      if (!m.refId) return true;
+      if (m.messageKind !== 'date_suggestion' && m.messageKind !== 'date_suggestion_event') return true;
+      return lastByRef.get(m.refId) === m.id;
+    });
+  }, [data?.messages]);
+
+  const suggestionById = useMemo(() => {
+    const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of dateSuggestions) {
+      map.set(s.id, s);
+    }
+    return map;
+  }, [dateSuggestions]);
+
+  const openDateComposer = useCallback(
+    (opts: {
+      mode: 'new' | 'counter' | 'editDraft';
+      draftId?: string;
+      draftPayload?: Record<string, unknown> | null;
+      counter?: { suggestionId: string; previousRevision: DateSuggestionWithRelations['revisions'][0] };
+    }) => {
+      if (opts.mode === 'counter' && opts.counter) {
+        setComposerCounter({
+          suggestionId: opts.counter.suggestionId,
+          previousRevision: opts.counter.previousRevision,
+        });
+        setComposerDraftId(null);
+        setComposerDraftPayload(null);
+      } else if (opts.mode === 'editDraft' && opts.draftId) {
+        setComposerDraftId(opts.draftId);
+        setComposerDraftPayload(opts.draftPayload ?? null);
+        setComposerCounter(null);
+      } else {
+        setComposerCounter(null);
+        setComposerDraftId(null);
+        setComposerDraftPayload(null);
+      }
+      setShowDateSheet(true);
+    },
+    []
   );
+
+  const closeDateComposer = useCallback(() => {
+    setShowDateSheet(false);
+    setComposerCounter(null);
+    setComposerDraftId(null);
+    setComposerDraftPayload(null);
+  }, []);
+
+  const onDateSuggestionUpdated = useCallback(() => {
+    void refetchDateSuggestions();
+    queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user?.id] });
+  }, [refetchDateSuggestions, queryClient, otherUserId, user?.id]);
 
   useEffect(() => {
     const mid = data?.matchId;
@@ -223,10 +348,10 @@ export default function ChatThreadScreen() {
       : null;
 
   useEffect(() => {
-    if (data?.messages?.length) {
+    if (displayMessages.length) {
       listRef.current?.scrollToEnd({ animated: true });
     }
-  }, [data?.messages?.length]);
+  }, [displayMessages.length]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -255,6 +380,7 @@ export default function ChatThreadScreen() {
       if (!granted) throw new Error('Permission denied');
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
+      voiceRecordStartedAtRef.current = Date.now();
       audioRecorder.record();
       setRecording(true);
     } catch (e) {
@@ -278,7 +404,14 @@ export default function ChatThreadScreen() {
       await audioRecorder.stop();
       const uri = audioRecorder.uri;
       if (!uri) throw new Error('No recording file');
-      const durationSec = audioRecorder.currentTime || 1;
+      const elapsed =
+        voiceRecordStartedAtRef.current != null
+          ? (Date.now() - voiceRecordStartedAtRef.current) / 1000
+          : 0;
+      voiceRecordStartedAtRef.current = null;
+      const recAny = audioRecorder as { currentTime?: number };
+      const fromRecorder = typeof recAny.currentTime === 'number' ? recAny.currentTime : 0;
+      const durationSec = Math.max(1, Math.round(elapsed > 0.3 ? elapsed : fromRecorder > 0 ? fromRecorder : 1));
       await sendVoiceMessage({
         matchId: data.matchId,
         audioUri: uri,
@@ -310,7 +443,7 @@ export default function ChatThreadScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.7,
-        videoMaxDuration: 30,
+        videoMaxDuration: 120,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -327,6 +460,138 @@ export default function ChatThreadScreen() {
       setVideoError(msg);
       Alert.alert('Error', msg);
     }
+  };
+
+  /** Primary video-message flow: record with the device camera (not library-only). */
+  const recordVideoWithCamera = async () => {
+    if (!data?.matchId || !user?.id || isSending) return;
+    setVideoError(null);
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow camera access to record a video message.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        videoMaxDuration: 120,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const durationSec = asset.duration ?? 0;
+      await sendChatVideoMessage({
+        matchId: data.matchId,
+        videoUri: asset.uri,
+        durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+        currentUserId: user.id,
+        mimeType: asset.mimeType ?? 'video/mp4',
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not record video.';
+      setVideoError(msg);
+      Alert.alert('Video message', msg);
+    }
+  };
+
+  const openVideoMessageOptions = () => {
+    Alert.alert('Video message', 'Record a new clip, or choose one from your library.', [
+      { text: 'Record video', onPress: () => void recordVideoWithCamera() },
+      { text: 'Choose from library', onPress: () => void pickVideoFromLibrary() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const uploadPhotoUriAndSend = async (uri: string) => {
+    if (!data?.matchId || !user?.id) return;
+    if (isOffline) {
+      Alert.alert("Can't send", 'Check your connection.');
+      return;
+    }
+    setSendingPhoto(true);
+    try {
+      const path = `${user.id}/${data.matchId}/${Date.now()}.jpg`;
+      const r = await fetch(uri);
+      const blob = await r.blob();
+      const { error: upErr } = await supabase.storage.from('voice-messages').upload(path, blob, {
+        contentType: 'image/jpeg',
+        upsert: false,
+      });
+      if (upErr) throw upErr;
+      const { data: pub } = supabase.storage.from('voice-messages').getPublicUrl(path);
+      await sendMessage({ matchId: data.matchId, content: formatChatImageMessageContent(pub.publicUrl) });
+    } catch (e) {
+      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+    } finally {
+      setSendingPhoto(false);
+    }
+  };
+
+  const pickPhotoFromLibrary = async () => {
+    if (!data?.matchId || !user?.id || isSending) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your photos to send a picture.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      await uploadPhotoUriAndSend(result.assets[0].uri);
+    } catch (e) {
+      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+    }
+  };
+
+  const takePhotoWithCamera = async () => {
+    if (!data?.matchId || !user?.id || isSending) return;
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.85 });
+      if (result.canceled || !result.assets?.[0]) return;
+      await uploadPhotoUriAndSend(result.assets[0].uri);
+    } catch (e) {
+      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+    }
+  };
+
+  const openPhotoOptions = () => {
+    Alert.alert('Send photo', undefined, [
+      { text: 'Take photo', onPress: () => void takePhotoWithCamera() },
+      { text: 'Choose from library', onPress: () => void pickPhotoFromLibrary() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const openGamesWebInBrowser = async () => {
+    const url = `${WEB_APP_ORIGIN}/chat/${encodeURIComponent(otherUserId ?? '')}`;
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+        toolbarColor: '#0a0a0c',
+        controlsColor: '#ffffff',
+      });
+    } catch {
+      Alert.alert('Games', 'Could not open the browser. Try again.');
+    }
+  };
+
+  const confirmOpenGamesWebFallback = () => {
+    if (!GAMES_WEB_FALLBACK) return;
+    Alert.alert(
+      'Games',
+      'Vibely Arcade runs in the browser for now (same games as the web app). Continue?',
+      [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Continue', onPress: () => void openGamesWebInBrowser() },
+      ]
+    );
   };
 
   if (!otherUserId || !user?.id) {
@@ -383,14 +648,10 @@ export default function ChatThreadScreen() {
       ? (matches.find((m) => m.id === otherUserId)?.image ?? null)
       : null;
   const lastSeenAt = otherUser?.last_seen_at ? new Date(otherUser.last_seen_at).getTime() : null;
-  const now = Date.now();
-  const diffMinutes = lastSeenAt != null ? (now - lastSeenAt) / 60000 : Infinity;
-  const isOnline = diffMinutes <= 5;
-  const lastSeenText =
-    isOnline ? undefined
-      : diffMinutes <= 60 ? 'Recently active'
-      : lastSeenAt != null ? `Active ${Math.round(diffMinutes / 60)}h ago`
-      : undefined;
+  const activityLine = getChatPartnerActivityLine({
+    partnerTyping,
+    lastSeenAtMs: lastSeenAt,
+  });
 
   const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string, isMe: boolean) => {
     const reaction = localReactions[item.id] ?? item.reaction ?? null;
@@ -402,19 +663,41 @@ export default function ChatThreadScreen() {
     if (item.audio_url) {
       return (
         <View>
-          <VoiceMessageBubble uri={item.audio_url} duration={item.audio_duration_seconds} textColor={textColor} timeColor={timeColor} time={item.time} />
-          {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
-          {isMe ? statusOrTime : null}
+          <VoiceMessagePlayer
+            uri={item.audio_url}
+            durationSeconds={item.audio_duration_seconds}
+            isMine={isMe}
+            theme={theme}
+            footer={
+              <>
+                {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+                {statusOrTime}
+              </>
+            }
+          />
         </View>
       );
     }
     if (item.video_url) {
       return (
         <View>
-          <ChatVideoPlayer uri={item.video_url} style={styles.chatVideo} />
-          <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
-          {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
-          {isMe ? statusOrTime : null}
+          <ChatVideoCard
+            uri={item.video_url}
+            durationSec={item.video_duration_seconds ?? null}
+            theme={theme}
+          />
+          {reaction ? <Text style={[styles.reactionBadge, { marginTop: 6 }]}>{reaction}</Text> : null}
+          {statusOrTime}
+        </View>
+      );
+    }
+    const imageUrl = parseChatImageMessageContent(item.text);
+    if (imageUrl) {
+      return (
+        <View>
+          <ChatImageCard uri={imageUrl} />
+          {reaction ? <Text style={[styles.reactionBadge, { marginTop: 6 }]}>{reaction}</Text> : null}
+          {statusOrTime}
         </View>
       );
     }
@@ -427,138 +710,200 @@ export default function ChatThreadScreen() {
     );
   };
 
+  const otherAge =
+    otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0;
+
   const renderItem: ListRenderItem<ChatMessage> = ({ item, index }) => {
+    const isDateTimeline =
+      item.messageKind === 'date_suggestion' || item.messageKind === 'date_suggestion_event';
+    if (isDateTimeline && !item.refId) {
+      return (
+        <View style={{ marginBottom: spacing.md }}>
+          <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Date suggestion (syncing…)</Text>
+        </View>
+      );
+    }
+    if (isDateTimeline && item.refId) {
+      const sug = suggestionById.get(item.refId);
+      return (
+        <View style={{ marginBottom: spacing.md, width: '100%' }}>
+          {sug ? (
+            <DateSuggestionChatCard
+              suggestion={sug}
+              currentUserId={user?.id ?? ''}
+              partnerName={otherName}
+              partnerUserId={otherUserId ?? ''}
+              onOpenComposer={openDateComposer}
+              onUpdated={onDateSuggestionUpdated}
+            />
+          ) : (
+            <Text style={{ color: theme.textSecondary, fontSize: 13, paddingVertical: 8 }}>
+              Loading date suggestion…
+            </Text>
+          )}
+        </View>
+      );
+    }
+
     const isMe = item.sender === 'me';
-    const messages = data?.messages ?? [];
-    const prev = index > 0 ? messages[index - 1] : null;
+    const messages = displayMessages;
     const next = index < messages.length - 1 ? messages[index + 1] : null;
-    const isFirstInGroup = !prev || prev.sender !== item.sender;
     const isLastInGroup = !next || next.sender !== item.sender;
-    const bubbleMarginBottom = isLastInGroup ? spacing.sm : 2;
+    const bubbleMarginBottom = isLastInGroup ? spacing.md : 2;
     const textColor = isMe ? theme.primaryForeground : theme.text;
     const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
     const content = renderBubbleContent(item, textColor, timeColor, isMe);
     const bubbleRadiusMe = {
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
-      borderBottomLeftRadius: radius.lg,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
+      borderBottomLeftRadius: 18,
       borderBottomRightRadius: 4,
     };
     const bubbleRadiusThem = {
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
+      borderTopLeftRadius: 18,
+      borderTopRightRadius: 18,
       borderBottomLeftRadius: 4,
-      borderBottomRightRadius: radius.lg,
+      borderBottomRightRadius: 18,
     };
 
-    const bubbleWrap = (
+    const bubbleBody = isMe ? (
+      <LinearGradient
+        colors={[theme.tint, theme.neonPink]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.bubbleGradient, bubbleRadiusMe]}
+      >
+        {content}
+      </LinearGradient>
+    ) : (
+      <View style={[styles.bubbleThemInner, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.08)' }, bubbleRadiusThem]}>
+        {content}
+      </View>
+    );
+
+    const bubblePress = (
       <Pressable
         onLongPress={() => {
           Vibration.vibrate(30);
           setReactionPickerMessageId(item.id);
         }}
         delayLongPress={400}
-        style={[
+        style={({ pressed }) => [
           styles.bubble,
-          { marginBottom: bubbleMarginBottom },
-          isMe
-            ? [styles.bubbleMe, { backgroundColor: theme.tint }, bubbleRadiusMe]
-            : [styles.bubbleThem, { backgroundColor: theme.surface }, bubbleRadiusThem],
+          { marginBottom: 0, opacity: pressed ? 0.92 : 1 },
         ]}
       >
-        {content}
+        {bubbleBody}
       </Pressable>
     );
 
-    if (!isMe && isFirstInGroup) {
+    if (isMe) {
       return (
-        <View style={[styles.themRow, { marginBottom: bubbleMarginBottom }]}>
-          <View style={[styles.themAvatarWrap, { backgroundColor: theme.muted }]}>
-            {otherAvatarUri ? (
-              <Image source={{ uri: otherAvatarUri }} style={styles.themAvatar} />
-            ) : (
-              <Text style={[styles.themAvatarFallback, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
-            )}
-          </View>
-          <Pressable
-            onLongPress={() => { Vibration.vibrate(30); setReactionPickerMessageId(item.id); }}
-            delayLongPress={400}
-            style={[styles.bubble, styles.bubbleThem, { backgroundColor: theme.surface }, bubbleRadiusThem]}
-          >
-            {content}
-          </Pressable>
+        <View style={[styles.rowMe, { marginBottom: bubbleMarginBottom }]}>
+          <View style={styles.bubbleMeWrap}>{bubblePress}</View>
         </View>
       );
     }
 
-    return bubbleWrap;
+    const avatarSlot =
+      isLastInGroup && otherAvatarUri ? (
+        <Image source={{ uri: otherAvatarUri }} style={styles.themAvatar} />
+      ) : isLastInGroup ? (
+        <View style={[styles.themAvatar, styles.themAvatarPlaceholder, { backgroundColor: theme.muted }]}>
+          <Text style={[styles.themAvatarFallback, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
+        </View>
+      ) : (
+        <View style={styles.themAvatarSpacer} />
+      );
+
+    return (
+      <View style={[styles.themRow, { marginBottom: bubbleMarginBottom }]}>
+        <View style={styles.themAvatarColumn}>{avatarSlot}</View>
+        <View style={styles.themBubbleColumn}>{bubblePress}</View>
+      </View>
+    );
   };
 
+  const activityColor =
+    activityLine?.variant === 'online'
+      ? theme.success
+      : activityLine?.variant === 'typing'
+        ? theme.tint
+        : theme.textSecondary;
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <GlassHeaderBar insets={insets} style={styles.chatHeaderBar}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
-          accessibilityLabel="Back"
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </Pressable>
-        <Pressable
-          onPress={() => setShowProfileSheet(true)}
-          style={({ pressed }) => [styles.headerCenter, pressed && { opacity: 0.9 }]}
-        >
-          {otherAvatarUri ? (
-            <Image source={{ uri: otherAvatarUri }} style={styles.headerAvatar} />
-          ) : (
-            <View style={[styles.headerAvatar, styles.headerAvatarFallback, { backgroundColor: theme.muted }]}>
-              <Text style={[styles.headerAvatarLetter, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
+    <View style={[styles.container, { backgroundColor: CHAT_CANVAS_BG }]}>
+      <View style={[styles.headerOuter, { paddingTop: insets.top, backgroundColor: CHAT_CANVAS_BG }]}>
+        <View style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+            <Pressable
+              onPress={() => router.back()}
+              style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+              accessibilityLabel="Back"
+            >
+              <Ionicons name="chevron-back" size={22} color={theme.text} />
+            </Pressable>
+            <Pressable
+              onPress={() => setShowProfileSheet(true)}
+              style={({ pressed }) => [styles.headerCenter, pressed && { opacity: 0.92 }]}
+              accessibilityRole="button"
+              accessibilityLabel="View profile"
+            >
+              {otherAvatarUri ? (
+                <Image source={{ uri: otherAvatarUri }} style={styles.headerAvatar} />
+              ) : (
+                <View style={[styles.headerAvatar, styles.headerAvatarFallback, { backgroundColor: theme.muted }]}>
+                  <Text style={[styles.headerAvatarLetter, { color: theme.textSecondary }]}>{otherName?.[0] ?? '?'}</Text>
+                </View>
+              )}
+              <View style={styles.headerTextWrap}>
+                <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+                  {otherName}
+                  {otherAge > 0 ? `, ${otherAge}` : ''}
+                </Text>
+                {activityLine ? (
+                  <Text style={[styles.headerSubtitle, { color: activityColor }]} numberOfLines={1}>
+                    {activityLine.text}
+                  </Text>
+                ) : null}
+              </View>
+            </Pressable>
+            <View style={styles.headerRightRow}>
+              <Pressable
+                onPress={() => {
+                  if (isOffline) {
+                    Alert.alert("Can't start a call", 'Check your connection.');
+                    return;
+                  }
+                  if (data?.matchId) startCall('voice');
+                }}
+                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                accessibilityLabel="Voice call"
+              >
+                <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (isOffline) {
+                    Alert.alert("Can't start a call", 'Check your connection.');
+                    return;
+                  }
+                  if (data?.matchId) startCall('video');
+                }}
+                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                accessibilityLabel="Video call"
+              >
+                <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
+              </Pressable>
+              <Pressable
+                onPress={() => setShowActions(true)}
+                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                accessibilityLabel="More actions"
+              >
+                <Ionicons name="ellipsis-horizontal" size={20} color={theme.textSecondary} />
+              </Pressable>
             </View>
-          )}
-          {isOnline && <View style={[styles.onlineDot, { backgroundColor: theme.success }]} />}
-          <View style={styles.headerTextWrap}>
-            <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>{otherName}</Text>
-            <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
-              {partnerTyping ? 'Vibing...' : isOnline ? 'Online now' : lastSeenText ?? 'Offline'}
-            </Text>
           </View>
-        </Pressable>
-        <View style={styles.headerRightRow}>
-          <Pressable
-            onPress={() => {
-              if (isOffline) {
-                Alert.alert("Can't start a call", 'Check your connection.');
-                return;
-              }
-              if (data?.matchId) startCall('voice');
-            }}
-            style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
-            accessibilityLabel="Voice call"
-          >
-            <Ionicons name="call" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              if (isOffline) {
-                Alert.alert("Can't start a call", 'Check your connection.');
-                return;
-              }
-              if (data?.matchId) startCall('video');
-            }}
-            style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
-            accessibilityLabel="Video call"
-          >
-            <Ionicons name="videocam" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
-            onPress={() => setShowActions(true)}
-            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
-            accessibilityLabel="Actions"
-          >
-            <Ionicons name="ellipsis-horizontal" size={22} color={theme.text} />
-          </Pressable>
-        </View>
-      </GlassHeaderBar>
+      </View>
 
       <ProfileDetailSheet
         visible={showProfileSheet}
@@ -608,6 +953,10 @@ export default function ChatThreadScreen() {
             visible={showActions}
             onClose={() => setShowActions(false)}
             matchName={matchForActions.name}
+            onViewProfile={() => {
+              setShowActions(false);
+              setShowProfileSheet(true);
+            }}
             isArchived={!!matchForActions.archived_at}
             isMuted={isMatchMuted(matchForActions.matchId)}
             onUnarchive={async () => {
@@ -702,76 +1051,25 @@ export default function ChatThreadScreen() {
       )}
 
       <KeyboardAvoidingView
-        style={styles.keyboard}
+        style={[styles.keyboard, { backgroundColor: CHAT_CANVAS_BG }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <FlatList
           ref={listRef}
-          data={data.messages}
+          data={displayMessages}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
+          style={styles.messageList}
           contentContainerStyle={[
             styles.list,
-            (data.messages?.length ?? 0) === 0 ? styles.listContentEmpty : null,
+            displayMessages.length === 0 ? styles.listContentEmpty : null,
           ]}
-          ListHeaderComponent={
-            pendingDateProposalsForMe.length > 0 ? (
-              <View style={styles.proposalBanners}>
-                {pendingDateProposalsForMe.map((p) => (
-                  <View
-                    key={p.id}
-                    style={[styles.proposalBanner, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
-                  >
-                    <Text style={[styles.proposalBannerTitle, { color: theme.text }]}>Date suggestion</Text>
-                    <Text style={[styles.proposalBannerMeta, { color: theme.textSecondary }]}>
-                      {new Date(p.proposed_date).toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                      })}{' '}
-                      · {getTimeBlockLabel(p.time_block as TimeBlock)} · {p.activity}
-                    </Text>
-                    <View style={styles.proposalBannerActions}>
-                      <Pressable
-                        onPress={() =>
-                          respondToProposal({ proposalId: p.id, accept: true }).catch(() =>
-                            Alert.alert('Error', 'Could not accept.')
-                          )
-                        }
-                        disabled={respondingProposal}
-                        style={({ pressed }) => [
-                          styles.proposalBtn,
-                          { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
-                        ]}
-                      >
-                        <Text style={styles.proposalBtnLabelLight}>Accept</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() =>
-                          respondToProposal({ proposalId: p.id, accept: false }).catch(() =>
-                            Alert.alert('Error', 'Could not decline.')
-                          )
-                        }
-                        disabled={respondingProposal}
-                        style={({ pressed }) => [
-                          styles.proposalBtnOutline,
-                          { borderColor: theme.border, opacity: pressed ? 0.85 : 1 },
-                        ]}
-                      >
-                        <Text style={[styles.proposalBtnLabel, { color: theme.textSecondary }]}>Decline</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            ) : null
-          }
           ListEmptyComponent={
             <View style={styles.waveEmptyWrap}>
               <Text style={styles.waveEmptyEmoji}>👋</Text>
               <Text style={[styles.waveEmptyTitle, { color: theme.text }]}>{"It's a match!"}</Text>
-              <Text style={[styles.waveEmptySub, { color: theme.mutedForeground }]}>
+              <Text style={[styles.waveEmptySub, { color: theme.textSecondary }]}>
                 Send a wave to start the conversation
               </Text>
             </View>
@@ -784,29 +1082,76 @@ export default function ChatThreadScreen() {
             ) : null
           }
         />
-        <View style={[styles.quickActions, { borderTopColor: theme.border }]}>
-          <Pressable onPress={() => setShowDateSheet(true)} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
-            <Ionicons name="calendar-outline" size={18} color={theme.tint} />
-            <Text style={[styles.quickActionLabel, { color: theme.tint }]}>Suggest a date</Text>
+        <View style={[styles.contextualRow, { borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: CHAT_CANVAS_BG }]}>
+          <Pressable
+            onPress={() => openDateComposer({ mode: 'new' })}
+            style={({ pressed }) => [
+              styles.contextChip,
+              { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Suggest a date"
+          >
+            <Ionicons name="calendar-outline" size={16} color={theme.tint} />
+            <Text style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
           </Pressable>
-          <Pressable onPress={() => router.push('/(tabs)/matches')} style={({ pressed }) => [styles.quickActionBtn, pressed && { opacity: 0.8 }]}>
-            <Ionicons name="game-controller-outline" size={18} color={theme.textSecondary} />
-            <Text style={[styles.quickActionLabel, { color: theme.textSecondary }]}>Games</Text>
+          <Pressable
+            onPress={() => confirmOpenGamesWebFallback()}
+            style={({ pressed }) => [
+              styles.contextChip,
+              { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Games"
+          >
+            <Ionicons name="game-controller-outline" size={16} color={theme.neonCyan} />
+            <Text style={[styles.contextChipLabel, { color: theme.text }]}>Games</Text>
           </Pressable>
         </View>
         <View
           style={[
-            styles.footer,
+            styles.composerDock,
             {
-              borderTopColor: theme.border,
-              backgroundColor: theme.background,
-              paddingBottom: Platform.OS === 'ios' ? (insets.bottom || spacing.lg) + spacing.sm : spacing.lg,
+              borderTopColor: 'rgba(255,255,255,0.06)',
+              backgroundColor: 'hsl(240, 10%, 8%)',
+              paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, spacing.sm) : spacing.md,
             },
           ]}
         >
+          <Pressable
+            style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
+            onPress={() => openPhotoOptions()}
+            disabled={isSending}
+            accessibilityLabel="Photo"
+          >
+            {sendingPhoto ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
+            )}
+          </Pressable>
+          <Pressable
+            style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
+            onPress={() => openVideoMessageOptions()}
+            disabled={isSending}
+            accessibilityLabel="Video message: record or choose from library"
+          >
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
+            )}
+          </Pressable>
           <TextInput
-            style={[styles.input, { borderColor: theme.border, color: theme.text, backgroundColor: theme.surfaceSubtle }]}
-            placeholder="Type a message..."
+            style={[
+              styles.inputDock,
+              {
+                borderColor: 'rgba(255,255,255,0.08)',
+                color: theme.text,
+                backgroundColor: theme.surface,
+              },
+            ]}
+            placeholder="Message…"
             placeholderTextColor={theme.textSecondary}
             value={input}
             onChangeText={handleInputChange}
@@ -815,55 +1160,30 @@ export default function ChatThreadScreen() {
             editable={!isSending}
           />
           <Pressable
-            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={() => void pickVideoFromLibrary()}
-            disabled={isSending}
-            accessibilityLabel="Attach video from library"
-          >
-            {sendingVideo ? (
-              <ActivityIndicator size="small" color={theme.tint} />
-            ) : (
-              <Ionicons name="camera-outline" size={22} color={theme.tint} />
-            )}
-          </Pressable>
-          <Pressable
-            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
-            onPress={() => void pickVideoFromLibrary()}
-            disabled={isSending}
-            accessibilityLabel="Send video"
-          >
-            {sendingVideo ? (
-              <ActivityIndicator size="small" color={theme.tint} />
-            ) : (
-              <Ionicons name="videocam-outline" size={22} color={theme.tint} />
-            )}
-          </Pressable>
-          <Pressable
-            style={[styles.footerIconBtn, { backgroundColor: theme.surfaceSubtle }]}
+            style={[styles.composerIconBtn, { backgroundColor: recording ? theme.dangerSoft : theme.muted }]}
             onPress={handleVoicePress}
-            disabled={isSending}
+            disabled={isSending && !recording}
             accessibilityLabel="Voice message"
           >
             {sendingVoice ? (
               <ActivityIndicator size="small" color={theme.tint} />
             ) : recording ? (
-              <Ionicons name="stop" size={22} color={theme.danger} />
+              <Ionicons name="stop" size={20} color={theme.danger} />
             ) : (
-              <Ionicons name="mic-outline" size={22} color={theme.tint} />
+              <Ionicons name="mic-outline" size={20} color={theme.textSecondary} />
             )}
           </Pressable>
           <Pressable
             style={[
-              styles.sendBtn,
+              styles.sendFab,
               { backgroundColor: theme.tint },
               (!input.trim() || isSending) && styles.sendBtnDisabled,
             ]}
             onPress={handleSend}
             disabled={!input.trim() || isSending}
+            accessibilityLabel="Send message"
           >
-            <Text style={[styles.sendBtnText, { color: theme.primaryForeground }]}>
-              {isSending ? '…' : 'Send'}
-            </Text>
+            <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
           </Pressable>
         </View>
         {(voiceError || videoError) ? (
@@ -883,41 +1203,45 @@ export default function ChatThreadScreen() {
             setReactionPickerMessageId(null);
           }
         }}
-        anchorRight={!!reactionPickerMessageId && (data?.messages?.find((m) => m.id === reactionPickerMessageId)?.sender === 'me')}
+        anchorRight={
+          !!reactionPickerMessageId &&
+          (displayMessages.find((m) => m.id === reactionPickerMessageId)?.sender === 'me')
+        }
       />
 
-      <DateSuggestionSheet
-        visible={showDateSheet}
-        onClose={() => setShowDateSheet(false)}
-        matchName={otherName}
-        matchId={data?.matchId ?? ''}
-        proposerId={user?.id ?? ''}
-        recipientId={otherUserId ?? ''}
-        onCreate={async (proposedDate, timeBlock, activity) => {
-          if (!data?.matchId || !user?.id || !otherUserId) return;
-          if (isOffline) {
-            Alert.alert("Can't send", 'Check your connection.');
-            return;
+      {data?.matchId && user?.id && otherUserId ? (
+        <DateSuggestionSheet
+          visible={showDateSheet}
+          onClose={closeDateComposer}
+          matchId={data.matchId}
+          currentUserId={user.id}
+          partnerUserId={otherUserId}
+          partnerName={otherName}
+          draftSuggestionId={composerDraftId}
+          draftFromParent={
+            composerDraftPayload &&
+            typeof composerDraftPayload === 'object' &&
+            ('wizard' in composerDraftPayload || 'step' in composerDraftPayload)
+              ? {
+                  wizard: (composerDraftPayload as { wizard?: Partial<WizardState> }).wizard,
+                  step: (composerDraftPayload as { step?: number }).step,
+                }
+              : null
           }
-          try {
-            await createDateProposal({
-              matchId: data.matchId,
-              proposerId: user.id,
-              recipientId: otherUserId,
-              proposedDate,
-              timeBlock,
-              activity,
-            });
-            const timeLabel = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening', night: 'Night' }[timeBlock] ?? timeBlock;
-            await sendMessage({
-              matchId: data.matchId,
-              content: `📅 Suggested ${proposedDate} (${timeLabel}): ${activity}`,
-            });
-          } catch {
-            Alert.alert('Error', 'Could not send date proposal.');
+          counterContext={
+            composerCounter
+              ? {
+                  suggestionId: composerCounter.suggestionId,
+                  previousRevision: composerCounter.previousRevision,
+                }
+              : null
           }
-        }}
-      />
+          onSuccess={() => {
+            void refetchDateSuggestions();
+            queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -925,24 +1249,26 @@ export default function ChatThreadScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  chatHeaderBar: { marginBottom: 0 },
-  header: {
+  headerOuter: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  headerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    gap: 6,
   },
   backBtn: { padding: spacing.xs },
-  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  headerIconBtn: { padding: spacing.xs },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minWidth: 0 },
-  headerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  headerIconBtn: { padding: 8 },
+  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  headerAvatar: { width: 40, height: 40, borderRadius: 20 },
   headerAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
   headerAvatarLetter: { fontSize: 16, fontWeight: '600' },
-  onlineDot: { position: 'absolute', bottom: 0, right: 0, width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: 'hsl(240, 10%, 4%)' },
   headerTextWrap: { flex: 1, minWidth: 0 },
-  headerTitle: { fontSize: 18, fontWeight: '600' },
-  headerSubtitle: { fontSize: 12, marginTop: 2 },
+  headerTitle: { fontSize: 16, fontWeight: '600' },
+  headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
   proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
@@ -965,6 +1291,7 @@ const styles = StyleSheet.create({
   proposalBtnLabelLight: { color: '#fff', fontWeight: '600', fontSize: 15 },
   proposalBtnLabel: { fontWeight: '600', fontSize: 15 },
   keyboard: { flex: 1 },
+  messageList: { flex: 1 },
   list: {
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.md,
@@ -986,67 +1313,112 @@ const styles = StyleSheet.create({
   waveEmptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
   waveEmptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
-  themRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 2, gap: spacing.xs },
-  themAvatarWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  themAvatar: { width: 28, height: 28 },
+  rowMe: { alignItems: 'flex-end', width: '100%' },
+  bubbleMeWrap: { maxWidth: '88%' },
+  themRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', gap: 8 },
+  themAvatarColumn: { width: 32, alignItems: 'center' },
+  themAvatarSpacer: { width: 28, height: 28 },
+  themBubbleColumn: { flex: 1, maxWidth: '88%' },
+  themAvatar: { width: 28, height: 28, borderRadius: 14 },
+  themAvatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   themAvatarFallback: { fontSize: 12, fontWeight: '600' },
   bubble: {
-    maxWidth: '78%',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
+    overflow: 'hidden',
+    padding: 0,
   },
-  bubbleMe: { alignSelf: 'flex-end' },
-  bubbleThem: { alignSelf: 'flex-start', flex: 0 },
+  bubbleGradient: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
+  bubbleThemInner: {
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+  },
   bubbleText: { fontSize: 15, lineHeight: 20 },
-  bubbleTime: { fontSize: 11, marginTop: 4, opacity: 0.9 },
-  footer: {
+  bubbleTime: { fontSize: 10, marginTop: 6, opacity: 0.85 },
+  contextualRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: layout.containerPadding,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  contextChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  contextChipLabel: { fontSize: 13, fontWeight: '600' },
+  composerDock: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
+    gap: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  input: {
+  composerIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputDock: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: radius.input,
+    borderRadius: 20,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginRight: spacing.sm,
-    maxHeight: 100,
-    minHeight: layout.inputHeight,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    maxHeight: 120,
+    minHeight: 40,
+    fontSize: 15,
   },
-  sendBtn: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.button,
-    justifyContent: 'center',
-    minWidth: 60,
-  },
-  sendBtnDisabled: { opacity: 0.5 },
-  sendBtnText: { fontWeight: '600' },
-  footerIconBtn: {
+  sendFab: {
     width: 40,
     height: 40,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.xs,
   },
-  voiceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  voiceLabel: { fontSize: 15 },
-  chatVideo: { width: 200, height: 120, borderRadius: radius.lg },
-  voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
-  recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: 8 },
-  quickActions: { flexDirection: 'row', gap: spacing.lg, paddingHorizontal: layout.containerPadding, paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth },
-  quickActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  quickActionLabel: { fontSize: 13, fontWeight: '500' },
+  sendBtnDisabled: { opacity: 0.45 },
+  voicePlayerWrap: { minWidth: 220 },
+  voicePlayerRow: { flexDirection: 'row', alignItems: 'center' },
+  voicePlayerMid: { flex: 1, marginLeft: 10 },
+  voiceProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
+  voiceProgressFill: { height: '100%', borderRadius: 2 },
+  voiceTimeRow: { fontSize: 11, marginTop: 6 },
+  chatVideoCardOuter: {
+    width: 220,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  chatVideoInner: { width: 220, height: 150 },
+  chatVideoCard: { width: 220, height: 150 },
+  chatVideoError: { alignItems: 'center', justifyContent: 'center' },
+  videoDurationBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  videoDurationText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  chatImageOuter: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: 240,
+  },
+  chatImage: { width: 220, height: 220, backgroundColor: 'rgba(0,0,0,0.2)' },
+  voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
+  recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
 });
