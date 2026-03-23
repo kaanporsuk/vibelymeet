@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '@/lib/supabase';
+import { getImageUrl } from '@/lib/imageUrl';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
@@ -81,4 +82,49 @@ export async function uploadChatVideoMessage(
   const data = await res.json();
   if (!data.success || !data.url) throw new Error(data.error ?? 'Video upload failed');
   return data.url;
+}
+
+export async function uploadChatImageMessage(
+  imageUri: string,
+  mimeType: string = 'image/jpeg'
+): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Not authenticated');
+
+  if (!SUPABASE_URL) {
+    throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
+  }
+
+  const formData = new FormData();
+  const ext =
+    mimeType.includes('png') ? 'png' :
+    mimeType.includes('webp') ? 'webp' :
+    mimeType.includes('heic') || mimeType.includes('heif') ? 'heic' :
+    'jpg';
+  formData.append(
+    'file',
+    {
+      uri: imageUri,
+      type: mimeType || 'image/jpeg',
+      name: `chat-image.${ext}`,
+    } as unknown as Blob
+  );
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    body: formData,
+  });
+
+  const text = await res.text().catch(() => '');
+  let data: { success?: boolean; path?: string; error?: string };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('Image upload failed');
+  }
+  if (!res.ok || !data.success || !data.path) {
+    throw new Error(data.error || `Upload failed with status ${res.status}`);
+  }
+  return getImageUrl(data.path, { quality: 88 });
 }

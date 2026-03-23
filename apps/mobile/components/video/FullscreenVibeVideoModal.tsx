@@ -1,8 +1,8 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-video (VideoView + useVideoPlayer). setSafeAudioMode is a no-op until native AV is linked.
+ * Uses `VibeVideoPlayer` (expo-video). setSafeAudioMode is a no-op until native AV is linked.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -10,15 +10,13 @@ import {
   Pressable,
   StyleSheet,
   StatusBar,
-  Image,
 } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
-import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
+import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 
 const CAPTION_MAX_WIDTH = 400;
 
@@ -32,72 +30,6 @@ export interface FullscreenVibeVideoModalProps {
   vibeCaption?: string;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
-}
-
-function HlsVideoBody({
-  playbackUrl,
-  visible,
-  posterUrl,
-  onPlaybackIssue,
-}: {
-  playbackUrl: string;
-  visible: boolean;
-  posterUrl?: string | null;
-  onPlaybackIssue: () => void;
-}) {
-  const warnedRef = useRef(false);
-  const [showPoster, setShowPoster] = useState(!!posterUrl);
-  const player = useVideoPlayer(playbackUrl, (p) => {
-    p.loop = true;
-  });
-
-  useEffect(() => {
-    warnedRef.current = false;
-  }, [playbackUrl, visible]);
-
-  useEffect(() => {
-    setShowPoster(!!posterUrl);
-  }, [playbackUrl, posterUrl]);
-
-  useEffect(() => {
-    player.replace(playbackUrl);
-  }, [playbackUrl, player]);
-
-  useEffect(() => {
-    if (visible) {
-      void player.play();
-    } else {
-      player.pause();
-    }
-  }, [visible, player]);
-
-  useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error' && !warnedRef.current) {
-        warnedRef.current = true;
-        vibeVideoDiagVerbose('fullscreen.player_status_error', {
-          hint: 'Often Bunny CDN hotlink/referrer, 403 manifest, or HLS not ready yet.',
-        });
-        onPlaybackIssue();
-      }
-    });
-    return () => sub.remove();
-  }, [player, onPlaybackIssue]);
-
-  return (
-    <>
-      {showPoster && posterUrl ? (
-        <Image source={{ uri: posterUrl }} style={[StyleSheet.absoluteFill, { zIndex: 0 }]} resizeMode="cover" />
-      ) : null}
-      <VideoView
-        style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
-        player={player}
-        nativeControls
-        contentFit="contain"
-        onFirstFrameRender={() => setShowPoster(false)}
-      />
-    </>
-  );
 }
 
 export function FullscreenVibeVideoModal({
@@ -206,12 +138,15 @@ export function FullscreenVibeVideoModal({
               : playbackUrl
                 ? (
                     <>
-                      <HlsVideoBody
+                      <VibeVideoPlayer
                         key={retryKey}
-                        playbackUrl={playbackUrl}
-                        visible={visible}
-                        posterUrl={posterUrl}
-                        onPlaybackIssue={handlePlaybackIssue}
+                        sourceUri={playbackUrl}
+                        posterUri={posterUrl}
+                        playing={visible}
+                        diagContext="fullscreen"
+                        nativeControls
+                        contentFit="contain"
+                        onPlayerFatalError={handlePlaybackIssue}
                       />
 
                       <Pressable

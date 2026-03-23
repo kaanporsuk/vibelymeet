@@ -230,7 +230,15 @@ export function DateSuggestionChatCard({
       )}
 
       <View style={styles.headerRow}>
-        <Text style={[styles.kicker, { color: theme.textSecondary }]}>DATE SUGGESTION</Text>
+        <View style={styles.headerTitleWrap}>
+          <Ionicons name="calendar-outline" size={14} color={theme.tint} />
+          <Text style={[styles.kicker, { color: theme.textSecondary }]}>DATE SUGGESTION</Text>
+        </View>
+        {status === 'accepted' ? (
+          <View style={[styles.headerAccent, { backgroundColor: 'rgba(236,72,153,0.16)' }]}>
+            <Text style={[styles.headerAccentText, { color: theme.tint }]}>Ready</Text>
+          </View>
+        ) : null}
         <View
           style={[
             styles.badge,
@@ -254,31 +262,43 @@ export function DateSuggestionChatCard({
 
       {current && (
         <View style={styles.body}>
-          <View style={styles.lineRow}>
-            <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Type: </Text>
-            {showAgreedChips && agreed?.date_type ? <AgreedChip /> : null}
+          <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
+            <View style={styles.lineRow}>
+              <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Type</Text>
+              {showAgreedChips && agreed?.date_type ? <AgreedChip /> : null}
+            </View>
             <Text style={[styles.lineValue, { color: theme.text }]}>{labelForDateType(current.date_type_key)}</Text>
           </View>
-          <View style={styles.lineRow}>
-            <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>When: </Text>
-            {showAgreedChips && agreed?.time ? <AgreedChip /> : null}
+
+          <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
+            <View style={styles.lineRow}>
+              <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>When</Text>
+              {showAgreedChips && agreed?.time ? <AgreedChip /> : null}
+            </View>
             <Text style={[styles.lineValue, { color: theme.text }]}>{formatWhen(current)}</Text>
           </View>
+
           {current.schedule_share_enabled ? (
             <View style={styles.scheduleRow}>
               <Ionicons name="calendar-outline" size={14} color="#22d3ee" />
               <Text style={styles.scheduleText}>Vibely Schedule shared (48h live windows)</Text>
             </View>
           ) : null}
-          <View style={styles.lineRow}>
-            <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Place: </Text>
-            {showAgreedChips && agreed?.place ? <AgreedChip /> : null}
+
+          <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
+            <View style={styles.lineRow}>
+              <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Place</Text>
+              {showAgreedChips && agreed?.place ? <AgreedChip /> : null}
+            </View>
             <Text style={[styles.lineValue, { color: theme.text }]}>{placeLine(current)}</Text>
           </View>
+
           {current.optional_message ? (
-            <View style={styles.lineRow}>
-              <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Note: </Text>
-              {showAgreedChips && agreed?.optional_message ? <AgreedChip /> : null}
+            <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
+              <View style={styles.lineRow}>
+                <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Note</Text>
+                {showAgreedChips && agreed?.optional_message ? <AgreedChip /> : null}
+              </View>
               <Text style={[styles.lineValue, { color: theme.text, flex: 1 }]}>{current.optional_message}</Text>
             </View>
           ) : null}
@@ -307,7 +327,7 @@ export function DateSuggestionChatCard({
         </View>
       ) : null}
 
-      <View style={styles.actions}>
+      <View style={[styles.actions, { borderTopColor: theme.border }]}>
         {status === 'draft' && isProposer && (
           <>
             {btn('Continue draft', () =>
@@ -383,24 +403,43 @@ const styles = StyleSheet.create({
   celebrationTitle: { fontSize: 15, fontWeight: '700' },
   headerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    rowGap: 6,
     marginBottom: spacing.sm,
   },
+  headerTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 },
   kicker: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  headerAccent: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 'auto',
+    marginRight: 8,
+  },
+  headerAccentText: { fontSize: 10, fontWeight: '700' },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: 'flex-start',
   },
-  badgeText: { fontSize: 10, fontWeight: '600' },
+  badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.2 },
   body: { gap: 8 },
+  infoBlock: {
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 8,
+    gap: 4,
+  },
   lineRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
-  lineLabel: { fontSize: 14, fontWeight: '500' },
-  lineValue: { fontSize: 14, lineHeight: 20, flexShrink: 1 },
+  lineLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
+  lineValue: { fontSize: 14, lineHeight: 20, flexShrink: 1, width: '100%' },
   scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  scheduleText: { fontSize: 12, color: '#22d3ee', flex: 1 },
+  scheduleText: { fontSize: 12, color: '#22d3ee', flex: 1, fontWeight: '500', lineHeight: 17 },
   calendarBox: {
     marginTop: spacing.md,
     padding: spacing.sm,
@@ -409,21 +448,31 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   calendarTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  calendarTitle: { fontSize: 12, fontWeight: '600' },
-  calendarSub: { fontSize: 12 },
+  calendarTitle: { fontSize: 12, fontWeight: '700' },
+  calendarSub: { fontSize: 12, fontWeight: '500', lineHeight: 17, flexShrink: 1 },
   safety: { fontSize: 10, lineHeight: 14, marginTop: 4 },
   completedRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm },
   completedText: { fontSize: 12, flex: 1 },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    rowGap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   actionBtn: {
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     borderRadius: radius.md,
-    minWidth: '30%',
+    flexGrow: 1,
+    minWidth: 132,
+    maxWidth: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionBtnText: { fontSize: 13, fontWeight: '600' },
+  actionBtnText: { fontSize: 13, fontWeight: '700', textAlign: 'center', flexShrink: 1 },
   agreedChip: {
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -431,5 +480,5 @@ const styles = StyleSheet.create({
     marginRight: 4,
     alignSelf: 'center',
   },
-  agreedChipText: { fontSize: 10, fontWeight: '700' },
+  agreedChipText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.25 },
 });

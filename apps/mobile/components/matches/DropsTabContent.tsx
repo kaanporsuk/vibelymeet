@@ -24,23 +24,16 @@ import { useDailyDrop, type DailyDropPartner, type PastDropRow } from '@/lib/dai
 import { avatarUrl } from '@/lib/imageUrl';
 import { spacing, radius, typography } from '@/constants/theme';
 import { VibelyButton } from '@/components/ui';
+import {
+  formatCountdownToNextDailyDropBatchUtc,
+  DAILY_DROP_REPLY_MAX_LENGTH,
+} from '@/lib/dailyDropSchedule';
 
 const OPENER_MAX_LENGTH = 140;
 
 function formatTimeRemaining(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-}
-
-function formatNextDrop(): string {
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(18, 0, 0, 0);
-  if (now >= target) target.setDate(target.getDate() + 1);
-  const diff = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
-  const h = Math.floor(diff / 3600);
-  const m = Math.floor((diff % 3600) / 60);
   return `${h}h ${m}m`;
 }
 
@@ -102,9 +95,11 @@ export function DropsTabContent({ userId }: Props) {
           <Text style={styles.invalidatedEmoji} accessibilityRole="text">⚡</Text>
           <Text style={[styles.stateTitle, { color: theme.text }]}>Drop no longer available</Text>
           <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>
-            This drop was removed. Check back at 6 PM for your next one.
+            This drop was removed. Your next Daily Drop will appear after the next scheduled batch.
           </Text>
-          <Text style={[styles.nextDrop, { color: theme.tint }]}>Next drop in {formatNextDrop()}</Text>
+          <Text style={[styles.nextDrop, { color: theme.tint }]}>
+            Next batch in {formatCountdownToNextDailyDropBatchUtc()}
+          </Text>
         </View>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
       </ScrollView>
@@ -118,7 +113,9 @@ export function DropsTabContent({ userId }: Props) {
         <View style={styles.stateCard}>
           <Ionicons name="close-circle-outline" size={48} color={theme.mutedForeground} />
           <Text style={[styles.stateTitle, { color: theme.text }]}>This Daily Drop has ended</Text>
-          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>Your next drop arrives at 6 PM</Text>
+          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>
+            Your next Daily Drop arrives after the next batch (UTC).
+          </Text>
         </View>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
       </ScrollView>
@@ -132,7 +129,9 @@ export function DropsTabContent({ userId }: Props) {
         <View style={styles.stateCard}>
           <Ionicons name="time-outline" size={48} color={theme.mutedForeground} />
           <Text style={[styles.stateTitle, { color: theme.text }]}>This Daily Drop expired</Text>
-          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>A new drop arrives at 6 PM</Text>
+          <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>
+            A new Daily Drop arrives after the next batch.
+          </Text>
         </View>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
       </ScrollView>
@@ -150,7 +149,9 @@ export function DropsTabContent({ userId }: Props) {
           <Ionicons name="water-outline" size={56} color={theme.mutedForeground} />
           <Text style={[styles.stateTitle, { color: theme.text }]}>No Daily Drop today</Text>
           <Text style={[styles.stateSub, { color: theme.mutedForeground }]}>{emptyBody}</Text>
-          <Text style={[styles.nextDrop, { color: theme.tint }]}>Next drop in {formatNextDrop()}</Text>
+          <Text style={[styles.nextDrop, { color: theme.tint }]}>
+            Next batch in {formatCountdownToNextDailyDropBatchUtc()}
+          </Text>
         </View>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
       </ScrollView>
@@ -228,11 +229,11 @@ export function DropsTabContent({ userId }: Props) {
             placeholder="Reply to unlock chat..."
             placeholderTextColor={theme.mutedForeground}
             style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-            maxLength={OPENER_MAX_LENGTH}
+            maxLength={DAILY_DROP_REPLY_MAX_LENGTH}
           />
           <Pressable
             onPress={async () => {
-              if (!replyInput.trim()) return;
+              if (!replyInput.trim() || replyInput.length > DAILY_DROP_REPLY_MAX_LENGTH) return;
               setSendingReply(true);
               try {
                 await sendReply(replyInput);
@@ -243,16 +244,15 @@ export function DropsTabContent({ userId }: Props) {
                 setSendingReply(false);
               }
             }}
-            disabled={!replyInput.trim() || sendingReply}
+            disabled={!replyInput.trim() || sendingReply || replyInput.length > DAILY_DROP_REPLY_MAX_LENGTH}
             style={[styles.sendBtn, { backgroundColor: theme.tint }]}
           >
             <Ionicons name="send" size={20} color="#fff" />
           </Pressable>
         </View>
-        <Text style={[styles.charCount, { color: theme.mutedForeground }]}>{replyInput.length}/{OPENER_MAX_LENGTH}</Text>
-        <Pressable onPress={handlePass} style={styles.passLink}>
-          <Text style={[styles.passLinkText, { color: theme.mutedForeground }]}>Not feeling it?</Text>
-        </Pressable>
+        <Text style={[styles.charCount, { color: theme.mutedForeground }]}>
+          {replyInput.length}/{DAILY_DROP_REPLY_MAX_LENGTH}
+        </Text>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} theme={theme} router={router} />
       </ScrollView>
     );

@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   ScrollView,
   Image,
@@ -53,6 +53,7 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { useSchedule } from '@/lib/useSchedule';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { VibePickerSheet } from '@/components/profile/VibePickerSheet';
 import { getEmojiForVibeLabel } from '@/lib/vibeTagTaxonomy';
 
@@ -217,7 +218,7 @@ export default function ProfileStudio() {
   } = useSchedule();
 
   useFocusEffect(
-    useCallback(() => {
+    React.useCallback(() => {
       if (!user?.id) return;
       void refetch().catch((e) => {
         if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
@@ -234,10 +235,7 @@ export default function ProfileStudio() {
   const vibeScore = profile?.vibe_score ?? 0;
   const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'New';
 
-  const smartNudge = useMemo(() => {
-    if (!profile) return null;
-    return getSmartNudge(profile);
-  }, [profile]);
+  const smartNudge = profile ? getSmartNudge(profile) : null;
 
   // Pull-to-refresh (manual only — never tied to background refetch)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -289,23 +287,22 @@ export default function ProfileStudio() {
     }
   }, [profile]);
 
+  // ═══════════════════════════════════════════════
+  // End of hooks — only plain values / handlers below until loading/error early returns.
+  // ═══════════════════════════════════════════════
+
   // Verification counts
   const verificationStepTotal = 3;
-  const verificationVerifiedCount = useMemo(() => {
-    if (!profile) return 0;
-    let n = 0;
-    if (profile.email_verified) n++;
-    if (profile.photo_verified) n++;
-    if (profile.phone_verified) n++;
-    return n;
-  }, [profile?.email_verified, profile?.photo_verified, profile?.phone_verified]);
+  const verificationVerifiedCount =
+    (profile?.email_verified ? 1 : 0) +
+    (profile?.photo_verified ? 1 : 0) +
+    (profile?.phone_verified ? 1 : 0);
   const verificationProgressPct = (verificationVerifiedCount / verificationStepTotal) * 100;
 
-  const isSlotOpen = useCallback((isoDate: string, bucket: string): boolean => {
-    return scheduleRecord[`${isoDate}_${bucket}`]?.status === 'open';
-  }, [scheduleRecord]);
+  const isSlotOpen = (isoDate: string, bucket: string): boolean =>
+    scheduleRecord[`${isoDate}_${bucket}`]?.status === 'open';
 
-  const scheduleStatus = useMemo(() => {
+  const scheduleStatus = (() => {
     if (scheduleLoading || !scheduleDays.length) return { label: 'No schedule set', color: '#6B7280' };
     const hasAnyOpen = Object.values(scheduleRecord).some(v => v.status === 'open');
     if (!hasAnyOpen) return { label: 'No schedule set', color: '#6B7280' };
@@ -320,7 +317,10 @@ export default function ProfileStudio() {
       }
     }
     return { label: 'No schedule set', color: '#6B7280' };
-  }, [scheduleDays, scheduleRecord, scheduleLoading, BUCKETS, isSlotOpen]);
+  })();
+
+  /** Vibe video UI state — must not use hooks; same call order every render (incl. loading/error paths). */
+  const videoInfo = resolveVibeVideoState(profile ?? null);
 
   const scrollToSection = (key: string) => {
     const y = sectionOffsets.current[key];
@@ -333,7 +333,7 @@ export default function ProfileStudio() {
     if (!smartNudge) return;
     switch (smartNudge.action) {
       case 'video': {
-        const vibeReady = resolveVibeVideoState(profile).state === 'ready';
+        const vibeReady = resolveVibeVideoState(profile ?? null).state === 'ready';
         if (vibeReady) setShowVideoDrawer(true);
         else (router as { push: (p: string) => void }).push('/vibe-video-record');
         break;
@@ -537,18 +537,18 @@ export default function ProfileStudio() {
     }
   };
 
-  const discardBioDrawer = useCallback(() => {
+  const discardBioDrawer = () => {
     setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
     setShowBioDrawer(false);
-  }, [profile?.about_me]);
+  };
 
   /** Prompt questions used in other slots — native prompt picker disables these. */
-  const usedPromptQuestionsElsewhere = useMemo(() => {
-    if (promptEditIndex === null) return [];
-    return (profile?.prompts ?? [])
-      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
-      .filter((q): q is string => !!q);
-  }, [promptEditIndex, profile?.prompts]);
+  const usedPromptQuestionsElsewhere =
+    promptEditIndex === null
+      ? []
+      : (profile?.prompts ?? [])
+          .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
+          .filter((q): q is string => !!q);
 
   // ── Tagline save ─────────────────────────────────────────────
 
@@ -584,10 +584,7 @@ export default function ProfileStudio() {
     }
   };
 
-  // ═══════════════════════════════════════════════
-  // ALL HOOKS ABOVE — NO HOOKS BELOW THIS LINE
-  // Early returns for loading/error states follow
-  // ═══════════════════════════════════════════════
+  // ── Early returns (loading / error / empty profile) — no hooks below top of component ──
 
   if (isLoading && !profile) {
     return (
@@ -634,15 +631,11 @@ export default function ProfileStudio() {
     );
   }
 
-  // ── Derived data ─────────────────────────────────────────────────
+  // ── Derived data (no hooks below early returns) ─────────────────
 
   const mainPhoto = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayName = profile?.name ?? 'Your name';
   const age = profile?.age;
-  const videoInfo = useMemo(
-    () => resolveVibeVideoState(profile),
-    [profile?.bunny_video_uid, profile?.bunny_video_status, profile?.vibe_caption],
-  );
   const hasVibeVideo = videoInfo.state === 'ready';
   const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'uploading';
   const isVibeVideoFailed = videoInfo.state === 'failed';
@@ -1674,99 +1667,111 @@ export default function ProfileStudio() {
         saving={saving}
       />
 
-      {/* Intent editor modal */}
-      <Modal visible={showIntentDrawer} transparent animationType="slide" onRequestClose={() => setShowIntentDrawer(false)}>
-        <Pressable style={s.sheetBackdrop} onPress={() => setShowIntentDrawer(false)}>
-          <Pressable style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[s.sheetTitle, { color: theme.text }]}>Looking For</Text>
-            <RelationshipIntentSelector selected={lookingForEdit} onSelect={setLookingForEdit} editable />
-            <RNView style={[s.meetingPrefRow, { marginTop: spacing.xl }]}>
-              <Text style={[s.meetingPrefLabel, { color: theme.textSecondary }]}>Open to:</Text>
-              {(['events', 'dates', 'both'] as const).map((opt) => {
-                const labels = { events: 'Events', dates: '1:1 Dates', both: 'Both' };
-                const isActive = meetingPref === opt;
-                return (
-                  <Pressable key={opt} onPress={() => setMeetingPref(opt)}>
-                    <RNView style={[s.meetingPrefPill, { backgroundColor: isActive ? 'rgba(139,92,246,0.2)' : theme.surfaceSubtle, borderColor: isActive ? 'rgba(139,92,246,0.5)' : theme.border }]}>
-                      <Text style={[s.meetingPrefPillText, { color: isActive ? '#8B5CF6' : theme.textSecondary }]}>{labels[opt]}</Text>
-                    </RNView>
-                  </Pressable>
-                );
-              })}
-            </RNView>
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveIntent} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+      {/* Intent editor modal — keyboard-aware for parity with other profile sheets */}
+      <KeyboardAwareBottomSheetModal
+        visible={showIntentDrawer}
+        onRequestClose={() => setShowIntentDrawer(false)}
+        scrollable={false}
+        backdropColor="rgba(0,0,0,0.55)"
+      >
+        <Text style={[s.sheetTitle, { color: theme.text }]}>Looking For</Text>
+        <RelationshipIntentSelector selected={lookingForEdit} onSelect={setLookingForEdit} editable />
+        <RNView style={[s.meetingPrefRow, { marginTop: spacing.xl }]}>
+          <Text style={[s.meetingPrefLabel, { color: theme.textSecondary }]}>Open to:</Text>
+          {(['events', 'dates', 'both'] as const).map((opt) => {
+            const labels = { events: 'Events', dates: '1:1 Dates', both: 'Both' };
+            const isActive = meetingPref === opt;
+            return (
+              <Pressable key={opt} onPress={() => setMeetingPref(opt)}>
+                <RNView style={[s.meetingPrefPill, { backgroundColor: isActive ? 'rgba(139,92,246,0.2)' : theme.surfaceSubtle, borderColor: isActive ? 'rgba(139,92,246,0.5)' : theme.border }]}>
+                  <Text style={[s.meetingPrefPillText, { color: isActive ? '#8B5CF6' : theme.textSecondary }]}>{labels[opt]}</Text>
+                </RNView>
               </Pressable>
-              <Pressable onPress={() => setShowIntentDrawer(false)} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
+            );
+          })}
+        </RNView>
+        <RNView style={s.sheetFooter}>
+          <Pressable onPress={handleSaveIntent} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+            <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+            <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+          <Pressable onPress={() => setShowIntentDrawer(false)} style={s.sheetCancel}>
+            <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+          </Pressable>
+        </RNView>
+      </KeyboardAwareBottomSheetModal>
 
       {/* Bio editor modal */}
-      <Modal visible={showBioDrawer} transparent animationType="slide" onRequestClose={discardBioDrawer}>
-        <Pressable style={s.sheetBackdrop} onPress={discardBioDrawer}>
-          <Pressable style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[s.sheetTitle, { color: theme.text, marginBottom: spacing.xs }]}>About Me</Text>
-            <Text style={[s.aboutMeSheetSubtitle, { color: theme.textSecondary }]}>
-              You have 3 seconds to make them care. Make it count.
-            </Text>
-            <TextInput
-              value={aboutMeEdit}
-              onChangeText={(t) => setAboutMeEdit(t.slice(0, MAX_ABOUT_ME_LENGTH))}
-              placeholder="Write something about yourself..."
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              multiline
-              maxLength={MAX_ABOUT_ME_LENGTH}
-              style={s.aboutMeSheetInput}
-            />
-            <Text style={[s.aboutMeSheetCharCount, { color: theme.textSecondary }]}>
-              {aboutMeEdit.length}/140
-            </Text>
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveBio} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
-              </Pressable>
-              <Pressable onPress={discardBioDrawer} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <KeyboardAwareBottomSheetModal
+        visible={showBioDrawer}
+        onRequestClose={discardBioDrawer}
+        backdropColor="rgba(0,0,0,0.55)"
+        footer={
+          <RNView style={s.sheetFooter}>
+            <Pressable onPress={handleSaveBio} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+              <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+              <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable onPress={discardBioDrawer} style={s.sheetCancel}>
+              <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        }
+      >
+        <Text style={[s.sheetTitle, { color: theme.text, marginBottom: spacing.xs }]}>About Me</Text>
+        <Text style={[s.aboutMeSheetSubtitle, { color: theme.textSecondary }]}>
+          You have 3 seconds to make them care. Make it count.
+        </Text>
+        <TextInput
+          value={aboutMeEdit}
+          onChangeText={(t) => setAboutMeEdit(t.slice(0, MAX_ABOUT_ME_LENGTH))}
+          placeholder="Write something about yourself..."
+          placeholderTextColor="rgba(255,255,255,0.45)"
+          multiline
+          maxLength={MAX_ABOUT_ME_LENGTH}
+          style={s.aboutMeSheetInput}
+        />
+        <Text style={[s.aboutMeSheetCharCount, { color: theme.textSecondary }]}>
+          {aboutMeEdit.length}/140
+        </Text>
+      </KeyboardAwareBottomSheetModal>
 
       {/* Details editor modal */}
-      <Modal visible={showDetailsDrawer} transparent animationType="slide" onRequestClose={() => setShowDetailsDrawer(false)}>
-        <Pressable style={s.sheetBackdrop} onPress={() => setShowDetailsDrawer(false)}>
-          <ScrollView style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border, maxHeight: '85%' }]} onStartShouldSetResponder={() => true}>
-            <Text style={[s.sheetTitle, { color: theme.text }]}>Edit Details</Text>
-            <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
-            <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
-            </RNView>
-            <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job</Text>
-            <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{jobEdit || 'Not set'}</Text>
-            </RNView>
-            <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
-            <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveDetails} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
-              </Pressable>
-              <Pressable onPress={() => setShowDetailsDrawer(false)} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
-          </ScrollView>
-        </Pressable>
-      </Modal>
+      <KeyboardAwareBottomSheetModal
+        visible={showDetailsDrawer}
+        onRequestClose={() => setShowDetailsDrawer(false)}
+        scrollable={false}
+        maxHeightRatio={0.85}
+        backdropColor="rgba(0,0,0,0.55)"
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+          onStartShouldSetResponder={() => true}
+          contentContainerStyle={{ paddingBottom: spacing.lg }}
+        >
+          <Text style={[s.sheetTitle, { color: theme.text }]}>Edit Details</Text>
+          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
+          <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
+          </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job</Text>
+          <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{jobEdit || 'Not set'}</Text>
+          </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
+          <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
+          <RNView style={s.sheetFooter}>
+            <Pressable onPress={handleSaveDetails} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+              <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+              <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowDetailsDrawer(false)} style={s.sheetCancel}>
+              <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        </ScrollView>
+      </KeyboardAwareBottomSheetModal>
 
       <TaglineEditorSheet
         visible={showTaglineSheet}

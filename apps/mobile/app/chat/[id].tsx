@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Image,
   Vibration,
+  Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -68,6 +69,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
 import { formatChatImageMessageContent, parseChatImageMessageContent } from '@/lib/chatMessageContent';
+import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -76,6 +78,10 @@ const GAMES_WEB_FALLBACK = true;
 
 /** Message list + chrome background (slightly lifted from pure black). */
 const CHAT_CANVAS_BG = 'hsl(240, 10%, 6%)';
+const MEDIA_CARD_SIZE = Math.max(
+  172,
+  Math.min(206, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.95))
+);
 
 function formatAudioClock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -136,15 +142,26 @@ function VoiceMessagePlayer({
   );
 }
 
-function ChatImageCard({ uri }: { uri: string }) {
+function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
+  const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
   return (
-    <View style={[styles.chatImageOuter, { borderColor: 'rgba(255,255,255,0.1)' }]}>
+    <View style={[styles.chatImageOuter, { borderColor: frameBorder }]}>
       <Image source={{ uri }} style={styles.chatImage} resizeMode="cover" accessibilityIgnoresInvertColors />
     </View>
   );
 }
 
-function ChatVideoCard({ uri, durationSec, theme }: { uri: string; durationSec?: number | null; theme: (typeof Colors)['light'] }) {
+function ChatVideoCard({
+  uri,
+  durationSec,
+  theme,
+  isMine,
+}: {
+  uri: string;
+  durationSec?: number | null;
+  theme: (typeof Colors)['light'];
+  isMine: boolean;
+}) {
   const [hasError, setHasError] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
@@ -174,10 +191,18 @@ function ChatVideoCard({ uri, durationSec, theme }: { uri: string; durationSec?:
       : null;
 
   return (
-    <View style={styles.chatVideoCardOuter}>
+    <View
+      style={[
+        styles.chatVideoCardOuter,
+        {
+          borderColor: isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.14)',
+          backgroundColor: isMine ? 'rgba(236,72,153,0.08)' : 'rgba(255,255,255,0.04)',
+        },
+      ]}
+    >
       <VideoView style={styles.chatVideoInner} player={player} nativeControls contentFit="cover" />
       {durLabel ? (
-        <View style={[styles.videoDurationBadge, { backgroundColor: 'rgba(0,0,0,0.65)' }]}>
+        <View style={[styles.videoDurationBadge, { backgroundColor: isMine ? 'rgba(17,17,24,0.78)' : 'rgba(0,0,0,0.65)' }]}>
           <Text style={styles.videoDurationText}>{durLabel}</Text>
         </View>
       ) : null}
@@ -501,7 +526,7 @@ export default function ChatThreadScreen() {
     ]);
   };
 
-  const uploadPhotoUriAndSend = async (uri: string) => {
+  const uploadPhotoUriAndSend = async (uri: string, mimeType?: string | null) => {
     if (!data?.matchId || !user?.id) return;
     if (isOffline) {
       Alert.alert("Can't send", 'Check your connection.');
@@ -509,16 +534,8 @@ export default function ChatThreadScreen() {
     }
     setSendingPhoto(true);
     try {
-      const path = `${user.id}/${data.matchId}/${Date.now()}.jpg`;
-      const r = await fetch(uri);
-      const blob = await r.blob();
-      const { error: upErr } = await supabase.storage.from('voice-messages').upload(path, blob, {
-        contentType: 'image/jpeg',
-        upsert: false,
-      });
-      if (upErr) throw upErr;
-      const { data: pub } = supabase.storage.from('voice-messages').getPublicUrl(path);
-      await sendMessage({ matchId: data.matchId, content: formatChatImageMessageContent(pub.publicUrl) });
+      const publicUrl = await uploadChatImageMessage(uri, mimeType ?? 'image/jpeg');
+      await sendMessage({ matchId: data.matchId, content: formatChatImageMessageContent(publicUrl) });
     } catch (e) {
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
     } finally {
@@ -539,7 +556,7 @@ export default function ChatThreadScreen() {
         quality: 0.85,
       });
       if (result.canceled || !result.assets?.[0]) return;
-      await uploadPhotoUriAndSend(result.assets[0].uri);
+      await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
     } catch (e) {
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
     }
@@ -555,7 +572,7 @@ export default function ChatThreadScreen() {
       }
       const result = await ImagePicker.launchCameraAsync({ quality: 0.85 });
       if (result.canceled || !result.assets?.[0]) return;
-      await uploadPhotoUriAndSend(result.assets[0].uri);
+      await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
     } catch (e) {
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
     }
@@ -585,11 +602,11 @@ export default function ChatThreadScreen() {
   const confirmOpenGamesWebFallback = () => {
     if (!GAMES_WEB_FALLBACK) return;
     Alert.alert(
-      'Games',
-      'Vibely Arcade runs in the browser for now (same games as the web app). Continue?',
+      'Open Vibely Arcade',
+      'Arcade currently runs in your browser so you get the full game experience. You can return to chat anytime.',
       [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Continue', onPress: () => void openGamesWebInBrowser() },
+        { text: 'Stay in chat', style: 'cancel' },
+        { text: 'Open browser', onPress: () => void openGamesWebInBrowser() },
       ]
     );
   };
@@ -685,9 +702,12 @@ export default function ChatThreadScreen() {
             uri={item.video_url}
             durationSec={item.video_duration_seconds ?? null}
             theme={theme}
+            isMine={isMe}
           />
-          {reaction ? <Text style={[styles.reactionBadge, { marginTop: 6 }]}>{reaction}</Text> : null}
-          {statusOrTime}
+          <View style={styles.mediaMetaBlock}>
+            {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+            {statusOrTime}
+          </View>
         </View>
       );
     }
@@ -695,9 +715,11 @@ export default function ChatThreadScreen() {
     if (imageUrl) {
       return (
         <View>
-          <ChatImageCard uri={imageUrl} />
-          {reaction ? <Text style={[styles.reactionBadge, { marginTop: 6 }]}>{reaction}</Text> : null}
-          {statusOrTime}
+          <ChatImageCard uri={imageUrl} isMine={isMe} theme={theme} />
+          <View style={styles.mediaMetaBlock}>
+            {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+            {statusOrTime}
+          </View>
         </View>
       );
     }
@@ -748,8 +770,20 @@ export default function ChatThreadScreen() {
     const isMe = item.sender === 'me';
     const messages = displayMessages;
     const next = index < messages.length - 1 ? messages[index + 1] : null;
+    const prev = index > 0 ? messages[index - 1] : null;
     const isLastInGroup = !next || next.sender !== item.sender;
-    const bubbleMarginBottom = isLastInGroup ? spacing.md : 2;
+    const hasVideo = !!item.video_url;
+    const hasImage = !!parseChatImageMessageContent(item.text);
+    const isMediaBubble = hasVideo || hasImage;
+    const prevIsMedia = !!prev && (!!prev.video_url || !!parseChatImageMessageContent(prev.text));
+    const nextIsMedia = !!next && (!!next.video_url || !!parseChatImageMessageContent(next.text));
+    const bubbleMarginBottom = isLastInGroup
+      ? spacing.md
+      : isMediaBubble && nextIsMedia
+        ? 1
+        : isMediaBubble || prevIsMedia
+          ? 4
+          : 2;
     const textColor = isMe ? theme.primaryForeground : theme.text;
     const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
     const content = renderBubbleContent(item, textColor, timeColor, isMe);
@@ -768,15 +802,25 @@ export default function ChatThreadScreen() {
 
     const bubbleBody = isMe ? (
       <LinearGradient
-        colors={[theme.tint, theme.neonPink]}
+        colors={isMediaBubble ? ['rgba(236,72,153,0.12)', 'rgba(236,72,153,0.08)'] : [theme.tint, theme.neonPink]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={[styles.bubbleGradient, bubbleRadiusMe]}
+        style={[styles.bubbleGradient, bubbleRadiusMe, isMediaBubble ? styles.mediaBubbleTight : null]}
       >
         {content}
       </LinearGradient>
     ) : (
-      <View style={[styles.bubbleThemInner, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.08)' }, bubbleRadiusThem]}>
+      <View
+        style={[
+          styles.bubbleThemInner,
+          {
+            backgroundColor: isMediaBubble ? 'rgba(255,255,255,0.03)' : theme.surface,
+            borderColor: isMediaBubble ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)',
+          },
+          bubbleRadiusThem,
+          isMediaBubble ? styles.mediaBubbleTight : null,
+        ]}
+      >
         {content}
       </View>
     );
@@ -876,7 +920,11 @@ export default function ChatThreadScreen() {
                   }
                   if (data?.matchId) startCall('voice');
                 }}
-                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  styles.headerIconBtn,
+                  { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityLabel="Voice call"
               >
                 <Ionicons name="call-outline" size={20} color={theme.textSecondary} />
@@ -889,14 +937,22 @@ export default function ChatThreadScreen() {
                   }
                   if (data?.matchId) startCall('video');
                 }}
-                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  styles.headerIconBtn,
+                  { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityLabel="Video call"
               >
                 <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
               </Pressable>
               <Pressable
                 onPress={() => setShowActions(true)}
-                style={({ pressed }) => [styles.headerIconBtn, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [
+                  styles.headerIconBtn,
+                  { backgroundColor: theme.surfaceSubtle, borderColor: theme.border, borderWidth: StyleSheet.hairlineWidth },
+                  pressed && { opacity: 0.8 },
+                ]}
                 accessibilityLabel="More actions"
               >
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.textSecondary} />
@@ -1093,7 +1149,7 @@ export default function ChatThreadScreen() {
             accessibilityLabel="Suggest a date"
           >
             <Ionicons name="calendar-outline" size={16} color={theme.tint} />
-            <Text style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
+            <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
           </Pressable>
           <Pressable
             onPress={() => confirmOpenGamesWebFallback()}
@@ -1105,7 +1161,7 @@ export default function ChatThreadScreen() {
             accessibilityLabel="Games"
           >
             <Ionicons name="game-controller-outline" size={16} color={theme.neonCyan} />
-            <Text style={[styles.contextChipLabel, { color: theme.text }]}>Games</Text>
+            <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Games</Text>
           </Pressable>
         </View>
         <View
@@ -1261,7 +1317,13 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: spacing.xs },
   headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  headerIconBtn: { padding: 8 },
+  headerIconBtn: {
+    padding: 8,
+    borderRadius: 12,
+    minWidth: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   headerAvatar: { width: 40, height: 40, borderRadius: 20 },
   headerAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
@@ -1271,6 +1333,7 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
+  mediaMetaBlock: { marginTop: 6 },
   proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
   proposalBanner: {
     borderRadius: radius.lg,
@@ -1314,11 +1377,11 @@ const styles = StyleSheet.create({
   waveEmptySub: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   empty: { padding: spacing.xl, textAlign: 'center', fontSize: 14 },
   rowMe: { alignItems: 'flex-end', width: '100%' },
-  bubbleMeWrap: { maxWidth: '88%' },
+  bubbleMeWrap: { maxWidth: '88%', minWidth: 0 },
   themRow: { flexDirection: 'row', alignItems: 'flex-end', width: '100%', gap: 8 },
   themAvatarColumn: { width: 32, alignItems: 'center' },
   themAvatarSpacer: { width: 28, height: 28 },
-  themBubbleColumn: { flex: 1, maxWidth: '88%' },
+  themBubbleColumn: { flex: 1, maxWidth: '88%', minWidth: 0 },
   themAvatar: { width: 28, height: 28, borderRadius: 14 },
   themAvatarPlaceholder: { alignItems: 'center', justifyContent: 'center' },
   themAvatarFallback: { fontSize: 12, fontWeight: '600' },
@@ -1329,6 +1392,10 @@ const styles = StyleSheet.create({
   bubbleGradient: {
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
+  },
+  mediaBubbleTight: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
   },
   bubbleThemInner: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1353,14 +1420,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
+    flexShrink: 1,
+    minWidth: 0,
   },
-  contextChipLabel: { fontSize: 13, fontWeight: '600' },
+  contextChipLabel: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
   composerDock: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm,
-    gap: 8,
+    gap: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   composerIconBtn: {
@@ -1388,20 +1457,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.45 },
-  voicePlayerWrap: { minWidth: 220 },
+  voicePlayerWrap: { minWidth: 0, width: '100%', maxWidth: MEDIA_CARD_SIZE + 14 },
   voicePlayerRow: { flexDirection: 'row', alignItems: 'center' },
   voicePlayerMid: { flex: 1, marginLeft: 10 },
   voiceProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
   voiceProgressFill: { height: '100%', borderRadius: 2 },
   voiceTimeRow: { fontSize: 11, marginTop: 6 },
   chatVideoCardOuter: {
-    width: 220,
+    width: MEDIA_CARD_SIZE,
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  chatVideoInner: { width: 220, height: 150 },
-  chatVideoCard: { width: 220, height: 150 },
+  chatVideoInner: { width: MEDIA_CARD_SIZE, height: Math.round(MEDIA_CARD_SIZE * 0.66) },
+  chatVideoCard: { width: MEDIA_CARD_SIZE, height: Math.round(MEDIA_CARD_SIZE * 0.66) },
   chatVideoError: { alignItems: 'center', justifyContent: 'center' },
   videoDurationBadge: {
     position: 'absolute',
@@ -1416,9 +1486,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: 240,
+    maxWidth: MEDIA_CARD_SIZE + 12,
   },
-  chatImage: { width: 220, height: 220, backgroundColor: 'rgba(0,0,0,0.2)' },
+  chatImage: { width: MEDIA_CARD_SIZE, height: MEDIA_CARD_SIZE, backgroundColor: 'rgba(0,0,0,0.2)' },
   voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
   recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
 });

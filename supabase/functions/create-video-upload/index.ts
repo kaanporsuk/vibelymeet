@@ -97,7 +97,13 @@ serve(async (req) => {
 
     if (!createResponse.ok) {
       const errorText = await createResponse.text();
-      console.error("[create-video-upload] Bunny create failed:", errorText);
+      console.error(
+        "[create-video-upload] Bunny create failed:",
+        JSON.stringify({
+          httpStatus: createResponse.status,
+          bodySnippet: errorText.slice(0, 500),
+        }),
+      );
       return json(
         { success: false, error: "Failed to create video on Bunny", code: "bunny_create_failed" },
         502,

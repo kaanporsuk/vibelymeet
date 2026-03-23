@@ -5,7 +5,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  Modal,
   Pressable,
   TextInput,
   StyleSheet,
@@ -13,12 +12,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius, fonts } from '@/constants/theme';
 import { PROMPT_EMOJIS, AVAILABLE_PROMPTS } from './PROMPT_CONSTANTS';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 const MAX_ANSWER = 200;
 
@@ -48,7 +47,6 @@ export function PromptEditSheet({
   saving = false,
 }: PromptEditSheetProps) {
   const theme = Colors[useColorScheme()];
-  const insets = useSafeAreaInsets();
   const [selectedQuestion, setSelectedQuestion] = useState(initialQuestion);
   const [answerText, setAnswerText] = useState(initialAnswer);
 
@@ -80,70 +78,14 @@ export function PromptEditSheet({
 
   const title = mode === 'add' ? 'Add Prompt' : 'Edit Prompt';
 
-  if (!visible) return null;
-
   return (
-    <Modal transparent visible animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, { backgroundColor: theme.surface, paddingBottom: Math.max(insets.bottom, spacing.lg) }]}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View style={[styles.handle, { backgroundColor: theme.muted }]} />
-
-          <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Spark conversations with your answer.
-          </Text>
-
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Choose a prompt</Text>
-          <ScrollView
-            style={styles.promptScroll}
-            nestedScrollEnabled
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {AVAILABLE_PROMPTS.map((p) => {
-              const disabled = isPromptDisabled(p);
-              const selected = selectedQuestion.trim() === p;
-              return (
-                <Pressable
-                  key={p}
-                  disabled={disabled}
-                  onPress={() => !disabled && setSelectedQuestion(p)}
-                  style={[
-                    styles.promptRow,
-                    {
-                      backgroundColor: selected ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.04)',
-                      borderColor: selected ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.08)',
-                      opacity: disabled ? 0.45 : 1,
-                    },
-                  ]}
-                >
-                  <Text style={styles.promptEmoji}>{PROMPT_EMOJIS[p] ?? '💭'}</Text>
-                  <Text style={[styles.promptText, { color: theme.text }]} numberOfLines={2}>
-                    {p}
-                  </Text>
-                  {disabled ? (
-                    <Text style={[styles.usedBadge, { color: theme.textSecondary }]}>Already used</Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Your Answer</Text>
-          <TextInput
-            value={answerText}
-            onChangeText={(t) => setAnswerText(t.slice(0, MAX_ANSWER))}
-            placeholder="Be authentic, be interesting..."
-            placeholderTextColor="rgba(255,255,255,0.4)"
-            multiline
-            maxLength={MAX_ANSWER}
-            style={styles.answerInput}
-          />
-          <Text style={[styles.charCount, { color: theme.textSecondary }]}>{answerText.length}/{MAX_ANSWER}</Text>
-
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={onClose}
+      showHandle
+      backdropColor="rgba(0,0,0,0.55)"
+      footer={
+        <>
           <Pressable
             onPress={() => void handleSavePress()}
             disabled={!isValid || saving}
@@ -164,11 +106,7 @@ export function PromptEditSheet({
           </Pressable>
 
           {mode === 'edit' && onRemove ? (
-            <Pressable
-              onPress={() => void onRemove()}
-              disabled={saving}
-              style={styles.removeBtn}
-            >
+            <Pressable onPress={() => void onRemove()} disabled={saving} style={styles.removeBtn}>
               <Text style={styles.removeText}>Remove Prompt</Text>
             </Pressable>
           ) : null}
@@ -176,23 +114,70 @@ export function PromptEditSheet({
           <Pressable onPress={onClose} style={styles.cancelBtn}>
             <Text style={[styles.cancelText, { color: theme.textSecondary }]}>Cancel</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </>
+      }
+    >
+      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+      <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+        Spark conversations with your answer.
+      </Text>
+
+      <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Choose a prompt</Text>
+      <ScrollView
+        style={styles.promptScroll}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {AVAILABLE_PROMPTS.map((p) => {
+          const disabled = isPromptDisabled(p);
+          const selected = selectedQuestion.trim() === p;
+          return (
+            <Pressable
+              key={p}
+              disabled={disabled}
+              onPress={() => !disabled && setSelectedQuestion(p)}
+              style={[
+                styles.promptRow,
+                {
+                  backgroundColor: selected ? 'rgba(139,92,246,0.2)' : 'rgba(255,255,255,0.04)',
+                  borderColor: selected ? 'rgba(139,92,246,0.45)' : 'rgba(255,255,255,0.08)',
+                  opacity: disabled ? 0.45 : 1,
+                },
+              ]}
+            >
+              <Text style={styles.promptEmoji}>{PROMPT_EMOJIS[p] ?? '💭'}</Text>
+              <Text style={[styles.promptText, { color: theme.text }]} numberOfLines={2}>
+                {p}
+              </Text>
+              {disabled ? (
+                <Text style={[styles.usedBadge, { color: theme.textSecondary }]}>Already used</Text>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>
+        Your Answer
+      </Text>
+      <TextInput
+        value={answerText}
+        onChangeText={(t) => setAnswerText(t.slice(0, MAX_ANSWER))}
+        placeholder="Be authentic, be interesting..."
+        placeholderTextColor="rgba(255,255,255,0.4)"
+        multiline
+        maxLength={MAX_ANSWER}
+        style={styles.answerInput}
+      />
+      <Text style={[styles.charCount, { color: theme.textSecondary }]}>
+        {answerText.length}/{MAX_ANSWER}
+      </Text>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-  sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: spacing.lg,
-    maxHeight: '88%',
-  },
-  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 12 },
   title: {
     fontSize: 20,
     fontFamily: fonts.displayBold,

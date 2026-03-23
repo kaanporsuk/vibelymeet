@@ -1,4 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+/**
+ * Legacy profile tab (rollback). Not mounted when `USE_PROFILE_STUDIO === true` in `./index.tsx`.
+ * No `Modal` + `TextInput` pairs here — prompts use `PromptEditSheet`; inline profile edits use the
+ * main `ScrollView` + `Card`. Photo/manage modals are pickers or grids without text fields.
+ */
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
   Alert,
@@ -62,8 +67,7 @@ import {
 import { setUserProperties } from '@/lib/analytics';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
-import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
-import { getVibeVideoSurface, normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
+import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { avatarUrl, getImageUrl } from '@/lib/imageUrl';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
@@ -176,14 +180,10 @@ export default function ProfileScreen() {
   });
 
   const verificationStepTotal = 3;
-  const verificationVerifiedCount = useMemo(() => {
-    if (!profile) return 0;
-    let n = 0;
-    if (profile.email_verified) n++;
-    if (profile.photo_verified) n++;
-    if (profile.phone_verified) n++;
-    return n;
-  }, [profile?.email_verified, profile?.photo_verified, profile?.phone_verified]);
+  const verificationVerifiedCount =
+    (profile?.email_verified ? 1 : 0) +
+    (profile?.photo_verified ? 1 : 0) +
+    (profile?.phone_verified ? 1 : 0);
   const verificationProgressPct = (verificationVerifiedCount / verificationStepTotal) * 100;
 
   const { data: liveCounts, refetch: refetchLiveCounts } = useQuery({
@@ -312,12 +312,12 @@ export default function ProfileScreen() {
     }
   };
 
-  const usedPromptQuestionsElsewhere = useMemo(() => {
-    if (promptEditIndex === null) return [];
-    return (profile?.prompts ?? [])
-      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
-      .filter((q): q is string => !!q);
-  }, [profile?.prompts, promptEditIndex]);
+  const usedPromptQuestionsElsewhere =
+    promptEditIndex === null
+      ? []
+      : (profile?.prompts ?? [])
+          .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
+          .filter((q): q is string => !!q);
 
   const handlePromptCommit = async (payload: { question: string; answer: string }) => {
     const idx = promptEditIndex;
@@ -379,13 +379,11 @@ export default function ProfileScreen() {
     }
   };
 
-  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
-  const vibeNorm = normalizeBunnyVideoStatus(profile?.bunny_video_status);
-  const showLegacyVibeUploading = vibeNorm === 'uploading';
+  const vibeInfo = resolveVibeVideoState(profile ?? null);
+  const showLegacyVibeUploading = vibeInfo.state === 'uploading';
   const showLegacyVibeProcessing =
-    vibeSurface.kind === 'processing' && !showLegacyVibeUploading;
-  const showLegacyVibeEmpty =
-    vibeSurface.kind === 'empty' || vibeSurface.kind === 'inconsistent_ready_no_uid';
+    vibeInfo.state === 'processing' && !showLegacyVibeUploading;
+  const showLegacyVibeEmpty = vibeInfo.state === 'none' || vibeInfo.state === 'error';
 
   const handleVibeVideoPress = () => {
     if (showLegacyVibeUploading || showLegacyVibeProcessing) return;
@@ -598,6 +596,20 @@ export default function ProfileScreen() {
     );
   }
 
+  if (!isLoading && user?.id && !profile) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+        <ErrorState
+          message="We couldn't load your profile. Check your connection and try again."
+          onActionPress={() => {
+            void refetch();
+            void refetchLiveCounts();
+          }}
+        />
+      </View>
+    );
+  }
+
   const eventsCount = liveCounts?.events ?? profile?.events_attended ?? 0;
   const matchesCount = liveCounts?.matches ?? profile?.total_matches ?? 0;
   const convosCount = liveCounts?.convos ?? profile?.total_conversations ?? 0;
@@ -696,7 +708,7 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {vibeSurface.kind === 'ready' ? (
+          {vibeInfo.state === 'ready' ? (
             <Pressable
               onPress={handleVibeVideoPress}
               style={[styles.mediaFab, styles.mediaFabLeft, { backgroundColor: '#06B6D4' }, shadows.glowCyan]}
@@ -1069,9 +1081,9 @@ export default function ProfileScreen() {
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing your video…</Text>
             </View>
           )}
-          {vibeSurface.kind === 'ready' && (() => {
-            const playbackUrl = getVibeVideoPlaybackUrl(profile?.bunny_video_uid);
-            const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
+          {vibeInfo.state === 'ready' && (() => {
+            const playbackUrl = vibeInfo.playbackUrl;
+            const thumbnailUrl = vibeInfo.thumbnailUrl;
             const caption = profile?.vibe_caption?.trim() ?? '';
             return (
               <>
@@ -1113,7 +1125,7 @@ export default function ProfileScreen() {
               </>
             );
           })()}
-          {vibeSurface.kind === 'failed' && (
+          {vibeInfo.state === 'failed' && (
             <View style={styles.vibeVideoCardInner}>
               <Ionicons name="alert-circle-outline" size={48} color={theme.danger} style={{ opacity: 0.8 }} />
               <Text style={[styles.vibeVideoCopy, { color: theme.textSecondary }]}>Processing failed. Try recording again.</Text>
@@ -1572,15 +1584,12 @@ export default function ProfileScreen() {
     </Modal>
 
     <FullscreenVibeVideoModal
-      visible={
-        showVibeVideoFullscreen &&
-        getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status).kind === 'ready'
-      }
+      visible={showVibeVideoFullscreen && vibeInfo.state === 'ready'}
       onClose={() => setShowVibeVideoFullscreen(false)}
-      playbackUrl={getVibeVideoPlaybackUrl(profile?.bunny_video_uid)}
+      playbackUrl={vibeInfo.playbackUrl}
       bunnyVideoUid={profile?.bunny_video_uid}
       vibeCaption={profile?.vibe_caption ?? ''}
-      posterUrl={getVibeVideoThumbnailUrl(profile?.bunny_video_uid)}
+      posterUrl={vibeInfo.thumbnailUrl}
     />
 
     {/* Manage — visual media grid (web PhotoManager parity) */}

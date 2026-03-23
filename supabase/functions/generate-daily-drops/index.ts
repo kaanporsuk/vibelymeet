@@ -83,9 +83,18 @@ serve(async (req) => {
     const today = new Date().toISOString().split("T")[0];
     const now = new Date();
 
-    const tomorrow6pm = new Date(now);
-    tomorrow6pm.setDate(tomorrow6pm.getDate() + 1);
-    tomorrow6pm.setHours(18, 0, 0, 0);
+    // Next 18:00 UTC (aligned with pg_cron batch hour)
+    const expiresAtUtc = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+        18,
+        0,
+        0,
+        0,
+      ),
+    );
 
     // STEP 1: Expire old unresolved drops
     await supabase
@@ -119,7 +128,7 @@ serve(async (req) => {
         if (drop.status === "passed") { cooldownDays = 30; reason = "passed"; }
 
         const cooldownDate = new Date();
-        cooldownDate.setDate(cooldownDate.getDate() + cooldownDays);
+        cooldownDate.setUTCDate(cooldownDate.getUTCDate() + cooldownDays);
 
         await supabase
           .from("daily_drop_cooldowns")
@@ -173,6 +182,10 @@ serve(async (req) => {
         }
         return untilDate <= now;
       }
+    );
+
+    eligibleUsersFiltered.sort((a: { id: string }, b: { id: string }) =>
+      a.id.localeCompare(b.id)
     );
 
     if (!eligibleUsersFiltered || eligibleUsersFiltered.length < 2) {
@@ -248,7 +261,12 @@ serve(async (req) => {
       }
     }
 
-    scoredPairs.sort((a, b) => b.score - a.score);
+    scoredPairs.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const c = a.id_a.localeCompare(b.id_a);
+      if (c !== 0) return c;
+      return a.id_b.localeCompare(b.id_b);
+    });
 
     const paired = new Set<string>();
     const pairs: Array<{ user_a_id: string; user_b_id: string; affinity_score: number; pick_reasons: string[] }> = [];
@@ -261,27 +279,69 @@ serve(async (req) => {
     }
 
     // STEP 10: Insert pairs
+    let insertedRows = 0;
     if (pairs.length > 0) {
       const inserts = pairs.map(p => ({
         user_a_id: p.user_a_id,
         user_b_id: p.user_b_id,
         drop_date: today,
         starts_at: now.toISOString(),
-        expires_at: tomorrow6pm.toISOString(),
+        expires_at: expiresAtUtc.toISOString(),
         status: "active_unopened",
         affinity_score: p.affinity_score,
         pick_reasons: p.pick_reasons,
       }));
-      await supabase.from("daily_drops").insert(inserts);
+      const { data: inserted, error: insertError } = await supabase
+        .from("daily_drops")
+        .insert(inserts)
+        .select("id");
+
+      if (insertError) {
+        console.error("[generate-daily-drops] insert_failed", {
+          message: insertError.message,
+          code: insertError.code,
+          attempted: pairs.length,
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "insert_failed",
+            details: insertError.message,
+            pairs_attempted: pairs.length,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      insertedRows = inserted?.length ?? 0;
+      if (insertedRows !== pairs.length) {
+        console.error("[generate-daily-drops] insert_partial", {
+          attempted: pairs.length,
+          persisted: insertedRows,
+        });
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "insert_partial",
+            pairs_attempted: pairs.length,
+            pairs_persisted: insertedRows,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      console.log("[generate-daily-drops] insert_ok", { pairs_persisted: insertedRows, drop_date: today });
     }
 
-    // STEP 11: Notify
+    // STEP 11: Notify only after confirmed inserts
     const notifiedUserIds = new Set<string>();
     for (const pair of pairs) {
       notifiedUserIds.add(pair.user_a_id);
       notifiedUserIds.add(pair.user_b_id);
     }
 
+    if (notifiedUserIds.size > 0) {
+      console.log("[generate-daily-drops] notify_fanout_start", { users: notifiedUserIds.size });
+    }
     for (const userId of notifiedUserIds) {
       try {
         await supabase.functions.invoke("send-notification", {
@@ -289,18 +349,26 @@ serve(async (req) => {
             user_id: userId,
             category: "daily_drop",
             title: "💧 Your Daily Drop is ready",
-            body: "Someone new is waiting to meet you. Open to see who.",
+            body: "Someone new is waiting to meet you. Open the app to see who.",
             data: { url: "/matches" },
           },
         });
       } catch (e) {
-        console.error("Failed to notify user:", userId, e);
+        console.error("[generate-daily-drops] notify_failed", userId, e);
       }
+    }
+    if (notifiedUserIds.size > 0) {
+      console.log("[generate-daily-drops] notify_fanout_end", { users: notifiedUserIds.size });
     }
 
     return new Response(
-      JSON.stringify({ success: true, pairs_created: pairs.length, users_notified: notifiedUserIds.size, unpaired_users: eligibleUsersFiltered.length - paired.size }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        success: true,
+        pairs_created: insertedRows,
+        users_notified: notifiedUserIds.size,
+        unpaired_users: eligibleUsersFiltered.length - paired.size,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error("generate-daily-drops error:", error);

@@ -4,11 +4,14 @@
  */
 
 import * as tus from 'tus-js-client';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase';
-import { persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
+import { getVibeVideoPlaybackUrl, persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose, vibeVideoDiagProdHint } from '@/lib/vibeVideoDiagnostics';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+
+export type VibeVideoUploadSource = 'camera' | 'library' | 'drawer' | 'unknown';
 
 export type VibeVideoStatus = 'none' | 'uploading' | 'processing' | 'ready' | 'failed';
 
@@ -126,6 +129,8 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
     });
   }
 
+  vibeVideoDiagVerbose('create-upload.ok', { videoId, hasCdnHostname: !!cdnHostname });
+
   return {
     videoId,
     libraryId,
@@ -136,19 +141,80 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
 }
 
 /**
+ * Copy picker/camera URIs into cache when possible so `fetch(uri)` + TUS sees a stable file path
+ * (library assets on iOS often break direct blob reads).
+ */
+export async function prepareLocalVideoFileForVibeUpload(
+  videoUri: string,
+  meta: { source: VibeVideoUploadSource },
+): Promise<{ uri: string; sizeBytes?: number; copiedToCache: boolean }> {
+  const trimmed = videoUri.trim();
+  if (!trimmed) {
+    throw new Error('Empty video URI');
+  }
+
+  vibeVideoDiagVerbose('upload.prepare.start', {
+    source: meta.source,
+    uriScheme: trimmed.includes(':') ? trimmed.split(':')[0] : 'path',
+  });
+
+  const cacheRoot = FileSystem.cacheDirectory;
+  if (!cacheRoot) {
+    vibeVideoDiagVerbose('upload.prepare.no_cache_dir', {});
+    return { uri: trimmed, copiedToCache: false };
+  }
+
+  const extGuess = /\.mov$/i.test(trimmed) ? 'mov' : 'mp4';
+  const dest = `${cacheRoot}vibe-tus-${Date.now()}.${extGuess}`;
+
+  try {
+    await FileSystem.copyAsync({ from: trimmed, to: dest });
+    const info = await FileSystem.getInfoAsync(dest);
+    const sizeBytes = info.exists && typeof info.size === 'number' ? info.size : undefined;
+    vibeVideoDiagVerbose('upload.prepare.copied', { sizeBytes, destTail: dest.slice(-40) });
+    return { uri: dest, sizeBytes, copiedToCache: true };
+  } catch (e) {
+    vibeVideoDiagVerbose('upload.prepare.copy_failed', {
+      message: e instanceof Error ? e.message : String(e),
+      fallbackUri: true,
+    });
+    try {
+      const srcInfo = await FileSystem.getInfoAsync(trimmed);
+      const sizeBytes =
+        srcInfo.exists && typeof srcInfo.size === 'number' ? srcInfo.size : undefined;
+      vibeVideoDiagVerbose('upload.prepare.source_probe', { exists: srcInfo.exists, sizeBytes });
+    } catch {
+      /* ignore */
+    }
+    return { uri: trimmed, copiedToCache: false };
+  }
+}
+
+/**
  * Upload video file (local URI) to Bunny via tus using credentials from create-video-upload.
  */
 export function uploadVibeVideoToBunny(
   videoUri: string,
   credentials: CreateVideoUploadCredentials,
   onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; uploadSource?: VibeVideoUploadSource },
 ): Promise<void> {
   return (async () => {
+    const uploadSource = options?.uploadSource ?? 'unknown';
+    const prepared = await prepareLocalVideoFileForVibeUpload(videoUri, { source: uploadSource });
+
     let blob: Blob;
     try {
-      const response = await fetch(videoUri);
+      vibeVideoDiagVerbose('tus.read_blob.start', {
+        copiedToCache: prepared.copiedToCache,
+        sizeBytesHint: prepared.sizeBytes,
+      });
+      const response = await fetch(prepared.uri);
       blob = await response.blob();
+      vibeVideoDiagVerbose('tus.read_blob.ok', {
+        blobSize: blob.size,
+        blobType: blob.type || '(empty)',
+      });
     } catch (e) {
       vibeVideoDiagVerbose('tus.read_file_failed', { message: e instanceof Error ? e.message : String(e) });
       throw new Error('Could not read the video file. Try choosing the clip again.');
@@ -157,6 +223,19 @@ export function uploadVibeVideoToBunny(
     const mimeType = blob.type || 'video/mp4';
 
     return new Promise<void>((resolve, reject) => {
+      let lastLoggedPct = -1;
+      const wrapProgress = onProgress
+        ? (bytesUploaded: number, bytesTotal: number) => {
+            onProgress(bytesUploaded, bytesTotal);
+            if (bytesTotal <= 0) return;
+            const pct = Math.min(100, Math.floor((bytesUploaded / bytesTotal) * 100));
+            if (pct >= lastLoggedPct + 25 || pct === 100) {
+              lastLoggedPct = pct;
+              vibeVideoDiagVerbose('tus.progress', { percent: pct, bytesUploaded, bytesTotal });
+            }
+          }
+        : undefined;
+
       const upload = new tus.Upload(blob, {
         endpoint: 'https://video.bunnycdn.com/tusupload',
         retryDelays: [0, 3000, 5000, 10000],
@@ -181,8 +260,15 @@ export function uploadVibeVideoToBunny(
           vibeVideoDiagVerbose('tus.error', { message: msg });
           reject(err instanceof Error ? err : new Error('Upload failed. Please try again.'));
         },
-        onProgress: onProgress ? (bytesUploaded, bytesTotal) => onProgress(bytesUploaded, bytesTotal) : undefined,
-        onSuccess: () => resolve(),
+        onProgress: wrapProgress,
+        onSuccess: () => {
+          const playUrl = getVibeVideoPlaybackUrl(credentials.videoId);
+          vibeVideoDiagVerbose('tus.complete', {
+            videoId: credentials.videoId,
+            playableUrlReady: !!playUrl,
+          });
+          resolve();
+        },
       });
 
       const signal = options?.signal;
@@ -199,6 +285,7 @@ export function uploadVibeVideoToBunny(
         else signal.addEventListener('abort', onAbort, { once: true });
       }
 
+      vibeVideoDiagVerbose('tus.client_start', { videoId: credentials.videoId });
       upload.start();
     });
   })();
@@ -223,6 +310,7 @@ export async function saveVibeVideoToProfile(
 
   const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
   if (error) throw error;
+  vibeVideoDiagVerbose('profile.vibe_video_saved', { videoId, bunny_video_status: 'processing' });
 }
 
 export class DeleteVibeVideoError extends Error {

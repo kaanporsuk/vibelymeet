@@ -2,7 +2,20 @@ import React, { useMemo, useState, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
-import { StyleSheet, Pressable, FlatList, ListRenderItem, RefreshControl, ScrollView, View as RNView, Text as RNText, TextInput, Platform, Image, Alert } from 'react-native';
+import {
+  StyleSheet,
+  Pressable,
+  FlatList,
+  ListRenderItem,
+  RefreshControl,
+  ScrollView,
+  View as RNView,
+  Text as RNText,
+  TextInput,
+  Platform,
+  Image,
+  Alert,
+} from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -23,6 +36,8 @@ import { spacing, typography, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useMatches, type MatchListItem } from '@/lib/chatApi';
+import { formatConversationCount } from '@/lib/matchSortScore';
+import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
@@ -37,6 +52,35 @@ import { DropsTabContent } from '@/components/matches/DropsTabContent';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+
+type MatchConversationRow = MatchListItem & { searchMatchHint: string | null };
+
+type ConversationSortOption = 'recent' | 'unread' | 'best';
+
+const SEARCH_MATCH_HINT = {
+  name: 'Matched on name',
+  vibe: 'Matched on vibe',
+  intent: 'Matched on intent',
+  event: 'Matched on event',
+  message: 'Matched in messages',
+} as const;
+
+function intentSearchHaystack(lookingFor: string | null): string {
+  if (!lookingFor) return '';
+  const d = getLookingForDisplay(lookingFor);
+  return [lookingFor, d?.label ?? '', d?.emoji ?? ''].join(' ').toLowerCase();
+}
+
+/** First matching dimension in priority order: name → vibe → intent → event → message. */
+function conversationSearchHint(m: MatchListItem, qLower: string): string | null {
+  if (m.name.toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.name;
+  if (m.vibes.some((v) => v.toLowerCase().includes(qLower))) return SEARCH_MATCH_HINT.vibe;
+  if (intentSearchHaystack(m.looking_for).includes(qLower)) return SEARCH_MATCH_HINT.intent;
+  if ((m.eventName ?? '').toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.event;
+  if ((m.lastMessage ?? '').toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.message;
+  return null;
+}
 
 export default function MatchesListScreen() {
   const router = useRouter();
@@ -47,23 +91,76 @@ export default function MatchesListScreen() {
   const { data: matches = [], isLoading, isRefetching, error, refetch } = useMatches(user?.id);
   const [activeTab, setActiveTab] = useState<'conversations' | 'drops'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
+  const [conversationSort, setConversationSort] = useState<ConversationSortOption>('recent');
+  const [showSortSheet, setShowSortSheet] = useState(false);
 
-  const activeMatches = useMemo(() => matches.filter((m) => !m.archived_at), [matches]);
+  /** Web parity: hide when this user archived (`useMatches` / `useMatches.ts` isArchived). */
+  const activeMatches = useMemo(
+    () => matches.filter((m) => !(m.archived_at && m.archived_by === user?.id)),
+    [matches, user?.id]
+  );
   const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
   const newVibes = useMemo(
     () => activeMatches.filter((m) => m.isNew && !openedVibeIds.has(m.matchId)),
     [activeMatches, openedVibeIds]
   );
 
-  const filteredMatches = useMemo(() => {
-    if (!searchQuery.trim()) return activeMatches;
-    const q = searchQuery.toLowerCase();
-    return activeMatches.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        (m.lastMessage ?? '').toLowerCase().includes(q)
-    );
-  }, [activeMatches, searchQuery]);
+  const searchTrimmed = searchQuery.trim();
+  const showNewVibesRail = searchTrimmed.length === 0;
+
+  const filteredMatches = useMemo((): MatchConversationRow[] => {
+    if (!searchTrimmed) {
+      return activeMatches.map((m) => ({ ...m, searchMatchHint: null }));
+    }
+    const q = searchTrimmed.toLowerCase();
+    const rows: MatchConversationRow[] = [];
+    for (const m of activeMatches) {
+      const hint = conversationSearchHint(m, q);
+      if (hint) rows.push({ ...m, searchMatchHint: hint });
+    }
+    return rows;
+  }, [activeMatches, searchTrimmed]);
+
+  const orderIndexByMatchId = useMemo(() => {
+    const m = new Map<string, number>();
+    activeMatches.forEach((row, i) => m.set(row.matchId, i));
+    return m;
+  }, [activeMatches]);
+
+  /** After search filter; same sort semantics as web `Matches.tsx`. */
+  const displayMatches = useMemo((): MatchConversationRow[] => {
+    const list = [...filteredMatches];
+    const tieRecent = (a: MatchConversationRow, b: MatchConversationRow) =>
+      (orderIndexByMatchId.get(a.matchId) ?? 0) - (orderIndexByMatchId.get(b.matchId) ?? 0);
+    switch (conversationSort) {
+      case 'unread':
+        list.sort((a, b) => {
+          const du = (b.unread ? 1 : 0) - (a.unread ? 1 : 0);
+          return du !== 0 ? du : tieRecent(a, b);
+        });
+        break;
+      case 'best':
+        list.sort((a, b) => {
+          const ds = b.bestMatchScore - a.bestMatchScore;
+          return ds !== 0 ? ds : tieRecent(a, b);
+        });
+        break;
+      default:
+        list.sort(tieRecent);
+        break;
+    }
+    return list;
+  }, [filteredMatches, conversationSort, orderIndexByMatchId]);
+
+  const applyConversationSort = useCallback((opt: ConversationSortOption) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setConversationSort(opt);
+    setShowSortSheet(false);
+  }, []);
+
+  const showConversationSortMenu = useCallback(() => {
+    setShowSortSheet(true);
+  }, []);
 
   const [pendingUnmatchMatchId, setPendingUnmatchMatchId] = useState<string | null>(null);
   const [pendingUnmatchName, setPendingUnmatchName] = useState<string>('');
@@ -221,7 +318,7 @@ export default function MatchesListScreen() {
     [router]
   );
 
-  const renderItem: ListRenderItem<(typeof filteredMatches)[0]> = useCallback(
+  const renderItem: ListRenderItem<MatchConversationRow> = useCallback(
     ({ item }) => {
       const row = (
         <MatchListRow
@@ -232,6 +329,7 @@ export default function MatchesListScreen() {
           lastMessage={item.lastMessage}
           unread={item.unread}
           isNew={item.isNew}
+          searchMatchHint={item.searchMatchHint}
         />
       );
 
@@ -340,6 +438,58 @@ export default function MatchesListScreen() {
     );
   }
 
+  /** Rows exist but all are hidden for this user (self-archived); avoid main shell + empty list. */
+  if (matches.length > 0 && activeMatches.length === 0 && !isLoading) {
+    return (
+      <ScreenContainer>
+        <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
+          <RNView style={styles.headerTitleRow}>
+            <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
+            <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
+          </RNView>
+        </GlassHeaderBar>
+        <ScrollView
+          style={styles.emptyStateScroll}
+          contentContainerStyle={styles.emptyStateScrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching && !isLoading}
+              onRefresh={handleRefresh}
+              tintColor={theme.tint}
+            />
+          }
+        >
+          <EmptyState
+            showIllustration={true}
+            title="No conversations here"
+            message="You've archived all your matches. Pull to refresh after unarchiving, or join an event to meet someone new."
+            actionLabel="Find your next event"
+            onActionPress={() => router.push('/(tabs)/events')}
+          />
+          <Pressable
+            onPress={() => setShowInviteSheet(true)}
+            style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
+          >
+            <Ionicons name="people-outline" size={18} color={theme.tint} />
+            <RNText style={[styles.emptyInviteCtaText, { color: theme.tint }]}>
+              Invite friends to get started
+            </RNText>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/how-it-works' as Href)}
+            style={({ pressed }) => [styles.howItWorksLink, pressed && { opacity: 0.8 }]}
+          >
+            <VibelyText variant="body" style={[styles.howItWorksText, { color: theme.textSecondary }]}>
+              How does Vibely work? →
+            </VibelyText>
+          </Pressable>
+        </ScrollView>
+        <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
+      </ScreenContainer>
+    );
+  }
+
   if (isLoading && !matches.length) {
     return (
       <ScreenContainer>
@@ -402,9 +552,11 @@ export default function MatchesListScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
             <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
           </RNView>
-          {matches.length > 0 && (
+          {activeMatches.length > 0 && (
             <RNView style={[styles.countPill, { backgroundColor: theme.accentSoft }]}>
-              <RNText style={[styles.countPillText, { color: theme.tint }]}>{matches.length}</RNText>
+              <RNText style={[styles.countPillText, { color: theme.tint }]}>
+                {formatConversationCount(displayMatches.length)}
+              </RNText>
             </RNView>
           )}
         </RNView>
@@ -486,7 +638,7 @@ export default function MatchesListScreen() {
         </RNView>
 
         {/* Search (only for conversations and when matches exist) */}
-        {activeTab === 'conversations' && matches.length > 0 && (
+        {activeTab === 'conversations' && activeMatches.length > 0 && (
           <RNView style={styles.searchRow}>
             <RNView style={[styles.searchInputWrapper, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <Ionicons
@@ -498,11 +650,26 @@ export default function MatchesListScreen() {
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search by name or vibe…"
+                placeholder="Search by name, vibe, intent, event, or message…"
                 placeholderTextColor={theme.textSecondary}
                 style={[styles.searchInput, { color: theme.text }]}
               />
             </RNView>
+            <Pressable
+              onPress={showConversationSortMenu}
+              accessibilityRole="button"
+              accessibilityLabel="Sort conversations"
+              style={({ pressed }) => [
+                styles.sortIconButton,
+                {
+                  backgroundColor: theme.surfaceSubtle,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="options-outline" size={20} color={theme.textSecondary} />
+            </Pressable>
           </RNView>
         )}
       </GlassHeaderBar>
@@ -511,7 +678,7 @@ export default function MatchesListScreen() {
       {activeTab === 'conversations' ? (
         <GestureHandlerRootView style={styles.gestureRoot}>
           <FlatList
-            data={filteredMatches}
+            data={displayMatches}
             renderItem={renderItem}
             keyExtractor={(item) => item.matchId}
             contentContainerStyle={styles.list}
@@ -524,7 +691,7 @@ export default function MatchesListScreen() {
               />
             }
           ListEmptyComponent={
-            searchQuery.trim() ? (
+            searchTrimmed ? (
               <RNView style={styles.searchEmpty}>
                 <Ionicons name="search-outline" size={40} color={theme.textSecondary} />
                 <VibelyText variant="titleSM" style={[styles.searchEmptyTitle, { color: theme.text }]}>No matches found</VibelyText>
@@ -535,9 +702,9 @@ export default function MatchesListScreen() {
           ListHeaderComponent={
             <RNView onTouchStart={dismissOpenConversationSwipe}>
             <>
-              {newVibes.length > 0 && !isPremium ? (
+              {showNewVibesRail && newVibes.length > 0 && !isPremium ? (
                 <WhoLikedYouGate count={newVibes.length} />
-              ) : newVibes.length > 0 && isPremium ? (
+              ) : showNewVibesRail && newVibes.length > 0 && isPremium ? (
                 <Card variant="glass" style={styles.newVibesCard}>
                   <RNView style={styles.newVibesHeader}>
                     <RNView style={[styles.newVibesIconWrap, { backgroundColor: theme.tint }]}>
@@ -691,6 +858,68 @@ export default function MatchesListScreen() {
       />
 
       <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
+      <KeyboardAwareBottomSheetModal
+        visible={showSortSheet}
+        onRequestClose={() => setShowSortSheet(false)}
+        scrollable={false}
+        showHandle
+        maxHeightRatio={0.5}
+      >
+        <RNView style={styles.sortSheetHeader}>
+          <VibelyText variant="titleSM" style={[styles.sortSheetTitle, { color: theme.text }]}>
+            Sort conversations
+          </VibelyText>
+          <VibelyText variant="bodySecondary" style={{ color: theme.textSecondary }}>
+            Choose how your chat list is ordered
+          </VibelyText>
+        </RNView>
+        {([
+          { key: 'recent', label: 'Most Recent', subtitle: 'Latest activity first' },
+          { key: 'unread', label: 'Unread First', subtitle: 'Conversations needing attention' },
+          { key: 'best', label: 'Best Match', subtitle: 'Highest vibe compatibility first' },
+        ] as const).map((opt) => {
+          const selected = conversationSort === opt.key;
+          return (
+            <Pressable
+              key={opt.key}
+              onPress={() => applyConversationSort(opt.key)}
+              style={({ pressed }) => [
+                styles.sortSheetOption,
+                {
+                  borderColor: selected ? theme.tint : theme.border,
+                  backgroundColor: selected ? theme.tintSoft : theme.surfaceSubtle,
+                  opacity: pressed ? 0.92 : 1,
+                },
+              ]}
+            >
+              <RNView style={{ flex: 1 }}>
+                <VibelyText variant="body" style={[styles.sortSheetOptionLabel, { color: theme.text }]}>
+                  {opt.label}
+                </VibelyText>
+                <VibelyText variant="caption" style={{ color: theme.textSecondary }}>
+                  {opt.subtitle}
+                </VibelyText>
+              </RNView>
+              <Ionicons
+                name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                size={20}
+                color={selected ? theme.tint : theme.textSecondary}
+              />
+            </Pressable>
+          );
+        })}
+        <Pressable
+          onPress={() => setShowSortSheet(false)}
+          style={({ pressed }) => [
+            styles.sortSheetCancel,
+            { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, opacity: pressed ? 0.9 : 1 },
+          ]}
+        >
+          <VibelyText variant="body" style={{ color: theme.text }}>
+            Cancel
+          </VibelyText>
+        </Pressable>
+      </KeyboardAwareBottomSheetModal>
     </ScreenContainer>
   );
 }
@@ -746,8 +975,12 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   searchInputWrapper: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 16,
@@ -755,9 +988,48 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  sortIconButton: {
+    width: 44,
+    height: 40,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   searchInput: {
     flex: 1,
     fontSize: 14,
+  },
+  sortSheetHeader: {
+    marginBottom: spacing.md,
+    paddingTop: spacing.xs,
+    gap: 2,
+  },
+  sortSheetTitle: {
+    marginBottom: spacing.xs,
+  },
+  sortSheetOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  sortSheetOptionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  sortSheetCancel: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+    marginTop: spacing.xs,
   },
   conversationsDivider: {
     flexDirection: 'row',

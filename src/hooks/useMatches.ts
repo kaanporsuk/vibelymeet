@@ -4,6 +4,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { formatDistanceToNow } from "date-fns";
 import { getImageUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
+import {
+  bestMatchSortKey,
+  compatibilityPercent,
+  type MatchScoreInput,
+} from "@/utils/matchSortScore";
 
 export interface Match {
   id: string;
@@ -28,6 +33,10 @@ export interface Match {
   
   lifestyle?: Record<string, string>;
   tagline?: string | null;
+  /** Deterministic sort key for "Best Match" (larger = stronger). */
+  bestMatchScore: number;
+  /** Same inputs as bestMatchScore; row / drawer compatibility %. */
+  compatibilityPercent: number;
 }
 
 const PAGE_SIZE = 20;
@@ -110,6 +119,8 @@ export const useMatches = () => {
         .map((m) => m.event_id)
         .filter(Boolean) as string[];
 
+      const profileIdsForFetch = [...otherProfileIds, userId];
+
       const [profilesResult, vibesResult, messagesResult, eventsResult] =
         await Promise.all([
           supabase
@@ -117,11 +128,11 @@ export const useMatches = () => {
             .select(
               "id, name, age, avatar_url, photos, photo_verified, bio, job, location, height_cm, looking_for, prompts, lifestyle, tagline"
             )
-            .in("id", otherProfileIds),
+            .in("id", profileIdsForFetch),
           supabase
             .from("profile_vibes")
             .select("profile_id, vibe_tags(label)")
-            .in("profile_id", otherProfileIds),
+            .in("profile_id", profileIdsForFetch),
           supabase
             .from("messages")
             .select("match_id, content, created_at, read_at, sender_id")
@@ -156,9 +167,16 @@ export const useMatches = () => {
           vibesByProfile[pv.profile_id] = [];
         }
         if (pv.vibe_tags?.label) {
-          vibesByProfile[pv.profile_id].push(pv.vibe_tags.label);
+          const lbl = pv.vibe_tags.label as string;
+          if (!vibesByProfile[pv.profile_id].includes(lbl)) {
+            vibesByProfile[pv.profile_id].push(lbl);
+          }
         }
       });
+
+      const viewerProfile = profiles.find((p) => p.id === userId);
+      const viewerVibes = vibesByProfile[userId] ?? [];
+      const viewerLookingFor = (viewerProfile as any)?.looking_for ?? null;
 
       const eventsById: Record<string, string> = {};
       events.forEach((e: any) => {
@@ -171,6 +189,16 @@ export const useMatches = () => {
             ? match.profile_id_2
             : match.profile_id_1;
         const profile = profiles.find((p) => p.id === otherProfileId);
+        const otherVibes = vibesByProfile[otherProfileId] ?? [];
+        const scoreInput: MatchScoreInput = {
+          viewerVibeLabels: viewerVibes,
+          otherVibeLabels: otherVibes,
+          viewerLookingFor,
+          otherLookingFor: (profile as any)?.looking_for ?? null,
+          hasSharedEventContext: !!match.event_id,
+        };
+        const bestMatchScore = bestMatchSortKey(scoreInput);
+        const compatibilityPct = compatibilityPercent(scoreInput);
         const lastMsg = messagesByMatch[match.id];
         const matchedAt = new Date(match.matched_at);
         const isNew =
@@ -207,11 +235,13 @@ export const useMatches = () => {
           unread: lastMsg
             ? !lastMsg.read_at && lastMsg.sender_id !== userId
             : false,
-          vibes: vibesByProfile[otherProfileId]?.slice(0, 2) || [],
+          vibes: otherVibes.slice(0, 2),
           isNew,
           matchId: match.id,
           photoVerified: !!(profile as any)?.photo_verified,
           isArchived,
+          bestMatchScore,
+          compatibilityPercent: compatibilityPct,
           eventName: match.event_id
             ? eventsById[match.event_id] || undefined
             : undefined,

@@ -23,8 +23,7 @@ import { useAuth } from '@/context/AuthContext';
 import { LoadingState, ErrorState } from '@/components/ui';
 import { fetchMyProfile, formatBirthdayUsWithZodiac, type ProfileRow } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
-import { getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
-import { getVibeVideoSurface } from '@/lib/vibeVideoStatus';
+import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
@@ -101,12 +100,11 @@ export default function ProfilePreviewScreen() {
   const age = profile?.age;
   const tagline = profile?.tagline?.trim();
   const location = profile?.location?.trim();
-  const vibeSurface = getVibeVideoSurface(profile?.bunny_video_uid, profile?.bunny_video_status);
-  const hasVibeVideo = vibeSurface.kind === 'ready';
-  const vibeProcessing =
-    vibeSurface.kind === 'processing' || vibeSurface.kind === 'inconsistent_unknown_status';
-  const vibeFailed = vibeSurface.kind === 'failed';
-  const thumbnailUrl = getVibeVideoThumbnailUrl(profile?.bunny_video_uid);
+  const vibeInfo = resolveVibeVideoState(profile ?? null);
+  const hasVibeVideo = vibeInfo.state === 'ready';
+  const vibeProcessing = vibeInfo.state === 'uploading' || vibeInfo.state === 'processing';
+  const vibeFailed = vibeInfo.state === 'failed';
+  const thumbnailUrl = vibeInfo.thumbnailUrl;
   const caption = profile?.vibe_caption?.trim() ?? '';
   const aboutMe = profile?.about_me?.trim();
   const filledPrompts = (profile?.prompts ?? []).filter(p => p.question?.trim() && p.answer?.trim());

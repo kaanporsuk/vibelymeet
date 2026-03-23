@@ -3,7 +3,7 @@
  * idle (camera + flip + record + library upload) → recording → preview (expo-video replay)
  * → upload (tus + `saveVibeVideoToProfile`) → processing poll. Entry: optional `libraryUri` from drawer upload.
  */
-import React, { useRef, useState, useEffect, useCallback, memo } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
-  Modal,
   TextInput,
   AppState,
   type AppStateStatus,
@@ -23,7 +22,7 @@ import {
   useCameraPermissions,
   useMicrophonePermissions,
 } from 'expo-camera';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,6 +40,7 @@ import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
+import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -55,42 +55,6 @@ function isAbortError(e: unknown): boolean {
     (e as { name?: string }).name === 'AbortError'
   );
 }
-
-const RecordedPreview = memo(function RecordedPreview({
-  uri,
-  onError,
-}: {
-  uri: string;
-  onError: () => void;
-}) {
-  const warned = useRef(false);
-  const player = useVideoPlayer(uri, (p) => {
-    p.loop = true;
-  });
-
-  useEffect(() => {
-    warned.current = false;
-  }, [uri]);
-
-  useEffect(() => {
-    player.replace(uri);
-    void player.play();
-  }, [uri, player]);
-
-  useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error' && !warned.current) {
-        warned.current = true;
-        onError();
-      }
-    });
-    return () => sub.remove();
-  }, [player, onError]);
-
-  return (
-    <VideoView style={StyleSheet.absoluteFill} player={player} nativeControls contentFit="contain" />
-  );
-});
 
 function useLibraryUriParam(): string | null {
   const params = useLocalSearchParams();
@@ -166,6 +130,7 @@ export default function VibeVideoRecordScreen() {
   const pollAbortRef = useRef<AbortController | null>(null);
   const uploadInFlightRef = useRef(false);
   const leftProcessingEarlyRef = useRef(false);
+  const uploadSourceRef = useRef<'camera' | 'library' | 'unknown'>('unknown');
 
   const [stage, setStage] = useState<Stage>('idle');
   const [facing, setFacing] = useState<CameraType>('front');
@@ -205,6 +170,7 @@ export default function VibeVideoRecordScreen() {
   useEffect(() => {
     if (libraryParam && !libraryHandled.current) {
       libraryHandled.current = true;
+      uploadSourceRef.current = 'library';
       setRecordedUri(libraryParam);
       setStage('preview');
     }
@@ -251,6 +217,7 @@ export default function VibeVideoRecordScreen() {
       });
       setRecording(false);
       if (result?.uri) {
+        uploadSourceRef.current = 'camera';
         setRecordedUri(result.uri);
         setStage('preview');
       }
@@ -271,6 +238,7 @@ export default function VibeVideoRecordScreen() {
   const retake = () => {
     uploadAbortRef.current?.abort();
     pollAbortRef.current?.abort();
+    uploadSourceRef.current = 'unknown';
     setRecordedUri(null);
     safeSetStage('idle');
     setUploadProgress(0);
@@ -288,6 +256,7 @@ export default function VibeVideoRecordScreen() {
       quality: 1,
     });
     if (result.canceled || !result.assets[0]?.uri) return;
+    uploadSourceRef.current = 'library';
     setRecordedUri(result.assets[0].uri);
     setStage('preview');
   };
@@ -301,6 +270,7 @@ export default function VibeVideoRecordScreen() {
           intervalMs: 5000,
           signal: pollSignal,
         });
+        vibeVideoDiagVerbose('upload.poll.result', { expectedVideoId, result });
 
         // Refetch (not just invalidate) so ProfileStudio gets fresh data before we navigate
         await qc.refetchQueries({ queryKey: ['my-profile'] });
@@ -367,7 +337,14 @@ export default function VibeVideoRecordScreen() {
     setUploadProgress(0);
 
     try {
+      const uploadSource = uploadSourceRef.current;
+      vibeVideoDiagVerbose('upload.pipeline.start', {
+        source: uploadSource,
+        uriScheme: recordedUri.includes(':') ? recordedUri.split(':')[0] : 'path',
+      });
+
       const creds = await getCreateVideoUploadCredentials();
+
       await uploadVibeVideoToBunny(
         recordedUri,
         creds,
@@ -376,13 +353,19 @@ export default function VibeVideoRecordScreen() {
             setUploadProgress(Math.round((bytesUploaded / bytesTotal) * 100));
           }
         },
-        { signal: uploadAc.signal },
+        {
+          signal: uploadAc.signal,
+          uploadSource,
+        },
       );
+
       await saveVibeVideoToProfile(creds.videoId, {
         vibeCaption: vibeCaption.trim() || null,
       });
+
       trackEvent('vibe_video_uploaded');
       safeSetStage('processing');
+      vibeVideoDiagVerbose('upload.poll.start', { videoId: creds.videoId });
       runPostUploadPoll(creds.videoId, runId, pollAc.signal);
     } catch (e) {
       if (isAbortError(e)) {
@@ -407,33 +390,36 @@ export default function VibeVideoRecordScreen() {
   };
 
   const captionModalEl = (
-    <Modal visible={captionModal} transparent animationType="fade">
-      <View style={styles.captionModalBackdrop}>
-        <View style={[styles.captionModalCard, { backgroundColor: theme.surface }]}>
-          <Text style={[styles.captionModalTitle, { color: theme.text }]}>What are you vibing on?</Text>
-          <TextInput
-            value={captionDraft}
-            onChangeText={(t) => setCaptionDraft(t.slice(0, CAPTION_MAX))}
-            placeholder="Seeking a partner in crime..."
-            placeholderTextColor={theme.mutedForeground}
-            maxLength={CAPTION_MAX}
-            style={[styles.captionModalInput, { borderColor: theme.border, color: theme.text }]}
-            autoFocus
-          />
-          <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 12 }}>
-            {captionDraft.length}/{CAPTION_MAX}
-          </Text>
-          <View style={styles.captionModalActions}>
-            <Pressable onPress={() => setCaptionModal(false)} style={styles.captionModalGhost}>
-              <Text style={{ color: theme.textSecondary }}>Cancel</Text>
-            </Pressable>
-            <Pressable onPress={saveCaptionFromModal} style={styles.captionModalSave}>
-              <Text style={{ color: '#fff', fontWeight: '600' }}>Save</Text>
-            </Pressable>
-          </View>
+    <KeyboardAwareCenteredModal
+      visible={captionModal}
+      onRequestClose={() => setCaptionModal(false)}
+      animationType="fade"
+      backdropColor="rgba(0,0,0,0.85)"
+    >
+      <View style={[styles.captionModalCard, { backgroundColor: theme.surface }]}>
+        <Text style={[styles.captionModalTitle, { color: theme.text }]}>What are you vibing on?</Text>
+        <TextInput
+          value={captionDraft}
+          onChangeText={(t) => setCaptionDraft(t.slice(0, CAPTION_MAX))}
+          placeholder="Seeking a partner in crime..."
+          placeholderTextColor={theme.mutedForeground}
+          maxLength={CAPTION_MAX}
+          style={[styles.captionModalInput, { borderColor: theme.border, color: theme.text }]}
+          autoFocus
+        />
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 12 }}>
+          {captionDraft.length}/{CAPTION_MAX}
+        </Text>
+        <View style={styles.captionModalActions}>
+          <Pressable onPress={() => setCaptionModal(false)} style={styles.captionModalGhost}>
+            <Text style={{ color: theme.textSecondary }}>Cancel</Text>
+          </Pressable>
+          <Pressable onPress={saveCaptionFromModal} style={styles.captionModalSave}>
+            <Text style={{ color: '#fff', fontWeight: '600' }}>Save</Text>
+          </Pressable>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareCenteredModal>
   );
 
   if (!camPermission && !skipCameraPermission) {
@@ -487,16 +473,20 @@ export default function VibeVideoRecordScreen() {
   if (stage === 'preview' && recordedUri) {
     return (
       <View style={styles.container}>
-        <RecordedPreview
-          uri={recordedUri}
-          onError={() => {
-            if (__DEV__) console.warn('[vibe-video-record] preview playback error');
-            Alert.alert(
-              'Playback',
-              'Could not play this clip on device. You can still upload — our servers may process it.',
-            );
-          }}
-        />
+        <View style={StyleSheet.absoluteFill}>
+          <VibeVideoPlayer
+            sourceUri={recordedUri}
+            playing
+            diagContext="record-preview"
+            onPlayerFatalError={() => {
+              vibeVideoDiagVerbose('record-preview.playback_error', {});
+              Alert.alert(
+                'Playback',
+                'Could not play this clip on device. You can still upload — our servers may process it.',
+              );
+            }}
+          />
+        </View>
 
         <Pressable
           style={[styles.closeBtn, { top: Math.max(insets.top, 12) + 8 }]}
@@ -748,15 +738,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.bodySemiBold,
   },
-  captionModalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    padding: 24,
-  },
   captionModalCard: {
     borderRadius: 16,
     padding: 20,
+    width: '100%',
+    maxWidth: 400,
   },
   captionModalTitle: {
     fontSize: 18,

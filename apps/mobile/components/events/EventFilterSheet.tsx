@@ -5,12 +5,11 @@ import {
   Text,
   ScrollView,
   Pressable,
-  Modal,
-  Dimensions,
   Switch,
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { spacing, radius } from '@/constants/theme';
@@ -18,8 +17,6 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { EVENT_LANGUAGES } from '@/lib/eventLanguages';
 import { supabase } from '@/lib/supabase';
 import * as Location from 'expo-location';
-
-const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 const CATEGORIES = [
   'Music', 'Tech', 'Art', 'Gaming', 'Food',
@@ -202,30 +199,42 @@ export default function EventFilterSheet({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={s.overlay}>
-        <Pressable style={s.backdrop} onPress={onClose} />
-        <View style={[s.sheet, { backgroundColor: theme.background, borderColor: theme.border }]}>
-          {/* Handle */}
-          <View style={s.handleRow}>
-            <View style={[s.handle, { backgroundColor: theme.border }]} />
-          </View>
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={onClose}
+      animationType="slide"
+      maxHeightRatio={0.75}
+      backdropColor="rgba(0,0,0,0.5)"
+      sheetStyle={{
+        backgroundColor: theme.background,
+        borderColor: theme.border,
+        overflow: 'hidden',
+      }}
+      footer={
+        <View style={[s.footer, { borderTopColor: theme.border }]}>
+          <Pressable onPress={clearAll} style={s.clearBtn}>
+            <Text style={[s.clearBtnText, { color: theme.accent }]}>Clear all</Text>
+          </Pressable>
+          <Pressable onPress={handleApply} style={s.applyBtn}>
+            <Text style={s.applyBtnText}>
+              Apply{activeCount > 0 ? ` (${activeCount})` : ''}
+            </Text>
+          </Pressable>
+        </View>
+      }
+    >
+      <View style={s.handleRow}>
+        <View style={[s.handle, { backgroundColor: theme.border }]} />
+      </View>
 
-          {/* Header */}
-          <View style={s.header}>
-            <Text style={[s.headerTitle, { color: theme.text }]}>Filters</Text>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <Ionicons name="close" size={24} color={theme.textSecondary} />
-            </Pressable>
-          </View>
+      <View style={s.header}>
+        <Text style={[s.headerTitle, { color: theme.text }]}>Filters</Text>
+        <Pressable onPress={onClose} hitSlop={12}>
+          <Ionicons name="close" size={24} color={theme.textSecondary} />
+        </Pressable>
+      </View>
 
-          <ScrollView
-            style={s.body}
-            contentContainerStyle={s.bodyContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-            keyboardShouldPersistTaps="handled"
-          >
+      <View style={s.bodyContent}>
             {/* ── Categories ── */}
             <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
             <View style={s.chipWrap}>
@@ -461,22 +470,8 @@ export default function EventFilterSheet({
             <Text style={[s.helperText, { color: theme.textSecondary }]}>
               {draft.upcomingOnly ? 'Ended events are hidden' : 'Showing all events including ended'}
             </Text>
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={[s.footer, { borderTopColor: theme.border }]}>
-            <Pressable onPress={clearAll} style={s.clearBtn}>
-              <Text style={[s.clearBtnText, { color: theme.accent }]}>Clear all</Text>
-            </Pressable>
-            <Pressable onPress={handleApply} style={s.applyBtn}>
-              <Text style={s.applyBtnText}>
-                Apply{activeCount > 0 ? ` (${activeCount})` : ''}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
       </View>
-    </Modal>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
@@ -490,22 +485,6 @@ export function countActiveFilters(f: EventFilters): number {
 }
 
 const s = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheet: {
-    height: SCREEN_HEIGHT * 0.75,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    overflow: 'hidden',
-  },
   handleRow: {
     alignItems: 'center',
     paddingTop: 12,
@@ -526,9 +505,6 @@ const s = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: '700',
-  },
-  body: {
-    flex: 1,
   },
   bodyContent: {
     paddingHorizontal: spacing.xl,

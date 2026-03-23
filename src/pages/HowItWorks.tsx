@@ -32,7 +32,12 @@ const steps = [
 ];
 
 const features = [
-  { icon: "💧", title: "Daily Drops", description: "Get one curated match delivered to you every day at 6 PM" },
+  {
+    icon: "💧",
+    title: "Daily Drops",
+    description:
+      "Get one curated match after each scheduled Daily Drop batch (18:00 UTC when server cron is enabled).",
+  },
   { icon: "🎮", title: "Vibe Arcade", description: "Play fun games in chat to break the ice" },
   { icon: "📅", title: "Vibe Sync", description: "Schedule dates that work for both of you" },
   { icon: "🎬", title: "Vibe Videos", description: "Create short intro videos to show your personality" },

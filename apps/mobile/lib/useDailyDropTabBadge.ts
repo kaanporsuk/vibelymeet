@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { DAILY_DROP_ACTIONABLE_STATUSES } from '@/lib/dailyDropSchedule';
 
-const DROP_HOUR = 18; // match web BottomNav
-
-/**
- * Home tab badge parity with web BottomNav Droplet: after DROP_HOUR, show dot when
- * user has an active daily_drop for today they haven't viewed yet.
- */
+/** Matches tab dot: unviewed actionable Daily Drop (active_*, not expired). */
 export function useDailyDropTabBadge(userId: string | null | undefined): boolean {
   const [show, setShow] = useState(false);
 
@@ -17,16 +13,13 @@ export function useDailyDropTabBadge(userId: string | null | undefined): boolean
     }
     let cancelled = false;
     const check = async () => {
-      if (new Date().getHours() < DROP_HOUR) {
-        if (!cancelled) setShow(false);
-        return;
-      }
       const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('daily_drops')
-        .select('id, user_a_id, user_a_viewed, user_b_viewed, expires_at')
+        .select('id, user_a_id, user_a_viewed, user_b_viewed, expires_at, status')
         .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
         .gt('expires_at', nowIso)
+        .in('status', [...DAILY_DROP_ACTIONABLE_STATUSES])
         .order('drop_date', { ascending: false })
         .limit(1)
         .maybeSingle();
