@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,6 +10,7 @@ import {
   Send,
   Video,
   CalendarDays,
+  CalendarPlus,
   Gamepad2,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
@@ -23,8 +25,11 @@ import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
-import { DateProposalTicket } from "@/components/schedule/DateProposalTicket";
-import { DateProposal } from "@/hooks/useSchedule";
+import { DateSuggestionComposer } from "@/components/chat/DateSuggestionComposer";
+import { DateSuggestionCard } from "@/components/chat/DateSuggestionCard";
+import { useMatchDateSuggestions } from "@/hooks/useDateSuggestionData";
+import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
+import type { WizardState } from "@/components/chat/DateSuggestionComposer";
 import { VibeArcadeMenu } from "@/components/arcade/VibeArcadeMenu";
 import { GameBubbleRenderer } from "@/components/arcade/GameBubbleRenderer";
 import { TwoTruthsCreator } from "@/components/arcade/creators/TwoTruthsCreator";
@@ -44,12 +49,14 @@ import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
+const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
+
 interface ChatMessage {
   id: string;
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice" | "video";
+  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -58,6 +65,8 @@ interface ChatMessage {
   videoDuration?: number;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
+  refId?: string | null;
+  structuredPayload?: Record<string, unknown> | null;
 }
 
 const Chat = () => {
@@ -65,10 +74,14 @@ const Chat = () => {
   const { id } = useParams();
   const { user } = useUserProfile();
   const currentUserId = user?.id || "";
+  const queryClient = useQueryClient();
   
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
   const { mutate: sendMessage } = useSendMessage();
-  
+  const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
+    chatData?.matchId,
+  );
+
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -76,7 +89,13 @@ const Chat = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
-  const [proposals, setProposals] = useState<DateProposal[]>([]);
+  const [showDateComposer, setShowDateComposer] = useState(false);
+  const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
+  const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
+  const [composerCounter, setComposerCounter] = useState<{
+    suggestionId: string;
+    previousRevision: DateSuggestionWithRelations["revisions"][0];
+  } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
   const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
@@ -131,20 +150,56 @@ const Chat = () => {
   }, [chatData?.otherUser, id]);
 
   const messages: ChatMessage[] = useMemo(() => {
-    const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => ({
-      id: m.id,
-      text: m.text,
-      sender: m.sender,
-      time: m.time,
-      type: (m.videoUrl ? "video" : m.audioUrl ? "voice" : "text") as ChatMessage["type"],
-      audioUrl: m.audioUrl,
-      audioDuration: m.audioDuration,
-      videoUrl: m.videoUrl,
-      videoDuration: m.videoDuration,
-      status: "delivered" as MessageStatusType,
-    }));
+    const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
+      if (m.messageKind === "date_suggestion" || m.messageKind === "date_suggestion_event") {
+        return {
+          id: m.id,
+          text: m.text,
+          sender: m.sender,
+          time: m.time,
+          type: m.messageKind === "date_suggestion_event" ? "date-suggestion-event" : "date-suggestion",
+          refId: m.refId,
+          structuredPayload: m.structuredPayload ?? undefined,
+          status: "delivered" as MessageStatusType,
+        };
+      }
+      return {
+        id: m.id,
+        text: m.text,
+        sender: m.sender,
+        time: m.time,
+        type: (m.videoUrl ? "video" : m.audioUrl ? "voice" : "text") as ChatMessage["type"],
+        audioUrl: m.audioUrl,
+        audioDuration: m.audioDuration,
+        videoUrl: m.videoUrl,
+        videoDuration: m.videoDuration,
+        status: "delivered" as MessageStatusType,
+      };
+    });
     return [...realMsgs, ...localMessages];
   }, [chatData?.messages, localMessages]);
+
+  const displayMessages = useMemo(() => {
+    const lastByRef = new Map<string, string>();
+    for (const m of messages) {
+      if (m.refId && (m.type === "date-suggestion" || m.type === "date-suggestion-event")) {
+        lastByRef.set(m.refId, m.id);
+      }
+    }
+    return messages.filter((m) => {
+      if (!m.refId) return true;
+      if (m.type !== "date-suggestion" && m.type !== "date-suggestion-event") return true;
+      return lastByRef.get(m.refId) === m.id;
+    });
+  }, [messages]);
+
+  const suggestionById = useMemo(() => {
+    const map = new Map<string, DateSuggestionWithRelations>();
+    for (const s of dateSuggestions) {
+      map.set(s.id, s);
+    }
+    return map;
+  }, [dateSuggestions]);
 
   const createGameMessage = (payload: GamePayload): GameMessage => ({
     id: `game-${Date.now()}`,
@@ -175,26 +230,20 @@ const Chat = () => {
     );
   };
 
-  const dateKeywords = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
-
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  useEffect(() => {
     const lowerMessage = newMessage.toLowerCase();
-    const hasKeyword = dateKeywords.some((keyword) => lowerMessage.includes(keyword));
+    const hasKeyword = DATE_SUGGESTION_KEYWORDS.some((keyword) => lowerMessage.includes(keyword));
     setShowDateSuggestion(hasKeyword && newMessage.length > 3);
   }, [newMessage]);
 
   const groupedMessages = useMemo(() => {
-    return messages.map((message, index) => {
-      const prevMessage = messages[index - 1];
-      const nextMessage = messages[index + 1];
+    return displayMessages.map((message, index) => {
+      const prevMessage = displayMessages[index - 1];
+      const nextMessage = displayMessages[index + 1];
       const isFirstInGroup = !prevMessage || prevMessage.sender !== message.sender;
       const isLastInGroup = !nextMessage || nextMessage.sender !== message.sender;
       const showAvatar = isLastInGroup && message.sender === "them";
@@ -206,7 +255,11 @@ const Chat = () => {
         showAvatar,
       };
     });
-  }, [messages]);
+  }, [displayMessages]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [groupedMessages, scrollToBottom]);
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
@@ -250,14 +303,57 @@ const Chat = () => {
     }
   };
 
-  const handleSendVideoInvite = () => {
-    if (chatData?.matchId) {
-      sendMessage({ matchId: chatData.matchId, content: "📹 Video date invite!" });
-    }
+  const handleOpenDateComposerFromChip = () => {
+    setComposerCounter(null);
+    setComposerDraftId(null);
+    setComposerDraftPayload(null);
+    setShowDateComposer(true);
     setNewMessage("");
     setShowDateSuggestion(false);
-    toast.success("Video date invite sent!");
   };
+
+  const handleOpenDateComposer = useCallback(
+    (opts: {
+      mode: "new" | "counter" | "editDraft";
+      draftId?: string;
+      draftPayload?: Record<string, unknown> | null;
+      counter?: {
+        suggestionId: string;
+        previousRevision: DateSuggestionWithRelations["revisions"][0];
+      };
+    }) => {
+      if (opts.mode === "counter" && opts.counter) {
+        setComposerCounter({
+          suggestionId: opts.counter.suggestionId,
+          previousRevision: opts.counter.previousRevision,
+        });
+        setComposerDraftId(null);
+        setComposerDraftPayload(null);
+      } else if (opts.mode === "editDraft" && opts.draftId) {
+        setComposerDraftId(opts.draftId);
+        setComposerDraftPayload(opts.draftPayload ?? null);
+        setComposerCounter(null);
+      } else {
+        setComposerCounter(null);
+        setComposerDraftId(null);
+        setComposerDraftPayload(null);
+      }
+      setShowDateComposer(true);
+    },
+    [],
+  );
+
+  const closeDateComposer = useCallback(() => {
+    setShowDateComposer(false);
+    setComposerCounter(null);
+    setComposerDraftId(null);
+    setComposerDraftPayload(null);
+  }, []);
+
+  const onDateSuggestionUpdated = useCallback(() => {
+    void refetchDateSuggestions();
+    queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+  }, [refetchDateSuggestions, queryClient, id, currentUserId]);
 
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
     setIsRecording(false);
@@ -369,7 +465,7 @@ const Chat = () => {
           <div className="flex items-center justify-center h-full">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : displayMessages.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -408,7 +504,33 @@ const Chat = () => {
         ) : (
           <>
             {groupedMessages.map((message) =>
-              message.type === "video-invite" ? (
+              message.type === "date-suggestion" || message.type === "date-suggestion-event" ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5",
+                  )}
+                >
+                  <div className="max-w-[min(92%,28rem)] w-full">
+                    {message.refId && suggestionById.get(message.refId) ? (
+                      <DateSuggestionCard
+                        suggestion={suggestionById.get(message.refId)!}
+                        currentUserId={currentUserId}
+                        partnerName={otherUser.name}
+                        partnerUserId={chatData?.otherUser?.id ?? id ?? ""}
+                        onOpenComposer={handleOpenDateComposer}
+                        onUpdated={onDateSuggestionUpdated}
+                      />
+                    ) : (
+                      <div className="rounded-2xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Loading date suggestion…
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : message.type === "video-invite" ? (
                 <div
                   key={message.id}
                   className={cn(
@@ -497,16 +619,6 @@ const Chat = () => {
               )
             )}
 
-            {proposals.map((proposal) => (
-              <div key={proposal.id} className="flex justify-end">
-                <DateProposalTicket
-                  proposal={proposal}
-                  isOwn={true}
-                  matchName={otherUser.name}
-                />
-              </div>
-            ))}
-
             {gameMessages.map((gameMsg) => (
               <div
                 key={gameMsg.id}
@@ -545,7 +657,7 @@ const Chat = () => {
       <div className="relative z-40 shrink-0">
         <DateSuggestionChip
           visible={showDateSuggestion}
-          onSuggest={handleSendVideoInvite}
+          onSuggest={handleOpenDateComposerFromChip}
           onDismiss={() => setShowDateSuggestion(false)}
         />
 
@@ -566,8 +678,23 @@ const Chat = () => {
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setShowVibeSync(true)}
                 className="hidden xs:flex w-9 h-9 rounded-full bg-neon-cyan/20 items-center justify-center text-neon-cyan hover:bg-neon-cyan/30 transition-colors"
+                aria-label="Vibely schedule"
               >
                 <CalendarDays className="w-4 h-4" />
+              </motion.button>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => {
+                  setComposerCounter(null);
+                  setComposerDraftId(null);
+                  setComposerDraftPayload(null);
+                  setShowDateComposer(true);
+                }}
+                className="hidden xs:flex w-9 h-9 rounded-full bg-rose-500/15 items-center justify-center text-rose-500 hover:bg-rose-500/25 transition-colors"
+                aria-label="Suggest a date"
+              >
+                <CalendarPlus className="w-4 h-4" />
               </motion.button>
 
               <motion.button
@@ -631,6 +758,40 @@ const Chat = () => {
         )}
       </AnimatePresence>
 
+      {chatData?.matchId && currentUserId && (
+        <DateSuggestionComposer
+          open={showDateComposer}
+          onClose={closeDateComposer}
+          matchId={chatData.matchId}
+          currentUserId={currentUserId}
+          partnerUserId={chatData.otherUser?.id ?? id ?? ""}
+          partnerName={otherUser.name}
+          draftSuggestionId={composerDraftId}
+          draftFromParent={
+            composerDraftPayload &&
+            typeof composerDraftPayload === "object" &&
+            ("wizard" in composerDraftPayload || "step" in composerDraftPayload)
+              ? {
+                  wizard: (composerDraftPayload as { wizard?: Partial<WizardState> }).wizard,
+                  step: (composerDraftPayload as { step?: number }).step,
+                }
+              : null
+          }
+          counterContext={
+            composerCounter
+              ? {
+                  suggestionId: composerCounter.suggestionId,
+                  previousRevision: composerCounter.previousRevision,
+                }
+              : null
+          }
+          onSuccess={() => {
+            void refetchDateSuggestions();
+            queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+          }}
+        />
+      )}
+
       {/* Vibe Sync Modal */}
       <VibeSyncModal
         isOpen={showVibeSync}
@@ -638,7 +799,6 @@ const Chat = () => {
         matchName={otherUser.name}
         matchAvatar={otherUser.avatar_url}
         matchId={otherUser.id}
-        onProposalSent={(proposal) => setProposals((prev) => [...prev, proposal])}
       />
 
       {/* Vibe Arcade Menu */}

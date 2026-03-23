@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Video, Sparkles } from "lucide-react";
+import { CalendarPlus, Sparkles } from "lucide-react";
 
 interface DateSuggestionChipProps {
   visible: boolean;
@@ -27,7 +27,7 @@ export const DateSuggestionChip = ({
                 <Sparkles className="w-4 h-4 text-primary-foreground" />
               </div>
               <span className="text-sm text-foreground">
-                Suggest a Video Date? 📹
+                Suggest a date?
               </span>
             </div>
 
@@ -45,8 +45,8 @@ export const DateSuggestionChip = ({
                 onClick={onSuggest}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-primary text-primary-foreground text-sm font-medium"
               >
-                <Video className="w-3.5 h-3.5" />
-                Send Invite
+                <CalendarPlus className="w-3.5 h-3.5" />
+                Open
               </motion.button>
             </div>
           </div>

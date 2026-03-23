@@ -7,16 +7,30 @@ export interface Message {
   text: string;
   sender: "me" | "them";
   time: string;
+  createdAt: string;
   audioUrl?: string;
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
+  messageKind?: "text" | "date_suggestion" | "date_suggestion_event";
+  refId?: string | null;
+  structuredPayload?: Record<string, unknown> | null;
 }
+
+type ChatOtherUser = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  avatar_url: string | null;
+  photos: unknown;
+  last_seen_at: string | null;
+  photo_verified: boolean | null;
+} | null;
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
   return useQuery({
     queryKey: ["messages", otherUserId, currentUserId],
-    queryFn: async (): Promise<{ messages: Message[]; matchId: string | null; otherUser: any }> => {
+    queryFn: async (): Promise<{ messages: Message[]; matchId: string | null; otherUser: ChatOtherUser }> => {
       if (!currentUserId) return { messages: [], matchId: null, otherUser: null };
 
       const { data: match, error: matchError } = await supabase
@@ -32,7 +46,9 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: messages, error: msgError } = await supabase
         .from("messages")
-        .select("id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds")
+        .select(
+          "id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload",
+        )
         .eq("match_id", match.id)
         .order("created_at", { ascending: true });
 
@@ -47,16 +63,31 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
       return {
         matchId: match.id,
         otherUser,
-        messages: (messages || []).map((msg) => ({
-          id: msg.id,
-          text: msg.content,
-          sender: msg.sender_id === currentUserId ? "me" as const : "them" as const,
-          time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          audioUrl: msg.audio_url || undefined,
-          audioDuration: msg.audio_duration_seconds || undefined,
-          videoUrl: msg.video_url || undefined,
-          videoDuration: msg.video_duration_seconds || undefined,
-        })),
+        messages: (messages || []).map((msg) => {
+          const row = msg as typeof msg & {
+            message_kind?: string;
+            ref_id?: string | null;
+            structured_payload?: Record<string, unknown> | null;
+          };
+          const mk = (row.message_kind || "text") as string;
+          return {
+            id: msg.id,
+            text: msg.content,
+            sender: msg.sender_id === currentUserId ? ("me" as const) : ("them" as const),
+            time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            createdAt: msg.created_at,
+            audioUrl: msg.audio_url || undefined,
+            audioDuration: msg.audio_duration_seconds || undefined,
+            videoUrl: msg.video_url || undefined,
+            videoDuration: msg.video_duration_seconds || undefined,
+            messageKind:
+              mk === "date_suggestion" || mk === "date_suggestion_event"
+                ? (mk as Message["messageKind"])
+                : ("text" as const),
+            refId: row.ref_id ?? null,
+            structuredPayload: row.structured_payload ?? null,
+          };
+        }),
       };
     },
     enabled: !!otherUserId && !!currentUserId,
@@ -83,7 +114,7 @@ export const useSendMessage = () => {
         throw error;
       }
 
-      const payload = data as any;
+      const payload = data as { message?: unknown } | null | undefined;
       return payload?.message;
     },
     onSuccess: () => {

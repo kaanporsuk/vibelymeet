@@ -12,7 +12,7 @@ interface Message {
   text: string;
   sender: "me" | "them";
   time: string;
-  type?: "text" | "video-invite" | "voice" | "video";
+  type?: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
   duration?: number;
   audioBlob?: Blob;
   reaction?: ReactionEmoji;

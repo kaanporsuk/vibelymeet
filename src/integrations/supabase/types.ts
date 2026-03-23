@@ -401,6 +401,258 @@ export type Database = {
           },
         ]
       }
+      date_plan_participants: {
+        Row: {
+          calendar_issued_at: string
+          calendar_title: string
+          created_at: string
+          date_plan_id: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          calendar_issued_at?: string
+          calendar_title: string
+          created_at?: string
+          date_plan_id: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          calendar_issued_at?: string
+          calendar_title?: string
+          created_at?: string
+          date_plan_id?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      date_plans: {
+        Row: {
+          cancelled_at: string | null
+          completion_confirmed_at: string | null
+          completion_confirmed_by: string | null
+          completion_initiated_at: string | null
+          completion_initiated_by: string | null
+          created_at: string
+          date_suggestion_id: string
+          date_type_key: string | null
+          ends_at: string | null
+          id: string
+          match_id: string
+          starts_at: string | null
+          status: string
+          venue_label: string | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completion_confirmed_at?: string | null
+          completion_confirmed_by?: string | null
+          completion_initiated_at?: string | null
+          completion_initiated_by?: string | null
+          created_at?: string
+          date_suggestion_id: string
+          date_type_key?: string | null
+          ends_at?: string | null
+          id?: string
+          match_id: string
+          starts_at?: string | null
+          status?: string
+          venue_label?: string | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          completion_confirmed_at?: string | null
+          completion_confirmed_by?: string | null
+          completion_initiated_at?: string | null
+          completion_initiated_by?: string | null
+          created_at?: string
+          date_suggestion_id?: string
+          date_type_key?: string | null
+          ends_at?: string | null
+          id?: string
+          match_id?: string
+          starts_at?: string | null
+          status?: string
+          venue_label?: string | null
+        }
+        Relationships: []
+      }
+      date_suggestion_revisions: {
+        Row: {
+          agreed_field_flags: Json
+          created_at: string
+          date_suggestion_id: string
+          date_type_key: string
+          ends_at: string | null
+          id: string
+          optional_message: string | null
+          place_mode_key: string
+          proposed_by: string
+          revision_number: number
+          schedule_share_enabled: boolean
+          starts_at: string | null
+          time_block: string | null
+          time_choice_key: string
+          venue_text: string | null
+        }
+        Insert: {
+          agreed_field_flags?: Json
+          created_at?: string
+          date_suggestion_id: string
+          date_type_key: string
+          ends_at?: string | null
+          id?: string
+          optional_message?: string | null
+          place_mode_key: string
+          proposed_by: string
+          revision_number: number
+          schedule_share_enabled?: boolean
+          starts_at?: string | null
+          time_block?: string | null
+          time_choice_key: string
+          venue_text?: string | null
+        }
+        Update: {
+          agreed_field_flags?: Json
+          created_at?: string
+          date_suggestion_id?: string
+          date_type_key?: string
+          ends_at?: string | null
+          id?: string
+          optional_message?: string | null
+          place_mode_key?: string
+          proposed_by?: string
+          revision_number?: number
+          schedule_share_enabled?: boolean
+          starts_at?: string | null
+          time_block?: string | null
+          time_choice_key?: string
+          venue_text?: string | null
+        }
+        Relationships: []
+      }
+      date_suggestion_transition_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string | null
+          date_suggestion_id: string | null
+          error_code: string | null
+          from_status: string | null
+          id: string
+          payload: Json | null
+          success: boolean
+          to_status: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string | null
+          date_suggestion_id?: string | null
+          error_code?: string | null
+          from_status?: string | null
+          id?: string
+          payload?: Json | null
+          success?: boolean
+          to_status?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string | null
+          date_suggestion_id?: string | null
+          error_code?: string | null
+          from_status?: string | null
+          id?: string
+          payload?: Json | null
+          success?: boolean
+          to_status?: string | null
+        }
+        Relationships: []
+      }
+      date_suggestions: {
+        Row: {
+          created_at: string
+          current_revision_id: string | null
+          date_plan_id: string | null
+          draft_payload: Json | null
+          expiring_soon_sent_at: string | null
+          expires_at: string | null
+          id: string
+          match_id: string
+          proposer_id: string
+          recipient_id: string
+          schedule_share_expires_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_revision_id?: string | null
+          date_plan_id?: string | null
+          draft_payload?: Json | null
+          expiring_soon_sent_at?: string | null
+          expires_at?: string | null
+          id?: string
+          match_id: string
+          proposer_id: string
+          recipient_id: string
+          schedule_share_expires_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_revision_id?: string | null
+          date_plan_id?: string | null
+          draft_payload?: Json | null
+          expiring_soon_sent_at?: string | null
+          expires_at?: string | null
+          id?: string
+          match_id?: string
+          proposer_id?: string
+          recipient_id?: string
+          schedule_share_expires_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      schedule_share_grants: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          match_id: string
+          source_date_suggestion_id: string
+          source_revision_id: string | null
+          subject_user_id: string
+          viewer_user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          match_id: string
+          source_date_suggestion_id: string
+          source_revision_id?: string | null
+          subject_user_id: string
+          viewer_user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          match_id?: string
+          source_date_suggestion_id?: string
+          source_revision_id?: string | null
+          subject_user_id?: string
+          viewer_user_id?: string
+        }
+        Relationships: []
+      }
       email_drip_log: {
         Row: {
           email_key: string
@@ -1036,8 +1288,11 @@ export type Database = {
           created_at: string
           id: string
           match_id: string
+          message_kind: string
           read_at: string | null
+          ref_id: string | null
           sender_id: string
+          structured_payload: Json | null
           video_duration_seconds: number | null
           video_url: string | null
         }
@@ -1048,8 +1303,11 @@ export type Database = {
           created_at?: string
           id?: string
           match_id: string
+          message_kind?: string
           read_at?: string | null
+          ref_id?: string | null
           sender_id: string
+          structured_payload?: Json | null
           video_duration_seconds?: number | null
           video_url?: string | null
         }
@@ -1060,8 +1318,11 @@ export type Database = {
           created_at?: string
           id?: string
           match_id?: string
+          message_kind?: string
           read_at?: string | null
+          ref_id?: string | null
           sender_id?: string
+          structured_payload?: Json | null
           video_duration_seconds?: number | null
           video_url?: string | null
         }
@@ -2294,6 +2555,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }
+      date_suggestion_apply: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: Json
+      }
       deduct_credit: {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
@@ -2356,6 +2621,10 @@ export type Database = {
       get_user_subscription_status: {
         Args: { p_user_id: string }
         Returns: string
+      }
+      get_shared_schedule_for_date_planning: {
+        Args: { p_match_id: string; p_subject_user_id: string }
+        Returns: Json
       }
       get_visible_events: {
         Args: {

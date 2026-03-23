@@ -13,6 +13,7 @@ export const useRealtimeMessages = ({ matchId, enabled = true }: UseRealtimeMess
   const invalidateMessages = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["messages"] });
     queryClient.invalidateQueries({ queryKey: ["matches"] });
+    queryClient.invalidateQueries({ queryKey: ["date-suggestions"] });
   }, [queryClient]);
 
   useEffect(() => {

@@ -27,6 +27,23 @@ function hrefFromPayload(additionalData: Record<string, unknown> | undefined, la
   return null;
 }
 
+/** Chat routes must use the other user profile id; prefer `other_user_id` when present (Daily Drop / match payloads). */
+function resolveNotificationHref(
+  additionalData: Record<string, unknown> | undefined,
+  launchURL?: string | undefined
+): Href | null {
+  const peer =
+    typeof additionalData?.other_user_id === 'string' && additionalData.other_user_id.length > 0
+      ? additionalData.other_user_id
+      : null;
+  const base = hrefFromPayload(additionalData, launchURL);
+  if (!peer || typeof base !== 'string') return base;
+  if (base.startsWith('/chat/')) {
+    return `/chat/${peer}` as Href;
+  }
+  return base;
+}
+
 /** Keeps notificationRouteRef in sync for foreground suppression. */
 export function NotificationRouteTracker() {
   const pathname = usePathname();
@@ -52,7 +69,7 @@ export function NotificationDeepLinkHandler() {
         router.push(`/settings/ticket/${data.ticket_id}`);
         return;
       }
-      const href = hrefFromPayload(additionalData, launchURL);
+      const href = resolveNotificationHref(additionalData, launchURL);
       if (href) {
         router.push(href);
       }
@@ -70,8 +87,13 @@ export function NotificationDeepLinkHandler() {
               ? raw.other_user_id
               : undefined;
         const cat = typeof raw?.category === 'string' ? raw.category : undefined;
+        const isDateSuggestionCat = cat?.startsWith('date_suggestion_') ?? false;
         const path = notificationRouteRef.current;
-        if (chatPeerProfileId && cat === 'messages' && path === `/chat/${chatPeerProfileId}`) {
+        if (
+          chatPeerProfileId &&
+          path === `/chat/${chatPeerProfileId}` &&
+          (cat === 'messages' || cat === 'new_match' || isDateSuggestionCat)
+        ) {
           event.preventDefault();
           return;
         }

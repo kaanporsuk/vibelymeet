@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
+import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage, uploadChatVideoMessage } from '@/lib/chatMediaUpload';
 
 export type MatchListItem = {
@@ -15,8 +16,17 @@ export type MatchListItem = {
   /** True if matched within last 24h (web parity for "new" pill) */
   isNew: boolean;
   matchId: string;
-  /** When set, match is archived (hidden from main list unless showing archived) */
+  /** When set, match is archived for the user who archived it (`archived_by`) */
   archived_at: string | null;
+  archived_by: string | null;
+  /** Vibe labels from `profile_vibes` / `vibe_tags` (all tags for search; web list UI may show fewer). */
+  vibes: string[];
+  looking_for: string | null;
+  eventName: string | null;
+  /** Deterministic; larger = better (Best Match sort). */
+  bestMatchScore: number;
+  /** Same inputs as bestMatchScore; for parity with web row badge if needed. */
+  compatibilityPercent: number;
 };
 
 export function useMatches(userId: string | null | undefined) {
@@ -48,26 +58,67 @@ export function useMatches(userId: string | null | undefined) {
       if (!userId) return [];
       const { data: matches, error } = await supabase
         .from('matches')
-        .select('id, matched_at, last_message_at, profile_id_1, profile_id_2, archived_at')
+        .select('id, matched_at, last_message_at, profile_id_1, profile_id_2, archived_at, archived_by, event_id')
         .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
       if (!matches?.length) return [];
 
       const otherIds = matches.map((m) => (m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1));
-      const [profilesRes, messagesRes] = await Promise.all([
-        supabase.from('profiles').select('id, name, age, avatar_url, photos').in('id', otherIds),
+      const profileIdsForFetch = [...otherIds, userId];
+      const eventIds = matches
+        .map((m) => (m as { event_id?: string | null }).event_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+      const [profilesRes, vibesRes, messagesRes, eventsRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, name, age, avatar_url, photos, looking_for')
+          .in('id', profileIdsForFetch),
+        supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
         supabase
           .from('messages')
           .select('match_id, content, created_at, read_at, sender_id')
           .in('match_id', matches.map((m) => m.id))
           .order('created_at', { ascending: false }),
+        eventIds.length > 0
+          ? supabase.from('events').select('id, title').in('id', eventIds)
+          : Promise.resolve({ data: [] as { id: string; title: string }[] }),
       ]);
+      if (profilesRes.error) throw profilesRes.error;
+      if (vibesRes.error) throw vibesRes.error;
+      if (messagesRes.error) throw messagesRes.error;
+      if ('error' in eventsRes && eventsRes.error) throw eventsRes.error;
+
       const profiles = profilesRes.data || [];
+      const profileVibes = (vibesRes.data || []) as unknown as {
+        profile_id: string;
+        vibe_tags: { label: string } | { label: string }[] | null;
+      }[];
       const lastMessages = (messagesRes.data || []).reduce<Record<string, { match_id: string; content: string; created_at: string; read_at: string | null; sender_id: string }>>((acc, msg) => {
         if (!acc[msg.match_id]) acc[msg.match_id] = msg;
         return acc;
       }, {});
+
+      const vibesByProfile: Record<string, string[]> = {};
+      profileVibes.forEach((pv) => {
+        if (!vibesByProfile[pv.profile_id]) vibesByProfile[pv.profile_id] = [];
+        const vt = pv.vibe_tags;
+        const label = Array.isArray(vt) ? vt[0]?.label : vt?.label;
+        if (label && !vibesByProfile[pv.profile_id].includes(label)) {
+          vibesByProfile[pv.profile_id].push(label);
+        }
+      });
+
+      const events = (eventsRes.data || []) as { id: string; title: string }[];
+      const eventsById: Record<string, string> = {};
+      events.forEach((e) => {
+        eventsById[e.id] = e.title;
+      });
+
+      const viewerProfile = profiles.find((p) => p.id === userId);
+      const viewerVibes = vibesByProfile[userId] ?? [];
+      const viewerLookingFor = (viewerProfile as { looking_for?: string | null }).looking_for ?? null;
 
       const formatTime = (createdAt: string) => {
         const d = new Date(createdAt);
@@ -87,6 +138,20 @@ export function useMatches(userId: string | null | undefined) {
         const photo = (profile as { photos?: string[] })?.photos?.[0] || (profile as { avatar_url?: string })?.avatar_url || '';
         const matchedAt = match.matched_at ? new Date(match.matched_at).getTime() : 0;
         const isNew = Date.now() - matchedAt < ONE_DAY_MS;
+        const eventId = (match as { event_id?: string | null }).event_id;
+        const eventTitle = eventId ? eventsById[eventId] ?? null : null;
+        const lookingFor = (profile as { looking_for?: string | null }).looking_for ?? null;
+        const otherVibes = vibesByProfile[otherId] ?? [];
+        const scoreInput: MatchScoreInput = {
+          viewerVibeLabels: viewerVibes,
+          otherVibeLabels: otherVibes,
+          viewerLookingFor,
+          otherLookingFor: lookingFor,
+          hasSharedEventContext: !!eventId,
+        };
+        const bestMatchScore = bestMatchSortKey(scoreInput);
+        const compatPct = compatibilityPercent(scoreInput);
+
         return {
           id: otherId,
           name: (profile as { name?: string })?.name || 'Unknown',
@@ -98,6 +163,12 @@ export function useMatches(userId: string | null | undefined) {
           isNew,
           matchId: match.id,
           archived_at: (match as { archived_at?: string | null }).archived_at ?? null,
+          archived_by: (match as { archived_by?: string | null }).archived_by ?? null,
+          vibes: otherVibes,
+          looking_for: lookingFor,
+          eventName: eventTitle,
+          bestMatchScore,
+          compatibilityPercent: compatPct,
         };
       });
     },
@@ -120,6 +191,9 @@ export type ChatMessage = {
   read_at?: string | null;
   status?: MessageStatusType;
   reaction?: ReactionEmoji | null;
+  messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event';
+  refId?: string | null;
+  structuredPayload?: Record<string, unknown> | null;
 };
 
 export type ChatOtherUser = {
@@ -147,7 +221,9 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
       const [messagesRes, otherUserRes] = await Promise.all([
         supabase
           .from('messages')
-          .select('id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds')
+          .select(
+            'id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload'
+          )
           .eq('match_id', match.id)
           .order('created_at', { ascending: true }),
         supabase.from('profiles').select('id, name, age, avatar_url, photos, last_seen_at').eq('id', otherUserId).maybeSingle(),
@@ -175,18 +251,33 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
       return {
         matchId: match.id,
         otherUser,
-        messages: messages.map((m) => ({
-          id: m.id,
-          text: m.content,
-          sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
-          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          audio_url: m.audio_url ?? undefined,
-          audio_duration_seconds: m.audio_duration_seconds ?? undefined,
-          video_url: m.video_url ?? undefined,
-          video_duration_seconds: m.video_duration_seconds ?? undefined,
-          read_at: m.read_at ?? undefined,
-          status: mapStatus(m),
-        })),
+        messages: messages.map((m) => {
+          const row = m as typeof m & {
+            message_kind?: string | null;
+            ref_id?: string | null;
+            structured_payload?: Record<string, unknown> | null;
+          };
+          const mk = (row.message_kind || 'text') as string;
+          const kind: ChatMessage['messageKind'] =
+            mk === 'date_suggestion' || mk === 'date_suggestion_event'
+              ? (mk as ChatMessage['messageKind'])
+              : 'text';
+          return {
+            id: m.id,
+            text: m.content,
+            sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
+            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            audio_url: m.audio_url ?? undefined,
+            audio_duration_seconds: m.audio_duration_seconds ?? undefined,
+            video_url: m.video_url ?? undefined,
+            video_duration_seconds: m.video_duration_seconds ?? undefined,
+            read_at: m.read_at ?? undefined,
+            status: mapStatus(m),
+            messageKind: kind,
+            refId: row.ref_id ?? null,
+            structuredPayload: row.structured_payload ?? null,
+          };
+        }),
       };
     },
     enabled: !!otherUserId && !!currentUserId,
@@ -208,6 +299,7 @@ export function useSendMessage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] });
       qc.invalidateQueries({ queryKey: ['matches'] });
+      qc.invalidateQueries({ queryKey: ['date-suggestions'] });
     },
   });
 }
@@ -223,6 +315,7 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['messages'] });
     qc.invalidateQueries({ queryKey: ['matches'] });
+    qc.invalidateQueries({ queryKey: ['date-suggestions'] });
   }, [qc]);
   useEffect(() => {
     if (!matchId || !enabled) return;
