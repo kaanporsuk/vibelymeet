@@ -91,6 +91,9 @@ verify_jwt = true
 [functions.send-message]
 verify_jwt = true
 
+[functions.send-game-event]
+verify_jwt = true
+
 [functions.swipe-actions]
 verify_jwt = true
 
