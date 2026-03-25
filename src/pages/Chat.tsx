@@ -123,7 +123,9 @@ const Chat = () => {
         name: ou.name || "Unknown",
         age: ou.age || 0,
         avatar_url: resolvedAvatar,
-        photos: (ou.photos || []).map((p: string) => resolvePhotoUrl(p)).filter(Boolean) as string[],
+        photos: Array.isArray(ou.photos)
+          ? ou.photos.map((p) => resolvePhotoUrl(typeof p === "string" ? p : "")).filter(Boolean) as string[]
+          : [],
         vibes: [] as string[],
         isOnline: diffMinutes <= 5,
         lastSeen: diffMinutes <= 5

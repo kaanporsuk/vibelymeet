@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
@@ -15,6 +16,7 @@ import {
   Platform,
   Image,
   Alert,
+  Linking,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,7 +39,6 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useMatches, type MatchListItem } from '@/lib/chatApi';
 import { formatConversationCount } from '@/lib/matchSortScore';
-import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
@@ -53,32 +54,43 @@ import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { getMatchSearchHitKind } from '@/lib/matchSearchHaystack';
+import {
+  MATCHES_CONVERSATION_SORT_STORAGE_KEY,
+  type ConversationSortOption,
+  conversationSortShortLabel,
+  orderIndexByMatchId as buildOrderIndexByMatchId,
+  parseStoredConversationSort,
+  sortConversations,
+} from '@/lib/matchesConversationSort';
+import {
+  getUtcDateKey,
+  resolveMatchesSpotlight,
+} from '../../../../../shared/matches/spotlightResolver';
 
 type MatchConversationRow = MatchListItem & { searchMatchHint: string | null };
-
-type ConversationSortOption = 'recent' | 'unread' | 'best';
+type SpotlightRow = { kind: 'spotlight'; key: string };
+type ConversationsListRow = MatchConversationRow | SpotlightRow;
 
 const SEARCH_MATCH_HINT = {
   name: 'Matched on name',
   vibe: 'Matched on vibe',
   intent: 'Matched on intent',
+  location: 'Matched on location',
   event: 'Matched on event',
-  message: 'Matched in messages',
+  message: 'Matched on last message',
 } as const;
-
-function intentSearchHaystack(lookingFor: string | null): string {
-  if (!lookingFor) return '';
-  const d = getLookingForDisplay(lookingFor);
-  return [lookingFor, d?.label ?? '', d?.emoji ?? ''].join(' ').toLowerCase();
-}
 
 /** First matching dimension in priority order: name → vibe → intent → event → message. */
 function conversationSearchHint(m: MatchListItem, qLower: string): string | null {
-  if (m.name.toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.name;
-  if (m.vibes.some((v) => v.toLowerCase().includes(qLower))) return SEARCH_MATCH_HINT.vibe;
-  if (intentSearchHaystack(m.looking_for).includes(qLower)) return SEARCH_MATCH_HINT.intent;
-  if ((m.eventName ?? '').toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.event;
-  if ((m.lastMessage ?? '').toLowerCase().includes(qLower)) return SEARCH_MATCH_HINT.message;
+  const hitKind = getMatchSearchHitKind(m, qLower);
+  if (!hitKind) return null;
+  if (hitKind === 'name') return SEARCH_MATCH_HINT.name;
+  if (hitKind === 'vibe') return SEARCH_MATCH_HINT.vibe;
+  if (hitKind === 'intent') return SEARCH_MATCH_HINT.intent;
+  if (hitKind === 'location') return SEARCH_MATCH_HINT.location;
+  if (hitKind === 'event') return SEARCH_MATCH_HINT.event;
+  if (hitKind === 'message') return SEARCH_MATCH_HINT.message;
   return null;
 }
 
@@ -94,12 +106,23 @@ export default function MatchesListScreen() {
   const [conversationSort, setConversationSort] = useState<ConversationSortOption>('recent');
   const [showSortSheet, setShowSortSheet] = useState(false);
 
+  useEffect(() => {
+    void AsyncStorage.getItem(MATCHES_CONVERSATION_SORT_STORAGE_KEY).then((raw) => {
+      setConversationSort(parseStoredConversationSort(raw));
+    });
+  }, []);
+
   /** Web parity: hide when this user archived (`useMatches` / `useMatches.ts` isArchived). */
   const activeMatches = useMemo(
     () => matches.filter((m) => !(m.archived_at && m.archived_by === user?.id)),
     [matches, user?.id]
   );
   const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
+  /** Sortable conversation rows only — unopened "new" vibes stay in the rail (web parity). */
+  const regularMatches = useMemo(
+    () => activeMatches.filter((m) => !m.isNew || openedVibeIds.has(m.matchId)),
+    [activeMatches, openedVibeIds]
+  );
   const newVibes = useMemo(
     () => activeMatches.filter((m) => m.isNew && !openedVibeIds.has(m.matchId)),
     [activeMatches, openedVibeIds]
@@ -107,54 +130,72 @@ export default function MatchesListScreen() {
 
   const searchTrimmed = searchQuery.trim();
   const showNewVibesRail = searchTrimmed.length === 0;
+  const dateKey = getUtcDateKey();
+  const matchesSpotlight = useMemo(
+    () =>
+      resolveMatchesSpotlight({
+        userId: user?.id ?? '__anonymous__',
+        dateKey,
+      }),
+    [user?.id, dateKey]
+  );
+  const spotlightDismissKey = useMemo(
+    () =>
+      `matches_spotlight_dismissed:${user?.id ?? '__anonymous__'}:${dateKey}:${matchesSpotlight.id}`,
+    [user?.id, dateKey, matchesSpotlight.id]
+  );
+  const [spotlightDismissed, setSpotlightDismissed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void AsyncStorage.getItem(spotlightDismissKey).then((v) => {
+      if (!cancelled) setSpotlightDismissed(v === '1');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightDismissKey]);
+
+  const regularConversationCount = regularMatches.length;
+  const shouldShowSpotlightBase = activeTab === 'conversations' && searchTrimmed.length === 0 && !spotlightDismissed;
+  const spotlightPlacement: 'empty' | 'footer' | 'inline' | null = shouldShowSpotlightBase
+    ? regularConversationCount === 0
+      ? 'empty'
+      : regularConversationCount <= 3
+        ? 'footer'
+        : 'inline'
+    : null;
+
+  const dismissSpotlightForDay = useCallback(() => {
+    setSpotlightDismissed(true);
+    void AsyncStorage.setItem(spotlightDismissKey, '1');
+  }, [spotlightDismissKey]);
 
   const filteredMatches = useMemo((): MatchConversationRow[] => {
     if (!searchTrimmed) {
-      return activeMatches.map((m) => ({ ...m, searchMatchHint: null }));
+      return regularMatches.map((m) => ({ ...m, searchMatchHint: null }));
     }
     const q = searchTrimmed.toLowerCase();
     const rows: MatchConversationRow[] = [];
-    for (const m of activeMatches) {
+    for (const m of regularMatches) {
       const hint = conversationSearchHint(m, q);
       if (hint) rows.push({ ...m, searchMatchHint: hint });
     }
     return rows;
-  }, [activeMatches, searchTrimmed]);
+  }, [regularMatches, searchTrimmed]);
 
   const orderIndexByMatchId = useMemo(() => {
-    const m = new Map<string, number>();
-    activeMatches.forEach((row, i) => m.set(row.matchId, i));
-    return m;
-  }, [activeMatches]);
+    return buildOrderIndexByMatchId(regularMatches);
+  }, [regularMatches]);
 
   /** After search filter; same sort semantics as web `Matches.tsx`. */
   const displayMatches = useMemo((): MatchConversationRow[] => {
-    const list = [...filteredMatches];
-    const tieRecent = (a: MatchConversationRow, b: MatchConversationRow) =>
-      (orderIndexByMatchId.get(a.matchId) ?? 0) - (orderIndexByMatchId.get(b.matchId) ?? 0);
-    switch (conversationSort) {
-      case 'unread':
-        list.sort((a, b) => {
-          const du = (b.unread ? 1 : 0) - (a.unread ? 1 : 0);
-          return du !== 0 ? du : tieRecent(a, b);
-        });
-        break;
-      case 'best':
-        list.sort((a, b) => {
-          const ds = b.bestMatchScore - a.bestMatchScore;
-          return ds !== 0 ? ds : tieRecent(a, b);
-        });
-        break;
-      default:
-        list.sort(tieRecent);
-        break;
-    }
-    return list;
+    return sortConversations(filteredMatches, conversationSort, orderIndexByMatchId);
   }, [filteredMatches, conversationSort, orderIndexByMatchId]);
 
   const applyConversationSort = useCallback((opt: ConversationSortOption) => {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setConversationSort(opt);
+    void AsyncStorage.setItem(MATCHES_CONVERSATION_SORT_STORAGE_KEY, opt);
     setShowSortSheet(false);
   }, []);
 
@@ -318,26 +359,71 @@ export default function MatchesListScreen() {
     [router]
   );
 
-  const renderItem: ListRenderItem<MatchConversationRow> = useCallback(
+  const renderSpotlightCard = useCallback(() => {
+    return (
+      <Card style={[styles.spotlightCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+        <Pressable
+          onPress={dismissSpotlightForDay}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss spotlight"
+          hitSlop={12}
+          style={({ pressed }) => [styles.spotlightDismiss, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="close" size={18} color={theme.textSecondary} />
+        </Pressable>
+        <RNView style={styles.spotlightRow}>
+          <Ionicons name="bulb-outline" size={20} color={theme.tint} />
+          <RNText style={[styles.spotlightEyebrow, { color: theme.textSecondary }]}>{matchesSpotlight.eyebrow}</RNText>
+        </RNView>
+        <RNText style={[styles.spotlightTitle, { color: theme.text }]}>{matchesSpotlight.title}</RNText>
+        <RNText style={[styles.spotlightBody, { color: theme.textSecondary }]}>{matchesSpotlight.body}</RNText>
+        {matchesSpotlight.ctaLabel && matchesSpotlight.ctaTarget ? (
+          <Pressable
+            onPress={() => void Linking.openURL(matchesSpotlight.ctaTarget!)}
+            style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+          >
+            <RNText style={[styles.spotlightCta, { color: theme.tint }]}>{matchesSpotlight.ctaLabel}</RNText>
+          </Pressable>
+        ) : null}
+      </Card>
+    );
+  }, [dismissSpotlightForDay, matchesSpotlight, theme]);
+
+  const listData = useMemo((): ConversationsListRow[] => {
+    if (spotlightPlacement !== 'inline') return displayMatches;
+    const out: ConversationsListRow[] = [];
+    for (let i = 0; i < displayMatches.length; i++) {
+      out.push(displayMatches[i]!);
+      if (i === 1) out.push({ kind: 'spotlight', key: `spotlight:${spotlightDismissKey}` });
+    }
+    return out;
+  }, [displayMatches, spotlightDismissKey, spotlightPlacement]);
+
+  const renderItem: ListRenderItem<ConversationsListRow> = useCallback(
     ({ item }) => {
+      if ((item as SpotlightRow).kind === 'spotlight') {
+        return <RNView style={styles.inlineSpotlightWrap}>{renderSpotlightCard()}</RNView>;
+      }
+
+      const m = item as MatchConversationRow;
       const row = (
         <MatchListRow
-          imageUri={item.image}
-          name={item.name}
-          age={item.age}
-          time={item.time}
-          lastMessage={item.lastMessage}
-          unread={item.unread}
-          isNew={item.isNew}
-          searchMatchHint={item.searchMatchHint}
+          imageUri={m.image}
+          name={m.name}
+          age={m.age}
+          time={m.time}
+          lastMessage={m.lastMessage}
+          unread={m.unread}
+          isNew={m.isNew}
+          searchMatchHint={m.searchMatchHint}
         />
       );
 
-      if (isUserBlocked(item.id)) {
+      if (isUserBlocked(m.id)) {
         return (
           <Pressable
-            onPress={() => handleMatchPress(item)}
-            onLongPress={() => setActionsMatch(item)}
+            onPress={() => handleMatchPress(m)}
+            onLongPress={() => setActionsMatch(m)}
             style={({ pressed }) => [pressed && { opacity: 0.8 }]}
           >
             {row}
@@ -347,21 +433,21 @@ export default function MatchesListScreen() {
 
       return (
         <SwipeableMatchConversationRow
-          matchId={item.matchId}
+          matchId={m.matchId}
           backgroundColor={theme.background}
           activeSwipeMatchId={activeSwipeMatchId}
           scrollCloseNonce={scrollCloseNonceSV}
           onSwipeBegin={setActiveSwipeMatchId}
           onSwipeEnd={() => setActiveSwipeMatchId(null)}
-          onPress={() => handleMatchPress(item)}
-          onLongPress={() => setActionsMatch(item)}
+          onPress={() => handleMatchPress(m)}
+          onLongPress={() => setActionsMatch(m)}
           onSwipeRightCommit={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            (router as { push: (p: string) => void }).push(`/user/${item.id}`);
+            (router as { push: (p: string) => void }).push(`/user/${m.id}`);
           }}
           onSwipeLeftCommit={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setUnmatchSheetMatch(item);
+            setUnmatchSheetMatch(m);
           }}
         >
           {row}
@@ -375,6 +461,7 @@ export default function MatchesListScreen() {
       router,
       scrollCloseNonceSV,
       theme.background,
+      renderSpotlightCard,
     ]
   );
 
@@ -395,6 +482,11 @@ export default function MatchesListScreen() {
   }
 
   if (!matches.length && !isLoading) {
+    const emptySpotlight =
+      spotlightPlacement === 'empty' ? (
+        <RNView style={styles.emptySpotlightWrap}>{renderSpotlightCard()}</RNView>
+      ) : null;
+
     return (
       <ScreenContainer>
         <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
@@ -415,6 +507,7 @@ export default function MatchesListScreen() {
             actionLabel="Find your next event"
             onActionPress={() => router.push('/(tabs)/events')}
           />
+          {emptySpotlight}
           <Pressable
             onPress={() => setShowInviteSheet(true)}
             style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
@@ -440,6 +533,11 @@ export default function MatchesListScreen() {
 
   /** Rows exist but all are hidden for this user (self-archived); avoid main shell + empty list. */
   if (matches.length > 0 && activeMatches.length === 0 && !isLoading) {
+    const emptySpotlight =
+      spotlightPlacement === 'empty' ? (
+        <RNView style={styles.emptySpotlightWrap}>{renderSpotlightCard()}</RNView>
+      ) : null;
+
     return (
       <ScreenContainer>
         <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
@@ -467,6 +565,7 @@ export default function MatchesListScreen() {
             actionLabel="Find your next event"
             onActionPress={() => router.push('/(tabs)/events')}
           />
+          {emptySpotlight}
           <Pressable
             onPress={() => setShowInviteSheet(true)}
             style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
@@ -552,7 +651,7 @@ export default function MatchesListScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
             <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
           </RNView>
-          {activeMatches.length > 0 && (
+          {regularMatches.length > 0 && (
             <RNView style={[styles.countPill, { backgroundColor: theme.accentSoft }]}>
               <RNText style={[styles.countPillText, { color: theme.tint }]}>
                 {formatConversationCount(displayMatches.length)}
@@ -638,38 +737,53 @@ export default function MatchesListScreen() {
         </RNView>
 
         {/* Search (only for conversations and when matches exist) */}
-        {activeTab === 'conversations' && activeMatches.length > 0 && (
-          <RNView style={styles.searchRow}>
-            <RNView style={[styles.searchInputWrapper, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-              <Ionicons
-                name="search-outline"
-                size={16}
-                color={theme.textSecondary}
-                style={{ marginRight: spacing.xs }}
-              />
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search by name, vibe, intent, event, or message…"
-                placeholderTextColor={theme.textSecondary}
-                style={[styles.searchInput, { color: theme.text }]}
-              />
+        {activeTab === 'conversations' && regularMatches.length > 0 && (
+          <RNView style={styles.searchSection}>
+            <RNView style={styles.searchRow}>
+              <RNView style={[styles.searchInputWrapper, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+                <Ionicons
+                  name="search-outline"
+                  size={16}
+                  color={theme.textSecondary}
+                  style={{ marginRight: spacing.xs }}
+                />
+                {searchQuery.length === 0 ? (
+                  <RNView style={styles.searchOverlay} pointerEvents="none">
+                    <RNText style={[styles.searchOverlayLead, { color: theme.textSecondary }]}>Search chats:</RNText>
+                    <RNText
+                      style={[styles.searchOverlayHint, { color: theme.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      Name · vibe · intent · city · event · last message
+                    </RNText>
+                  </RNView>
+                ) : null}
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder=""
+                  style={[styles.searchInput, { color: theme.text }]}
+                />
+              </RNView>
+              <Pressable
+                onPress={showConversationSortMenu}
+                accessibilityRole="button"
+                accessibilityLabel="Sort conversations"
+                style={({ pressed }) => [
+                  styles.sortIconButton,
+                  {
+                    backgroundColor: theme.surfaceSubtle,
+                    borderColor: theme.border,
+                    opacity: pressed ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="options-outline" size={20} color={theme.textSecondary} />
+              </Pressable>
             </RNView>
-            <Pressable
-              onPress={showConversationSortMenu}
-              accessibilityRole="button"
-              accessibilityLabel="Sort conversations"
-              style={({ pressed }) => [
-                styles.sortIconButton,
-                {
-                  backgroundColor: theme.surfaceSubtle,
-                  borderColor: theme.border,
-                  opacity: pressed ? 0.85 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="options-outline" size={20} color={theme.textSecondary} />
-            </Pressable>
+            <RNText style={[styles.sortStatusText, { color: theme.textSecondary }]} numberOfLines={1}>
+              Sorted by: {conversationSortShortLabel(conversationSort)}
+            </RNText>
           </RNView>
         )}
       </GlassHeaderBar>
@@ -678,9 +792,11 @@ export default function MatchesListScreen() {
       {activeTab === 'conversations' ? (
         <GestureHandlerRootView style={styles.gestureRoot}>
           <FlatList
-            data={displayMatches}
+            data={listData}
             renderItem={renderItem}
-            keyExtractor={(item) => item.matchId}
+            keyExtractor={(item) =>
+              (item as SpotlightRow).kind === 'spotlight' ? (item as SpotlightRow).key : (item as MatchConversationRow).matchId
+            }
             contentContainerStyle={styles.list}
             onScrollBeginDrag={onConversationsScrollBeginDrag}
             refreshControl={
@@ -748,6 +864,9 @@ export default function MatchesListScreen() {
                   </ScrollView>
                 </Card>
               ) : null}
+              {spotlightPlacement === 'empty' ? (
+                <RNView style={styles.headerSpotlightWrap}>{renderSpotlightCard()}</RNView>
+              ) : null}
               <RNView style={styles.conversationsDivider}>
                 <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
                 <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
@@ -758,15 +877,7 @@ export default function MatchesListScreen() {
           }
           ListFooterComponent={
             <RNView onTouchStart={dismissOpenConversationSwipe} style={styles.footerCards}>
-              <Card style={[styles.proTipCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-                <RNView style={styles.proTipRow}>
-                  <Ionicons name="bulb-outline" size={20} color={theme.tint} />
-                  <RNText style={[styles.proTipTitle, { color: theme.text }]}>Pro tip</RNText>
-                </RNView>
-                <RNText style={[styles.proTipBody, { color: theme.textSecondary }]}>
-                  Keep the conversation going — reply within 24 hours to keep the vibe alive.
-                </RNText>
-              </Card>
+              {spotlightPlacement === 'footer' ? renderSpotlightCard() : null}
               <Card style={styles.inviteCard}>
                 <SettingsRow
                   icon={<Ionicons name="people-outline" size={22} color={theme.tint} />}
@@ -875,7 +986,7 @@ export default function MatchesListScreen() {
         </RNView>
         {([
           { key: 'recent', label: 'Most Recent', subtitle: 'Latest activity first' },
-          { key: 'unread', label: 'Unread First', subtitle: 'Conversations needing attention' },
+          { key: 'needsReply', label: 'Needs Reply', subtitle: 'Chats waiting on you' },
           { key: 'best', label: 'Best Match', subtitle: 'Highest vibe compatibility first' },
         ] as const).map((opt) => {
           const selected = conversationSort === opt.key;
@@ -973,20 +1084,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: spacing.xs,
   },
-  searchRow: {
+  searchSection: {
     marginTop: spacing.sm,
+  },
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  sortStatusText: {
+    marginTop: 4,
+    marginLeft: 2,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 0.2,
   },
   searchInputWrapper: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    position: 'relative',
     borderRadius: 16,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  searchOverlay: {
+    position: 'absolute',
+    left: 34,
+    right: spacing.md,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  searchOverlayLead: {
+    fontSize: 14,
+  },
+  searchOverlayHint: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 14,
   },
   sortIconButton: {
     width: 44,
@@ -1051,23 +1190,55 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     gap: spacing.md,
   },
-  proTipCard: {
+  inlineSpotlightWrap: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+  },
+  headerSpotlightWrap: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  emptySpotlightWrap: {
+    marginTop: spacing.md,
+  },
+  spotlightCard: {
     padding: spacing.lg,
     marginBottom: spacing.sm,
   },
-  proTipRow: {
+  spotlightDismiss: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    padding: 6,
+    borderRadius: radius.lg,
+  },
+  spotlightRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.xs,
   },
-  proTipTitle: {
-    fontSize: 13,
+  spotlightEyebrow: {
+    fontSize: 11,
     fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    flex: 1,
   },
-  proTipBody: {
+  spotlightTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: spacing.xs,
+  },
+  spotlightBody: {
     fontSize: 12,
     lineHeight: 18,
+  },
+  spotlightCta: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: spacing.sm,
   },
   inviteCard: {
     padding: spacing.lg,

@@ -19,6 +19,8 @@ export interface Match {
   time: string;
   unread: boolean;
   vibes: string[];
+  /** Other user's `profiles.looking_for` — for client-side search (intent display id + labels). */
+  looking_for: string | null;
   isNew: boolean;
   matchId: string;
   photoVerified?: boolean;
@@ -235,7 +237,8 @@ export const useMatches = () => {
           unread: lastMsg
             ? !lastMsg.read_at && lastMsg.sender_id !== userId
             : false,
-          vibes: otherVibes.slice(0, 2),
+          vibes: otherVibes,
+          looking_for: ((profile as any)?.looking_for as string | null | undefined) ?? null,
           isNew,
           matchId: match.id,
           photoVerified: !!(profile as any)?.photo_verified,
