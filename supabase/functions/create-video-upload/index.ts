@@ -14,12 +14,23 @@ function json(body: Record<string, unknown>, status: number) {
   });
 }
 
+function getProjectRef(url: string | undefined): string {
+  if (!url) return "unknown";
+  try {
+    const host = new URL(url).hostname;
+    return host.split(".")[0] || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return json({ success: false, error: "No authorization header", code: "auth_header_missing" }, 401);
@@ -111,6 +122,9 @@ serve(async (req) => {
     }
 
     const { guid: videoId } = await createResponse.json();
+    console.log(
+      `[create-video-upload] created bunny video userId=${user.id} videoId=${videoId} libraryId=${libraryId} projectRef=${projectRef}`,
+    );
 
     const expirationTime = Math.floor(Date.now() / 1000) + 3600;
     const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
@@ -120,10 +134,33 @@ serve(async (req) => {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const signature = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
-    await adminSupabase
+    const { data: updatedRows, error: profileUpdateError } = await adminSupabase
       .from("profiles")
       .update({ bunny_video_uid: videoId, bunny_video_status: "uploading" })
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .select("id");
+    if (profileUpdateError) {
+      console.error(
+        `[create-video-upload] profile update failed userId=${user.id} videoId=${videoId} projectRef=${projectRef} err=${profileUpdateError.message}`,
+      );
+      return json(
+        { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
+        500,
+      );
+    }
+    const matchedRows = updatedRows?.length ?? 0;
+    console.log(
+      `[create-video-upload] profile update outcome userId=${user.id} videoId=${videoId} matchedRows=${matchedRows} projectRef=${projectRef}`,
+    );
+    if (matchedRows !== 1) {
+      console.error(
+        `[create-video-upload] unexpected matchedRows userId=${user.id} videoId=${videoId} matchedRows=${matchedRows} projectRef=${projectRef}`,
+      );
+      return json(
+        { success: false, error: "Profile row mismatch while starting upload", code: "profile_row_mismatch" },
+        500,
+      );
+    }
 
     return json(
       {

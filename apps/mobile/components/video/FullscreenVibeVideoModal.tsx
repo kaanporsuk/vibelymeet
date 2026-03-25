@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
 const CAPTION_MAX_WIDTH = 400;
 
@@ -44,9 +45,11 @@ export function FullscreenVibeVideoModal({
   const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
-  const { source: hostnameSource } = resolveVibeVideoStreamHostnameSync();
-  const configMissing = hostnameSource === 'none';
+  const { hostname: streamHostname } = resolveVibeVideoStreamHostnameSync();
+  const configMissing = !streamHostname.trim();
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
+  const expectedPatternUrl =
+    uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
 
   const errorKind: 'none' | 'config' | 'url' | 'playback' = (() => {
     if (!visible) return 'none';
@@ -82,13 +85,39 @@ export function FullscreenVibeVideoModal({
   }, [visible]);
 
   const handlePlaybackIssue = useCallback(() => {
+    vibeVideoDiagVerbose('fullscreen.playback_error', {
+      bunnyVideoUid: uid || null,
+      playbackUrl,
+      resolvedHostname: streamHostname,
+      errorKind: 'playback',
+    });
     setPlaybackSurfaceError(true);
-  }, []);
+  }, [uid, playbackUrl, streamHostname]);
 
   const handleRetryPlayback = useCallback(() => {
     setPlaybackSurfaceError(false);
     setRetryKey((k) => k + 1);
   }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    vibeVideoDiagVerbose('fullscreen.playback_input', {
+      bunnyVideoUid: uid || null,
+      resolvedHostname: streamHostname,
+      playbackUrl,
+      expectedPatternUrl,
+      patternMatch: !!(playbackUrl && expectedPatternUrl && playbackUrl === expectedPatternUrl),
+    });
+    if (errorKind === 'none') return;
+    vibeVideoDiagVerbose('fullscreen.error_surface', {
+      bunnyVideoUid: uid || null,
+      playbackUrl,
+      resolvedHostname: streamHostname,
+      errorKind,
+      configMissing,
+      expectedPatternUrl,
+    });
+  }, [visible, errorKind, uid, playbackUrl, streamHostname, configMissing, expectedPatternUrl]);
 
   const renderErrorCard = (title: string, body: string, showRetry?: boolean) => (
     <View style={styles.errorWrap}>

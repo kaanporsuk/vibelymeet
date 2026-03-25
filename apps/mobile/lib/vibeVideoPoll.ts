@@ -64,10 +64,25 @@ export async function pollVibeVideoUntilTerminal(options: {
 
     if (error) {
       console.warn('[VibeVideo] poll profile error:', error.message);
+      vibeVideoDiagVerbose('poll.profile_error', {
+        userId: user.id,
+        expectedVideoId,
+        attempt,
+        message: error.message,
+      });
       continue;
     }
 
     const rowUid = typeof data?.bunny_video_uid === 'string' ? data.bunny_video_uid.trim() : '';
+    const rawStatus =
+      typeof data?.bunny_video_status === 'string' ? data.bunny_video_status.trim() : null;
+    vibeVideoDiagVerbose('poll.tick', {
+      userId: user.id,
+      expectedVideoId,
+      attempt,
+      rowUid: rowUid || null,
+      rawStatus,
+    });
     if (rowUid && rowUid !== expectedVideoId) {
       vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'superseded', rowUid, attempt });
       return 'superseded';

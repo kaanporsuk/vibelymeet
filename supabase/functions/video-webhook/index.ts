@@ -13,10 +13,21 @@ function constantTimeCompare(a: string, b: string): boolean {
   return timingSafeEqual(enc.encode(a), enc.encode(b));
 }
 
+function getProjectRef(url: string | undefined): string {
+  if (!url) return "unknown";
+  try {
+    const host = new URL(url).hostname;
+    return host.split(".")[0] || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 serve(async (req) => {
+  const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
   const webhookToken = Deno.env.get("BUNNY_VIDEO_WEBHOOK_TOKEN");
   if (!webhookToken || webhookToken.trim() === "") {
-    console.error("[video-webhook] BUNNY_VIDEO_WEBHOOK_TOKEN is not set");
+    console.error(`[video-webhook] BUNNY_VIDEO_WEBHOOK_TOKEN is not set projectRef=${projectRef}`);
     return new Response("Service unavailable", { status: 503 });
   }
 
@@ -24,10 +35,11 @@ serve(async (req) => {
   const token = url.searchParams.get("token");
   if (!token || !constantTimeCompare(token, webhookToken)) {
     console.error(
-      "[video-webhook] auth failed: missing or invalid `token` query param (must match secret BUNNY_VIDEO_WEBHOOK_TOKEN; see docs/vibe-video-webhook-operator.md)",
+      `[video-webhook] auth failed projectRef=${projectRef}: missing or invalid token`,
     );
     return new Response("Unauthorized", { status: 401 });
   }
+  console.log(`[video-webhook] auth ok projectRef=${projectRef}`);
 
   try {
     const body = await req.json() as {
@@ -38,14 +50,18 @@ serve(async (req) => {
 
     const { VideoGuid, Status, VideoLibraryId } = body;
     console.log(
-      `[video-webhook] inbound auth=ok Status=${String(Status)} VideoLibraryId=${VideoLibraryId ?? "n/a"} hasVideoGuid=${!!VideoGuid}`,
+      `[video-webhook] inbound projectRef=${projectRef} Status=${String(Status)} VideoLibraryId=${VideoLibraryId ?? "n/a"} VideoGuid=${VideoGuid ?? "n/a"}`,
     );
 
     // Bunny sends: { VideoLibraryId, VideoGuid, Status }
-    // Status 3 = transcoding complete (ready)
-    // Status 4 = failed
+    // Official Bunny webhook statuses:
+    // 0 = queued
+    // 7 = presigned upload finished
+    // 3 = finished
+    // 4 = resolution finished and now playable
+    // 5 = failed
     if (!VideoGuid) {
-      console.log("[video-webhook] no VideoGuid — ack without DB write");
+      console.error(`[video-webhook] no VideoGuid projectRef=${projectRef} — refusing to finalize`);
       return new Response("ok", { status: 200 });
     }
 
@@ -56,7 +72,8 @@ serve(async (req) => {
 
     let status = "processing";
     if (Status === 3) status = "ready";
-    if (Status === 4) status = "failed";
+    if (Status === 4) status = "ready";
+    if (Status === 5) status = "failed";
 
     const { data: updated, error } = await supabase
       .from("profiles")
@@ -65,17 +82,22 @@ serve(async (req) => {
       .select("id");
 
     if (error) {
-      console.error(`[video-webhook] db update error: ${error.message}`);
+      console.error(
+        `[video-webhook] db update error projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${status} err=${error.message}`,
+      );
       return new Response("error", { status: 500 });
     }
 
     const n = updated?.length ?? 0;
     if (n === 0) {
-      console.warn(
-        `[video-webhook] no profile row matched bunny_video_uid (possible wrong project, stale GUID, or test webhook): len(guid)=${VideoGuid.length}`,
+      console.error(
+        `[video-webhook] HARD_FAILURE zero rows matched projectRef=${projectRef} videoGuid=${VideoGuid} status=${String(Status)} mappedStatus=${status} libraryId=${VideoLibraryId ?? "n/a"}`,
       );
+      return new Response("error", { status: 500 });
     } else {
-      console.log(`[video-webhook] db ok rows=${n} bunny_video_status=${status}`);
+      console.log(
+        `[video-webhook] finalized projectRef=${projectRef} videoGuid=${VideoGuid} rows=${n} mappedStatus=${status}`,
+      );
     }
 
     return new Response("ok", { status: 200 });

@@ -45,6 +45,17 @@ export function VibeVideoPlayer({
   });
 
   useEffect(() => {
+    const { hostname, source } = resolveVibeVideoStreamHostnameSync();
+    vibeVideoDiagVerbose('player.source_set', {
+      context: diagContext,
+      sourceUri,
+      isRemoteHls,
+      resolvedHostname: hostname,
+      hostnameSource: source,
+    });
+  }, [diagContext, sourceUri, isRemoteHls]);
+
+  useEffect(() => {
     warnedRef.current = false;
   }, [sourceUri]);
 
@@ -53,6 +64,10 @@ export function VibeVideoPlayer({
   }, [sourceUri, posterUri]);
 
   useEffect(() => {
+    vibeVideoDiagVerbose('player.load_start', {
+      context: diagContext,
+      sourceUri,
+    });
     player.replace(sourceUri);
   }, [sourceUri, player]);
 
@@ -67,6 +82,17 @@ export function VibeVideoPlayer({
   useEffect(() => {
     const sub = player.addListener('statusChange', (payload) => {
       const st = payload.status;
+      vibeVideoDiagVerbose('player.status_change', {
+        context: diagContext,
+        sourceUri,
+        status: st,
+      });
+      if (st === 'readyToPlay') {
+        vibeVideoDiagVerbose('player.ready', {
+          context: diagContext,
+          sourceUri,
+        });
+      }
       if (st !== 'error') return;
       if (warnedRef.current) return;
       warnedRef.current = true;

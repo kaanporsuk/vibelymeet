@@ -138,6 +138,16 @@ function SortableTile({
     );
   }
 
+  /** Second grid row: slots 3–5 — narrow tiles need split columns so all 4 actions stay visible */
+  const isBottomRowTile = index >= 3;
+
+  const actionIconClass =
+    "w-7 h-7 shrink-0 rounded-full bg-black/70 flex items-center justify-center hover:bg-white/20 transition-colors";
+  const makeMainIconClass =
+    "w-7 h-7 shrink-0 rounded-full bg-black/70 flex items-center justify-center hover:bg-violet-500/80 transition-colors";
+  const deleteIconClass =
+    "w-7 h-7 shrink-0 rounded-full bg-black/70 flex items-center justify-center hover:bg-red-500/80 transition-colors";
+
   return (
     <div
       ref={setNodeRef}
@@ -149,54 +159,146 @@ function SortableTile({
       <img src={thumbnailUrl(url)} alt="" className="w-full h-full object-cover" draggable={false} />
 
       {/* Hover overlay */}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-200 flex flex-col justify-between p-2 opacity-0 group-hover:opacity-100">
-        {/* Top row: position badge + action icons */}
-        <div className="flex justify-between items-start">
-          <span className="w-6 h-6 rounded-full bg-black/70 text-white text-xs font-bold flex items-center justify-center">
-            {index + 1}
-          </span>
-          <div
-            className="flex gap-1.5"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {!isMain && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onMakeMain(index); }}
-                title="Make Main"
-                className="w-7 h-7 rounded-full bg-black/70 flex items-center justify-center hover:bg-violet-500/80 transition-colors"
+      <div
+        className={cn(
+          "absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-200 p-2 opacity-0 group-hover:opacity-100",
+          isBottomRowTile ? "flex flex-col gap-1" : "flex flex-col justify-between",
+        )}
+      >
+        {isBottomRowTile ? (
+          <>
+            <div className="flex shrink-0 justify-start">
+              <span className="w-6 h-6 rounded-full bg-black/70 text-white text-xs font-bold flex items-center justify-center">
+                {index + 1}
+              </span>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-row items-center justify-between gap-2 px-0.5">
+              <div
+                className="flex flex-col items-center gap-1.5"
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                <Crown size={14} className="text-white" />
-              </button>
-            )}
-            <button
-              onClick={(e) => { e.stopPropagation(); onExpand(index); }}
-              title="View full size"
-              className="w-7 h-7 rounded-full bg-black/70 flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <Maximize2 size={14} className="text-white" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onReplace(index); }}
-              title="Replace"
-              className="w-7 h-7 rounded-full bg-black/70 flex items-center justify-center hover:bg-white/20 transition-colors"
-            >
-              <RefreshCw size={14} className="text-white" />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(index); }}
-              title="Delete"
-              className="w-7 h-7 rounded-full bg-black/70 flex items-center justify-center hover:bg-red-500/80 transition-colors"
-            >
-              <Trash2 size={14} className="text-white" />
-            </button>
-          </div>
-        </div>
+                {!isMain && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMakeMain(index);
+                    }}
+                    title="Make Main"
+                    className={makeMainIconClass}
+                  >
+                    <Crown size={14} className="text-white" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExpand(index);
+                  }}
+                  title="View full size"
+                  className={actionIconClass}
+                >
+                  <Maximize2 size={14} className="text-white" />
+                </button>
+              </div>
+              <div
+                className="flex flex-col items-center gap-1.5"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReplace(index);
+                  }}
+                  title="Replace"
+                  className={actionIconClass}
+                >
+                  <RefreshCw size={14} className="text-white" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(index);
+                  }}
+                  title="Delete"
+                  className={deleteIconClass}
+                >
+                  <Trash2 size={14} className="text-white" />
+                </button>
+              </div>
+            </div>
+            {isMain ? (
+              <span className="shrink-0 self-start px-2 py-0.5 rounded bg-black/70 text-[10px] font-medium text-white flex items-center gap-1">
+                👑 Main
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {/* Top row: position badge + action icons (upper grid row — horizontal) */}
+            <div className="flex justify-between items-start">
+              <span className="w-6 h-6 rounded-full bg-black/70 text-white text-xs font-bold flex items-center justify-center">
+                {index + 1}
+              </span>
+              <div className="flex gap-1.5" onPointerDown={(e) => e.stopPropagation()}>
+                {!isMain && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMakeMain(index);
+                    }}
+                    title="Make Main"
+                    className={makeMainIconClass}
+                  >
+                    <Crown size={14} className="text-white" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExpand(index);
+                  }}
+                  title="View full size"
+                  className={actionIconClass}
+                >
+                  <Maximize2 size={14} className="text-white" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReplace(index);
+                  }}
+                  title="Replace"
+                  className={actionIconClass}
+                >
+                  <RefreshCw size={14} className="text-white" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(index);
+                  }}
+                  title="Delete"
+                  className={deleteIconClass}
+                >
+                  <Trash2 size={14} className="text-white" />
+                </button>
+              </div>
+            </div>
 
-        {/* Bottom: Main badge */}
-        {isMain && (
-          <span className="self-start px-2 py-0.5 rounded bg-black/70 text-[10px] text-white font-medium flex items-center gap-1">
-            👑 Main
-          </span>
+            {isMain && (
+              <span className="self-start px-2 py-0.5 rounded bg-black/70 text-[10px] text-white font-medium flex items-center gap-1">
+                👑 Main
+              </span>
+            )}
+          </>
         )}
       </div>
 
