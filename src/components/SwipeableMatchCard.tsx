@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { motion, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { MessageCircle, User, X, Sparkles, Star } from "lucide-react";
+import { MessageCircle, User, X, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfileDetailDrawer } from "./ProfileDetailDrawer";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhoneVerifiedBadge } from "@/components/PhoneVerifiedBadge";
-import { LazyImage } from "@/components/LazyImage";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { toast } from "sonner";
 
@@ -21,7 +20,8 @@ interface SwipeableMatchCardProps {
   vibes: string[];
   photoVerified?: boolean;
   phoneVerified?: boolean;
-  compatibility?: number;
+  /** Deterministic % from `matchSortScore` / `useMatches` (same as Best Match sort). */
+  compatibility: number;
   onClick: () => void;
   onViewProfile: () => void;
   onUnmatch: () => void;
@@ -38,7 +38,7 @@ export const SwipeableMatchCard = ({
   vibes,
   photoVerified,
   phoneVerified,
-  compatibility = Math.floor(Math.random() * 20) + 80,
+  compatibility,
   onClick,
   onViewProfile,
   onUnmatch,
@@ -58,7 +58,7 @@ export const SwipeableMatchCard = ({
     ]
   );
 
-  const handleDragEnd = (_: any, info: PanInfo) => {
+  const handleDragEnd = (_event: unknown, info: PanInfo) => {
     const threshold = 100;
     if (info.offset.x < -threshold) {
       playFeedback('wrong', { volume: 0.3 });
@@ -70,7 +70,7 @@ export const SwipeableMatchCard = ({
     setIsRevealed(false);
   };
 
-  const handleDrag = (_: any, info: PanInfo) => {
+  const handleDrag = (_event: unknown, info: PanInfo) => {
     const wasRevealed = isRevealed;
     const nowRevealed = Math.abs(info.offset.x) > 30;
     if (nowRevealed && !wasRevealed) {

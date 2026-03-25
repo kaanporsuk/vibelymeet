@@ -807,11 +807,23 @@ export type MatchListRowProps = {
   lastMessage: string | null;
   unread: boolean;
   isNew: boolean;
+  /** Shown under the name row when conversation search is active (e.g. "Matched on vibe"). */
+  searchMatchHint?: string | null;
   style?: StyleProp<ViewStyle>;
 };
 
 /** Conversation list row: avatar (with unread ring), name+age, New badge, time, preview, unread dot. */
-export function MatchListRow({ imageUri, name, age, time, lastMessage, unread, isNew, style }: MatchListRowProps) {
+export function MatchListRow({
+  imageUri,
+  name,
+  age,
+  time,
+  lastMessage,
+  unread,
+  isNew,
+  searchMatchHint,
+  style,
+}: MatchListRowProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const nameAge = age != null && age > 0 ? `${name}, ${age}` : name;
@@ -831,6 +843,11 @@ export function MatchListRow({ imageUri, name, age, time, lastMessage, unread, i
           {isNew && <Chip label="New" variant="accent" style={styles.matchListNewBadge} />}
           <Text style={[styles.matchListTime, { color: theme.textSecondary }]} numberOfLines={1}>{time}</Text>
         </View>
+        {searchMatchHint ? (
+          <Text style={[styles.matchListSearchHint, { color: theme.tint }]} numberOfLines={1}>
+            {searchMatchHint}
+          </Text>
+        ) : null}
         <Text
           style={[
             styles.matchListPreview,
@@ -1081,6 +1098,7 @@ const styles = StyleSheet.create({
   matchListName: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
   matchListNewBadge: { paddingHorizontal: 6, paddingVertical: 2 },
   matchListTime: { fontSize: 11 },
+  matchListSearchHint: { fontSize: 11, marginTop: 2, fontWeight: '500', opacity: 0.85 },
   matchListPreview: { fontSize: 13, marginTop: 2 },
   matchListUnreadDot: { width: 10, height: 10, borderRadius: 5, marginLeft: spacing.sm },
 });

@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import {
+  DAILY_DROP_ACTIONABLE_STATUSES,
+  DAILY_DROP_OUTCOME_STATUSES,
+  DAILY_DROP_REPLY_MAX_LENGTH,
+} from '@/lib/dailyDropSchedule';
 
 /** Aligns with public.daily_drops.status CHECK */
 export type DailyDropStatus =
@@ -124,14 +129,31 @@ export function useDailyDrop(userId: string | null | undefined) {
       return;
     }
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+    const orUser = `user_a_id.eq.${userId},user_b_id.eq.${userId}`;
+
+    let { data, error } = await supabase
       .from('daily_drops')
       .select('*')
-      .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
+      .or(orUser)
       .gt('expires_at', now)
+      .in('status', [...DAILY_DROP_ACTIONABLE_STATUSES])
       .order('drop_date', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (!error && !data) {
+      const second = await supabase
+        .from('daily_drops')
+        .select('*')
+        .or(orUser)
+        .gt('expires_at', now)
+        .in('status', [...DAILY_DROP_OUTCOME_STATUSES])
+        .order('drop_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      data = second.data;
+      error = second.error;
+    }
 
     const { data: genRan } = await supabase.rpc('daily_drops_generation_ran_today');
     setGenerationRanToday(Boolean(genRan));
@@ -252,7 +274,7 @@ export function useDailyDrop(userId: string | null | undefined) {
   const sendReply = useCallback(async (text: string) => {
     if (!drop || !userId) return;
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed.length > DAILY_DROP_REPLY_MAX_LENGTH) return;
     if (!drop.opener_sender_id || drop.opener_sender_id === userId) return;
     if (drop.chat_unlocked) return;
     const { data, error } = await supabase.functions.invoke('daily-drop-actions', {

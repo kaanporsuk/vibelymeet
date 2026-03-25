@@ -39,6 +39,7 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { avatarUrl } from '@/lib/imageUrl';
 import { isRevenueCatConfigured } from '@/lib/revenuecat';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -802,142 +803,148 @@ export default function AccountSettingsScreen() {
         onVerified={refreshProfile}
       />
 
-      <Modal transparent visible={emailSheetOpen} animationType="slide">
-        <Pressable style={styles.sheetBackdrop} onPress={() => setEmailSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
-            <View style={[styles.handle, { backgroundColor: theme.muted }]} />
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Update email</Text>
-            <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>Current: {email || '—'}</Text>
-            <TextInput
-              placeholder="New email address"
-              placeholderTextColor={theme.mutedForeground}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={newEmail}
-              onChangeText={setNewEmail}
-              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-            />
-            <TextInput
-              placeholder="Confirm new email"
-              placeholderTextColor={theme.mutedForeground}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={confirmEmail}
-              onChangeText={setConfirmEmail}
-              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-            />
-            <View style={[styles.infoCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: withAlpha(theme.tint, 0.2) }]}>
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-                Your email will update after you confirm the link we sent.
-              </Text>
-            </View>
-            <Pressable
-              onPress={async () => {
-                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!re.test(newEmail) || newEmail !== confirmEmail) {
-                  Alert.alert('Check emails', 'Enter a valid email and make sure both fields match.');
+      <KeyboardAwareBottomSheetModal
+        visible={emailSheetOpen}
+        onRequestClose={() => setEmailSheetOpen(false)}
+        showHandle
+        backdropColor="rgba(0,0,0,0.55)"
+        footer={
+          <Pressable
+            onPress={async () => {
+              const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!re.test(newEmail) || newEmail !== confirmEmail) {
+                Alert.alert('Check emails', 'Enter a valid email and make sure both fields match.');
+                return;
+              }
+              setEmailSubmitting(true);
+              try {
+                const { error } = await supabase.auth.updateUser({ email: newEmail });
+                if (error) {
+                  Alert.alert('Couldn’t update', error.message);
                   return;
                 }
-                setEmailSubmitting(true);
+                Alert.alert('Verification sent', `Check ${newEmail} to confirm.`);
+                setNewEmail('');
+                setConfirmEmail('');
+                setEmailSheetOpen(false);
+              } finally {
+                setEmailSubmitting(false);
+              }
+            }}
+            style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: emailSubmitting ? 0.7 : 1, marginTop: spacing.md }]}
+          >
+            <Text style={styles.primaryBtnText}>{emailSubmitting ? '…' : 'Update'}</Text>
+          </Pressable>
+        }
+      >
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Update email</Text>
+        <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>Current: {email || '—'}</Text>
+        <TextInput
+          placeholder="New email address"
+          placeholderTextColor={theme.mutedForeground}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={newEmail}
+          onChangeText={setNewEmail}
+          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+        />
+        <TextInput
+          placeholder="Confirm new email"
+          placeholderTextColor={theme.mutedForeground}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          value={confirmEmail}
+          onChangeText={setConfirmEmail}
+          style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+        />
+        <View style={[styles.infoCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: withAlpha(theme.tint, 0.2) }]}>
+          <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+            Your email will update after you confirm the link we sent.
+          </Text>
+        </View>
+      </KeyboardAwareBottomSheetModal>
+
+      <KeyboardAwareBottomSheetModal
+        visible={passwordSheetOpen}
+        onRequestClose={() => setPasswordSheetOpen(false)}
+        showHandle
+        backdropColor="rgba(0,0,0,0.55)"
+        footer={
+          hasEmailPasswordIdentity ? (
+            <Pressable
+              onPress={async () => {
+                if (newPassword.length < 8 || newPassword !== confirmNewPassword) {
+                  Alert.alert('Check password', 'Min 8 characters and confirmation must match.');
+                  return;
+                }
+                setPasswordSubmitting(true);
                 try {
-                  const { error } = await supabase.auth.updateUser({ email: newEmail });
+                  const { error: authErr } = await supabase.auth.signInWithPassword({
+                    email,
+                    password: currentPassword,
+                  });
+                  if (authErr) {
+                    Alert.alert('Incorrect', 'Current password is incorrect.');
+                    return;
+                  }
+                  const { error } = await supabase.auth.updateUser({ password: newPassword });
                   if (error) {
                     Alert.alert('Couldn’t update', error.message);
                     return;
                   }
-                  Alert.alert('Verification sent', `Check ${newEmail} to confirm.`);
-                  setNewEmail('');
-                  setConfirmEmail('');
-                  setEmailSheetOpen(false);
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setConfirmNewPassword('');
+                  setPasswordSheetOpen(false);
+                  Alert.alert('Password updated');
                 } finally {
-                  setEmailSubmitting(false);
+                  setPasswordSubmitting(false);
                 }
               }}
-              style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: emailSubmitting ? 0.7 : 1 }]}
+              style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: passwordSubmitting ? 0.7 : 1, marginTop: spacing.md }]}
             >
-              <Text style={styles.primaryBtnText}>{emailSubmitting ? '…' : 'Update'}</Text>
+              <Text style={styles.primaryBtnText}>{passwordSubmitting ? '…' : 'Update password'}</Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal transparent visible={passwordSheetOpen} animationType="slide">
-        <Pressable style={styles.sheetBackdrop} onPress={() => setPasswordSheetOpen(false)}>
-          <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
-            <View style={[styles.handle, { backgroundColor: theme.muted }]} />
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Change password</Text>
-            {!hasEmailPasswordIdentity ? (
-              <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>
-                Your account uses {oauthProvider ? `${oauthProvider} ` : ''}sign-in. Password not applicable.
-              </Text>
-            ) : (
-              <>
-                <TextInput
-                  placeholder="Current password"
-                  placeholderTextColor={theme.mutedForeground}
-                  secureTextEntry
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                />
-                <TextInput
-                  placeholder="New password (min 8 characters)"
-                  placeholderTextColor={theme.mutedForeground}
-                  secureTextEntry
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                />
-                {newPassword.length > 0 ? (
-                  <Text style={{ color: strengthColor, fontSize: 12, marginBottom: 8 }}>{strength.label}</Text>
-                ) : null}
-                <TextInput
-                  placeholder="Confirm new password"
-                  placeholderTextColor={theme.mutedForeground}
-                  secureTextEntry
-                  value={confirmNewPassword}
-                  onChangeText={setConfirmNewPassword}
-                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-                />
-                <Pressable
-                  onPress={async () => {
-                    if (newPassword.length < 8 || newPassword !== confirmNewPassword) {
-                      Alert.alert('Check password', 'Min 8 characters and confirmation must match.');
-                      return;
-                    }
-                    setPasswordSubmitting(true);
-                    try {
-                      const { error: authErr } = await supabase.auth.signInWithPassword({
-                        email,
-                        password: currentPassword,
-                      });
-                      if (authErr) {
-                        Alert.alert('Incorrect', 'Current password is incorrect.');
-                        return;
-                      }
-                      const { error } = await supabase.auth.updateUser({ password: newPassword });
-                      if (error) {
-                        Alert.alert('Couldn’t update', error.message);
-                        return;
-                      }
-                      setCurrentPassword('');
-                      setNewPassword('');
-                      setConfirmNewPassword('');
-                      setPasswordSheetOpen(false);
-                      Alert.alert('Password updated');
-                    } finally {
-                      setPasswordSubmitting(false);
-                    }
-                  }}
-                  style={[styles.primaryBtn, { backgroundColor: theme.tint, opacity: passwordSubmitting ? 0.7 : 1 }]}
-                >
-                  <Text style={styles.primaryBtnText}>{passwordSubmitting ? '…' : 'Update password'}</Text>
-                </Pressable>
-              </>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+          ) : null
+        }
+      >
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Change password</Text>
+        {!hasEmailPasswordIdentity ? (
+          <Text style={[styles.sheetMuted, { color: theme.mutedForeground }]}>
+            Your account uses {oauthProvider ? `${oauthProvider} ` : ''}sign-in. Password not applicable.
+          </Text>
+        ) : (
+          <>
+            <TextInput
+              placeholder="Current password"
+              placeholderTextColor={theme.mutedForeground}
+              secureTextEntry
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+            />
+            <TextInput
+              placeholder="New password (min 8 characters)"
+              placeholderTextColor={theme.mutedForeground}
+              secureTextEntry
+              value={newPassword}
+              onChangeText={setNewPassword}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+            />
+            {newPassword.length > 0 ? (
+              <Text style={{ color: strengthColor, fontSize: 12, marginBottom: 8 }}>{strength.label}</Text>
+            ) : null}
+            <TextInput
+              placeholder="Confirm new password"
+              placeholderTextColor={theme.mutedForeground}
+              secureTextEntry
+              value={confirmNewPassword}
+              onChangeText={setConfirmNewPassword}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+            />
+          </>
+        )}
+      </KeyboardAwareBottomSheetModal>
 
       <Modal transparent visible={deactivateOpen} animationType="fade">
         <Pressable style={styles.sheetBackdrop} onPress={() => setDeactivateOpen(false)}>

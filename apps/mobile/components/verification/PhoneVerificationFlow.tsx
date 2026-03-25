@@ -3,7 +3,7 @@
  * Reference: src/components/PhoneVerification.tsx, supabase/functions/phone-verify/index.ts
  */
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Modal, Pressable, TextInput, StyleSheet, Animated, ScrollView } from 'react-native';
+import { View, Pressable, TextInput, StyleSheet, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -11,6 +11,7 @@ import { spacing, radius } from '@/constants/theme';
 import { VibelyText, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 const COUNTRY_CODES = [
   { code: '+1', label: '🇺🇸 +1' },
@@ -178,106 +179,103 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
     sendOtp();
   };
 
-  if (!visible) return null;
-
   return (
-    <Modal transparent visible animationType="slide">
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
-          <View style={[styles.handle, { backgroundColor: theme.muted }]} />
-          <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
-            {step === 'phone' && 'Verify Phone'}
-            {step === 'otp' && 'Enter Code'}
-            {step === 'success' && 'Verified!'}
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={onClose}
+      scrollable={false}
+      backdropColor="rgba(0,0,0,0.8)"
+      showHandle
+      handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
+    >
+      <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
+        {step === 'phone' && 'Verify Phone'}
+        {step === 'otp' && 'Enter Code'}
+        {step === 'success' && 'Verified!'}
+      </VibelyText>
+
+      {step === 'phone' && (
+        <>
+          <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
+            <Ionicons name="call" size={32} color={theme.tint} />
+          </View>
+          <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
+            We'll send a 6-digit code via SMS. Enter your number without leading zero.
           </VibelyText>
-
-          {step === 'phone' && (
-            <>
-              <View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }]}>
-                <Ionicons name="call" size={32} color={theme.tint} />
-              </View>
-              <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
-                We'll send a 6-digit code via SMS. Enter your number without leading zero.
-              </VibelyText>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.countryScroll} contentContainerStyle={styles.countryScrollContent}>
-                {COUNTRY_CODES.map((c) => (
-                  <Pressable
-                    key={c.code}
-                    onPress={() => setCountryCode(c.code)}
-                    style={[styles.countryChip, { borderColor: countryCode === c.code ? theme.tint : theme.border, backgroundColor: countryCode === c.code ? theme.tintSoft : theme.surfaceSubtle }]}
-                  >
-                    <VibelyText variant="caption" style={{ color: theme.text }}>{c.label}</VibelyText>
-                  </Pressable>
-                ))}
-              </ScrollView>
-              <View style={[styles.row, { borderWidth: 1, borderRadius: radius.lg, borderColor: theme.border }]}>
-                <View style={[styles.prefix, { borderRightColor: theme.border }]}>
-                  <VibelyText variant="body" style={{ color: theme.text }}>{countryCode}</VibelyText>
-                </View>
-                <TextInput
-                  style={[styles.input, { color: theme.text }]}
-                  placeholder="Phone number"
-                  placeholderTextColor={theme.mutedForeground}
-                  value={phoneNumber}
-                  onChangeText={(t) => { setPhoneNumber(t); setError(null); }}
-                  keyboardType="phone-pad"
-                />
-              </View>
-              {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}
-              <VibelyButton label={loading ? 'Sending…' : 'Send Code'} onPress={sendOtp} disabled={loading || cleaned.length < 4} loading={loading} style={styles.cta} />
-            </>
-          )}
-
-          {step === 'otp' && (
-            <>
-              <Pressable onPress={() => { setStep('phone'); setError(null); }} style={styles.backRow}>
-                <Ionicons name="arrow-back" size={20} color={theme.textSecondary} />
-                <VibelyText variant="body" style={{ color: theme.textSecondary }}>Back</VibelyText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.countryScroll} contentContainerStyle={styles.countryScrollContent} keyboardShouldPersistTaps="handled">
+            {COUNTRY_CODES.map((c) => (
+              <Pressable
+                key={c.code}
+                onPress={() => setCountryCode(c.code)}
+                style={[styles.countryChip, { borderColor: countryCode === c.code ? theme.tint : theme.border, backgroundColor: countryCode === c.code ? theme.tintSoft : theme.surfaceSubtle }]}
+              >
+                <VibelyText variant="caption" style={{ color: theme.text }}>{c.label}</VibelyText>
               </Pressable>
-              <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
-                Code sent to {maskedPhone}
-              </VibelyText>
-              <View style={styles.otpRow}>
-                {otp.map((d, i) => (
-                  <TextInput
-                    key={i}
-                    style={[styles.otpBox, { borderColor: theme.border, color: theme.text }]}
-                    value={d}
-                    onChangeText={(v) => handleOtpChange(i, v)}
-                    keyboardType="number-pad"
-                    maxLength={1}
-                  />
-                ))}
-              </View>
-              {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}
-              {resendCooldown > 0 ? (
-                <VibelyText variant="caption" style={{ color: theme.textSecondary }}>Resend code in {resendCooldown}s</VibelyText>
-              ) : (
-                <Pressable onPress={handleResend} disabled={loading}>
-                  <VibelyText variant="body" style={{ color: theme.tint }}>Resend code</VibelyText>
-                </Pressable>
-              )}
-            </>
-          )}
-
-          {step === 'success' && (
-            <View style={styles.successWrap}>
-              <Animated.View style={[styles.successIcon, { backgroundColor: withAlpha(theme.success, 0.19) }, { transform: [{ scale: successScale }] }]}>
-                <Ionicons name="checkmark-circle" size={48} color={theme.success} />
-              </Animated.View>
-              <VibelyText variant="titleSM" style={{ color: theme.text }}>Your phone is verified</VibelyText>
+            ))}
+          </ScrollView>
+          <View style={[styles.row, { borderWidth: 1, borderRadius: radius.lg, borderColor: theme.border }]}>
+            <View style={[styles.prefix, { borderRightColor: theme.border }]}>
+              <VibelyText variant="body" style={{ color: theme.text }}>{countryCode}</VibelyText>
             </View>
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="Phone number"
+              placeholderTextColor={theme.mutedForeground}
+              value={phoneNumber}
+              onChangeText={(t) => { setPhoneNumber(t); setError(null); }}
+              keyboardType="phone-pad"
+            />
+          </View>
+          {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}
+          <VibelyButton label={loading ? 'Sending…' : 'Send Code'} onPress={sendOtp} disabled={loading || cleaned.length < 4} loading={loading} style={styles.cta} />
+        </>
+      )}
+
+      {step === 'otp' && (
+        <>
+          <Pressable onPress={() => { setStep('phone'); setError(null); }} style={styles.backRow}>
+            <Ionicons name="arrow-back" size={20} color={theme.textSecondary} />
+            <VibelyText variant="body" style={{ color: theme.textSecondary }}>Back</VibelyText>
+          </Pressable>
+          <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
+            Code sent to {maskedPhone}
+          </VibelyText>
+          <View style={styles.otpRow}>
+            {otp.map((d, i) => (
+              <TextInput
+                key={i}
+                style={[styles.otpBox, { borderColor: theme.border, color: theme.text }]}
+                value={d}
+                onChangeText={(v) => handleOtpChange(i, v)}
+                keyboardType="number-pad"
+                maxLength={1}
+              />
+            ))}
+          </View>
+          {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}
+          {resendCooldown > 0 ? (
+            <VibelyText variant="caption" style={{ color: theme.textSecondary }}>Resend code in {resendCooldown}s</VibelyText>
+          ) : (
+            <Pressable onPress={handleResend} disabled={loading}>
+              <VibelyText variant="body" style={{ color: theme.tint }}>Resend code</VibelyText>
+            </Pressable>
           )}
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </>
+      )}
+
+      {step === 'success' && (
+        <View style={styles.successWrap}>
+          <Animated.View style={[styles.successIcon, { backgroundColor: withAlpha(theme.success, 0.19) }, { transform: [{ scale: successScale }] }]}>
+            <Ionicons name="checkmark-circle" size={48} color={theme.success} />
+          </Animated.View>
+          <VibelyText variant="titleSM" style={{ color: theme.text }}>Your phone is verified</VibelyText>
+        </View>
+      )}
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: radius['2xl'], borderTopRightRadius: radius['2xl'], paddingHorizontal: spacing.lg, paddingBottom: spacing['2xl'] },
-  handle: { width: 100, height: 8, borderRadius: 999, alignSelf: 'center', marginTop: 16, marginBottom: 12 },
   title: { marginBottom: spacing.md, textAlign: 'center' },
   iconWrap: { width: 64, height: 64, borderRadius: 32, alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   hint: { textAlign: 'center', marginBottom: spacing.md },

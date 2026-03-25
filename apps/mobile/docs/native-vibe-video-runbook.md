@@ -10,8 +10,10 @@
 | Module | Role |
 |--------|------|
 | `lib/vibeVideoPlaybackUrl.ts` | **Canonical** CDN hostname resolution + `getVibeVideoPlaybackUrl` / `getVibeVideoThumbnailUrl` |
-| `lib/vibeVideoStatus.ts` | Normalized status + `getVibeVideoSurface` for UI branches |
-| `lib/vibeVideoApi.ts` | create-video-upload, TUS upload, delete-vibe-video (robust JSON + HTTP status) |
+| `lib/vibeVideoState.ts` | **`resolveVibeVideoState()`** — single resolver for all native UI (`none` / `uploading` / `processing` / `ready` / `failed` / `error`) |
+| `lib/vibeVideoStatus.ts` | `normalizeBunnyVideoStatus` (shared normalization; avoid ad-hoc status branches in screens) |
+| `components/video/VibeVideoPlayer.tsx` | **Canonical** expo-video playback (preview + fullscreen HLS) |
+| `lib/vibeVideoApi.ts` | create-video-upload, cache-file normalize + TUS upload, delete-vibe-video (robust JSON + HTTP status) |
 | `lib/vibeVideoPoll.ts` | Abortable post-upload polling with superseded detection |
 | `lib/vibeVideoDiagnostics.ts` | `vibeVideoDiagVerbose` (__DEV__), `vibeVideoDiagProdHint` (sparse prod signals) |
 
@@ -29,7 +31,7 @@ No invented hostnames in code.
 |-------|-------------------|-------------------|
 | **Missing stream hostname** | Fullscreen / card “Video unavailable”; no thumbnail URL | Console `[VibeVideo] Cannot build playback URL` / `No stream CDN hostname`; `resolveVibeVideoStreamHostnameSync().source === 'none'` |
 | **Env vs persisted mismatch** | Playback may 403 if wrong zone | `__DEV__` `[VibeVideo] CDN hostname mismatch` |
-| **Bunny 403 / hotlink / referrer** | Fullscreen playback error + “Try again”; HLS error | `vibeVideoDiagVerbose('fullscreen.player_status_error')`; test same URL in Safari vs app |
+| **Bunny 403 / hotlink / referrer** | Fullscreen playback error + “Try again”; HLS error | `vibeVideoDiagVerbose('player.status_error')` (context `fullscreen`); test same URL in Safari vs app |
 | **Manifest missing / 404** | Same as playback failure | Network trace to `.../playlist.m3u8`; Bunny library video state |
 | **Thumbnail missing** | Placeholder / “Thumbnail unavailable” (drawer, preview, studio) | Image `onError` or null URL with valid uid |
 | **Stuck processing (webhook)** | Processing card / poll timeout alert | DB `bunny_video_status` + `bunny_video_uid`; see webhook operator doc |
@@ -48,13 +50,14 @@ No invented hostnames in code.
 
 ## Fullscreen playback surfaces (native)
 
-All of these use **`FullscreenVibeVideoModal`** (same expo-video playback + error/retry; on iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration):
+**`FullscreenVibeVideoModal`** wraps **`VibeVideoPlayer`** (expo-video, shared poster + `player.status_error` diagnostics). Profile / record preview use the same component.
 
 - `app/(tabs)/profile/ProfileStudio.tsx` (`USE_PROFILE_STUDIO === true`)
 - `app/(tabs)/profile/index.tsx` — legacy branch (`USE_PROFILE_STUDIO === false`)
 - `app/(tabs)/profile/index.legacy.tsx` — same
+- `app/vibe-video-record.tsx` — post-capture preview
 
-There is **no** remaining inline `VibeVideoPlayer` fullscreen path.
+On iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration.
 
 ## Rebuild / deploy delta
 
@@ -63,7 +66,7 @@ There is **no** remaining inline `VibeVideoPlayer` fullscreen path.
 - **Edge Functions** (after edits in `supabase/functions/`):
 
   ```bash
-  supabase functions deploy create-video-upload delete-vibe-video --project-ref <ref>
+  supabase functions deploy create-video-upload delete-vibe-video video-webhook --project-ref <ref>
   ```
 
 ## Backend / shared contract (closure pass)

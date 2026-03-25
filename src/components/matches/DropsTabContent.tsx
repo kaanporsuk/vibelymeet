@@ -6,24 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useDailyDrop } from '@/hooks/useDailyDrop';
-import { toast } from 'sonner';
+import {
+  formatCountdownToNextDailyDropBatchUtc,
+  DAILY_DROP_REPLY_MAX_LENGTH,
+} from '@/lib/dailyDropSchedule';
 import { VibeTag } from '@/components/VibeTag';
 import { VibeVideoThumbnail } from '@/components/vibe-video/VibeVideoThumbnail';
 
 function formatTimeRemaining(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return `${h}h ${m}m`;
-}
-
-function formatNextDrop() {
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(18, 0, 0, 0);
-  if (now >= target) target.setDate(target.getDate() + 1);
-  const diff = Math.max(0, Math.floor((target.getTime() - now.getTime()) / 1000));
-  const h = Math.floor(diff / 3600);
-  const m = Math.floor((diff % 3600) / 60);
   return `${h}h ${m}m`;
 }
 
@@ -55,9 +47,11 @@ export function DropsTabContent() {
           <div className="text-4xl mb-3" aria-hidden>⚡</div>
           <h3 className="font-semibold text-foreground mb-1">Drop no longer available</h3>
           <p className="text-sm text-muted-foreground max-w-sm">
-            This drop was removed. Check back at 6 PM for your next one.
+            This drop was removed. Your next Daily Drop will appear after the next scheduled batch.
           </p>
-          <p className="text-xs text-primary font-medium mt-3">Next drop in {formatNextDrop()}</p>
+          <p className="text-xs text-primary font-medium mt-3">
+            Next batch in {formatCountdownToNextDailyDropBatchUtc()}
+          </p>
         </div>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
@@ -75,7 +69,7 @@ export function DropsTabContent() {
             {drop?.passed_by_user_id === undefined ? 'This Daily Drop is no longer available' :
               'This Daily Drop has ended'}
           </h3>
-          <p className="text-sm text-muted-foreground">Your next drop arrives at 6 PM</p>
+          <p className="text-sm text-muted-foreground">Your next Daily Drop arrives after the next batch (UTC).</p>
         </motion.div>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
@@ -91,7 +85,7 @@ export function DropsTabContent() {
           <h3 className="text-lg font-semibold text-foreground mb-2">
             {status === 'expired_no_reply' ? 'No reply received before expiry' : 'This Daily Drop expired'}
           </h3>
-          <p className="text-sm text-muted-foreground">A new drop arrives at 6 PM</p>
+          <p className="text-sm text-muted-foreground">A new Daily Drop arrives after the next batch.</p>
         </motion.div>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
@@ -101,15 +95,17 @@ export function DropsTabContent() {
   // STATE 1 — No drop today
   if (!hasDrop) {
     const emptyBody = generationRanToday
-      ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
-      : "Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.";
+      ? "We looked for your best match today but couldn't find the right fit. Check back after the next Daily Drop batch."
+      : "Your next Daily Drop will show up after the scheduled batch runs. Pull to refresh or check back soon.";
     return (
       <div className="space-y-6">
         <div className="text-center py-12">
           <Droplet className="w-16 h-16 mx-auto text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-semibold text-foreground mb-2">No Daily Drop today</h3>
           <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-3">{emptyBody}</p>
-          <p className="text-xs text-primary font-medium">Next drop in {formatNextDrop()}</p>
+          <p className="text-xs text-primary font-medium">
+            Next batch in {formatCountdownToNextDailyDropBatchUtc()}
+          </p>
         </div>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
@@ -210,23 +206,20 @@ export function DropsTabContent() {
             value={replyInput}
             onChange={e => setReplyInput(e.target.value)}
             placeholder="Reply to unlock chat..."
-            maxLength={140}
+            maxLength={DAILY_DROP_REPLY_MAX_LENGTH}
             className="flex-1"
           />
           <Button
             variant="gradient"
-            disabled={!replyInput.trim()}
+            disabled={!replyInput.trim() || replyInput.length > DAILY_DROP_REPLY_MAX_LENGTH}
             onClick={() => { sendReply(replyInput); setReplyInput(''); }}
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground text-right">{replyInput.length}/140</p>
-
-        <button onClick={() => { if (confirm('Pass on this drop?')) passDrop(); }}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors mx-auto block">
-          Not feeling it?
-        </button>
+        <p className="text-xs text-muted-foreground text-right">
+          {replyInput.length}/{DAILY_DROP_REPLY_MAX_LENGTH}
+        </p>
         <PastDropsSection pastDrops={pastDrops} showPastDrops={showPastDrops} setShowPastDrops={setShowPastDrops} />
       </div>
     );

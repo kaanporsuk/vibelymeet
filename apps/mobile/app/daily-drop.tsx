@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -20,6 +20,11 @@ import { GlassHeaderBar, Card, VibelyButton, LoadingState } from '@/components/u
 import { spacing, radius, layout, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
+import { BlurView } from 'expo-blur';
+import {
+  DAILY_DROP_REPLY_MAX_LENGTH,
+  formatCountdownToNextDailyDropBatchUtc,
+} from '@/lib/dailyDropSchedule';
 
 const OPENER_MAX = 140;
 
@@ -47,6 +52,7 @@ export default function DailyDropScreen() {
     sendReply,
     passDrop,
     refetch,
+    iHaveViewed,
   } = useDailyDrop(user?.id);
 
   const [openerInput, setOpenerInput] = useState('');
@@ -54,18 +60,24 @@ export default function DailyDropScreen() {
   const [sending, setSending] = useState(false);
 
   const canSendOpener = !!drop && !drop.opener_sender_id && openerInput.trim().length > 0 && openerInput.trim().length <= OPENER_MAX;
-  const canSendReply = !!drop && drop.opener_sender_id && drop.opener_sender_id !== user?.id && !chatUnlocked && replyInput.trim().length > 0;
+  const canSendReply =
+    !!drop &&
+    drop.opener_sender_id &&
+    drop.opener_sender_id !== user?.id &&
+    !chatUnlocked &&
+    replyInput.trim().length > 0 &&
+    replyInput.trim().length <= DAILY_DROP_REPLY_MAX_LENGTH;
 
-  const viewedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!drop || !user?.id || drop.status === 'invalidated') return;
-    const myRole = drop.user_a_id === user.id ? 'a' : 'b';
-    const notViewed = myRole === 'a' ? !drop.user_a_viewed : !drop.user_b_viewed;
-    if (notViewed && !viewedRef.current.has(drop.id)) {
-      viewedRef.current.add(drop.id);
-      markViewed();
-    }
-  }, [drop?.id, drop?.user_a_viewed, drop?.user_b_viewed, user?.id, markViewed]);
+  const canPassDrop =
+    !!drop &&
+    !chatUnlocked &&
+    (drop.status === 'active_unopened' || drop.status === 'active_viewed');
+
+  const showReveal =
+    !!drop &&
+    !!user?.id &&
+    !iHaveViewed &&
+    (drop.status === 'active_unopened' || drop.status === 'active_viewed');
 
   const handleSendOpener = async () => {
     if (!canSendOpener || sending) return;
@@ -139,7 +151,25 @@ export default function DailyDropScreen() {
           <Text style={{ fontSize: 40, marginBottom: spacing.sm }}>⚡</Text>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>Drop no longer available</Text>
           <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-            This drop was removed. Check back at 6 PM for your next one.
+            This drop was removed. Next batch in {formatCountdownToNextDailyDropBatchUtc()}.
+          </Text>
+          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+        </View>
+      </View>
+    );
+  }
+
+  if (drop.status === 'passed') {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <GlassHeaderBar insets={insets} style={styles.headerBar}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        </GlassHeaderBar>
+        <View style={styles.centered}>
+          <Ionicons name="close-circle-outline" size={48} color={theme.textSecondary} />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>This Daily Drop has ended</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+            Your next Daily Drop arrives after the next batch (UTC).
           </Text>
           <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
         </View>
@@ -158,7 +188,9 @@ export default function DailyDropScreen() {
             <Ionicons name="time-outline" size={40} color={theme.textSecondary} />
           </View>
           <Text style={[styles.emptyTitle, { color: theme.text }]}>This drop has expired</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>You'll get a new match tomorrow.</Text>
+          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+            You will get a new match after the next Daily Drop batch.
+          </Text>
           <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
         </View>
       </View>
@@ -168,6 +200,39 @@ export default function DailyDropScreen() {
   const photo = partner?.photos?.[0] ?? partner?.avatar_url ?? '';
   const timerMins = Math.floor(timeRemaining / 60);
   const timerSecs = timeRemaining % 60;
+
+  if (showReveal) {
+    const partnerPhoto = partner?.avatar_url ?? partner?.photos?.[0];
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <GlassHeaderBar insets={insets} style={styles.headerBar}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+        </GlassHeaderBar>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Pressable onPress={() => markViewed()} style={({ pressed }) => [pressed && { opacity: 0.95 }]}>
+            <View style={[styles.revealCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={styles.revealAvatarWrap}>
+                {partnerPhoto ? (
+                  <>
+                    <Image source={{ uri: avatarUrl(partnerPhoto) }} style={styles.revealAvatarImg} blurRadius={20} />
+                    <BlurView intensity={80} style={StyleSheet.absoluteFill} tint="dark" />
+                  </>
+                ) : (
+                  <View style={[styles.revealAvatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]} />
+                )}
+              </View>
+              <Text style={[styles.revealLabel, { color: theme.tint }]}>💧 Today’s Drop</Text>
+              <Text style={[styles.revealHint, { color: theme.textSecondary }]}>Tap to reveal who we picked for you</Text>
+            </View>
+          </Pressable>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -231,8 +296,12 @@ export default function DailyDropScreen() {
                   value={replyInput}
                   onChangeText={setReplyInput}
                   multiline
+                  maxLength={DAILY_DROP_REPLY_MAX_LENGTH}
                   editable={!sending}
                 />
+                <Text style={[styles.charCount, { color: theme.textSecondary }]}>
+                  {replyInput.length}/{DAILY_DROP_REPLY_MAX_LENGTH}
+                </Text>
                 <VibelyButton
                   label={sending ? 'Sending…' : 'Send reply'}
                   onPress={handleSendReply}
@@ -269,7 +338,7 @@ export default function DailyDropScreen() {
           </View>
         ) : null}
 
-        {!chatUnlocked && (
+        {canPassDrop && (
           <Pressable onPress={handlePass} style={({ pressed }) => [styles.passWrap, pressed && { opacity: 0.8 }]}>
             <Text style={[styles.passText, { color: theme.textSecondary }]}>Pass on this drop</Text>
           </Pressable>
@@ -359,4 +428,21 @@ const styles = StyleSheet.create({
   cta: { marginTop: spacing.md },
   passWrap: { marginTop: spacing.xl, paddingVertical: spacing.sm, alignItems: 'center' },
   passText: { fontSize: 14 },
+  revealCard: {
+    padding: spacing.xl,
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  revealAvatarWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  revealAvatarImg: { width: '100%', height: '100%' },
+  revealAvatarPlaceholder: { width: '100%', height: '100%' },
+  revealLabel: { fontSize: 14, fontWeight: '600', marginBottom: spacing.xs },
+  revealHint: { fontSize: 12 },
 });

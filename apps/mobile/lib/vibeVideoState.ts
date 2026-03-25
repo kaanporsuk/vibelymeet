@@ -3,6 +3,7 @@
  * Every component that renders video state MUST use resolveVibeVideoState().
  */
 import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
+import { normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
 
 export type VibeVideoState =
   | 'none'
@@ -30,8 +31,7 @@ export function resolveVibeVideoState(profile: {
   vibe_caption?: string | null;
 } | null | undefined): VibeVideoInfo {
   const uid = profile?.bunny_video_uid?.trim() || null;
-  const rawStatus = (profile?.bunny_video_status ?? '').toString().toLowerCase().trim();
-  const status = (!rawStatus || rawStatus === 'null' || rawStatus === 'undefined') ? 'none' : rawStatus;
+  const normStatus = normalizeBunnyVideoStatus(profile?.bunny_video_status);
   const caption = profile?.vibe_caption?.trim() || null;
 
   const NONE: VibeVideoInfo = {
@@ -40,18 +40,16 @@ export function resolveVibeVideoState(profile: {
     canPlay: false, canManage: false, canDelete: false, canRecord: true,
   };
 
-  if (!uid && (status === 'none' || status === '')) return NONE;
-  if (!uid) return NONE;
-
-  if (status === 'uploading') {
+  if (!uid) {
+    if (normStatus === 'none') return NONE;
     return {
-      state: 'uploading',
-      uid, playbackUrl: null, thumbnailUrl: null, caption,
-      canPlay: false, canManage: false, canDelete: true, canRecord: false,
+      state: 'error',
+      uid: null, playbackUrl: null, thumbnailUrl: null, caption,
+      canPlay: false, canManage: false, canDelete: false, canRecord: true,
     };
   }
 
-  if (status === 'processing') {
+  if (normStatus === 'unknown') {
     return {
       state: 'processing',
       uid, playbackUrl: null, thumbnailUrl: null, caption,
@@ -59,7 +57,23 @@ export function resolveVibeVideoState(profile: {
     };
   }
 
-  if (status === 'ready') {
+  if (normStatus === 'uploading') {
+    return {
+      state: 'uploading',
+      uid, playbackUrl: null, thumbnailUrl: null, caption,
+      canPlay: false, canManage: false, canDelete: true, canRecord: false,
+    };
+  }
+
+  if (normStatus === 'processing') {
+    return {
+      state: 'processing',
+      uid, playbackUrl: null, thumbnailUrl: null, caption,
+      canPlay: false, canManage: false, canDelete: true, canRecord: false,
+    };
+  }
+
+  if (normStatus === 'ready') {
     const playbackUrl = getVibeVideoPlaybackUrl(uid);
     const thumbnailUrl = getVibeVideoThumbnailUrl(uid);
     return {
@@ -72,7 +86,7 @@ export function resolveVibeVideoState(profile: {
     };
   }
 
-  if (status === 'failed') {
+  if (normStatus === 'failed') {
     return {
       state: 'failed',
       uid, playbackUrl: null, thumbnailUrl: null, caption,
@@ -80,7 +94,7 @@ export function resolveVibeVideoState(profile: {
     };
   }
 
-  // uid exists but status is 'none' or unrecognized → assume still in pipeline (webhook lag)
+  // uid exists but status is `none` — webhook lag or partial write; stay in pipeline, not "no video".
   return {
     state: 'processing',
     uid, playbackUrl: null, thumbnailUrl: null, caption,

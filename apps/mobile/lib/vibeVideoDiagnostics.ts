@@ -3,8 +3,8 @@
  * __DEV__: verbose objects. Production: rare one-line hints for log aggregation (no PII).
  *
  * Common `code` strings (grep / log drains):
- * `edge.non_json`, `create-upload.*`, `tus.*`, `delete-vibe-video.*`, `poll.*`,
- * `fullscreen.player_status_error`, `studio.profile_inconsistent_ready_no_uid`
+ * `edge.non_json`, `create-upload.*`, `upload.prepare.*`, `tus.*`, `delete-vibe-video.*`, `poll.*`,
+ * `player.status_error`, `profile.vibe_video_saved`, `studio.profile_inconsistent_ready_no_uid`
  * — see `apps/mobile/docs/native-vibe-video-runbook.md`.
  */
 

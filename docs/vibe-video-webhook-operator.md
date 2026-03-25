@@ -90,13 +90,39 @@ After changing Edge Function code:
 ```bash
 supabase functions deploy create-video-upload --project-ref <ref>
 supabase functions deploy delete-vibe-video --project-ref <ref>
-# video-webhook unchanged unless edited separately
+supabase functions deploy video-webhook --project-ref <ref>
 ```
 
 Secrets (no redeploy required for value-only updates, after initial deploy):
 
 - `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`, `BUNNY_STREAM_CDN_HOSTNAME` — used by `create-video-upload` / `delete-vibe-video`.
 - `BUNNY_VIDEO_WEBHOOK_TOKEN` — used only by `video-webhook`.
+
+---
+
+## Code ↔ provider contract (checklist)
+
+These names are what **this repo’s Edge Functions and native app** expect. If your Bunny dashboard uses different zones or hostnames, playback and uploads will diverge.
+
+| Variable / setting | Used where | Notes |
+|--------------------|------------|--------|
+| **`BUNNY_STREAM_LIBRARY_ID`** | `create-video-upload`, `delete-vibe-video` | Stream library GUID from Bunny dashboard. |
+| **`BUNNY_STREAM_API_KEY`** | Same | Stream **library** API key (not Storage password alone). |
+| **`BUNNY_STREAM_CDN_HOSTNAME`** | `create-video-upload` response → native persists + builds HLS/thumb URLs | Must be the **Stream pull zone / CDN hostname** for the library (same as web `VITE_BUNNY_STREAM_CDN_HOSTNAME` / mobile `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME`). |
+| **`BUNNY_VIDEO_WEBHOOK_TOKEN`** | `video-webhook` query `?token=` | Long random secret; must match Bunny webhook URL exactly. |
+| **`BUNNY_STORAGE_ZONE`**, **`BUNNY_STORAGE_API_KEY`**, **`BUNNY_CDN_HOSTNAME`** | Not referenced by the three Vibe Video Edge Functions in this repo | If you use them elsewhere (e.g. image CDN), keep them separate from Stream hostnames. |
+
+**Native HLS / hotlink / referrer**
+
+- The app requests **`https://<BUNNY_STREAM_CDN_HOSTNAME>/<guid>/playlist.m3u8`** (and segments) with a normal mobile user-agent — not a browser referrer.
+- If Bunny **hotlink protection** or **token authentication** is enabled on that pull zone, **Safari may still play** (different rules) while **expo-video fails** (black screen + `player.status_error`). Fix: allow app traffic for this hostname, adjust hotlink rules, or adopt signed URLs consistently (product + code change).
+- **Thumbnails** may load while **HLS** is blocked, depending on rule scope — consistent with “upload OK, fullscreen black”.
+
+**Manual verification (outside this repo)**
+
+- Open `playlist.m3u8` on device (browser vs in-app) and compare HTTP status.
+- Bunny Stream → **Webhooks**: POST URL includes `token=` as documented above.
+- Bunny **Encoding**: video reaches **Finished** and webhook sends **Status 3**.
 
 ---
 

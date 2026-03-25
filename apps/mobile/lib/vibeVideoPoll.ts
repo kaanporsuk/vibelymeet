@@ -38,10 +38,13 @@ export async function pollVibeVideoUntilTerminal(options: {
 }): Promise<VibePollTerminal> {
   const { expectedVideoId, maxAttempts = 30, intervalMs = 5000, signal } = options;
 
+  vibeVideoDiagVerbose('poll.start', { expectedVideoId, maxAttempts, intervalMs });
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       await sleep(intervalMs, signal);
     } catch {
+      vibeVideoDiagVerbose('poll.aborted_signal', { expectedVideoId, attempt });
       return 'aborted';
     }
 
@@ -61,19 +64,41 @@ export async function pollVibeVideoUntilTerminal(options: {
 
     if (error) {
       console.warn('[VibeVideo] poll profile error:', error.message);
+      vibeVideoDiagVerbose('poll.profile_error', {
+        userId: user.id,
+        expectedVideoId,
+        attempt,
+        message: error.message,
+      });
       continue;
     }
 
     const rowUid = typeof data?.bunny_video_uid === 'string' ? data.bunny_video_uid.trim() : '';
+    const rawStatus =
+      typeof data?.bunny_video_status === 'string' ? data.bunny_video_status.trim() : null;
+    vibeVideoDiagVerbose('poll.tick', {
+      userId: user.id,
+      expectedVideoId,
+      attempt,
+      rowUid: rowUid || null,
+      rawStatus,
+    });
     if (rowUid && rowUid !== expectedVideoId) {
-      vibeVideoDiagVerbose('poll.superseded', { expectedVideoId, rowUid, attempt });
+      vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'superseded', rowUid, attempt });
       return 'superseded';
     }
 
     const st = normalizeBunnyVideoStatus(data?.bunny_video_status as string | null | undefined);
-    if (st === 'ready') return 'ready';
-    if (st === 'failed') return 'failed';
+    if (st === 'ready') {
+      vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'ready', attempt });
+      return 'ready';
+    }
+    if (st === 'failed') {
+      vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'failed', attempt });
+      return 'failed';
+    }
   }
 
+  vibeVideoDiagVerbose('poll.timeout', { expectedVideoId, maxAttempts });
   return 'timeout';
 }

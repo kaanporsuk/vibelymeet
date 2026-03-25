@@ -21,7 +21,7 @@ import {
 } from "@/components/ShimmerSkeleton";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ReportWizard from "@/components/safety/ReportWizard";
-import { useMatches, Match } from "@/hooks/useMatches";
+import { useMatches, type Match } from "@/hooks/useMatches";
 import { useDropMatches } from "@/hooks/useDropMatches";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
@@ -44,6 +44,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
+import { formatConversationCount } from "@/utils/matchSortScore";
 
 type SortOption = "recent" | "unread" | "compatibility";
 
@@ -133,11 +134,16 @@ const Matches = () => {
     return { newVibes, regularMatches: regular, archivedMatches: archived };
   }, [matches, openedVibeIds]);
 
-  // Filter and sort matches
+  const orderIndexByMatchId = useMemo(() => {
+    const m = new Map<string, number>();
+    regularMatches.forEach((row, i) => m.set(row.matchId, i));
+    return m;
+  }, [regularMatches]);
+
+  // Filter (search) then sort — same options as native; count matches visible rows
   const filteredMatches = useMemo(() => {
     let filtered = [...regularMatches];
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -147,22 +153,30 @@ const Matches = () => {
       );
     }
 
-    // Sort
+    const tieRecent = (a: Match, b: Match) =>
+      (orderIndexByMatchId.get(a.matchId) ?? 0) -
+      (orderIndexByMatchId.get(b.matchId) ?? 0);
+
     switch (sortBy) {
       case "unread":
-        filtered.sort((a, b) => (b.unread ? 1 : 0) - (a.unread ? 1 : 0));
+        filtered.sort((a, b) => {
+          const du = (b.unread ? 1 : 0) - (a.unread ? 1 : 0);
+          return du !== 0 ? du : tieRecent(a, b);
+        });
         break;
       case "compatibility":
-        // Mock sorting by random compatibility
-        filtered.sort(() => Math.random() - 0.5);
+        filtered.sort((a, b) => {
+          const ds = b.bestMatchScore - a.bestMatchScore;
+          return ds !== 0 ? ds : tieRecent(a, b);
+        });
         break;
       default:
-        // Already sorted by recent from API
+        filtered.sort(tieRecent);
         break;
     }
 
     return filtered;
-  }, [regularMatches, searchQuery, sortBy]);
+  }, [regularMatches, searchQuery, sortBy, orderIndexByMatchId]);
 
   const handleUnmatchClick = (match: Match) => {
     setUnmatchTarget(match);
@@ -239,9 +253,9 @@ const Matches = () => {
                 Matches
               </h1>
             </div>
-            {matches.length > 0 && (
+            {regularMatches.length > 0 && (
               <div className="flex items-center gap-1 px-3 py-1 rounded-full bg-primary/15 text-primary text-sm font-medium">
-                {matches.length} matches
+                {formatConversationCount(filteredMatches.length)}
               </div>
             )}
           </div>
@@ -277,7 +291,7 @@ const Matches = () => {
           </Tabs>
 
           {/* Search and filter bar - only for conversations */}
-          {activeTab === 'conversations' && matches.length > 0 && (
+          {activeTab === 'conversations' && regularMatches.length > 0 && (
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -387,6 +401,7 @@ const Matches = () => {
                             <SwipeableMatchCard
                               {...match}
                               photoVerified={match.photoVerified}
+                              compatibility={match.compatibilityPercent}
                               onClick={() => navigate(`/chat/${match.id}`)}
                             onViewProfile={() =>
                                 handleViewProfile(match.id)

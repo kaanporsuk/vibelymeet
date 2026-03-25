@@ -337,6 +337,11 @@ export function useTypingBroadcast(
 ) {
   const [partnerTyping, setPartnerTyping] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const isTypingRef = useRef(isTyping);
+
+  useEffect(() => {
+    isTypingRef.current = isTyping;
+  }, [isTyping]);
 
   useEffect(() => {
     if (!matchId || !currentUserId || !enabled) {
@@ -352,7 +357,7 @@ export function useTypingBroadcast(
         if (userId && userId !== currentUserId) setPartnerTyping(typing === true);
       })
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED' && isTyping) {
+        if (status === 'SUBSCRIBED' && isTypingRef.current) {
           channel.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, typing: true } });
         }
       });

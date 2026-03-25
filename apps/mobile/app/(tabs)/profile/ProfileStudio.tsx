@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   ScrollView,
   Image,
@@ -10,9 +10,9 @@ import {
   Alert,
   Platform,
   Linking,
-  ActionSheetIOS,
   TextInput,
   ActivityIndicator,
+  type NativeMethods,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,7 +20,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle } from 'react-native-svg';
 import * as ImagePicker from 'expo-image-picker';
 
 import Colors from '@/constants/Colors';
@@ -37,13 +36,19 @@ import {
   type ProfileRow,
 } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
+import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
 import PhotoManageDrawer from '@/components/photos/PhotoManageDrawer';
+import {
+  AddPhotoSourcePopover,
+  type AddPhotoAnchor,
+} from '@/components/photos/AddPhotoSourcePopover';
 import VibeVideoDrawer from '@/components/video/VibeVideoDrawer';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
@@ -53,119 +58,15 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { useSchedule } from '@/lib/useSchedule';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { VibePickerSheet } from '@/components/profile/VibePickerSheet';
 import { getEmojiForVibeLabel } from '@/lib/vibeTagTaxonomy';
+import type { VibeScoreActionId } from '@/lib/vibeScoreIncompleteActions';
+import VibeScoreCircle from '@/components/profile/VibeScoreCircle';
+import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
-
-// ────────────────────────────────────────────────────────────────────
-// VibeScoreRing — compact 48px ring for the header
-// ────────────────────────────────────────────────────────────────────
-
-function vibeScoreRingColor(score: number): string {
-  if (score >= 90) return '#E84393';
-  if (score >= 75) return '#F97316';
-  if (score >= 60) return '#8B5CF6';
-  if (score >= 45) return '#06B6D4';
-  return '#64748B';
-}
-
-function VibeScoreRing({ size, score }: { size: number; score: number }) {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme];
-  const stroke = size <= 48 ? 4 : size <= 64 ? 5 : 6;
-  const r = (size - stroke) / 2;
-  const c = size / 2;
-  const circumference = 2 * Math.PI * r;
-  const progress = Math.min(100, Math.max(0, score)) / 100;
-  const strokeDashoffset = circumference * (1 - progress);
-
-  return (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
-        <Circle cx={c} cy={c} r={r} stroke={theme.muted} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={c} cy={c} r={r}
-          stroke={vibeScoreRingColor(score)}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${c} ${c})`}
-        />
-      </Svg>
-      <Text style={{ fontSize: size <= 48 ? 11 : size <= 64 ? 20 : 14, fontFamily: fonts.displayBold, color: theme.text }}>
-        {score}
-      </Text>
-    </View>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Smart Nudge logic
-// ────────────────────────────────────────────────────────────────────
-
-type SmartNudge = {
-  icon: keyof typeof Ionicons.glyphMap;
-  title: string;
-  subtitle: string;
-  action: 'video' | 'photos' | 'prompts' | 'schedule' | 'verify-phone' | 'preview';
-};
-
-function getSmartNudge(profile: ProfileRow): SmartNudge {
-  const videoState = resolveVibeVideoState(profile).state;
-  const photoCount = profile.photos?.length ?? 0;
-  const promptCount = (profile.prompts ?? []).filter(p => p.question?.trim() && p.answer?.trim()).length;
-
-  if (videoState === 'none' || videoState === 'error') {
-    return {
-      icon: 'videocam-outline',
-      title: 'Add a Vibe Video',
-      subtitle: 'Profiles with video get 3x more conversations',
-      action: 'video',
-    };
-  }
-  if (videoState === 'failed') {
-    return {
-      icon: 'videocam-outline',
-      title: 'Re-record your Vibe Video',
-      subtitle: 'Your last video failed to process — try again',
-      action: 'video',
-    };
-  }
-  if (photoCount < 3) {
-    return {
-      icon: 'camera-outline',
-      title: 'Add more photos',
-      subtitle: 'Profiles with 4+ photos get 2x more vibes',
-      action: 'photos',
-    };
-  }
-  if (promptCount < 2) {
-    return {
-      icon: 'chatbubble-ellipses-outline',
-      title: 'Add conversation starters',
-      subtitle: 'Great prompts spark better connections',
-      action: 'prompts',
-    };
-  }
-  if (!profile.phone_verified) {
-    return {
-      icon: 'shield-checkmark-outline',
-      title: 'Verify your phone',
-      subtitle: 'Verified profiles get 3x more matches',
-      action: 'verify-phone',
-    };
-  }
-  return {
-    icon: 'checkmark-circle-outline',
-    title: "You're all set!",
-    subtitle: 'Preview how others see you',
-    action: 'preview',
-  };
-}
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -194,6 +95,12 @@ export default function ProfileStudio() {
 
   // Section refs for quick-action scroll
   const sectionOffsets = useRef<Record<string, number>>({});
+  const sectionLayouts = useRef<Record<string, { y: number; height: number }>>({});
+  const sectionWrapperOffsets = useRef<Record<string, number>>({});
+  const sectionCardRefs = useRef<Record<string, RNView | null>>({});
+  const scrollViewportHeight = useRef(0);
+  const scrollContentHeight = useRef(0);
+  const currentScrollY = useRef(0);
 
   const { data: profile, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['my-profile'],
@@ -217,7 +124,7 @@ export default function ProfileStudio() {
   } = useSchedule();
 
   useFocusEffect(
-    useCallback(() => {
+    React.useCallback(() => {
       if (!user?.id) return;
       void refetch().catch((e) => {
         if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
@@ -231,13 +138,8 @@ export default function ProfileStudio() {
     }, [user?.id, refetch, refetchLiveCounts, refetchSchedule]),
   );
 
+  /** Server `vibe_score` — always derived from `profile` (useQuery ['my-profile']); updates on refetch/invalidate. */
   const vibeScore = profile?.vibe_score ?? 0;
-  const vibeScoreStatusLabel = profile?.vibe_score_label ?? 'New';
-
-  const smartNudge = useMemo(() => {
-    if (!profile) return null;
-    return getSmartNudge(profile);
-  }, [profile]);
 
   // Pull-to-refresh (manual only — never tied to background refetch)
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -246,9 +148,18 @@ export default function ProfileStudio() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showVideoDrawer, setShowVideoDrawer] = useState(false);
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
+  /** UI: hide system “VIBING ON” label after first natural full play; user caption stays visible. */
+  const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
+  const [showVibeScoreDrawer, setShowVibeScoreDrawer] = useState(false);
+  const [photoSourceMenu, setPhotoSourceMenu] = useState<{
+    open: boolean;
+    anchor: AddPhotoAnchor | null;
+  }>({ open: false, anchor: null });
+  const photoEmptySlotRefs = useRef<(RNView | null)[]>([]);
+  const heroCameraFabRef = useRef<RNView | null>(null);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [showVibePicker, setShowVibePicker] = useState(false);
 
@@ -274,6 +185,8 @@ export default function ProfileStudio() {
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
 
+  const chooseFileSupported = React.useMemo(() => isDocumentPickerAvailable(), []);
+
   // Sync edit forms when profile loads
   useEffect(() => {
     if (!profile) return;
@@ -289,23 +202,22 @@ export default function ProfileStudio() {
     }
   }, [profile]);
 
+  // ═══════════════════════════════════════════════
+  // End of hooks — only plain values / handlers below until loading/error early returns.
+  // ═══════════════════════════════════════════════
+
   // Verification counts
   const verificationStepTotal = 3;
-  const verificationVerifiedCount = useMemo(() => {
-    if (!profile) return 0;
-    let n = 0;
-    if (profile.email_verified) n++;
-    if (profile.photo_verified) n++;
-    if (profile.phone_verified) n++;
-    return n;
-  }, [profile?.email_verified, profile?.photo_verified, profile?.phone_verified]);
+  const verificationVerifiedCount =
+    (profile?.email_verified ? 1 : 0) +
+    (profile?.photo_verified ? 1 : 0) +
+    (profile?.phone_verified ? 1 : 0);
   const verificationProgressPct = (verificationVerifiedCount / verificationStepTotal) * 100;
 
-  const isSlotOpen = useCallback((isoDate: string, bucket: string): boolean => {
-    return scheduleRecord[`${isoDate}_${bucket}`]?.status === 'open';
-  }, [scheduleRecord]);
+  const isSlotOpen = (isoDate: string, bucket: string): boolean =>
+    scheduleRecord[`${isoDate}_${bucket}`]?.status === 'open';
 
-  const scheduleStatus = useMemo(() => {
+  const scheduleStatus = (() => {
     if (scheduleLoading || !scheduleDays.length) return { label: 'No schedule set', color: '#6B7280' };
     const hasAnyOpen = Object.values(scheduleRecord).some(v => v.status === 'open');
     if (!hasAnyOpen) return { label: 'No schedule set', color: '#6B7280' };
@@ -320,38 +232,125 @@ export default function ProfileStudio() {
       }
     }
     return { label: 'No schedule set', color: '#6B7280' };
-  }, [scheduleDays, scheduleRecord, scheduleLoading, BUCKETS, isSlotOpen]);
+  })();
 
-  const scrollToSection = (key: string) => {
-    const y = sectionOffsets.current[key];
-    if (y != null && scrollRef.current) {
-      scrollRef.current.scrollTo({ y: y - insets.top - 60, animated: true });
-    }
+  /** Vibe video UI state — must not use hooks; same call order every render (incl. loading/error paths). */
+  const videoInfo = resolveVibeVideoState(profile ?? null);
+
+  useEffect(() => {
+    if (!profile) return;
+    vibeVideoDiagVerbose('profile_studio.video_state', {
+      profileId: profile.id,
+      bunny_video_uid: profile.bunny_video_uid ?? null,
+      bunny_video_status: profile.bunny_video_status ?? null,
+      resolvedState: videoInfo.state,
+      playbackUrl: videoInfo.playbackUrl,
+    });
+  }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.state, profile]);
+
+  useEffect(() => {
+    setHideVibingOnLabelAfterComplete(false);
+  }, [videoInfo.playbackUrl, videoInfo.uid]);
+
+  const registerSectionLayout = (key: string, y: number, height: number) => {
+    sectionOffsets.current[key] = y;
+    sectionLayouts.current[key] = { y, height };
   };
 
-  const handleNudgeAction = () => {
-    if (!smartNudge) return;
-    switch (smartNudge.action) {
-      case 'video': {
-        const vibeReady = resolveVibeVideoState(profile).state === 'ready';
-        if (vibeReady) setShowVideoDrawer(true);
-        else (router as { push: (p: string) => void }).push('/vibe-video-record');
-        break;
-      }
+  const registerSectionWrapperOffset = (key: string, y: number) => {
+    sectionWrapperOffsets.current[key] = y;
+  };
+
+  const registerSectionCardLayout = (key: string, cardY: number, cardHeight: number) => {
+    const wrapperY = sectionWrapperOffsets.current[key] ?? 0;
+    registerSectionLayout(key, wrapperY + cardY, cardHeight);
+  };
+
+  const setSectionCardRef = (key: string) => (node: RNView | null) => {
+    sectionCardRefs.current[key] = node;
+  };
+
+  const alignSectionCardToVisibleCenter = (key: string, attempt = 0) => {
+    const cardRef = sectionCardRefs.current[key];
+    if (!cardRef || !scrollRef.current) return;
+
+    cardRef.measureInWindow((_x, cardY, _w, cardH) => {
+      (scrollRef.current as unknown as NativeMethods | null)?.measureInWindow(
+        (_sx: number, scrollYOnScreen: number, _sw: number, scrollHOnScreen: number) => {
+        const bottomObstruction = layout.scrollContentPaddingBottomTab + Math.max(insets.bottom, 8);
+        const visibleHeight = Math.max(0, scrollHOnScreen - bottomObstruction);
+        const desiredVisibleCenterOnScreen = scrollYOnScreen + visibleHeight / 2;
+        const cardCenterOnScreen = cardY + cardH / 2;
+        const delta = cardCenterOnScreen - desiredVisibleCenterOnScreen;
+
+        const maxY = Math.max(0, scrollContentHeight.current - scrollViewportHeight.current);
+        const targetScrollY = Math.min(Math.max(currentScrollY.current + delta, 0), maxY);
+
+        scrollRef.current?.scrollTo({ y: targetScrollY, animated: true });
+
+        // One corrective pass to account for async layout settling after animated scroll.
+        if (attempt < 1 && Math.abs(delta) > 2) {
+          requestAnimationFrame(() => {
+            alignSectionCardToVisibleCenter(key, attempt + 1);
+          });
+        }
+      },
+    );
+    });
+  };
+
+  const scrollToSection = (key: string) => {
+    if (!scrollRef.current) return;
+    const sectionLayout = sectionLayouts.current[key];
+    const coarseY = sectionLayout?.y ?? sectionOffsets.current[key];
+    if (coarseY != null) {
+      const maxY = Math.max(0, scrollContentHeight.current - scrollViewportHeight.current);
+      const coarseTargetY = Math.min(Math.max(coarseY, 0), maxY);
+      scrollRef.current.scrollTo({ y: coarseTargetY, animated: true });
+    }
+    requestAnimationFrame(() => {
+      alignSectionCardToVisibleCenter(key);
+    });
+  };
+
+  const handleVibeScoreDrawerAction = (action: VibeScoreActionId) => {
+    switch (action) {
       case 'photos':
-        handleAddPhoto();
+        setShowPhotoDrawer(true);
+        break;
+      case 'vibe_video':
+        (router as { push: (p: string) => void }).push('/vibe-video-record');
         break;
       case 'prompts':
         scrollToSection('prompts');
         break;
-      case 'schedule':
-        router.push('/schedule');
+      case 'bio':
+        setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
+        setShowBioDrawer(true);
+        scrollToSection('about');
         break;
-      case 'verify-phone':
+      case 'tagline':
+        setShowTaglineSheet(true);
+        scrollToSection('hero');
+        break;
+      case 'looking_for':
+        scrollToSection('lookingFor');
+        break;
+      case 'job':
+      case 'height':
+      case 'lifestyle':
+        setShowDetailsDrawer(true);
+        scrollToSection('details');
+        break;
+      case 'phone':
+      case 'email':
+      case 'photo_verify':
         scrollToSection('verification');
         break;
-      case 'preview':
-        (router as { push: (p: string) => void }).push('/profile-preview');
+      case 'name':
+        scrollToSection('hero');
+        break;
+      default:
         break;
     }
   };
@@ -437,24 +436,49 @@ export default function ProfileStudio() {
     }
   };
 
-  const handleEmptySlotPress = () => {
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ['Take Photo', 'Choose from Library', 'Cancel'],
-          cancelButtonIndex: 2,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 0) void handleTakePhoto();
-          else if (buttonIndex === 1) void handleAddPhoto();
-        },
+  const handleChooseFile = async () => {
+    const result = await getDocumentAsyncSafe({
+      type: ['image/jpeg', 'image/png', 'image/webp'],
+      copyToCacheDirectory: true,
+    });
+    if (result === null) {
+      Alert.alert(
+        'Choose File unavailable',
+        'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
       );
-    } else {
-      Alert.alert('Add Photo', 'Choose an option', [
-        { text: 'Take Photo', onPress: () => void handleTakePhoto() },
-        { text: 'Choose from Library', onPress: () => void handleAddPhoto() },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
+      return;
+    }
+    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
+    const a = result.assets[0];
+    const mime = a.mimeType ?? 'image/jpeg';
+    if (!mime.startsWith('image/')) {
+      Alert.alert('Not an image', 'Please choose a JPEG, PNG, or WebP file.');
+      return;
+    }
+    const currentCount = profile?.photos?.length ?? 0;
+    if (currentCount >= MAX_PHOTOS) {
+      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos.`);
+      return;
+    }
+    setPhotoUploading(true);
+    try {
+      const path = await uploadProfilePhoto({
+        uri: a.uri,
+        mimeType: mime,
+        fileName: a.name,
+      });
+      const currentPhotos = profile?.photos ?? [];
+      const newPhotos = [...currentPhotos, path];
+      const primaryUrl = newPhotos[0] ?? null;
+      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
+        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
+      );
+      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
+      qc.invalidateQueries({ queryKey: ['my-profile'] });
+    } catch (e) {
+      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setPhotoUploading(false);
     }
   };
 
@@ -537,18 +561,18 @@ export default function ProfileStudio() {
     }
   };
 
-  const discardBioDrawer = useCallback(() => {
+  const discardBioDrawer = () => {
     setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
     setShowBioDrawer(false);
-  }, [profile?.about_me]);
+  };
 
   /** Prompt questions used in other slots — native prompt picker disables these. */
-  const usedPromptQuestionsElsewhere = useMemo(() => {
-    if (promptEditIndex === null) return [];
-    return (profile?.prompts ?? [])
-      .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
-      .filter((q): q is string => !!q);
-  }, [promptEditIndex, profile?.prompts]);
+  const usedPromptQuestionsElsewhere =
+    promptEditIndex === null
+      ? []
+      : (profile?.prompts ?? [])
+          .map((p, i) => (i !== promptEditIndex && p.question?.trim() ? p.question.trim() : null))
+          .filter((q): q is string => !!q);
 
   // ── Tagline save ─────────────────────────────────────────────
 
@@ -584,10 +608,7 @@ export default function ProfileStudio() {
     }
   };
 
-  // ═══════════════════════════════════════════════
-  // ALL HOOKS ABOVE — NO HOOKS BELOW THIS LINE
-  // Early returns for loading/error states follow
-  // ═══════════════════════════════════════════════
+  // ── Early returns (loading / error / empty profile) — no hooks below top of component ──
 
   if (isLoading && !profile) {
     return (
@@ -634,18 +655,15 @@ export default function ProfileStudio() {
     );
   }
 
-  // ── Derived data ─────────────────────────────────────────────────
+  // ── Derived data (no hooks below early returns) ─────────────────
 
   const mainPhoto = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayName = profile?.name ?? 'Your name';
   const age = profile?.age;
-  const videoInfo = useMemo(
-    () => resolveVibeVideoState(profile),
-    [profile?.bunny_video_uid, profile?.bunny_video_status, profile?.vibe_caption],
-  );
   const hasVibeVideo = videoInfo.state === 'ready';
   const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'uploading';
   const isVibeVideoFailed = videoInfo.state === 'failed';
+  const isVibeVideoError = videoInfo.state === 'error';
   const thumbnailUrl = videoInfo.thumbnailUrl;
   const caption = videoInfo.caption ?? '';
   const profilePhotos = profile?.photos ?? [];
@@ -660,10 +678,24 @@ export default function ProfileStudio() {
   const VERIFICATION_SUCCESS_TEXT = '#2DD4BF';
 
   return (
+    <>
     <ScrollView
       ref={scrollRef}
       style={{ flex: 1, backgroundColor: theme.background }}
-      contentContainerStyle={{ paddingBottom: 120 }}
+      scrollEventThrottle={16}
+      onScroll={(e) => {
+        currentScrollY.current = e.nativeEvent.contentOffset.y;
+      }}
+      onLayout={(e) => {
+        scrollViewportHeight.current = e.nativeEvent.layout.height;
+      }}
+      onContentSizeChange={(_, height) => {
+        scrollContentHeight.current = height;
+      }}
+      contentContainerStyle={{
+        // Clears floating VibelyTabBar: layout.scrollContentPaddingBottomTab + dockOuter safe inset (see app/(tabs)/_layout.tsx)
+        paddingBottom: layout.scrollContentPaddingBottomTab + Math.max(insets.bottom, 8),
+      }}
       refreshControl={
         <RefreshControl
           refreshing={isManualRefreshing}
@@ -735,74 +767,101 @@ export default function ProfileStudio() {
             <Ionicons name="videocam" size={18} color="white" />
           </Pressable>
           {/* Camera FAB — bottom right */}
-          <Pressable
-            onPress={handleEmptySlotPress}
-            style={[s.heroFab, s.heroFabRight]}
-          >
-            <Ionicons name="camera" size={18} color="white" />
-          </Pressable>
+          <RNView ref={heroCameraFabRef} collapsable={false} style={[s.heroFab, s.heroFabRight]}>
+            <Pressable
+              onPress={() => {
+                heroCameraFabRef.current?.measureInWindow((x, y, width, height) => {
+                  setPhotoSourceMenu({ open: true, anchor: { x, y, width, height } });
+                });
+              }}
+              style={StyleSheet.absoluteFill}
+              accessibilityLabel="Add profile photo"
+            >
+              <RNView style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="camera" size={18} color="white" />
+              </RNView>
+            </Pressable>
+          </RNView>
         </RNView>
       </RNView>
 
       {/* Name, tagline, location */}
-      <RNView style={s.heroIdentity}>
-        <RNView style={s.heroNameRow}>
-          <Text style={[s.heroName, { color: theme.text }]}>
-            {displayName}{age != null ? `, ${age}` : ''}
-          </Text>
-        </RNView>
-
-        <Pressable
-          onPress={() => setShowTaglineSheet(true)}
-          style={s.heroTaglineRow}
+      <RNView
+        onLayout={(e) => {
+          const { y } = e.nativeEvent.layout;
+          registerSectionWrapperOffset('hero', y);
+        }}
+      >
+        <RNView
+          ref={setSectionCardRef('hero')}
+          collapsable={false}
+          onLayout={(e) => {
+            const { y, height } = e.nativeEvent.layout;
+            registerSectionCardLayout('hero', y, height);
+          }}
+          style={s.heroIdentity}
         >
-          <Text style={s.heroTagline}>
-            "{profile?.tagline?.trim() || 'Add a tagline'}"
-          </Text>
-          <Ionicons name="pencil-outline" size={14} color="#8B5CF6" />
-        </Pressable>
+          <RNView style={s.heroNameRow}>
+            <Text style={[s.heroName, { color: theme.text }]}>
+              {displayName}{age != null ? `, ${age}` : ''}
+            </Text>
+          </RNView>
 
-        <RNView style={s.heroLocationRow}>
-          <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
-          <Text style={[s.heroLocationText, { color: theme.textSecondary }]}>
-            {profile?.location?.trim() || 'Location not set'}
-          </Text>
-        </RNView>
-      </RNView>
+          <Pressable
+            onPress={() => setShowTaglineSheet(true)}
+            style={s.heroTaglineRow}
+          >
+            <Text style={s.heroTagline}>
+              "{profile?.tagline?.trim() || 'Add a tagline'}"
+            </Text>
+            <Ionicons name="pencil-outline" size={14} color="#8B5CF6" />
+          </Pressable>
 
-      {/* ═══ Vibe Score — ring + labels row; horizontal CTAs (scores from DB only) ═══ */}
-      <RNView style={[s.vibeScoreCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-        <RNView style={s.vibeScoreTopRow}>
-          <VibeScoreRing size={64} score={vibeScore} />
-          <RNView style={s.vibeScoreTextCol}>
-            <Text style={[s.vibeScoreTitle, { color: theme.text }]}>Vibe Score</Text>
-            <Text style={[s.vibeScoreStatus, { color: theme.textSecondary }]}>
-              {vibeScoreStatusLabel}
+          <RNView style={s.heroLocationRow}>
+            <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
+            <Text style={[s.heroLocationText, { color: theme.textSecondary }]}>
+              {profile?.location?.trim() || 'Location not set'}
             </Text>
           </RNView>
         </RNView>
-        <RNView style={s.vibeScoreBtnRow}>
-          <Pressable
-            onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
-            style={[s.vibeScorePreviewBtn, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
-          >
-            <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
-            <Text style={s.vibeScorePreviewText}>Preview</Text>
-          </Pressable>
+      </RNView>
+
+      {/* ═══ Preview | Vibe Score circle | Complete Profile ═══ */}
+      <RNView style={s.vibeScoreHeaderRow}>
+        <Pressable
+          onPress={() => (router as { push: (p: string) => void }).push('/profile-preview')}
+          style={[s.vibeScorePreviewBtn, { borderColor: 'rgba(139, 92, 246, 0.4)' }]}
+        >
+          <Ionicons name="eye-outline" size={16} color="#8B5CF6" />
+          <Text style={s.vibeScorePreviewText}>Preview</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => setShowVibeScoreDrawer(true)}
+          style={s.vibeScoreCenterCircle}
+          accessibilityRole="button"
+          accessibilityLabel="Vibe Score"
+        >
+          <VibeScoreCircle score={vibeScore} />
+        </Pressable>
+
+        <Pressable onPress={() => setShowVibeScoreDrawer(true)} style={s.vibeScoreCompleteBtn}>
           <LinearGradient
             colors={['#8B5CF6', '#E84393']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
-            style={s.vibeScoreGradOuter}
+            style={s.vibeScoreCompleteBtnGrad}
           >
-            <Pressable onPress={handleNudgeAction} style={s.vibeScoreGradInner}>
-              <Ionicons name="sparkles" size={16} color="white" />
-              <Text style={s.vibeScoreGradText}>
-                {vibeScore >= 100 ? 'All set!' : 'Complete Profile'}
-              </Text>
-            </Pressable>
+            {vibeScore >= 90 ? (
+              <>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" style={{ marginRight: 4 }} />
+                <Text style={s.vibeScoreCompleteBtnText}>Iconic</Text>
+              </>
+            ) : (
+              <Text style={s.vibeScoreCompleteBtnText}>Complete Profile</Text>
+            )}
           </LinearGradient>
-        </RNView>
+        </Pressable>
       </RNView>
 
       {/* ═══ My Vibe Schedule Row ═══ */}
@@ -835,36 +894,12 @@ export default function ProfileStudio() {
         ))}
       </RNView>
 
-      {/* ═══ Section 2: Smart Nudge Card ═══ */}
-      {smartNudge && (
-        <Pressable onPress={handleNudgeAction} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
-          <RNView style={[s.nudgeCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-            <RNView style={s.nudgeGradientAccent}>
-              <LinearGradient
-                colors={['#8B5CF6', '#E84393']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-            </RNView>
-            <RNView style={s.nudgeContent}>
-              <RNView style={[s.nudgeIconWrap, { backgroundColor: 'rgba(139,92,246,0.15)' }]}>
-                <Ionicons name={smartNudge.icon} size={18} color="#8B5CF6" />
-              </RNView>
-              <RNView style={s.nudgeTextWrap}>
-                <Text style={[s.nudgeTitle, { color: theme.text }]}>{smartNudge.title}</Text>
-                <Text style={[s.nudgeSubtitle, { color: theme.textSecondary }]}>{smartNudge.subtitle}</Text>
-              </RNView>
-              <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
-            </RNView>
-          </RNView>
-        </Pressable>
-      )}
-
-      {/* ═══ Section 3: Quick Actions — compact pills ═══ */}
+      {/* ═══ Quick Actions — compact pills ═══ */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        alwaysBounceHorizontal={false}
+        bounces={false}
         contentContainerStyle={s.quickActionsContent}
         style={s.quickActionsStrip}
       >
@@ -872,15 +907,11 @@ export default function ProfileStudio() {
           <Pressable
             key={action.key}
             onPress={() => {
-              if (action.scrollTo === 'schedule') {
-                router.push('/schedule');
-              } else {
-                scrollToSection(action.scrollTo);
-              }
+              scrollToSection(action.scrollTo);
             }}
             style={({ pressed }) => [s.quickActionPill, pressed && { opacity: 0.85 }]}
           >
-            <Ionicons name={action.icon} size={16} color={action.color} />
+            <Ionicons name={action.icon} size={14} color={action.color} />
             <Text style={s.quickActionPillLabel}>{action.label}</Text>
           </Pressable>
         ))}
@@ -891,15 +922,33 @@ export default function ProfileStudio() {
 
         {/* ═══ Section 4: Vibe Video Module ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['video'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('video', y);
+          }}
         >
           <RNView style={s.sectionHeader}>
-            <Ionicons name="videocam-outline" size={18} color={theme.tint} />
-            <Text style={[s.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
+            <RNView style={s.sectionTitleRow}>
+              <Ionicons name="videocam-outline" size={18} color={theme.tint} />
+              <Text style={[s.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
+            </RNView>
+            <Pressable
+              onPress={() => setShowVideoDrawer(true)}
+              style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={[s.sectionLinkText, { color: theme.tint }]}>Manage</Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+            </Pressable>
           </RNView>
 
           {isVibeVideoProcessing ? (
             <RNView
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
               style={[
                 s.videoCard,
                 s.videoProcessingCard,
@@ -913,19 +962,16 @@ export default function ProfileStudio() {
               </Text>
             </RNView>
           ) : hasVibeVideo ? (
-            <RNView style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-              {showVibeVideoThumbError ? (
-                <RNView style={[s.videoThumbnail, s.videoErrorCard]}>
-                  <LinearGradient colors={['#1C1A2E', '#0D0B1A']} style={StyleSheet.absoluteFill} />
-                  <RNView style={s.videoErrorCardInner}>
-                    <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
-                    <Text style={s.videoErrorTitle}>Video unavailable</Text>
-                    <Text style={[s.videoErrorSubtitle, { color: 'rgba(255,255,255,0.72)' }]}>
-                      Try recording a new video or pull to refresh
-                    </Text>
-                  </RNView>
-                </RNView>
-              ) : thumbnailUrl ? (
+            <RNView
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
+              style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}
+            >
+              {thumbnailUrl && !thumbnailError ? (
                 <Image
                   source={{ uri: thumbnailUrl }}
                   style={s.videoThumbnail}
@@ -953,10 +999,6 @@ export default function ProfileStudio() {
                 <Text style={s.videoLiveText}>LIVE</Text>
               </RNView>
 
-              <Pressable onPress={() => setShowVideoDrawer(true)} style={s.videoManagePill}>
-                <Text style={s.videoManagePillText}>Manage</Text>
-              </Pressable>
-
               {videoInfo.canPlay ? (
                 <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
                   <Pressable style={s.videoPlayBtn} onPress={() => setShowFullscreenVibe(true)}>
@@ -968,7 +1010,9 @@ export default function ProfileStudio() {
               <RNView style={s.videoCaptionStrip} pointerEvents="none">
                 {caption ? (
                   <>
-                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    {!hideVibingOnLabelAfterComplete ? (
+                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    ) : null}
                     <Text style={s.videoCaptionText} numberOfLines={2}>
                       {caption}
                     </Text>
@@ -981,53 +1025,104 @@ export default function ProfileStudio() {
               </RNView>
             </RNView>
           ) : isVibeVideoFailed ? (
-            <Card variant="glass" style={s.videoEmptyCard}>
-              <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ opacity: 0.85 }} />
-              <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Video processing failed</Text>
-              <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
-                Record a new clip — it only takes a moment.
-              </Text>
-              <LinearGradient
-                colors={['#8B5CF6', '#E84393']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.videoEmptyCta}
-              >
-                <Pressable
-                  onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-                  style={s.videoEmptyCtaInner}
+            <RNView
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
+            >
+              <Card variant="glass" style={s.videoEmptyCard}>
+                <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ opacity: 0.85 }} />
+                <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Video processing failed</Text>
+                <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
+                  Record a new clip — it only takes a moment.
+                </Text>
+                <LinearGradient
+                  colors={['#8B5CF6', '#E84393']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.videoEmptyCta}
                 >
-                  <Text style={s.videoEmptyCtaText}>Record again</Text>
-                </Pressable>
-              </LinearGradient>
-            </Card>
+                  <Pressable
+                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
+                    style={s.videoEmptyCtaInner}
+                  >
+                    <Text style={s.videoEmptyCtaText}>Record again</Text>
+                  </Pressable>
+                </LinearGradient>
+              </Card>
+            </RNView>
+          ) : isVibeVideoError ? (
+            <RNView
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
+            >
+              <Card variant="glass" style={s.videoEmptyCard}>
+                <Ionicons name="warning-outline" size={48} color="#F59E0B" style={{ opacity: 0.9 }} />
+                <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Video issue</Text>
+                <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
+                  Something went wrong with your video. Try recording a new one.
+                </Text>
+                <LinearGradient
+                  colors={['#8B5CF6', '#E84393']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.videoEmptyCta}
+                >
+                  <Pressable
+                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
+                    style={s.videoEmptyCtaInner}
+                  >
+                    <Text style={s.videoEmptyCtaText}>Record now</Text>
+                  </Pressable>
+                </LinearGradient>
+              </Card>
+            </RNView>
           ) : (
-            <Card variant="glass" style={s.videoEmptyCard}>
-              <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
-              <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Record your Vibe Video</Text>
-              <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
-                Profiles with video get 3x more quality conversations
-              </Text>
-              <LinearGradient
-                colors={['#8B5CF6', '#E84393']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={s.videoEmptyCta}
-              >
-                <Pressable
-                  onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-                  style={s.videoEmptyCtaInner}
+            <RNView
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
+            >
+              <Card variant="glass" style={s.videoEmptyCard}>
+                <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
+                <Text style={[s.videoEmptyTitle, { color: theme.text }]}>Record your Vibe Video</Text>
+                <Text style={[s.videoEmptySubtitle, { color: theme.textSecondary }]}>
+                  Profiles with video get 3x more quality conversations
+                </Text>
+                <LinearGradient
+                  colors={['#8B5CF6', '#E84393']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={s.videoEmptyCta}
                 >
-                  <Text style={s.videoEmptyCtaText}>Record now</Text>
-                </Pressable>
-              </LinearGradient>
-            </Card>
+                  <Pressable
+                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
+                    style={s.videoEmptyCtaInner}
+                  >
+                    <Text style={s.videoEmptyCtaText}>Record now</Text>
+                  </Pressable>
+                </LinearGradient>
+              </Card>
+            </RNView>
           )}
         </RNView>
 
         {/* ═══ Section 5: Photos Module ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['photos'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('photos', y);
+          }}
           style={{ marginTop: spacing.xl }}
         >
           {/* Header row */}
@@ -1056,41 +1151,67 @@ export default function ProfileStudio() {
 
           {/* Editorial masonry grid */}
           {(() => {
-            const renderSlot = (index: number) => {
+              const renderSlot = (index: number) => {
               const url = profilePhotos[index] ?? null;
               const isMain = index === 0;
               return (
-                <Pressable
+                <RNView
                   key={`photo-${index}`}
-                  onPress={url ? () => setPhotoViewerIndex(index) : handleEmptySlotPress}
-                  style={[
-                    s.pgSlot,
-                    { flex: 1 },
-                    url && { borderWidth: 0, borderColor: 'transparent', borderStyle: 'solid' },
-                  ]}
+                  ref={(r) => {
+                    photoEmptySlotRefs.current[index] = r;
+                  }}
+                  collapsable={false}
+                  style={{ flex: 1 }}
                 >
-                  {url ? (
-                    <>
-                      <Image source={{ uri: avatarUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                      {isMain && (
-                        <RNView style={s.photoMainBadge}>
-                          <Text style={s.photoMainBadgeCrown}>👑</Text>
-                          <Text style={s.photoMainBadgeText}>Main</Text>
-                        </RNView>
-                      )}
-                    </>
-                  ) : (
-                    <RNView style={s.pgEmptyInner}>
-                      <Ionicons name="add" size={24} color="rgba(255,255,255,0.3)" />
-                      <Text style={s.pgEmptyLabel}>Add</Text>
-                    </RNView>
-                  )}
-                </Pressable>
+                  <Pressable
+                    onPress={
+                      url
+                        ? () => setPhotoViewerIndex(index)
+                        : () => {
+                            photoEmptySlotRefs.current[index]?.measureInWindow((x, y, width, height) => {
+                              setPhotoSourceMenu({
+                                open: true,
+                                anchor: { x, y, width, height },
+                              });
+                            });
+                          }
+                    }
+                    style={[
+                      s.pgSlot,
+                      { flex: 1 },
+                      url && { borderWidth: 0, borderColor: 'transparent', borderStyle: 'solid' },
+                    ]}
+                  >
+                    {url ? (
+                      <>
+                        <Image source={{ uri: avatarUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                        {isMain && (
+                          <RNView style={s.photoMainBadge}>
+                            <Text style={s.photoMainBadgeCrown}>👑</Text>
+                            <Text style={s.photoMainBadgeText}>Main</Text>
+                          </RNView>
+                        )}
+                      </>
+                    ) : (
+                      <RNView style={s.pgEmptyInner}>
+                        <Ionicons name="add" size={24} color="rgba(255,255,255,0.3)" />
+                        <Text style={s.pgEmptyLabel}>Add</Text>
+                      </RNView>
+                    )}
+                  </Pressable>
+                </RNView>
               );
             };
 
             return (
-              <RNView>
+              <RNView
+                ref={setSectionCardRef('photos')}
+                collapsable={false}
+                onLayout={(e) => {
+                  const { y, height } = e.nativeEvent.layout;
+                  registerSectionCardLayout('photos', y, height);
+                }}
+              >
                 {/* Row 1 */}
                 <RNView style={{ flexDirection: 'row', gap: 8, height: 240 }}>
                   <RNView style={{ flex: 3 }}>{renderSlot(0)}</RNView>
@@ -1112,7 +1233,10 @@ export default function ProfileStudio() {
 
         {/* ═══ Section 6: Conversation Starters ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['prompts'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('prompts', y);
+          }}
           style={{ marginTop: spacing.xl }}
         >
           <RNView style={s.sectionHeader}>
@@ -1139,7 +1263,15 @@ export default function ProfileStudio() {
             };
 
             return (
-              <RNView style={{ gap: spacing.md }}>
+              <RNView
+                ref={setSectionCardRef('prompts')}
+                collapsable={false}
+                style={{ gap: spacing.md }}
+                onLayout={(e) => {
+                  const { y, height } = e.nativeEvent.layout;
+                  registerSectionCardLayout('prompts', y, height);
+                }}
+              >
                 {displaySlots.map((slot, index) => {
                   const answerTrim = slot.answer?.trim() ?? '';
                   const filled = !!(slot.question?.trim() && answerTrim);
@@ -1220,9 +1352,20 @@ export default function ProfileStudio() {
 
         {/* ═══ Section 7: Looking For ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['lookingFor'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('lookingFor', y);
+          }}
           style={{ marginTop: spacing.xl }}
         >
+          <RNView
+            ref={setSectionCardRef('lookingFor')}
+            collapsable={false}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              registerSectionCardLayout('lookingFor', y, height);
+            }}
+          >
           <Card variant="glass">
             <RNView style={s.sectionHeader}>
               <RNView style={s.sectionTitleRow}>
@@ -1270,31 +1413,47 @@ export default function ProfileStudio() {
               })}
             </RNView>
           </Card>
+          </RNView>
         </RNView>
 
         {/* ═══ Section 8: About Me ═══ */}
-        <RNView style={{ marginTop: spacing.xl }}>
-          <Card variant="glass">
-            <RNView style={s.sectionHeader}>
-              <Text style={[s.sectionTitle, { color: theme.text, marginLeft: 0 }]}>About Me</Text>
-              <Pressable
-                onPress={() => {
-                  setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
-                  setShowBioDrawer(true);
-                }}
-                style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
-              >
-                <Text style={[s.sectionLinkText, { color: theme.tint }]}>Edit</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-              </Pressable>
-            </RNView>
-            <Text style={[s.bioText, { color: profile?.about_me ? theme.textSecondary : theme.mutedForeground }]}>
-              {profile?.about_me || 'Tell potential matches about yourself...'}
-            </Text>
-            <Text style={[s.bioCharCount, { color: theme.textSecondary }]}>
-              {(profile?.about_me ?? '').length}/140
-            </Text>
-          </Card>
+        <RNView
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('about', y);
+          }}
+          style={{ marginTop: spacing.xl }}
+        >
+          <RNView
+            ref={setSectionCardRef('about')}
+            collapsable={false}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              registerSectionCardLayout('about', y, height);
+            }}
+          >
+            <Card variant="glass">
+              <RNView style={s.sectionHeader}>
+                <Text style={[s.sectionTitle, { color: theme.text, marginLeft: 0 }]}>About Me</Text>
+                <Pressable
+                  onPress={() => {
+                    setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
+                    setShowBioDrawer(true);
+                  }}
+                  style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
+                >
+                  <Text style={[s.sectionLinkText, { color: theme.tint }]}>Edit</Text>
+                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                </Pressable>
+              </RNView>
+              <Text style={[s.bioText, { color: profile?.about_me ? theme.textSecondary : theme.mutedForeground }]}>
+                {profile?.about_me || 'Tell potential matches about yourself...'}
+              </Text>
+              <Text style={[s.bioCharCount, { color: theme.textSecondary }]}>
+                {(profile?.about_me ?? '').length}/140
+              </Text>
+            </Card>
+          </RNView>
         </RNView>
 
         {/* ═══ Section 9: My Vibes ═══ */}
@@ -1344,9 +1503,20 @@ export default function ProfileStudio() {
 
         {/* ═══ Section 10: Vibe Schedule ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['schedule'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('schedule', y);
+          }}
           style={{ marginTop: spacing.xl }}
         >
+          <RNView
+            ref={setSectionCardRef('schedule')}
+            collapsable={false}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              registerSectionCardLayout('schedule', y, height);
+            }}
+          >
           <Card variant="glass">
             <RNView style={s.sectionHeader}>
               <RNView style={s.sectionTitleRow}>
@@ -1413,21 +1583,36 @@ export default function ProfileStudio() {
               </Text>
             )}
           </Card>
+          </RNView>
         </RNView>
 
         {/* ═══ Section 11: Details (Basics + Lifestyle) ═══ */}
-        <RNView style={{ marginTop: spacing.xl }}>
-          <Card variant="glass">
-            <RNView style={s.sectionHeader}>
-              <Text style={[s.sectionTitle, { color: theme.text, marginLeft: 0 }]}>Details</Text>
-              <Pressable onPress={() => setShowDetailsDrawer(true)} style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}>
-                <Text style={[s.sectionLinkText, { color: theme.tint }]}>Edit</Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.tint} />
-              </Pressable>
-            </RNView>
+        <RNView
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('details', y);
+          }}
+          style={{ marginTop: spacing.xl }}
+        >
+          <RNView
+            ref={setSectionCardRef('details')}
+            collapsable={false}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              registerSectionCardLayout('details', y, height);
+            }}
+          >
+            <Card variant="glass">
+              <RNView style={s.sectionHeader}>
+                <Text style={[s.sectionTitle, { color: theme.text, marginLeft: 0 }]}>Details</Text>
+                <Pressable onPress={() => setShowDetailsDrawer(true)} style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}>
+                  <Text style={[s.sectionLinkText, { color: theme.tint }]}>Edit</Text>
+                  <Ionicons name="chevron-forward" size={16} color={theme.tint} />
+                </Pressable>
+              </RNView>
 
-            {/* The Basics: 2×2 grid */}
-            <RNView style={s.basicsGrid}>
+              {/* The Basics: 2×2 grid */}
+              <RNView style={s.basicsGrid}>
               {([
                 { icon: 'calendar-outline' as const, label: 'Birthday', value: formatBirthdayUsWithZodiac(profile?.birth_date) },
                 { icon: 'briefcase-outline' as const, label: 'Work', value: profile?.job?.trim() || 'Not set' },
@@ -1450,14 +1635,26 @@ export default function ProfileStudio() {
                 <LifestyleDetailsSection values={profile.lifestyle} editable={false} />
               </RNView>
             )}
-          </Card>
+            </Card>
+          </RNView>
         </RNView>
 
         {/* ═══ Section 12: Verification ═══ */}
         <RNView
-          onLayout={(e) => { sectionOffsets.current['verification'] = e.nativeEvent.layout.y; }}
+          onLayout={(e) => {
+            const { y } = e.nativeEvent.layout;
+            registerSectionWrapperOffset('verification', y);
+          }}
           style={{ marginTop: spacing.xl }}
         >
+          <RNView
+            ref={setSectionCardRef('verification')}
+            collapsable={false}
+            onLayout={(e) => {
+              const { y, height } = e.nativeEvent.layout;
+              registerSectionCardLayout('verification', y, height);
+            }}
+          >
           <Card variant="glass">
             <RNView style={s.verificationHeaderRow}>
               <RNView style={s.verificationTitleLeft}>
@@ -1568,6 +1765,7 @@ export default function ProfileStudio() {
               </RNView>
             )}
           </Card>
+          </RNView>
         </RNView>
 
         {/* ═══ Section 13: Bring Friends ═══ */}
@@ -1612,13 +1810,23 @@ export default function ProfileStudio() {
 
       <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
 
+      {profile ? (
+        <VibeScoreDrawer
+          visible={showVibeScoreDrawer}
+          onClose={() => setShowVibeScoreDrawer(false)}
+          profile={profile}
+          score={vibeScore}
+          onAction={handleVibeScoreDrawerAction}
+        />
+      ) : null}
+
       <VibePickerSheet
         visible={showVibePicker}
         onClose={() => setShowVibePicker(false)}
         currentVibes={profile?.vibes ?? []}
         onSave={() => {
-          void refetch().catch((e) => {
-            if (__DEV__) console.warn('[ProfileStudio] refetch after vibes failed:', e);
+          void qc.invalidateQueries({ queryKey: ['my-profile'] }).catch((e) => {
+            if (__DEV__) console.warn('[ProfileStudio] invalidate my-profile after vibes failed:', e);
           });
         }}
       />
@@ -1629,38 +1837,21 @@ export default function ProfileStudio() {
         onClose={() => setShowPhotoDrawer(false)}
         photos={profilePhotos}
         onPhotosChanged={() => {
-          void refetch().catch((e) => {
-            if (__DEV__) console.warn('[ProfileStudio] refetch after photos failed:', e);
+          void qc.invalidateQueries({ queryKey: ['my-profile'] }).catch((e) => {
+            if (__DEV__) console.warn('[ProfileStudio] invalidate my-profile after photos failed:', e);
           });
         }}
       />
 
-      {/* Fullscreen photo viewer */}
-      <Modal
+      {/* Fullscreen photo viewer (shared with PhotoManageDrawer runtime) */}
+      <PhotoManageDrawer
         visible={photoViewerIndex !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPhotoViewerIndex(null)}
-      >
-        <Pressable
-          style={s.photoViewerBackdrop}
-          onPress={() => setPhotoViewerIndex(null)}
-        >
-          {photoViewerIndex !== null && profilePhotos[photoViewerIndex] && (
-            <Image
-              source={{ uri: avatarUrl(profilePhotos[photoViewerIndex]) }}
-              style={s.photoViewerImage}
-              resizeMode="contain"
-            />
-          )}
-          <Pressable
-            style={s.photoViewerClose}
-            onPress={() => setPhotoViewerIndex(null)}
-          >
-            <Ionicons name="close" size={28} color="#fff" />
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setPhotoViewerIndex(null)}
+        photos={profilePhotos}
+        onPhotosChanged={() => {}}
+        fullscreenOnly
+        initialFullscreenIndex={photoViewerIndex}
+      />
 
       <PromptEditSheet
         visible={showPromptSheet}
@@ -1685,99 +1876,111 @@ export default function ProfileStudio() {
         saving={saving}
       />
 
-      {/* Intent editor modal */}
-      <Modal visible={showIntentDrawer} transparent animationType="slide" onRequestClose={() => setShowIntentDrawer(false)}>
-        <Pressable style={s.sheetBackdrop} onPress={() => setShowIntentDrawer(false)}>
-          <Pressable style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[s.sheetTitle, { color: theme.text }]}>Looking For</Text>
-            <RelationshipIntentSelector selected={lookingForEdit} onSelect={setLookingForEdit} editable />
-            <RNView style={[s.meetingPrefRow, { marginTop: spacing.xl }]}>
-              <Text style={[s.meetingPrefLabel, { color: theme.textSecondary }]}>Open to:</Text>
-              {(['events', 'dates', 'both'] as const).map((opt) => {
-                const labels = { events: 'Events', dates: '1:1 Dates', both: 'Both' };
-                const isActive = meetingPref === opt;
-                return (
-                  <Pressable key={opt} onPress={() => setMeetingPref(opt)}>
-                    <RNView style={[s.meetingPrefPill, { backgroundColor: isActive ? 'rgba(139,92,246,0.2)' : theme.surfaceSubtle, borderColor: isActive ? 'rgba(139,92,246,0.5)' : theme.border }]}>
-                      <Text style={[s.meetingPrefPillText, { color: isActive ? '#8B5CF6' : theme.textSecondary }]}>{labels[opt]}</Text>
-                    </RNView>
-                  </Pressable>
-                );
-              })}
-            </RNView>
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveIntent} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+      {/* Intent editor modal — keyboard-aware for parity with other profile sheets */}
+      <KeyboardAwareBottomSheetModal
+        visible={showIntentDrawer}
+        onRequestClose={() => setShowIntentDrawer(false)}
+        scrollable={false}
+        backdropColor="rgba(0,0,0,0.55)"
+      >
+        <Text style={[s.sheetTitle, { color: theme.text }]}>Looking For</Text>
+        <RelationshipIntentSelector selected={lookingForEdit} onSelect={setLookingForEdit} editable />
+        <RNView style={[s.meetingPrefRow, { marginTop: spacing.xl }]}>
+          <Text style={[s.meetingPrefLabel, { color: theme.textSecondary }]}>Open to:</Text>
+          {(['events', 'dates', 'both'] as const).map((opt) => {
+            const labels = { events: 'Events', dates: '1:1 Dates', both: 'Both' };
+            const isActive = meetingPref === opt;
+            return (
+              <Pressable key={opt} onPress={() => setMeetingPref(opt)}>
+                <RNView style={[s.meetingPrefPill, { backgroundColor: isActive ? 'rgba(139,92,246,0.2)' : theme.surfaceSubtle, borderColor: isActive ? 'rgba(139,92,246,0.5)' : theme.border }]}>
+                  <Text style={[s.meetingPrefPillText, { color: isActive ? '#8B5CF6' : theme.textSecondary }]}>{labels[opt]}</Text>
+                </RNView>
               </Pressable>
-              <Pressable onPress={() => setShowIntentDrawer(false)} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
+            );
+          })}
+        </RNView>
+        <RNView style={s.sheetFooter}>
+          <Pressable onPress={handleSaveIntent} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+            <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+            <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
           </Pressable>
-        </Pressable>
-      </Modal>
+          <Pressable onPress={() => setShowIntentDrawer(false)} style={s.sheetCancel}>
+            <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+          </Pressable>
+        </RNView>
+      </KeyboardAwareBottomSheetModal>
 
       {/* Bio editor modal */}
-      <Modal visible={showBioDrawer} transparent animationType="slide" onRequestClose={discardBioDrawer}>
-        <Pressable style={s.sheetBackdrop} onPress={discardBioDrawer}>
-          <Pressable style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={(e) => e.stopPropagation()}>
-            <Text style={[s.sheetTitle, { color: theme.text, marginBottom: spacing.xs }]}>About Me</Text>
-            <Text style={[s.aboutMeSheetSubtitle, { color: theme.textSecondary }]}>
-              You have 3 seconds to make them care. Make it count.
-            </Text>
-            <TextInput
-              value={aboutMeEdit}
-              onChangeText={(t) => setAboutMeEdit(t.slice(0, MAX_ABOUT_ME_LENGTH))}
-              placeholder="Write something about yourself..."
-              placeholderTextColor="rgba(255,255,255,0.45)"
-              multiline
-              maxLength={MAX_ABOUT_ME_LENGTH}
-              style={s.aboutMeSheetInput}
-            />
-            <Text style={[s.aboutMeSheetCharCount, { color: theme.textSecondary }]}>
-              {aboutMeEdit.length}/140
-            </Text>
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveBio} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
-              </Pressable>
-              <Pressable onPress={discardBioDrawer} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <KeyboardAwareBottomSheetModal
+        visible={showBioDrawer}
+        onRequestClose={discardBioDrawer}
+        backdropColor="rgba(0,0,0,0.55)"
+        footer={
+          <RNView style={s.sheetFooter}>
+            <Pressable onPress={handleSaveBio} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+              <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+              <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable onPress={discardBioDrawer} style={s.sheetCancel}>
+              <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        }
+      >
+        <Text style={[s.sheetTitle, { color: theme.text, marginBottom: spacing.xs }]}>About Me</Text>
+        <Text style={[s.aboutMeSheetSubtitle, { color: theme.textSecondary }]}>
+          You have 3 seconds to make them care. Make it count.
+        </Text>
+        <TextInput
+          value={aboutMeEdit}
+          onChangeText={(t) => setAboutMeEdit(t.slice(0, MAX_ABOUT_ME_LENGTH))}
+          placeholder="Write something about yourself..."
+          placeholderTextColor="rgba(255,255,255,0.45)"
+          multiline
+          maxLength={MAX_ABOUT_ME_LENGTH}
+          style={s.aboutMeSheetInput}
+        />
+        <Text style={[s.aboutMeSheetCharCount, { color: theme.textSecondary }]}>
+          {aboutMeEdit.length}/140
+        </Text>
+      </KeyboardAwareBottomSheetModal>
 
       {/* Details editor modal */}
-      <Modal visible={showDetailsDrawer} transparent animationType="slide" onRequestClose={() => setShowDetailsDrawer(false)}>
-        <Pressable style={s.sheetBackdrop} onPress={() => setShowDetailsDrawer(false)}>
-          <ScrollView style={[s.sheetContent, { backgroundColor: theme.surface, borderColor: theme.border, maxHeight: '85%' }]} onStartShouldSetResponder={() => true}>
-            <Text style={[s.sheetTitle, { color: theme.text }]}>Edit Details</Text>
-            <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
-            <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
-            </RNView>
-            <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job</Text>
-            <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-              <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{jobEdit || 'Not set'}</Text>
-            </RNView>
-            <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
-            <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
-            <RNView style={s.sheetFooter}>
-              <Pressable onPress={handleSaveDetails} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
-                <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
-                <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
-              </Pressable>
-              <Pressable onPress={() => setShowDetailsDrawer(false)} style={s.sheetCancel}>
-                <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
-              </Pressable>
-            </RNView>
-          </ScrollView>
-        </Pressable>
-      </Modal>
+      <KeyboardAwareBottomSheetModal
+        visible={showDetailsDrawer}
+        onRequestClose={() => setShowDetailsDrawer(false)}
+        scrollable={false}
+        maxHeightRatio={0.85}
+        backdropColor="rgba(0,0,0,0.55)"
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator
+          onStartShouldSetResponder={() => true}
+          contentContainerStyle={{ paddingBottom: spacing.lg }}
+        >
+          <Text style={[s.sheetTitle, { color: theme.text }]}>Edit Details</Text>
+          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
+          <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
+          </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job</Text>
+          <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
+            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{jobEdit || 'Not set'}</Text>
+          </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
+          <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
+          <RNView style={s.sheetFooter}>
+            <Pressable onPress={handleSaveDetails} style={[s.sheetSaveBtn, { opacity: saving ? 0.6 : 1 }]} disabled={saving}>
+              <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
+              <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowDetailsDrawer(false)} style={s.sheetCancel}>
+              <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+            </Pressable>
+          </RNView>
+        </ScrollView>
+      </KeyboardAwareBottomSheetModal>
 
       <TaglineEditorSheet
         visible={showTaglineSheet}
@@ -1828,8 +2031,22 @@ export default function ProfileStudio() {
         bunnyVideoUid={videoInfo.uid}
         vibeCaption={caption}
         posterUrl={videoInfo.thumbnailUrl}
+        onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
     </ScrollView>
+
+    <AddPhotoSourcePopover
+      visible={photoSourceMenu.open}
+      anchor={photoSourceMenu.anchor}
+      safeInsets={insets}
+      onDismiss={() => setPhotoSourceMenu({ open: false, anchor: null })}
+      onPhotoLibrary={() => void handleAddPhoto()}
+      onTakePhoto={() => void handleTakePhoto()}
+      onChooseFile={() => void handleChooseFile()}
+      chooseFileSupported={chooseFileSupported}
+      useRootModal
+    />
+    </>
   );
 }
 
@@ -1931,37 +2148,14 @@ const s = StyleSheet.create({
     fontFamily: fonts.body,
   },
 
-  // ── Vibe Score Card ──
-  vibeScoreCard: {
-    marginHorizontal: layout.containerPadding,
-    marginTop: 12,
-    padding: 14,
-    borderRadius: radius['2xl'],
-    borderWidth: 1,
-  },
-  vibeScoreTopRow: {
+  vibeScoreHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-  },
-  vibeScoreTextCol: {
-    flex: 1,
-    minWidth: 0,
-  },
-  vibeScoreTitle: {
-    fontSize: 15,
-    fontFamily: fonts.displayBold,
-  },
-  vibeScoreStatus: {
-    fontSize: 12,
-    fontFamily: fonts.body,
-    marginTop: 1,
-  },
-  vibeScoreBtnRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
+    justifyContent: 'space-between',
     gap: 10,
     marginTop: 12,
+    marginBottom: 12,
+    paddingHorizontal: layout.containerPadding,
   },
   vibeScorePreviewBtn: {
     flex: 1,
@@ -1981,20 +2175,23 @@ const s = StyleSheet.create({
     fontWeight: '600',
     fontFamily: fonts.bodySemiBold,
   },
-  vibeScoreGradOuter: {
-    flex: 1.3,
-    borderRadius: 10,
-    overflow: 'hidden',
+  vibeScoreCenterCircle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vibeScoreCompleteBtn: {
+    flex: 1,
     minWidth: 0,
   },
-  vibeScoreGradInner: {
+  vibeScoreCompleteBtnGrad: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 11,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
   },
-  vibeScoreGradText: {
+  vibeScoreCompleteBtnText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
@@ -2053,75 +2250,29 @@ const s = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ── Smart Nudge ──
-  nudgeCard: {
-    marginHorizontal: layout.containerPadding,
-    marginBottom: spacing.md,
-    borderRadius: radius['2xl'],
-    borderWidth: 1,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  nudgeGradientAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-    zIndex: 1,
-  },
-  nudgeContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    paddingLeft: 12 + 3,
-    gap: spacing.sm,
-  },
-  nudgeIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nudgeTextWrap: {
-    flex: 1,
-  },
-  nudgeTitle: {
-    fontSize: 14,
-    fontFamily: fonts.bodySemiBold,
-  },
-  nudgeSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
-    fontFamily: fonts.body,
-  },
-
   // ── Quick Actions (compact pill row) ──
   quickActionsStrip: {
-    marginTop: 4,
-    marginBottom: 8,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
   quickActionsContent: {
-    paddingHorizontal: 16,
-    gap: 8,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    alignItems: 'center',
+    gap: 6,
   },
   quickActionPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   quickActionPillLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: 'rgba(255,255,255,0.7)',
     fontFamily: fonts.bodyMedium,
@@ -2270,22 +2421,6 @@ const s = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
     letterSpacing: 1.5,
     color: '#22c55e',
-  },
-  videoManagePill: {
-    position: 'absolute',
-    top: 12,
-    right: 12 + VIEWFINDER_SIZE + 8,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
-  },
-  videoManagePillText: {
-    color: '#fff',
-    fontSize: 12,
-    fontFamily: fonts.bodySemiBold,
   },
   videoPlayOverlay: {
     ...StyleSheet.absoluteFillObject,

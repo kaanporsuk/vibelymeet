@@ -35,7 +35,11 @@ const STEPS = [
 ];
 
 const FEATURES = [
-  { emoji: '💧', title: 'Daily Drops', body: 'One curated match every day at 6 PM' },
+  {
+    emoji: '💧',
+    title: 'Daily Drops',
+    body: 'One curated match each day after the scheduled batch (18:00 UTC when cron is enabled).',
+  },
   { emoji: '🎮', title: 'Vibe Arcade', body: 'Play games in chat to break the ice' },
   { emoji: '📅', title: 'Vibe Sync', body: 'Schedule dates that work for both of you' },
   { emoji: '🎬', title: 'Vibe Videos', body: 'Short intro videos to show your personality' },

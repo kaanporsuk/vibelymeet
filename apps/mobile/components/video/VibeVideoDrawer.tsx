@@ -45,7 +45,6 @@ export default function VibeVideoDrawer({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [thumbError, setThumbError] = useState(false);
-  const thumbMissing = hasVibeVideo && (!thumbnailUrl || thumbError);
 
   useEffect(() => {
     if (visible) setThumbError(false);

@@ -1,8 +1,8 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses expo-video (VideoView + useVideoPlayer). setSafeAudioMode is a no-op until native AV is linked.
+ * Uses `VibeVideoPlayer` (expo-video). setSafeAudioMode is a no-op until native AV is linked.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -10,17 +10,15 @@ import {
   Pressable,
   StyleSheet,
   StatusBar,
-  Image,
+  useWindowDimensions,
 } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
-import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
-
-const CAPTION_MAX_WIDTH = 400;
+import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -32,72 +30,11 @@ export interface FullscreenVibeVideoModalProps {
   vibeCaption?: string;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
-}
-
-function HlsVideoBody({
-  playbackUrl,
-  visible,
-  posterUrl,
-  onPlaybackIssue,
-}: {
-  playbackUrl: string;
-  visible: boolean;
-  posterUrl?: string | null;
-  onPlaybackIssue: () => void;
-}) {
-  const warnedRef = useRef(false);
-  const [showPoster, setShowPoster] = useState(!!posterUrl);
-  const player = useVideoPlayer(playbackUrl, (p) => {
-    p.loop = true;
-  });
-
-  useEffect(() => {
-    warnedRef.current = false;
-  }, [playbackUrl, visible]);
-
-  useEffect(() => {
-    setShowPoster(!!posterUrl);
-  }, [playbackUrl, posterUrl]);
-
-  useEffect(() => {
-    player.replace(playbackUrl);
-  }, [playbackUrl, player]);
-
-  useEffect(() => {
-    if (visible) {
-      void player.play();
-    } else {
-      player.pause();
-    }
-  }, [visible, player]);
-
-  useEffect(() => {
-    const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error' && !warnedRef.current) {
-        warnedRef.current = true;
-        vibeVideoDiagVerbose('fullscreen.player_status_error', {
-          hint: 'Often Bunny CDN hotlink/referrer, 403 manifest, or HLS not ready yet.',
-        });
-        onPlaybackIssue();
-      }
-    });
-    return () => sub.remove();
-  }, [player, onPlaybackIssue]);
-
-  return (
-    <>
-      {showPoster && posterUrl ? (
-        <Image source={{ uri: posterUrl }} style={[StyleSheet.absoluteFill, { zIndex: 0 }]} resizeMode="cover" />
-      ) : null}
-      <VideoView
-        style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
-        player={player}
-        nativeControls
-        contentFit="contain"
-        onFirstFrameRender={() => setShowPoster(false)}
-      />
-    </>
-  );
+  /**
+   * UI only: invoked when the player reaches a natural end (`playToEnd`).
+   * Parent may persist “hide inline metadata” until the stream identity changes.
+   */
+  onPlayToEnd?: () => void;
 }
 
 export function FullscreenVibeVideoModal({
@@ -107,14 +44,21 @@ export function FullscreenVibeVideoModal({
   bunnyVideoUid,
   vibeCaption = '',
   posterUrl,
+  onPlayToEnd,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const captionMaxWidth = Math.round(windowWidth * 0.75);
   const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  /** Per fullscreen session: hide top metadata after first natural `playToEnd`; reset when modal/source/retry changes. */
+  const [hasCompletedInitialPlayback, setHasCompletedInitialPlayback] = useState(false);
 
-  const { source: hostnameSource } = resolveVibeVideoStreamHostnameSync();
-  const configMissing = hostnameSource === 'none';
+  const { hostname: streamHostname } = resolveVibeVideoStreamHostnameSync();
+  const configMissing = !streamHostname.trim();
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
+  const expectedPatternUrl =
+    uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;
 
   const errorKind: 'none' | 'config' | 'url' | 'playback' = (() => {
     if (!visible) return 'none';
@@ -128,6 +72,15 @@ export function FullscreenVibeVideoModal({
     setPlaybackSurfaceError(false);
     setRetryKey(0);
   }, [visible, playbackUrl]);
+
+  useEffect(() => {
+    setHasCompletedInitialPlayback(false);
+  }, [visible, playbackUrl, retryKey]);
+
+  const handlePlayToEnd = useCallback(() => {
+    setHasCompletedInitialPlayback(true);
+    onPlayToEnd?.();
+  }, [onPlayToEnd]);
 
   useEffect(() => {
     if (!visible) return;
@@ -150,13 +103,39 @@ export function FullscreenVibeVideoModal({
   }, [visible]);
 
   const handlePlaybackIssue = useCallback(() => {
+    vibeVideoDiagVerbose('fullscreen.playback_error', {
+      bunnyVideoUid: uid || null,
+      playbackUrl,
+      resolvedHostname: streamHostname,
+      errorKind: 'playback',
+    });
     setPlaybackSurfaceError(true);
-  }, []);
+  }, [uid, playbackUrl, streamHostname]);
 
   const handleRetryPlayback = useCallback(() => {
     setPlaybackSurfaceError(false);
     setRetryKey((k) => k + 1);
   }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    vibeVideoDiagVerbose('fullscreen.playback_input', {
+      bunnyVideoUid: uid || null,
+      resolvedHostname: streamHostname,
+      playbackUrl,
+      expectedPatternUrl,
+      patternMatch: !!(playbackUrl && expectedPatternUrl && playbackUrl === expectedPatternUrl),
+    });
+    if (errorKind === 'none') return;
+    vibeVideoDiagVerbose('fullscreen.error_surface', {
+      bunnyVideoUid: uid || null,
+      playbackUrl,
+      resolvedHostname: streamHostname,
+      errorKind,
+      configMissing,
+      expectedPatternUrl,
+    });
+  }, [visible, errorKind, uid, playbackUrl, streamHostname, configMissing, expectedPatternUrl]);
 
   const renderErrorCard = (title: string, body: string, showRetry?: boolean) => (
     <View style={styles.errorWrap}>
@@ -206,38 +185,57 @@ export function FullscreenVibeVideoModal({
               : playbackUrl
                 ? (
                     <>
-                      <HlsVideoBody
+                      <VibeVideoPlayer
                         key={retryKey}
-                        playbackUrl={playbackUrl}
-                        visible={visible}
-                        posterUrl={posterUrl}
-                        onPlaybackIssue={handlePlaybackIssue}
+                        sourceUri={playbackUrl}
+                        posterUri={posterUrl}
+                        playing={visible}
+                        diagContext="fullscreen"
+                        nativeControls
+                        contentFit="contain"
+                        onPlayerFatalError={handlePlaybackIssue}
+                        onPlayToEnd={handlePlayToEnd}
                       />
 
                       <Pressable
                         onPress={onClose}
-                        style={[styles.closeBtn, { top: insets.top + 12 }]}
+                        style={[styles.closeBtn, { top: insets.top + 10 }]}
                         hitSlop={12}
                         accessibilityLabel="Close video"
                       >
                         <Ionicons name="close" size={26} color="#fff" />
                       </Pressable>
+
+                      {vibeCaption.trim() ? (
+                        <View style={styles.fullscreenMetaOverlay} pointerEvents="none">
+                          <LinearGradient
+                            colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.12)', 'transparent']}
+                            locations={[0, 0.45, 1]}
+                            style={styles.topScrim}
+                            pointerEvents="none"
+                          />
+                          <View
+                            style={[
+                              styles.metaColumn,
+                              { paddingTop: insets.top + 29, paddingHorizontal: 24 },
+                            ]}
+                            pointerEvents="none"
+                          >
+                            {!hasCompletedInitialPlayback ? (
+                              <Text style={styles.captionLabel}>VIBING ON</Text>
+                            ) : null}
+                            <Text
+                              style={[styles.captionText, { maxWidth: captionMaxWidth }]}
+                              numberOfLines={2}
+                            >
+                              {vibeCaption.trim()}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
                     </>
                   )
                 : null}
-
-        {vibeCaption.trim() && errorKind === 'none' && playbackUrl ? (
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.85)']}
-            style={[styles.captionWrap, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}
-            pointerEvents="none"
-          >
-            <Text style={styles.captionLabel}>VIBING ON</Text>
-            <Text style={[styles.captionText, { maxWidth: CAPTION_MAX_WIDTH }]} numberOfLines={3}>
-              {vibeCaption.trim()}
-            </Text>
-          </LinearGradient>
-        ) : null}
       </View>
     </Modal>
   );
@@ -305,24 +303,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  captionWrap: {
+  fullscreenMetaOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    alignItems: 'center',
+  },
+  topScrim: {
     position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingTop: 48,
+    height: 220,
+  },
+  metaColumn: {
+    width: '100%',
+    alignItems: 'center',
   },
   captionLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 2.2,
     color: '#22d3ee',
     marginBottom: 6,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   captionText: {
     color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'center',
   },
 });

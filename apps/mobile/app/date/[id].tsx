@@ -680,9 +680,14 @@ export default function VideoDateScreen() {
         />
       </View>
 
-      {fullPartner && (
-        <PartnerProfileSheet isOpen={showProfileSheet} onClose={() => setShowProfileSheet(false)} partner={fullPartner} />
-      )}
+      {fullPartner && partnerId ? (
+        <PartnerProfileSheet
+          isOpen={showProfileSheet}
+          onClose={() => setShowProfileSheet(false)}
+          partner={fullPartner}
+          partnerProfileId={partnerId}
+        />
+      ) : null}
 
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none" />
     </View>

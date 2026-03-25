@@ -7,6 +7,7 @@ import { AppState } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { DAILY_DROP_ACTIONABLE_STATUSES } from '@/lib/dailyDropSchedule';
 
 let OneSignal: any = null;
 try {
@@ -29,20 +30,22 @@ export function useBadgeCount(): number {
         .neq('sender_id', user.id)
         .is('read_at', null);
 
-      // Count unviewed daily drops for today (user is A or B and hasn't viewed)
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      // Unviewed actionable drops (same rule as Daily Drop tab badge; no local calendar / hour gate)
+      const nowIso = new Date().toISOString();
+      const actionable = [...DAILY_DROP_ACTIONABLE_STATUSES];
       const { count: countA } = await supabase
         .from('daily_drops')
         .select('id', { count: 'exact', head: true })
         .eq('user_a_id', user.id)
-        .eq('drop_date', todayStr)
+        .gt('expires_at', nowIso)
+        .in('status', actionable)
         .or('user_a_viewed.is.null,user_a_viewed.eq.false');
       const { count: countB } = await supabase
         .from('daily_drops')
         .select('id', { count: 'exact', head: true })
         .eq('user_b_id', user.id)
-        .eq('drop_date', todayStr)
+        .gt('expires_at', nowIso)
+        .in('status', actionable)
         .or('user_b_viewed.is.null,user_b_viewed.eq.false');
 
       const unviewedDrops = (countA ?? 0) + (countB ?? 0);

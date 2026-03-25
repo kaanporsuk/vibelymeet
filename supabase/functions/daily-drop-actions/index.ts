@@ -80,7 +80,7 @@ serve(async (req) => {
                 user_id: recipientId,
                 category: "daily_drop",
                 title: "💧 Your Daily Drop sent you a message",
-                body: "Reply before 6 PM tomorrow to unlock chat",
+                body: "Reply before your drop expires to unlock chat.",
                 data: { url: "/matches" },
               },
             });
@@ -100,7 +100,8 @@ serve(async (req) => {
             const body =
               `You and ${partnerProfile?.name ?? "someone"} matched through Daily Drop`;
 
-            const url = matchId ? `/chat/${matchId}` : "/matches";
+            const peerProfileId = drop.reply_sender_id as string;
+            const url = peerProfileId ? `/chat/${peerProfileId}` : "/matches";
 
             await serviceClient.functions.invoke("send-notification", {
               body: {
@@ -108,7 +109,11 @@ serve(async (req) => {
                 category: "new_match",
                 title,
                 body,
-                data: { url, match_id: matchId },
+                data: {
+                  url,
+                  match_id: matchId,
+                  other_user_id: peerProfileId,
+                },
               },
             });
           }

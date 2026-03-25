@@ -4,11 +4,26 @@
  */
 
 import * as tus from 'tus-js-client';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase';
-import { persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
+import { getVibeVideoPlaybackUrl, persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose, vibeVideoDiagProdHint } from '@/lib/vibeVideoDiagnostics';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+
+const TUS_CHUNK_SIZE = 5 * 1024 * 1024;
+
+function getProjectRefFromSupabaseUrl(url: string): string | null {
+  try {
+    const host = new URL(url).hostname;
+    const first = host.split('.')[0]?.trim();
+    return first || null;
+  } catch {
+    return null;
+  }
+}
+
+export type VibeVideoUploadSource = 'camera' | 'library' | 'drawer' | 'unknown';
 
 export type VibeVideoStatus = 'none' | 'uploading' | 'processing' | 'ready' | 'failed';
 
@@ -52,11 +67,72 @@ function pickNumber(r: Record<string, unknown>, key: string): number | undefined
   return undefined;
 }
 
+function extensionFromFileUri(fileUri: string): string {
+  const pathOnly = fileUri.split('?')[0].split('#')[0];
+  const lastSeg = pathOnly.split('/').pop() ?? '';
+  const dot = lastSeg.lastIndexOf('.');
+  if (dot < 0 || dot === lastSeg.length - 1) return '';
+  return lastSeg.slice(dot + 1).toLowerCase();
+}
+
+function mimeFromExtension(extension: string): string {
+  if (extension === 'mov') return 'video/quicktime';
+  if (extension === 'mp4' || extension === 'm4v') return 'video/mp4';
+  if (extension === 'webm') return 'video/webm';
+  return 'video/mp4';
+}
+
+async function resolveStableUploadUri(
+  videoUri: string,
+  uploadSource: VibeVideoUploadSource,
+): Promise<{ fileUri: string; copiedToCache: boolean }> {
+  const trimmed = videoUri.trim();
+  if (!trimmed) {
+    throw new Error('Empty video URI');
+  }
+
+  vibeVideoDiagVerbose('upload.prepare.start', {
+    source: uploadSource,
+    uriScheme: trimmed.includes(':') ? trimmed.split(':')[0] : 'path',
+  });
+
+  const cacheRoot = FileSystem.cacheDirectory;
+  if (!cacheRoot) {
+    vibeVideoDiagVerbose('upload.prepare.no_cache_dir', {});
+    return { fileUri: trimmed, copiedToCache: false };
+  }
+
+  const extGuess = /\.mov$/i.test(trimmed) ? 'mov' : 'mp4';
+  const dest = `${cacheRoot}vibe-tus-${Date.now()}.${extGuess}`;
+
+  try {
+    await FileSystem.copyAsync({ from: trimmed, to: dest });
+    vibeVideoDiagVerbose('upload.prepare.copied', { destTail: dest.slice(-40) });
+    return { fileUri: dest, copiedToCache: true };
+  } catch (e) {
+    vibeVideoDiagVerbose('upload.prepare.copy_failed', {
+      message: e instanceof Error ? e.message : String(e),
+      fallbackUri: true,
+    });
+    return { fileUri: trimmed, copiedToCache: false };
+  }
+}
+
+async function deleteLocalFileQuiet(uri: string): Promise<void> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists) await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUploadCredentials> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
   const url = `${SUPABASE_URL}/functions/v1/create-video-upload`;
+  const projectRef = getProjectRefFromSupabaseUrl(SUPABASE_URL);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -74,6 +150,10 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
   const { ok: jsonOk, data, rawText } = await readJsonBody(res);
 
   if (!jsonOk || !isRecord(data)) {
+    vibeVideoDiagVerbose('create-upload.invalid_payload_shape', {
+      status: res.status,
+      projectRef,
+    });
     throw new Error(
       res.ok
         ? 'Invalid response from video service. Please try again.'
@@ -126,6 +206,13 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
     });
   }
 
+  vibeVideoDiagVerbose('create-upload.ok', {
+    videoId,
+    libraryId,
+    hasCdnHostname: !!cdnHostname,
+    projectRef,
+  });
+
   return {
     videoId,
     libraryId,
@@ -137,70 +224,158 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
 
 /**
  * Upload video file (local URI) to Bunny via tus using credentials from create-video-upload.
+ * Reads the full file as Base64 via expo-file-system, converts to Blob, then TUS upload.
  */
 export function uploadVibeVideoToBunny(
   videoUri: string,
   credentials: CreateVideoUploadCredentials,
   onProgress?: (bytesUploaded: number, bytesTotal: number) => void,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; uploadSource?: VibeVideoUploadSource },
 ): Promise<void> {
   return (async () => {
-    let blob: Blob;
-    try {
-      const response = await fetch(videoUri);
-      blob = await response.blob();
-    } catch (e) {
-      vibeVideoDiagVerbose('tus.read_file_failed', { message: e instanceof Error ? e.message : String(e) });
-      throw new Error('Could not read the video file. Try choosing the clip again.');
+    const uploadSource = options?.uploadSource ?? 'unknown';
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      throw Object.assign(new Error('Upload cancelled'), { name: 'AbortError' });
     }
 
-    const mimeType = blob.type || 'video/mp4';
+    const { fileUri, copiedToCache } = await resolveStableUploadUri(videoUri, uploadSource);
 
-    return new Promise<void>((resolve, reject) => {
-      const upload = new tus.Upload(blob, {
-        endpoint: 'https://video.bunnycdn.com/tusupload',
-        retryDelays: [0, 3000, 5000, 10000],
-        chunkSize: 2 * 1024 * 1024,
-        headers: {
-          AuthorizationSignature: credentials.signature,
-          AuthorizationExpire: String(credentials.expirationTime),
-          VideoId: credentials.videoId,
-          LibraryId: String(credentials.libraryId),
-        },
-        metadata: {
-          filetype: mimeType,
-          title: `vibe-video-${Date.now()}`,
-        },
-        onError: (err) => {
-          const msg = err?.message ?? String(err);
-          if (/expired|401|403|signature/i.test(msg)) {
-            vibeVideoDiagVerbose('tus.auth_or_expiry', { message: msg });
-            reject(new Error('Upload session expired. Please try uploading again.'));
-            return;
-          }
-          vibeVideoDiagVerbose('tus.error', { message: msg });
-          reject(err instanceof Error ? err : new Error('Upload failed. Please try again.'));
-        },
-        onProgress: onProgress ? (bytesUploaded, bytesTotal) => onProgress(bytesUploaded, bytesTotal) : undefined,
-        onSuccess: () => resolve(),
-      });
+    const fileInfo = await FileSystem.getInfoAsync(fileUri);
+    if (!fileInfo.exists || fileInfo.isDirectory) {
+      throw new Error(`Video file does not exist at path: ${fileUri}`);
+    }
+    const fileSize = fileInfo.size;
+    if (!fileSize || fileSize === 0) {
+      throw new Error('Video file is empty or size could not be determined');
+    }
 
-      const signal = options?.signal;
-      if (signal) {
-        const onAbort = () => {
-          try {
-            upload.abort(true);
-          } catch {
-            /* ignore */
-          }
-          reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
-        };
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
-      }
+    const extension = extensionFromFileUri(fileUri);
+    const mimeType = mimeFromExtension(extension);
+    const fileName =
+      fileUri.split('/').pop()?.split('?')[0] ?? `vibe-video.${extension || 'mp4'}`;
 
-      upload.start();
+    vibeVideoDiagVerbose('upload.file.validated', {
+      uri: fileUri,
+      extension,
+      mimeType,
+      sizeBytes: fileSize,
+      sizeMB: (fileSize / (1024 * 1024)).toFixed(2),
     });
+
+    // Read entire file as base64 via expo-file-system (reliable native read)
+    vibeVideoDiagVerbose('upload.read_file.start', { uri: fileUri, sizeBytes: fileSize });
+    let blob: Blob;
+    try {
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      vibeVideoDiagVerbose('upload.read_file.base64_ok', {
+        base64Length: base64.length,
+        expectedRatio: (base64.length / fileSize).toFixed(2),
+      });
+      // Convert base64 → blob via data URI (standard RN-compatible approach)
+      const response = await fetch(`data:${mimeType};base64,${base64}`);
+      blob = await response.blob();
+      vibeVideoDiagVerbose('upload.read_file.blob_ok', {
+        blobSize: blob.size,
+        blobType: blob.type,
+        matchesFileSize: blob.size === fileSize,
+      });
+      if (blob.size === 0) {
+        throw new Error('Blob conversion produced empty result');
+      }
+      // Sanity check: blob size should approximately equal file size
+      // (data URI decode should be exact, but log a warning if off)
+      if (Math.abs(blob.size - fileSize) > 1024) {
+        vibeVideoDiagVerbose('upload.read_file.size_mismatch_warning', {
+          blobSize: blob.size,
+          fileSize,
+          diff: blob.size - fileSize,
+        });
+      }
+    } catch (e) {
+      vibeVideoDiagVerbose('upload.read_file.failed', {
+        message: e instanceof Error ? e.message : String(e),
+      });
+      throw new Error('Failed to read video file for upload');
+    }
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const upload = new tus.Upload(blob, {
+          endpoint: 'https://video.bunnycdn.com/tusupload',
+          retryDelays: [0, 3000, 5000, 10000],
+          chunkSize: TUS_CHUNK_SIZE,
+          headers: {
+            AuthorizationSignature: credentials.signature,
+            AuthorizationExpire: String(credentials.expirationTime),
+            VideoId: credentials.videoId,
+            LibraryId: String(credentials.libraryId),
+          },
+          metadata: {
+            filetype: mimeType,
+            title: fileName,
+          },
+          onError: (error: unknown) => {
+            const err = error as { message?: string; originalResponse?: { getStatus?: () => number } };
+            const msg = err?.message ?? String(error);
+            const status = err?.originalResponse?.getStatus?.();
+            vibeVideoDiagVerbose('upload.tus.error', { message: msg, status });
+            if (/expired|401|403|signature/i.test(msg)) {
+              reject(new Error('Upload session expired. Please try uploading again.'));
+              return;
+            }
+            reject(error instanceof Error ? error : new Error('Upload failed. Please try again.'));
+          },
+          onProgress: (bytesUploaded: number, bytesTotal: number) => {
+            const pct = bytesTotal > 0 ? bytesUploaded / bytesTotal : 0;
+            vibeVideoDiagVerbose('upload.tus.progress', {
+              bytesUploaded,
+              bytesTotal,
+              pct: (pct * 100).toFixed(1),
+            });
+            onProgress?.(bytesUploaded, bytesTotal);
+          },
+          onSuccess: () => {
+            vibeVideoDiagVerbose('upload.tus.success', { videoId: credentials.videoId });
+            const playUrl = getVibeVideoPlaybackUrl(credentials.videoId);
+            vibeVideoDiagVerbose('tus.complete', {
+              videoId: credentials.videoId,
+              playableUrlReady: !!playUrl,
+            });
+            resolve();
+          },
+          onShouldRetry: (err: unknown, retryAttempt: number, _options: unknown) => {
+            const e = err as { originalResponse?: { getStatus?: () => number } };
+            const status = e?.originalResponse?.getStatus?.();
+            if (status !== undefined && status >= 400 && status < 500) return false;
+            return retryAttempt < 3;
+          },
+        });
+
+        if (signal) {
+          const onAbort = () => {
+            try {
+              void upload.abort(true);
+            } catch {
+              /* ignore */
+            }
+            reject(Object.assign(new Error('Upload cancelled'), { name: 'AbortError' }));
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
+        }
+
+        vibeVideoDiagVerbose('tus.client_start', { videoId: credentials.videoId });
+        upload.start();
+      });
+    } catch (e) {
+      if (copiedToCache) await deleteLocalFileQuiet(fileUri);
+      throw e;
+    }
+
+    if (copiedToCache) await deleteLocalFileQuiet(fileUri);
   })();
 }
 
@@ -221,8 +396,45 @@ export async function saveVibeVideoToProfile(
     payload.vibe_caption = options.vibeCaption ?? null;
   }
 
-  const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
-  if (error) throw error;
+  const projectRef = getProjectRefFromSupabaseUrl(SUPABASE_URL);
+  vibeVideoDiagVerbose('profile.vibe_video_save.start', {
+    userId: user.id,
+    videoId,
+    projectRef,
+  });
+
+  let { data: updatedRows, error } = await supabase
+    .from('profiles')
+    .update(payload)
+    .eq('id', user.id)
+    .select('id');
+
+  if (error) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const retry = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', user.id)
+      .select('id');
+    if (retry.error) throw retry.error;
+    updatedRows = retry.data;
+  }
+
+  const matched = Array.isArray(updatedRows) ? updatedRows.length : 0;
+  if (matched !== 1) {
+    vibeVideoDiagProdHint(
+      'profile.vibe_video_save.zero_or_multi_match',
+      `userId=${user.id} videoId=${videoId} matched=${matched} projectRef=${projectRef ?? 'unknown'}`,
+    );
+    throw new Error('Profile update did not affect exactly one row. Please retry.');
+  }
+  vibeVideoDiagVerbose('profile.vibe_video_saved', {
+    userId: user.id,
+    videoId,
+    bunny_video_status: 'processing',
+    matched,
+    projectRef,
+  });
 }
 
 export class DeleteVibeVideoError extends Error {

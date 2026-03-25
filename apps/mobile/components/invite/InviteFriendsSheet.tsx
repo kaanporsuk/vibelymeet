@@ -11,7 +11,6 @@
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -42,6 +41,7 @@ import {
   useRegisteredUpcomingEventsForInvite,
   type InviteSheetEventRow,
 } from '@/lib/eventsApi';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 const SHEET_HEIGHT = Dimensions.get('window').height * 0.85;
 
@@ -273,26 +273,28 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss" />
-        <View
-          style={[
-            styles.sheet,
-            {
-              maxHeight: SHEET_HEIGHT,
-              paddingBottom: Math.max(insets.bottom, 16),
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-            },
-          ]}
-        >
-          <View style={styles.handle} />
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
-          >
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={onClose}
+      scrollable={false}
+      backdropColor="rgba(0,0,0,0.5)"
+      maxHeightRatio={0.85}
+      sheetStyle={{
+        maxHeight: SHEET_HEIGHT,
+        paddingBottom: Math.max(insets.bottom, 16),
+        backgroundColor: theme.surface,
+        borderColor: theme.border,
+        borderWidth: 1,
+        paddingHorizontal: 20,
+      }}
+      showHandle={false}
+    >
+      <View style={styles.handle} />
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
             <Text style={[styles.title, { color: theme.text }]}>
               {eventModeOnly ? 'Invite friends to this event' : 'Bring Friends to Vibely'}
             </Text>
@@ -468,29 +470,16 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
             </Pressable>
           </ScrollView>
 
-          {feedbackToast ? (
-            <View style={[styles.toast, { bottom: insets.bottom + 24 }]} accessibilityLiveRegion="polite">
-              <Text style={styles.toastText}>{feedbackToast}</Text>
-            </View>
-          ) : null}
+      {feedbackToast ? (
+        <View style={[styles.toast, { bottom: insets.bottom + 24 }]} accessibilityLiveRegion="polite">
+          <Text style={styles.toastText}>{feedbackToast}</Text>
         </View>
-      </View>
-    </Modal>
+      ) : null}
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: 1,
-    paddingHorizontal: 20,
-  },
   handle: {
     alignSelf: 'center',
     width: 40,

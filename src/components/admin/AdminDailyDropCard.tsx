@@ -56,8 +56,10 @@ export default function AdminDailyDropCard() {
 
       if (data?.success) {
         toast.success(`Generated ${data.pairs_created} pairs, notified ${data.users_notified} users`);
+      } else if (data?.error === 'insert_failed' || data?.error === 'insert_partial') {
+        toast.error(data?.details || data?.error || 'Insert failed');
       } else {
-        toast.info(data?.reason || 'No drops generated');
+        toast.info(data?.reason || data?.error || 'No drops generated');
       }
       refetch();
     } catch (err) {
@@ -92,7 +94,8 @@ export default function AdminDailyDropCard() {
       <p className="text-xs text-muted-foreground rounded-lg bg-secondary/30 px-3 py-2">
         Auto-generation: daily at 6:00 PM UTC (pg_cron → Edge Function when configured). Set{' '}
         <code className="text-[10px]">app.supabase_url</code> and <code className="text-[10px]">app.cron_secret</code> on
-        the database — see migration <code className="text-[10px]">20260322200000_daily_drop_cron.sql</code>.
+        the database — see migrations <code className="text-[10px]">20260322200100_daily_drop_cron.sql</code>,{' '}
+        <code className="text-[10px]">20260323140000_daily_drop_hardening.sql</code>.
       </p>
 
       <div className="grid grid-cols-2 gap-3 text-sm">
