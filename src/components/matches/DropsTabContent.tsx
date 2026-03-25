@@ -322,8 +322,8 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
           </div>
         )}
 
-        {partner.bio && (
-          <p className="text-sm text-muted-foreground line-clamp-3">{partner.bio}</p>
+        {partner.about_me && (
+          <p className="text-sm text-muted-foreground line-clamp-3">{partner.about_me}</p>
         )}
 
         {partner.bunny_video_uid && partner.bunny_video_status === 'ready' && (

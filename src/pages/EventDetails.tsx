@@ -285,7 +285,7 @@ const EventDetails = () => {
     avatar: a.avatar,
     vibeTag: a.vibeTag,
     matchPercent: a.matchPercent,
-    bio: a.bio,
+    about_me: a.about_me,
     photos: a.photos,
     photoVerified: a.photoVerified,
   }));
@@ -608,7 +608,7 @@ const EventDetails = () => {
           vibes: fullProfileAttendee?.vibeTags || [fullProfileAttendee?.vibeTag || ""],
           compatibility: fullProfileAttendee?.matchPercent,
           photos: (fullProfileAttendee?.photos || []).map(p => resolvePhotoUrl(p)).filter(Boolean) as string[],
-          aboutMe: fullProfileAttendee?.bio,
+          aboutMe: fullProfileAttendee?.about_me,
         }}
         open={!!fullProfileAttendee}
         onOpenChange={(open) => {

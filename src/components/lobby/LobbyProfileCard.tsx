@@ -154,8 +154,8 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           </div>
         )}
 
-        {profile.bio && (
-          <p className="text-sm text-white/70 line-clamp-2">{profile.bio}</p>
+        {profile.about_me && (
+          <p className="text-sm text-white/70 line-clamp-2">{profile.about_me}</p>
         )}
       </div>
     </div>

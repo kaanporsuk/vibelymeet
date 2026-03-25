@@ -5,7 +5,7 @@ export interface DailyDropPartner {
   name: string;
   age: number;
   gender: string;
-  bio: string | null;
+  about_me: string | null;
   avatar_url: string | null;
   photos: string[] | null;
   bunny_video_uid: string | null;

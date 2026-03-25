@@ -765,8 +765,8 @@ function LobbyProfileCard({
             </Text>
           </View>
         )}
-        {profile.bio ? (
-          <Text style={styles.cardBio} numberOfLines={2}>{profile.bio}</Text>
+        {profile.about_me ? (
+          <Text style={styles.cardBio} numberOfLines={2}>{profile.about_me}</Text>
         ) : null}
       </View>
     </View>

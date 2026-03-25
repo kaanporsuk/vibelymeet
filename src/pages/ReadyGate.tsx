@@ -16,7 +16,7 @@ import { trackEvent } from "@/lib/analytics";
 interface PartnerProfile {
   name: string;
   age: number;
-  bio?: string;
+  about_me?: string;
   avatarUrl?: string;
   photos?: string[];
   tags: string[];
@@ -104,7 +104,7 @@ const ReadyGate = () => {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("name, age, avatar_url, photos, bio")
+        .select("name, age, avatar_url, photos, about_me")
         .eq("id", partnerId)
         .maybeSingle();
 
@@ -125,7 +125,7 @@ const ReadyGate = () => {
         setPartner({
           name: profile.name,
           age: profile.age,
-          bio: profile.bio || undefined,
+          about_me: profile.about_me || undefined,
           avatarUrl: resolvePhotoUrl(profile.avatar_url) || undefined,
           photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
           tags,
@@ -291,8 +291,8 @@ const ReadyGate = () => {
         )}
 
         {/* Bio */}
-        {partner.bio && (
-          <p className="text-sm text-muted-foreground leading-relaxed">{partner.bio}</p>
+        {partner.about_me && (
+          <p className="text-sm text-muted-foreground leading-relaxed">{partner.about_me}</p>
         )}
 
         {/* Vibe Tags */}

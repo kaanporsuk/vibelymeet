@@ -13,7 +13,7 @@ interface PartnerProfile {
   age: number;
   avatarUrl?: string;
   photos?: string[];
-  bio?: string;
+  about_me?: string;
   job?: string;
   location?: string;
   heightCm?: number;
@@ -135,10 +135,10 @@ export const PartnerProfileSheet = ({
               </div>
 
               {/* Bio */}
-              {partner.bio && (
+              {partner.about_me && (
                 <div className="glass-card p-4 rounded-2xl">
                   <p className="text-sm leading-relaxed text-foreground/90">
-                    {partner.bio}
+                    {partner.about_me}
                   </p>
                 </div>
               )}

@@ -326,7 +326,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       </Badge>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground mb-2">{profile.tagline || profile.bio}</p>
+                  <p className="text-sm text-muted-foreground mb-2">{profile.tagline || profile.about_me}</p>
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline" className="gap-1">
                       <User className="w-3 h-3" />

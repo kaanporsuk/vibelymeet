@@ -477,7 +477,7 @@ export type DeckProfile = {
   gender: string;
   avatar_url: string | null;
   photos: string[] | null;
-  bio: string | null;
+  about_me: string | null;
   job: string | null;
   location: string | null;
   tagline: string | null;

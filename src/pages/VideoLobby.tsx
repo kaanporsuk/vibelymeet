@@ -45,7 +45,7 @@ const VideoLobby = () => {
       
       const { data } = await supabase
         .from("profiles")
-        .select("name, avatar_url, bio")
+        .select("name, avatar_url, about_me")
         .eq("id", partnerId)
         .maybeSingle();
       
@@ -55,7 +55,7 @@ const VideoLobby = () => {
           photo: data.avatar_url || DEFAULT_PARTNER.photo,
           vibeTags: DEFAULT_PARTNER.vibeTags,
           vibeVideoUrl: null, // Would fetch from storage if available
-          vibeCaption: data.bio?.slice(0, 50) || "",
+          vibeCaption: data.about_me?.slice(0, 50) || "",
         });
       }
     };

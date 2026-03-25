@@ -33,7 +33,7 @@ export function useDailyDrop() {
   const fetchPartner = useCallback(async (id: string) => {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, name, age, gender, bio, avatar_url, photos, bunny_video_uid, bunny_video_status, vibe_caption')
+      .select('id, name, age, gender, about_me, avatar_url, photos, bunny_video_uid, bunny_video_status, vibe_caption')
       .eq('id', id)
       .maybeSingle();
 
@@ -62,7 +62,7 @@ export function useDailyDrop() {
       name: profile.name,
       age: profile.age,
       gender: profile.gender,
-      bio: profile.bio,
+      about_me: profile.about_me,
       avatar_url: profile.avatar_url,
       photos: profile.photos,
       bunny_video_uid: profile.bunny_video_uid,

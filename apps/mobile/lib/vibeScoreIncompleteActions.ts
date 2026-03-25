@@ -10,7 +10,7 @@ export type VibeScoreActionId =
   | 'photos'
   | 'vibe_video'
   | 'prompts'
-  | 'bio'
+  | 'about_me'
   | 'tagline'
   | 'looking_for'
   | 'job'
@@ -39,7 +39,7 @@ function countPromptAnswers(profile: ProfileRow): number {
   return prompts.filter((p) => (p.answer ?? '').trim().length > 0).length;
 }
 
-function bioLength(profile: ProfileRow): number {
+function aboutMeLength(profile: ProfileRow): number {
   return (profile.about_me ?? '').trim().length;
 }
 
@@ -112,9 +112,9 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
     });
   }
 
-  if (bioLength(profile) <= 10) {
+  if (aboutMeLength(profile) <= 10) {
     out.push({
-      id: 'bio',
+      id: 'about_me',
       label: 'Write your bio',
       points: 10,
       icon: 'document-text-outline',

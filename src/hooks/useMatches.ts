@@ -27,7 +27,7 @@ export interface Match {
   isArchived?: boolean;
   eventName?: string;
   photos?: string[];
-  bio?: string | null;
+  about_me?: string | null;
   job?: string | null;
   location?: string | null;
   height?: number | null;
@@ -128,7 +128,7 @@ export const useMatches = () => {
           supabase
             .from("profiles")
             .select(
-              "id, name, age, avatar_url, photos, photo_verified, bio, job, location, height_cm, looking_for, prompts, lifestyle, tagline"
+              "id, name, age, avatar_url, photos, photo_verified, about_me, job, location, height_cm, looking_for, prompts, lifestyle, tagline"
             )
             .in("id", profileIdsForFetch),
           supabase
@@ -249,7 +249,7 @@ export const useMatches = () => {
             ? eventsById[match.event_id] || undefined
             : undefined,
           photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-          bio: (profile as any)?.bio || null,
+          about_me: (profile as any)?.about_me || null,
           job: (profile as any)?.job || null,
           location: (profile as any)?.location || null,
           height: (profile as any)?.height_cm || null,

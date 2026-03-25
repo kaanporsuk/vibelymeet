@@ -7,7 +7,7 @@ interface Attendee {
   name: string;
   age: number;
   avatar: string;
-  bio: string;
+  about_me: string;
   vibeTag: string;
   photos: string[];
   photoVerified?: boolean;
