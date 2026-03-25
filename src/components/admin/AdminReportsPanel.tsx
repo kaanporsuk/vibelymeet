@@ -52,23 +52,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
+import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
 
-const reasonIcons: Record<string, any> = {
+const reasonIcons: Record<ReportReasonId, any> = {
   harassment: MessageSquareWarning,
   fake: UserX,
   inappropriate: Camera,
-  vibe: Frown,
+  spam: AlertTriangle,
+  safety: Shield,
+  underage: UserX,
+  other: Filter,
 };
 
-const reasonLabels: Record<string, string> = {
-  harassment: "Harassment",
-  fake: "Fake Profile",
-  inappropriate: "Inappropriate Content",
-  vibe: "Vibe Mismatch",
-};
+const reasonLabels: Record<ReportReasonId, string> = Object.fromEntries(
+  REPORT_REASONS.map((r) => [r.id, r.label])
+) as Record<ReportReasonId, string>;
 
 const AdminReportsPanel = () => {
   const queryClient = useQueryClient();

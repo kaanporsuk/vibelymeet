@@ -3,14 +3,9 @@
  */
 import { supabase } from '@/lib/supabase';
 
-export const REPORT_REASONS = [
-  { id: 'harassment', label: 'Harassment or bullying' },
-  { id: 'fake', label: 'Fake profile / catfish' },
-  { id: 'inappropriate', label: 'Inappropriate content' },
-  { id: 'vibe', label: 'Did not match vibe check' },
-] as const;
+import { REPORT_REASONS, type ReportReasonId } from '../../../shared/safety/reportReasons';
 
-export type ReportReasonId = (typeof REPORT_REASONS)[number]['id'];
+export { REPORT_REASONS, type ReportReasonId };
 
 export async function submitReport(params: {
   reporterId: string;
