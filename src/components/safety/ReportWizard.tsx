@@ -21,6 +21,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { formatDistanceToNow } from "date-fns";
+import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 
 export interface ReportPreSelectedUser {
   id: string;
@@ -46,36 +47,24 @@ interface ReportableUser {
   interactionDate: string;
 }
 
-const reportReasons = [
-  {
-    id: "harassment",
-    icon: MessageCircleWarning,
-    label: "Harassment or Bullying",
-    description: "Threatening, abusive, or intimidating behavior",
-    severity: "high",
-  },
-  {
-    id: "fake",
-    icon: UserX,
-    label: "Fake Profile / Catfish",
-    description: "Using someone else's photos or fake identity",
-    severity: "high",
-  },
-  {
-    id: "inappropriate",
-    icon: Camera,
-    label: "Inappropriate Content",
-    description: "Explicit or offensive photos/messages",
-    severity: "high",
-  },
-  {
-    id: "vibe",
-    icon: Frown,
-    label: "Did not match Vibe Check",
-    description: "Misrepresented themselves in video call",
-    severity: "low",
-  },
-];
+const reasonIcon: Record<ReportReasonId, typeof MessageCircleWarning> = {
+  harassment: MessageCircleWarning,
+  fake: UserX,
+  inappropriate: Camera,
+  spam: Shield,
+  safety: Shield,
+  underage: UserX,
+  other: Frown,
+};
+
+const HIGH_SEVERITY: ReadonlySet<ReportReasonId> = new Set([
+  "harassment",
+  "fake",
+  "inappropriate",
+  "spam",
+  "safety",
+  "underage",
+]);
 
 const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps) => {
   const { user } = useUserProfile();
@@ -90,7 +79,7 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
       interactionDate: preSelectedUser.interactionDate,
     } : null
   );
-  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = useState<ReportReasonId | null>(null);
   const [details, setDetails] = useState("");
   const [alsoBlock, setAlsoBlock] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -330,34 +319,33 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
             <h3 className="font-semibold text-foreground">What happened?</h3>
 
             <div className="space-y-3">
-              {reportReasons.map((reason) => (
-                <motion.button
-                  key={reason.id}
-                  whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  onClick={() => {
-                    setSelectedReason(reason.id);
-                    setStep("details");
-                  }}
-                  className={`w-full p-4 rounded-xl text-left transition-all ${
-                    reason.severity === "high"
-                      ? "bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 hover:border-red-500/40"
-                      : "bg-secondary/30 border border-transparent hover:border-border"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <reason.icon
-                      className={`w-5 h-5 mt-0.5 ${
-                        reason.severity === "high" ? "text-red-400" : "text-muted-foreground"
-                      }`}
-                    />
-                    <div>
-                      <p className="font-medium text-foreground">{reason.label}</p>
-                      <p className="text-sm text-muted-foreground">{reason.description}</p>
+              {REPORT_REASONS.map((reason) => {
+                const Icon = reasonIcon[reason.id];
+                const isHigh = HIGH_SEVERITY.has(reason.id);
+                return (
+                  <motion.button
+                    key={reason.id}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.99 }}
+                    onClick={() => {
+                      setSelectedReason(reason.id);
+                      setStep("details");
+                    }}
+                    className={`w-full p-4 rounded-xl text-left transition-all ${
+                      isHigh
+                        ? "bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/20 hover:border-red-500/40"
+                        : "bg-secondary/30 border border-transparent hover:border-border"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <Icon className={`w-5 h-5 mt-0.5 ${isHigh ? "text-red-400" : "text-muted-foreground"}`} />
+                      <div>
+                        <p className="font-medium text-foreground">{reason.label}</p>
+                      </div>
                     </div>
-                  </div>
-                </motion.button>
-              ))}
+                  </motion.button>
+                );
+              })}
             </div>
           </motion.div>
         )}
