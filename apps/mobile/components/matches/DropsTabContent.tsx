@@ -355,7 +355,7 @@ function PartnerCard({
         <Text style={[styles.partnerName, { color: theme.text }]}>{partner.name}, {partner.age}</Text>
       </View>
       <View style={styles.partnerBody}>
-        {partner.bio ? <Text style={[styles.partnerBio, { color: theme.mutedForeground }]} numberOfLines={3}>{partner.bio}</Text> : null}
+        {partner.about_me ? <Text style={[styles.partnerBio, { color: theme.mutedForeground }]} numberOfLines={3}>{partner.about_me}</Text> : null}
         {pickReasons.length > 0 && (
           <View style={styles.pickReasonsWrap}>
             <Text style={[styles.pickReasonsLabel, { color: theme.mutedForeground }]}>Why this pick</Text>

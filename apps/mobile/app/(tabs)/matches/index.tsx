@@ -67,6 +67,10 @@ import {
   getUtcDateKey,
   resolveMatchesSpotlight,
 } from '../../../../../shared/matches/spotlightResolver';
+import {
+  MATCHES_SEARCH_HINT,
+  MATCHES_SEARCH_LEAD,
+} from '../../../../../shared/matches/searchUi';
 
 type MatchConversationRow = MatchListItem & { searchMatchHint: string | null };
 type SpotlightRow = { kind: 'spotlight'; key: string };
@@ -749,12 +753,15 @@ export default function MatchesListScreen() {
                 />
                 {searchQuery.length === 0 ? (
                   <RNView style={styles.searchOverlay} pointerEvents="none">
-                    <RNText style={[styles.searchOverlayLead, { color: theme.textSecondary }]}>Search chats:</RNText>
+                    <RNText style={[styles.searchOverlayLead, { color: theme.textSecondary }]}>
+                      {MATCHES_SEARCH_LEAD}
+                    </RNText>
                     <RNText
                       style={[styles.searchOverlayHint, { color: theme.textSecondary }]}
                       numberOfLines={1}
+                      ellipsizeMode="tail"
                     >
-                      Name · vibe · intent · city · event · last message
+                      {MATCHES_SEARCH_HINT}
                     </RNText>
                   </RNView>
                 ) : null}
@@ -762,6 +769,7 @@ export default function MatchesListScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   placeholder=""
+                  accessibilityLabel={`${MATCHES_SEARCH_LEAD} ${MATCHES_SEARCH_HINT}`}
                   style={[styles.searchInput, { color: theme.text }]}
                 />
               </RNView>
@@ -1118,14 +1126,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    minWidth: 0,
   },
   searchOverlayLead: {
     fontSize: 14,
+    flexShrink: 0,
   },
   searchOverlayHint: {
     flex: 1,
-    fontSize: 11,
-    lineHeight: 14,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 10,
+    lineHeight: 13,
   },
   sortIconButton: {
     width: 44,
