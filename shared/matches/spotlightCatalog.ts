@@ -1,0 +1,116 @@
+import type { MatchesSpotlightItem } from "./spotlightTypes";
+
+/** v1 static catalog — replace/extend via `runtimeItems` in resolver later. */
+export const MATCHES_SPOTLIGHT_CATALOG_V1: MatchesSpotlightItem[] = [
+  {
+    id: "spotlight-tip-reply-window",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Reply while the spark is fresh",
+    body: "Keep the conversation going — reply within 24 hours to keep the vibe alive.",
+  },
+  {
+    id: "spotlight-tip-open-ended",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Ask questions they can’t answer with one word",
+    body: "Swap “How was your day?” for “What’s one small thing that made you smile today?” — it opens real stories.",
+  },
+  {
+    id: "spotlight-tip-voice-note",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Voice notes feel more human",
+    body: "A short voice reply can feel warmer than a long text — especially when you’re short on time.",
+  },
+  {
+    id: "spotlight-tip-plans",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Move from chat to a light plan",
+    body: "Suggest something low-pressure: coffee, a walk, or a video call — specificity beats “we should hang sometime.”",
+  },
+  {
+    id: "spotlight-tip-friends",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Friend energy counts too",
+    body: "Not every match has to be romantic — great friendships often start with shared humor and curiosity.",
+  },
+  {
+    id: "spotlight-tip-listen",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Mirror one detail back",
+    body: "Pick up something they said and ask a follow-up — it shows you’re actually listening, not performing interest.",
+  },
+  {
+    id: "spotlight-tip-weekend",
+    kind: "tip",
+    eyebrow: "Weekend spark",
+    title: "Offer a gentle weekend idea",
+    body: "A farmers’ market, a gallery afternoon, or a sunset walk — keep it easy to say yes to.",
+  },
+  {
+    id: "spotlight-tip-boundaries",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Comfort beats cool",
+    body: "It’s okay to name what you’re looking for and what pace feels good — clarity is kind.",
+  },
+  {
+    id: "spotlight-tip-photo",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Comment on something specific",
+    body: "A line about their vibe, style, or a photo detail beats a generic compliment — it starts a real thread.",
+  },
+  {
+    id: "spotlight-tip-slow",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "You don’t need to perform",
+    body: "Steady, curious beats trying to be the most interesting person in the chat.",
+  },
+  {
+    id: "spotlight-tip-event-host",
+    kind: "tip",
+    eyebrow: "Planning",
+    title: "Hosting a small hang?",
+    body: "Pick a time, place, and rough duration — people RSVP when the plan feels easy, not vague.",
+  },
+  {
+    id: "spotlight-rec-culture",
+    kind: "recommendation",
+    eyebrow: "Outing idea",
+    title: "Culture night, low stakes",
+    body: "A short exhibition or late-opening museum slot — walk, talk, and no pressure to sit through a full meal.",
+    priority: 5,
+    /** Inactive in v1 — enables future dated recs without blocking daily tip rotation. */
+    startAt: "2099-01-01",
+  },
+  {
+    id: "spotlight-promo-vibely",
+    kind: "promo",
+    eyebrow: "Vibely",
+    title: "Real conversations, real chemistry",
+    body: "You’re on the right track — keep showing up. The best matches come from consistent, kind energy.",
+    priority: 3,
+    /** Inactive in v1 — runtime promos can inject active rows later. */
+    startAt: "2099-01-01",
+  },
+  {
+    id: "spotlight-tip-gratitude",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "End on a warm note",
+    body: "A simple “thanks for chatting today” lands better than ghosting when you need to step away.",
+  },
+  {
+    id: "spotlight-tip-ask-out",
+    kind: "tip",
+    eyebrow: "Pro tip",
+    title: "Asking someone out",
+    body: "Name the thing, suggest a window, and leave room for a counter — confidence without pressure.",
+  },
+];

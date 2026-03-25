@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Heart, Sparkles, Users, Coffee, PartyPopper, Home } from "lucide-react";
+import { Heart, Sparkles, Users, Coffee, PartyPopper, Home, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 
@@ -11,7 +11,7 @@ interface IntentOption {
   emoji: string;
 }
 
-const intentOptions: IntentOption[] = [
+export const intentOptions: IntentOption[] = [
   {
     id: "long-term",
     label: "Long-term partner",
@@ -46,6 +46,13 @@ const intentOptions: IntentOption[] = [
     description: "Still exploring",
     icon: Coffee,
     emoji: "🤷",
+  },
+  {
+    id: "rather-not",
+    label: "Rather not say",
+    description: "Prefer not to share",
+    icon: ShieldOff,
+    emoji: "🤐",
   },
 ];
 

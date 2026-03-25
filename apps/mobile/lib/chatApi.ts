@@ -22,6 +22,7 @@ export type MatchListItem = {
   /** Vibe labels from `profile_vibes` / `vibe_tags` (all tags for search; web list UI may show fewer). */
   vibes: string[];
   looking_for: string | null;
+  location: string | null;
   eventName: string | null;
   /** Deterministic; larger = better (Best Match sort). */
   bestMatchScore: number;
@@ -73,7 +74,7 @@ export function useMatches(userId: string | null | undefined) {
       const [profilesRes, vibesRes, messagesRes, eventsRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, age, avatar_url, photos, looking_for')
+          .select('id, name, age, avatar_url, photos, looking_for, location')
           .in('id', profileIdsForFetch),
         supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
         supabase
@@ -141,6 +142,7 @@ export function useMatches(userId: string | null | undefined) {
         const eventId = (match as { event_id?: string | null }).event_id;
         const eventTitle = eventId ? eventsById[eventId] ?? null : null;
         const lookingFor = (profile as { looking_for?: string | null }).looking_for ?? null;
+        const location = (profile as { location?: string | null }).location ?? null;
         const otherVibes = vibesByProfile[otherId] ?? [];
         const scoreInput: MatchScoreInput = {
           viewerVibeLabels: viewerVibes,
@@ -166,6 +168,7 @@ export function useMatches(userId: string | null | undefined) {
           archived_by: (match as { archived_by?: string | null }).archived_by ?? null,
           vibes: otherVibes,
           looking_for: lookingFor,
+          location,
           eventName: eventTitle,
           bestMatchScore,
           compatibilityPercent: compatPct,

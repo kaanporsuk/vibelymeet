@@ -1,9 +1,9 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, SlidersHorizontal, MessageCircle, Droplet, Loader2 } from "lucide-react";
+import { Search, SlidersHorizontal, MessageCircle, Droplet, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
-import { NewVibesRail, NewVibe } from "@/components/NewVibesRail";
+import { NewVibesRail } from "@/components/NewVibesRail";
 import { SwipeableMatchCard } from "@/components/SwipeableMatchCard";
 import { EmptyMatchesState } from "@/components/EmptyMatchesState";
 import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
@@ -22,14 +22,13 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ReportWizard from "@/components/safety/ReportWizard";
 import { useMatches, type Match } from "@/hooks/useMatches";
-import { useDropMatches } from "@/hooks/useDropMatches";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { useBlockUser } from "@/hooks/useBlockUser";
 import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,8 +44,22 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useSubscription } from "@/hooks/useSubscription";
 import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 import { formatConversationCount } from "@/utils/matchSortScore";
-
-type SortOption = "recent" | "unread" | "compatibility";
+import {
+  MATCHES_SEARCH_PLACEHOLDER,
+  matchPassesClientSearch,
+} from "@/utils/matchSearchHaystack";
+import {
+  MATCHES_CONVERSATION_SORT_STORAGE_KEY,
+  type ConversationSortOption,
+  conversationSortShortLabel,
+  orderIndexByMatchId as buildOrderIndexByMatchId,
+  parseStoredConversationSort,
+  sortConversations,
+} from "@/utils/matchesConversationSort";
+import {
+  getUtcDateKey,
+  resolveMatchesSpotlight,
+} from "../../shared/matches/spotlightResolver";
 
 const Matches = () => {
   const navigate = useNavigate();
@@ -69,8 +82,25 @@ const Matches = () => {
     check();
   }, [user?.id]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortOption>("recent");
+  const searchTrimmed = searchQuery.trim();
+  const showNewVibesRail = searchTrimmed.length === 0;
+  const [sortBy, setSortBy] = useState<ConversationSortOption>(() =>
+    parseStoredConversationSort(
+      typeof window !== "undefined"
+        ? localStorage.getItem(MATCHES_CONVERSATION_SORT_STORAGE_KEY)
+        : null
+    )
+  );
   const [activeTab, setActiveTab] = useState("conversations");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(MATCHES_CONVERSATION_SORT_STORAGE_KEY, sortBy);
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [sortBy]);
   
   // Unmatch state
   const [unmatchTarget, setUnmatchTarget] = useState<Match | null>(null);
@@ -114,7 +144,6 @@ const Matches = () => {
   const { newVibes, regularMatches, archivedMatches } = useMemo(() => {
     const newVibes = matches
       .filter((m) => {
-        const matchedAt = new Date(m.time === 'new' ? Date.now() : Date.now()); // isNew is already computed in hook
         return m.isNew && !m.isArchived && !openedVibeIds.has(m.id);
       })
       .map((m) => ({
@@ -133,50 +162,99 @@ const Matches = () => {
     const archived = matches.filter((m) => m.isArchived);
     return { newVibes, regularMatches: regular, archivedMatches: archived };
   }, [matches, openedVibeIds]);
+  const dateKey = getUtcDateKey();
+  const matchesSpotlight = useMemo(
+    () =>
+      resolveMatchesSpotlight({
+        userId: user?.id ?? "__anonymous__",
+        dateKey,
+      }),
+    [user?.id, dateKey]
+  );
+  const spotlightDismissKey = useMemo(
+    () =>
+      `matches_spotlight_dismissed:${user?.id ?? "__anonymous__"}:${dateKey}:${matchesSpotlight.id}`,
+    [user?.id, dateKey, matchesSpotlight.id]
+  );
+  const [spotlightDismissed, setSpotlightDismissed] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      setSpotlightDismissed(localStorage.getItem(spotlightDismissKey) === "1");
+    } catch {
+      setSpotlightDismissed(false);
+    }
+  }, [spotlightDismissKey]);
+
+  const regularConversationCount = regularMatches.length;
+  const shouldShowSpotlightBase =
+    activeTab === "conversations" && searchTrimmed.length === 0 && !spotlightDismissed;
+  const spotlightPlacement: "empty" | "footer" | "inline" | null = shouldShowSpotlightBase
+    ? regularConversationCount === 0
+      ? "empty"
+      : regularConversationCount <= 3
+        ? "footer"
+        : "inline"
+    : null;
+
+  const dismissSpotlightForDay = useCallback(() => {
+    setSpotlightDismissed(true);
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(spotlightDismissKey, "1");
+    } catch {
+      /* ignore */
+    }
+  }, [spotlightDismissKey]);
+
+  const spotlightCard = (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.2 }}
+      className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50 relative"
+    >
+      <button
+        type="button"
+        aria-label="Dismiss spotlight"
+        onClick={dismissSpotlightForDay}
+        className="absolute top-2 right-2 p-1 rounded-md hover:bg-secondary/50 transition-colors"
+      >
+        <X className="w-4 h-4 text-muted-foreground" />
+      </button>
+      <div className="text-center space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {matchesSpotlight.eyebrow}
+        </p>
+        <p className="text-sm font-semibold text-foreground">{matchesSpotlight.title}</p>
+        <p className="text-sm text-muted-foreground">{matchesSpotlight.body}</p>
+        {matchesSpotlight.ctaLabel && matchesSpotlight.ctaTarget ? (
+          <a
+            href={matchesSpotlight.ctaTarget}
+            className="inline-block text-sm text-primary underline-offset-4 hover:underline pt-1"
+          >
+            {matchesSpotlight.ctaLabel}
+          </a>
+        ) : null}
+      </div>
+    </motion.div>
+  );
 
   const orderIndexByMatchId = useMemo(() => {
-    const m = new Map<string, number>();
-    regularMatches.forEach((row, i) => m.set(row.matchId, i));
-    return m;
+    return buildOrderIndexByMatchId(regularMatches);
   }, [regularMatches]);
 
   // Filter (search) then sort — same options as native; count matches visible rows
   const filteredMatches = useMemo(() => {
     let filtered = [...regularMatches];
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (m) =>
-          m.name.toLowerCase().includes(query) ||
-          m.vibes.some((v) => v.toLowerCase().includes(query))
-      );
+    if (searchTrimmed) {
+      const query = searchTrimmed.toLowerCase();
+      filtered = filtered.filter((m) => matchPassesClientSearch(m, query));
     }
 
-    const tieRecent = (a: Match, b: Match) =>
-      (orderIndexByMatchId.get(a.matchId) ?? 0) -
-      (orderIndexByMatchId.get(b.matchId) ?? 0);
-
-    switch (sortBy) {
-      case "unread":
-        filtered.sort((a, b) => {
-          const du = (b.unread ? 1 : 0) - (a.unread ? 1 : 0);
-          return du !== 0 ? du : tieRecent(a, b);
-        });
-        break;
-      case "compatibility":
-        filtered.sort((a, b) => {
-          const ds = b.bestMatchScore - a.bestMatchScore;
-          return ds !== 0 ? ds : tieRecent(a, b);
-        });
-        break;
-      default:
-        filtered.sort(tieRecent);
-        break;
-    }
-
-    return filtered;
-  }, [regularMatches, searchQuery, sortBy, orderIndexByMatchId]);
+    return sortConversations(filtered, sortBy, orderIndexByMatchId);
+  }, [regularMatches, searchTrimmed, sortBy, orderIndexByMatchId]);
 
   const handleUnmatchClick = (match: Match) => {
     setUnmatchTarget(match);
@@ -235,10 +313,10 @@ const Matches = () => {
     toast.info("Viewing profile...");
   };
 
-  const sortOptions: { value: SortOption; label: string }[] = [
+  const sortOptions: { value: ConversationSortOption; label: string }[] = [
     { value: "recent", label: "Most Recent" },
-    { value: "unread", label: "Unread First" },
-    { value: "compatibility", label: "Best Match" },
+    { value: "needsReply", label: "Needs Reply" },
+    { value: "best", label: "Best Match" },
   ];
 
   return (
@@ -292,44 +370,49 @@ const Matches = () => {
 
           {/* Search and filter bar - only for conversations */}
           {activeTab === 'conversations' && regularMatches.length > 0 && (
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or vibe..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 bg-secondary/50 border-border/50 rounded-xl"
-                />
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="shrink-0 rounded-xl border-border/50"
-                  >
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {sortOptions.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      onClick={() => setSortBy(option.value)}
-                      className={sortBy === option.value ? "bg-primary/10" : ""}
+            <>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder={MATCHES_SEARCH_PLACEHOLDER}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 bg-secondary/50 border-border/50 rounded-xl"
+                  />
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="shrink-0 rounded-xl border-border/50"
                     >
-                      {option.label}
-                      {sortBy === option.value && (
-                        <span className="ml-auto text-primary">✓</span>
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                      <SlidersHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {sortOptions.map((option) => (
+                      <DropdownMenuItem
+                        key={option.value}
+                        onClick={() => setSortBy(option.value)}
+                        className={sortBy === option.value ? "bg-primary/10" : ""}
+                      >
+                        {option.label}
+                        {sortBy === option.value && (
+                          <span className="ml-auto text-primary">✓</span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <p className="text-[11px] text-muted-foreground/90 mt-1.5 pl-0.5 tracking-wide">
+                Sorted by: {conversationSortShortLabel(sortBy)}
+              </p>
+            </>
           )}
         </div>
       </header>
@@ -357,8 +440,8 @@ const Matches = () => {
                 </div>
               ) : matches.length > 0 ? (
                 <>
-                  {/* Who Liked You Gate (free users) or New Vibes Rail (premium) */}
-                  {isPremium ? (
+                  {/* Who Liked You Gate (free users) or New Vibes Rail (premium) — hidden while searching (native parity) */}
+                  {showNewVibesRail && isPremium ? (
                     <NewVibesRail
                       vibes={newVibes}
                       onVibeClick={(id) => {
@@ -371,9 +454,12 @@ const Matches = () => {
                         if (match) setViewProfileMatch(match);
                       }}
                     />
-                  ) : newVibes.length > 0 ? (
+                  ) : showNewVibesRail && !isPremium && newVibes.length > 0 ? (
                     <WhoLikedYouGate count={newVibes.length} />
                   ) : null}
+
+                  {/* Matches spotlight (0 conversations: high placement) */}
+                  {spotlightPlacement === "empty" ? spotlightCard : null}
 
                   {/* Section divider */}
                   {regularMatches.length > 0 && (
@@ -391,27 +477,28 @@ const Matches = () => {
                     {filteredMatches.length > 0 ? (
                       <div className="divide-y divide-border/50">
                         {filteredMatches.map((match, index) => (
-                          <motion.div
-                            key={match.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, x: -100 }}
-                            transition={{ delay: index * 0.03 }}
-                          >
-                            <SwipeableMatchCard
-                              {...match}
-                              photoVerified={match.photoVerified}
-                              compatibility={match.compatibilityPercent}
-                              onClick={() => navigate(`/chat/${match.id}`)}
-                            onViewProfile={() =>
-                                handleViewProfile(match.id)
-                              }
-                              onUnmatch={() => handleUnmatchClick(match)}
-                            />
-                          </motion.div>
+                          <div key={match.id}>
+                            <motion.div
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, x: -100 }}
+                              transition={{ delay: index * 0.03 }}
+                            >
+                              <SwipeableMatchCard
+                                {...match}
+                                photoVerified={match.photoVerified}
+                                compatibility={match.compatibilityPercent}
+                                onClick={() => navigate(`/chat/${match.id}`)}
+                                onViewProfile={() => handleViewProfile(match.id)}
+                                onUnmatch={() => handleUnmatchClick(match)}
+                              />
+                            </motion.div>
+                            {/* Matches spotlight (4+ conversations: inline after 2nd row) */}
+                            {spotlightPlacement === "inline" && index === 1 ? spotlightCard : null}
+                          </div>
                         ))}
                       </div>
-                    ) : searchQuery ? (
+                    ) : searchTrimmed ? (
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -433,20 +520,8 @@ const Matches = () => {
                   {/* Archived Matches Section */}
                   <ArchivedMatchesSection archivedMatches={archivedMatches} />
 
-                  {/* Tip at bottom */}
-                  {regularMatches.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.5 }}
-                      className="mx-4 my-6 p-4 glass-card rounded-2xl border border-border/50"
-                    >
-                      <p className="text-sm text-muted-foreground text-center">
-                        <span className="text-primary">Pro tip:</span> Swipe right to
-                        view their profile, left to unmatch
-                      </p>
-                    </motion.div>
-                  )}
+                  {/* Matches spotlight (1–3 conversations: footer placement) */}
+                  {spotlightPlacement === "footer" ? spotlightCard : null}
 
                   {/* Invite friends banner */}
                   {matches.length >= 1 && (
@@ -481,6 +556,8 @@ const Matches = () => {
               ) : (
               <div className="space-y-4">
                 <EmptyMatchesState onBrowseEvents={() => navigate("/events")} />
+                {/* Matches spotlight (0 conversations: high placement) */}
+                {spotlightPlacement === "empty" ? spotlightCard : null}
                 {!phoneVerifiedForEmpty && (
                   <div className="px-4">
                     <PhoneVerificationNudge
