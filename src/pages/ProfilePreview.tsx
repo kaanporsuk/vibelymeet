@@ -1,14 +1,15 @@
-import { useState, useEffect, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, Play, Pencil, Loader2, Camera, Mail, Phone, Briefcase, Ruler, Cake, MessageCircle } from "lucide-react";
+import { ArrowLeft, MapPin, Play, Pencil, Loader2, Camera, Mail, Phone, Briefcase, Ruler, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { supabase } from "@/integrations/supabase/client";
-import { fetchMyProfile, getZodiacSign, getZodiacEmoji, calculateAge, type ProfileData } from "@/services/profileService";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { BottomNav } from "@/components/BottomNav";
 import { cn } from "@/lib/utils";
+import { useUserProfile as useViewerProfile } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/hooks/useUserProfile";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 
 const PROMPT_EMOJIS: Record<string, string> = {
   "A shower thought I had recently": "🚿",
@@ -26,9 +27,7 @@ const PROMPT_EMOJIS: Record<string, string> = {
 interface UserProfile {
   id: string;
   name: string;
-  birthDate: Date | null;
   age: number | null;
-  zodiac: string | null;
   tagline: string | null;
   job: string | null;
   heightCm: number | null;
@@ -40,6 +39,8 @@ interface UserProfile {
   lookingFor: string | null;
   lifestyle: Record<string, string>;
   photoVerified: boolean;
+  phoneVerified: boolean;
+  emailVerified: boolean;
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
@@ -55,56 +56,34 @@ const INTENT_MAP: Record<string, { label: string; emoji: string }> = {
 
 const ProfilePreview = () => {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [emailVerified, setEmailVerified] = useState(false);
+  const { user } = useViewerProfile();
+  const { data, isLoading } = useUserProfile(user?.id);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: flags } = await supabase
-            .from("profiles")
-            .select("phone_verified, email_verified")
-            .eq("id", user.id)
-            .maybeSingle();
-          if (flags?.phone_verified) setPhoneVerified(true);
-          if (flags?.email_verified) setEmailVerified(true);
-        }
-        const data = await fetchMyProfile();
-        if (data) {
-          setProfile({
-            id: data.id,
-            name: data.name,
-            birthDate: data.birthDate,
-            age: data.age,
-            zodiac: data.zodiac,
-            tagline: data.tagline,
-            job: data.job,
-            heightCm: data.heightCm,
-            location: data.location,
-            aboutMe: data.aboutMe,
-            photos: data.photos,
-            vibes: data.vibes,
-            prompts: data.prompts?.filter((p) => p.question?.trim() && p.answer?.trim()) ?? [],
-            lookingFor: data.lookingFor,
-            lifestyle: data.lifestyle,
-            photoVerified: data.photoVerified || false,
-            bunnyVideoUid: data.bunnyVideoUid || null,
-            bunnyVideoStatus: data.bunnyVideoStatus || "none",
-            vibeCaption: (data as any).vibeCaption || "",
-          });
-        }
-      } catch (e) {
-        console.error("Error loading preview:", e);
-      } finally {
-        setIsLoading(false);
-      }
+  const profile: UserProfile | null = useMemo(() => {
+    if (!data) return null;
+    return {
+      id: data.id,
+      name: data.name ?? "",
+      age: data.age ?? null,
+      tagline: data.tagline ?? null,
+      job: data.job ?? null,
+      heightCm: data.height_cm ?? null,
+      location: data.location ?? null,
+      aboutMe: data.about_me ?? null,
+      photos: (data.photos ?? []).filter(Boolean),
+      vibes: data.vibes ?? [],
+      prompts: (data.prompts ?? []).filter((p) => p.question?.trim() && p.answer?.trim()),
+      lookingFor: data.looking_for ?? null,
+      lifestyle: data.lifestyle ?? {},
+      photoVerified: data.photo_verified === true,
+      phoneVerified: data.phone_verified === true,
+      emailVerified: data.email_verified === true,
+      bunnyVideoUid: data.bunny_video_uid ?? null,
+      bunnyVideoStatus: data.bunny_video_status ?? "none",
+      vibeCaption: data.vibe_caption ?? "",
     };
-    load();
-  }, []);
+  }, [data]);
 
   if (isLoading || !profile) {
     return (
@@ -118,11 +97,16 @@ const ProfilePreview = () => {
   const thumbnailUrl = profile.bunnyVideoUid
     ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg`
     : null;
+  const playbackUrl = profile.bunnyVideoUid
+    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
+    : null;
   const filledPhotos = profile.photos.filter(Boolean);
   const lookingForDisplay = profile.lookingFor ? INTENT_MAP[profile.lookingFor] : null;
   const lifestyleKeys = Object.keys(profile.lifestyle).filter((k) => k !== "meeting_preference");
   const hasLifestyle = lifestyleKeys.length > 0;
-  const hasBasics = !!(profile.birthDate || profile.job || profile.heightCm || profile.location);
+  const hasBasics = !!(profile.job || profile.heightCm || profile.location);
+  const aboutTrim = (profile.aboutMe ?? "").trim();
+  const showAboutMe = aboutTrim.length > 10;
 
   return (
     <div className="min-h-screen bg-background pb-[100px]">
@@ -180,9 +164,9 @@ const ProfilePreview = () => {
           )}
 
           {/* Verification badges */}
-          {(emailVerified || phoneVerified || profile.photoVerified) && (
+          {(profile.emailVerified || profile.phoneVerified || profile.photoVerified) && (
             <div className="flex items-center justify-center gap-2 pt-2">
-              {emailVerified && (
+              {profile.emailVerified && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/15 border border-teal-500/30 text-teal-400">
                   <Mail className="w-3 h-3" /> Email
                 </span>
@@ -192,7 +176,7 @@ const ProfilePreview = () => {
                   <Camera className="w-3 h-3" /> Photo
                 </span>
               )}
-              {phoneVerified && (
+              {profile.phoneVerified && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/15 border border-teal-500/30 text-teal-400">
                   <Phone className="w-3 h-3" /> Phone
                 </span>
@@ -204,7 +188,13 @@ const ProfilePreview = () => {
         {/* ═══ Vibe Video ═══ */}
         {hasVibeVideo && (
           <div className="mb-6">
-            <div className="relative w-full rounded-2xl overflow-hidden bg-secondary" style={{ aspectRatio: "16/9" }}>
+            <div
+              className="relative w-full rounded-2xl overflow-hidden bg-secondary cursor-pointer"
+              style={{ aspectRatio: "16/9" }}
+              onClick={() => setShowVideoPlayer(true)}
+              role="button"
+              aria-label="Play vibe video"
+            >
               {thumbnailUrl && (
                 <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
               )}
@@ -225,10 +215,10 @@ const ProfilePreview = () => {
         )}
 
         {/* ═══ About Me ═══ */}
-        {profile.aboutMe && (
+        {showAboutMe && (
           <div className="mb-6">
             <h3 className="text-lg font-display font-bold text-white mb-2">About Me</h3>
-            <p className="text-sm text-gray-400 leading-relaxed">{profile.aboutMe}</p>
+            <p className="text-sm text-gray-400 leading-relaxed">{aboutTrim}</p>
           </div>
         )}
 
@@ -294,7 +284,6 @@ const ProfilePreview = () => {
             <h3 className="text-lg font-display font-bold text-white mb-3">The Basics</h3>
             <div className="grid grid-cols-2 gap-2">
               {([
-                { icon: Cake, label: "Birthday", value: profile.birthDate ? `${profile.birthDate.toLocaleDateString()} (${profile.zodiac})` : null },
                 { icon: Briefcase, label: "Work", value: profile.job },
                 { icon: Ruler, label: "Height", value: profile.heightCm ? `${profile.heightCm} cm` : null },
                 { icon: MapPin, label: "Location", value: profile.location },
@@ -335,6 +324,32 @@ const ProfilePreview = () => {
           </div>
         )}
       </div>
+
+      {/* Vibe Video Player Modal */}
+      {showVideoPlayer && hasVibeVideo && playbackUrl ? (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg">
+            <div className="flex justify-end mb-3">
+              <button
+                onClick={() => setShowVideoPlayer(false)}
+                className="px-3 py-1.5 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+            <div className="rounded-2xl overflow-hidden bg-black">
+              <VibePlayer
+                videoUrl={playbackUrl}
+                thumbnailUrl={thumbnailUrl ?? undefined}
+                vibeCaption={profile.vibeCaption ?? ""}
+                autoPlay={true}
+                showControls={true}
+                className="w-full h-full"
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ═══ Fixed bottom CTA ═══ */}
       <div className="fixed bottom-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-t border-white/5 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">

@@ -33,19 +33,20 @@ interface ProfilePreviewProps {
     name: string;
     age: number;
     photos: string[];
-    bio: string;
+    aboutMe: string;
     job: string;
     location: string;
     heightCm: number;
     vibes: string[];
     verified: boolean;
     photoVerified?: boolean;
-    prompts: { prompt: string; answer: string }[];
+    prompts: { question: string; answer: string }[];
     relationshipIntent: string;
     lifestyle?: Record<string, string>;
     
     bunnyVideoUid?: string;
     bunnyVideoStatus?: string;
+    tagline?: string;
   };
   onClose: () => void;
 }
@@ -91,11 +92,11 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
     // Video intro first if available
     ...(vibeVideoPlaybackUrl ? [{ type: 'video' as const, data: vibeVideoPlaybackUrl }] : []),
     // Photo 1 is always hero
-    ...(profile.bio ? [{ type: 'bio' as const, data: profile.bio }] : []),
+    ...(profile.aboutMe ? [{ type: 'aboutMe' as const, data: profile.aboutMe }] : []),
     // Photo 2
     ...(profile.vibes.length > 0 ? [{ type: 'vibes' as const, data: profile.vibes }] : []),
     // Photo 3
-    ...profile.prompts.filter(p => p.answer && p.prompt).map(p => ({ type: 'prompt' as const, data: p })),
+    ...profile.prompts.filter(p => p.answer && p.question).map(p => ({ type: 'prompt' as const, data: p })),
     // Remaining photos interspersed
     ...(profile.lifestyle && Object.keys(profile.lifestyle).length > 0 
       ? [{ type: 'lifestyle' as const, data: profile.lifestyle }] 
@@ -222,10 +223,10 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
           </motion.div>
         );
 
-      case 'bio':
+      case 'aboutMe':
         return (
           <motion.div
-            key="bio"
+            key="aboutMe"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay }}
@@ -257,16 +258,16 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
         );
 
       case 'prompt':
-        const prompt = section.data as { prompt: string; answer: string };
+        const prompt = section.data as { question: string; answer: string };
         return (
           <motion.div
-            key={`prompt-${prompt.prompt}`}
+            key={`prompt-${prompt.question}`}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay }}
             className="glass-card p-5 rounded-2xl"
           >
-            <p className="text-sm font-medium text-primary mb-2">{prompt.prompt}</p>
+            <p className="text-sm font-medium text-primary mb-2">{prompt.question}</p>
             <p className="text-lg leading-relaxed text-foreground">{prompt.answer}</p>
           </motion.div>
         );

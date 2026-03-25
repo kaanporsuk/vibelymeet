@@ -26,6 +26,7 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 
 interface ProfileDetailDrawerProps {
@@ -40,7 +41,7 @@ interface ProfileDetailDrawerProps {
     job?: string;
     location?: string;
     height?: number;
-    bio?: string;
+    aboutMe?: string;
     lifestyle?: Record<string, string>;
     prompts?: { question: string; answer: string }[];
     
@@ -70,6 +71,7 @@ export const ProfileDetailDrawer = ({
   mode = 'match',
 }: ProfileDetailDrawerProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
+  const { data: fetchedProfile } = useUserProfile(open ? match.id : null);
   
   // Use controlled or uncontrolled mode
   const isControlled = controlledOpen !== undefined;
@@ -89,34 +91,45 @@ export const ProfileDetailDrawer = ({
 
   // Use photos from match prop - resolve storage paths to full URLs
   const photos = useMemo(() => {
-    const raw = match.photos && match.photos.length > 0 
-      ? match.photos 
-      : [match.image].filter(Boolean);
-    return raw.map(p => resolvePhotoUrl(p)).filter(Boolean) as string[];
-  }, [match.photos, match.image]);
+    const raw =
+      fetchedProfile?.photos && fetchedProfile.photos.length > 0
+        ? fetchedProfile.photos
+        : match.photos && match.photos.length > 0
+          ? match.photos
+          : [match.image].filter(Boolean);
+    return raw.map((p) => resolvePhotoUrl(p)).filter(Boolean) as string[];
+  }, [fetchedProfile?.photos, match.photos, match.image]);
   
   const profileData = {
-    job: match.job || null,
-    location: match.location || null,
-    height: match.height || null,
-    bio: match.bio || null,
-    lifestyle: match.lifestyle || {},
-    prompts: match.prompts || [],
+    job: fetchedProfile?.job ?? match.job ?? null,
+    location: fetchedProfile?.location ?? match.location ?? null,
+    height: fetchedProfile?.height_cm ?? match.height ?? null,
+    aboutMe: fetchedProfile?.about_me ?? match.aboutMe ?? null,
+    lifestyle: fetchedProfile?.lifestyle ?? match.lifestyle ?? {},
+    prompts: fetchedProfile?.prompts ?? match.prompts ?? [],
   };
+
+  const tagline = fetchedProfile?.tagline?.trim() ?? "";
+  const lookingFor = fetchedProfile?.looking_for?.trim() ?? "";
+  const aboutTrim = (profileData.aboutMe ?? "").trim();
+  const showAboutMe = aboutTrim.length > 10;
   
-  const hasVideoIntro = !!match.bunnyVideoUid && match.bunnyVideoStatus === "ready";
+  const bunnyUid = fetchedProfile?.bunny_video_uid ?? match.bunnyVideoUid ?? null;
+  const bunnyStatus = fetchedProfile?.bunny_video_status ?? match.bunnyVideoStatus ?? "none";
+  const vibeCaption = fetchedProfile?.vibe_caption ?? match.vibeCaption ?? "";
+  const hasVideoIntro = !!bunnyUid && bunnyStatus === "ready";
   const compatibility = match.compatibility ?? 0;
 
   // Resolve Bunny CDN URL for video playback
   useEffect(() => {
-    if (!open || !match.bunnyVideoUid || match.bunnyVideoStatus !== "ready") {
+    if (!open || !bunnyUid || bunnyStatus !== "ready") {
       setSignedVideoUrl(null);
       return;
     }
     setSignedVideoUrl(
-      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${match.bunnyVideoUid}/playlist.m3u8`
+      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyUid}/playlist.m3u8`
     );
-  }, [open, match.bunnyVideoUid, match.bunnyVideoStatus]);
+  }, [open, bunnyUid, bunnyStatus]);
 
   // Hide scroll hint after a few seconds
   useEffect(() => {
@@ -153,17 +166,17 @@ export const ProfileDetailDrawer = ({
     const sections: JSX.Element[] = [];
     let photoIndex = 1;
 
-    // Bio section
-    if (profileData.bio) {
+    // About Me section
+    if (showAboutMe) {
       sections.push(
         <motion.div
-          key="bio"
+          key="aboutMe"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
           className="glass-card p-5 rounded-2xl"
         >
-          <p className="ph-no-capture text-lg leading-relaxed text-foreground">{profileData.bio}</p>
+          <p className="ph-no-capture text-lg leading-relaxed text-foreground">{aboutTrim}</p>
         </motion.div>
       );
     }
@@ -392,7 +405,7 @@ export const ProfileDetailDrawer = ({
               <VibePlayer
                 videoUrl={signedVideoUrl}
                 thumbnailUrl={photos[0]}
-                vibeCaption={match.vibeCaption || ""}
+                vibeCaption={vibeCaption}
                 autoPlay={true}
                 showControls={true}
                 className="w-full h-full"
@@ -479,6 +492,18 @@ export const ProfileDetailDrawer = ({
                       </span>
                     )}
                   </div>
+
+                  {tagline ? (
+                    <p className="text-sm italic text-primary mt-2">&quot;{tagline}&quot;</p>
+                  ) : null}
+
+                  {lookingFor ? (
+                    <div className="mt-2">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/20 border border-primary/30 text-sm text-primary">
+                        {lookingFor}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Compatibility badge */}

@@ -644,7 +644,7 @@ const Matches = () => {
             image: viewProfileMatch.image,
             vibes: viewProfileMatch.vibes,
             photos: viewProfileMatch.photos,
-            bio: viewProfileMatch.bio || undefined,
+            aboutMe: viewProfileMatch.bio || undefined,
             job: viewProfileMatch.job || undefined,
             location: viewProfileMatch.location || undefined,
             height: viewProfileMatch.height || undefined,

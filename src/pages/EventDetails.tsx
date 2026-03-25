@@ -608,7 +608,7 @@ const EventDetails = () => {
           vibes: fullProfileAttendee?.vibeTags || [fullProfileAttendee?.vibeTag || ""],
           compatibility: fullProfileAttendee?.matchPercent,
           photos: (fullProfileAttendee?.photos || []).map(p => resolvePhotoUrl(p)).filter(Boolean) as string[],
-          bio: fullProfileAttendee?.bio,
+          aboutMe: fullProfileAttendee?.bio,
         }}
         open={!!fullProfileAttendee}
         onOpenChange={(open) => {

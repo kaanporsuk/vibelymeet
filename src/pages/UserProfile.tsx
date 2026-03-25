@@ -15,7 +15,6 @@ interface UserProfileData {
   id: string;
   name: string;
   age: number;
-  bio: string | null;
   about_me: string | null;
   job: string | null;
   company: string | null;
@@ -43,7 +42,7 @@ const UserProfile = () => {
     const fetchProfile = async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("id, name, age, bio, about_me, job, company, height_cm, location, country, photos, avatar_url, tagline, looking_for, lifestyle, prompts, photo_verified")
+        .select("id, name, age, about_me, job, company, height_cm, location, country, photos, avatar_url, tagline, looking_for, lifestyle, prompts, photo_verified")
         .eq("id", userId)
         .single();
       setProfile(data as UserProfileData | null);
@@ -210,11 +209,11 @@ const UserProfile = () => {
         )}
 
         {/* About Me */}
-        {(profile.about_me || profile.bio) && (
+        {profile.about_me && (
           <div className="glass-card p-4 space-y-2">
             <h3 className="text-sm font-semibold text-foreground">About Me</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              {profile.about_me || profile.bio}
+              {profile.about_me}
             </p>
           </div>
         )}
