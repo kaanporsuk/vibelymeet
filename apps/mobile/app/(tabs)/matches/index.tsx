@@ -349,16 +349,7 @@ export default function MatchesListScreen() {
   const handleMatchPress = useCallback(
     (item: (typeof matches)[0]) => {
       if (item.isNew) setOpenedVibeIds((prev) => new Set(prev).add(item.matchId));
-      if (item.unread) {
-        const params = new URLSearchParams({
-          otherUserId: item.id,
-          name: item.name ?? '',
-          image: item.image ?? '',
-        });
-        (router as { push: (p: string) => void }).push(`/match-celebration?${params.toString()}`);
-      } else {
-        (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
-      }
+      (router as { push: (p: string) => void }).push(`/chat/${item.id}`);
     },
     [router]
   );

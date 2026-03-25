@@ -331,6 +331,45 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
   }, [matchId, enabled, invalidate]);
 }
 
+/**
+ * Single global `messages` postgres_changes subscription for inbox / OS badge counts (not per-match).
+ *
+ * Supabase Realtime: for Postgres Changes, rows are delivered only to clients that pass SELECT RLS on
+ * `public.messages` (see Supabase docs “Interaction with Postgres Changes”). Our policies restrict
+ * visibility to messages in matches where the user is a participant — not all traffic on the table.
+ * Channel `private` / `realtime.messages` policies apply to Broadcast/Presence, not Postgres Changes.
+ *
+ * Intentional overlap: `useRealtimeMessages(matchId)` still runs in open chat for `messages` query
+ * invalidation; this hook only touches `unread-message-count` + `badge-count`. No feedback loop:
+ * `invalidateQueries` does not emit Realtime events.
+ */
+export function useGlobalMessagesInboxInvalidation(userId: string | null | undefined) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!userId) return;
+    const invalidateInbox = () => {
+      qc.invalidateQueries({ queryKey: ['unread-message-count'] });
+      qc.invalidateQueries({ queryKey: ['badge-count'] });
+    };
+    const channel = supabase
+      .channel('global-messages-inbox')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, qc]);
+}
+
 /** Typing indicator: broadcast when local user types, subscribe for partner typing. */
 export function useTypingBroadcast(
   matchId: string | null,

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -21,14 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import {
-  useAudioPlayer,
-  useAudioPlayerStatus,
-  useAudioRecorder,
-  RecordingPresets,
-  setAudioModeAsync,
-  requestRecordingPermissionsAsync,
-} from 'expo-audio';
+import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { LoadingState, ErrorState } from '@/components/ui';
@@ -57,6 +50,7 @@ import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
 import { MessageStatus } from '@/components/chat/MessageStatus';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
+import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -82,65 +76,6 @@ const MEDIA_CARD_SIZE = Math.max(
   172,
   Math.min(206, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.95))
 );
-
-function formatAudioClock(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-  const s = Math.floor(seconds % 60);
-  const m = Math.floor(seconds / 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function VoiceMessagePlayer({
-  uri,
-  durationSeconds,
-  isMine,
-  theme,
-  footer,
-}: {
-  uri: string;
-  durationSeconds?: number | null;
-  isMine: boolean;
-  theme: (typeof Colors)['light'];
-  footer: ReactNode;
-}) {
-  const player = useAudioPlayer(uri);
-  const status = useAudioPlayerStatus(player);
-  const playing = status.playing;
-  const position = status.currentTime ?? 0;
-  const reportedDur =
-    durationSeconds != null && durationSeconds > 0
-      ? durationSeconds
-      : status.duration != null && status.duration > 0
-        ? status.duration
-        : 0;
-  const progress = reportedDur > 0 ? Math.min(1, position / reportedDur) : 0;
-  const fg = isMine ? 'rgba(255,255,255,0.95)' : theme.text;
-  const track = isMine ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)';
-  const fill = isMine ? 'rgba(255,255,255,0.95)' : theme.tint;
-
-  const toggle = () => {
-    if (playing) player.pause();
-    else player.play();
-  };
-
-  return (
-    <View style={styles.voicePlayerWrap}>
-      <Pressable onPress={toggle} style={styles.voicePlayerRow} accessibilityRole="button">
-        <Ionicons name={playing ? 'pause' : 'play'} size={22} color={fg} />
-        <View style={styles.voicePlayerMid}>
-          <View style={[styles.voiceProgressTrack, { backgroundColor: track }]}>
-            <View style={[styles.voiceProgressFill, { width: `${progress * 100}%`, backgroundColor: fill }]} />
-          </View>
-          <Text style={[styles.voiceTimeRow, { color: isMine ? 'rgba(255,255,255,0.75)' : theme.textSecondary }]}>
-            {formatAudioClock(position)}
-            {reportedDur > 0 ? ` · ${formatAudioClock(reportedDur)}` : ''}
-          </Text>
-        </View>
-      </Pressable>
-      {footer}
-    </View>
-  );
-}
 
 function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
@@ -685,6 +620,7 @@ export default function ChatThreadScreen() {
             durationSeconds={item.audio_duration_seconds}
             isMine={isMe}
             theme={theme}
+            wrapStyle={styles.voicePlayerWrap}
             footer={
               <>
                 {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1458,11 +1394,6 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.45 },
   voicePlayerWrap: { minWidth: 0, width: '100%', maxWidth: MEDIA_CARD_SIZE + 14 },
-  voicePlayerRow: { flexDirection: 'row', alignItems: 'center' },
-  voicePlayerMid: { flex: 1, marginLeft: 10 },
-  voiceProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  voiceProgressFill: { height: '100%', borderRadius: 2 },
-  voiceTimeRow: { fontSize: 11, marginTop: 6 },
   chatVideoCardOuter: {
     width: MEDIA_CARD_SIZE,
     borderRadius: 16,

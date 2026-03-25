@@ -14,6 +14,9 @@ try {
   OneSignal = require('react-native-onesignal').OneSignal ?? require('react-native-onesignal').default;
 } catch {}
 
+/** Covers daily-drop half of badge + any missed realtime; message unread updates via realtime invalidation. */
+const BADGE_COUNT_POLL_MS = 180_000;
+
 export function useBadgeCount(): number {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -52,7 +55,7 @@ export function useBadgeCount(): number {
       return (unreadMessages ?? 0) + unviewedDrops;
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // refresh every 30s
+    refetchInterval: BADGE_COUNT_POLL_MS,
   });
 
   // Set the app badge via OneSignal
