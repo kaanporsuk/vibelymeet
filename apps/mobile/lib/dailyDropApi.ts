@@ -46,7 +46,7 @@ export type DailyDropPartner = {
   age: number;
   avatar_url: string | null;
   photos: string[] | null;
-  bio: string | null;
+  about_me: string | null;
 };
 
 export type PastDropRow = {
@@ -105,7 +105,7 @@ export function useDailyDrop(userId: string | null | undefined) {
   const fetchPartner = useCallback(async (id: string) => {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, name, age, avatar_url, photos, bio')
+      .select('id, name, age, avatar_url, photos, about_me')
       .eq('id', id)
       .maybeSingle();
     if (!profile) {
@@ -118,7 +118,7 @@ export function useDailyDrop(userId: string | null | undefined) {
       age: profile.age ?? 0,
       avatar_url: profile.avatar_url ?? null,
       photos: (profile.photos as string[]) ?? null,
-      bio: profile.bio ?? null,
+      about_me: profile.about_me ?? null,
     });
   }, []);
 

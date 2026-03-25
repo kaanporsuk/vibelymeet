@@ -261,7 +261,7 @@ export default function DailyDropScreen() {
               )}
             </View>
             <Text style={[styles.partnerName, { color: theme.text }]}>{partner.name}, {partner.age}</Text>
-            {partner.bio ? <Text style={[styles.partnerBio, { color: theme.textSecondary }]}>{partner.bio}</Text> : null}
+            {partner.about_me ? <Text style={[styles.partnerBio, { color: theme.textSecondary }]}>{partner.about_me}</Text> : null}
           </Card>
         )}
 
