@@ -686,14 +686,36 @@ function LobbyProfileCard({
         </View>
       )}
       {photoVerified && (
-        <View style={[styles.photoVerifiedBadge, { backgroundColor: withAlpha(theme.neonCyan, 0.93) }]}>
+        <View
+          style={[
+            styles.photoVerifiedBadge,
+            { backgroundColor: withAlpha(theme.neonCyan, 0.93) },
+            !isBehind && styles.photoVerifiedBadgeWithInfo,
+          ]}
+        >
           <Ionicons name="shield-checkmark" size={14} color="#fff" />
         </View>
       )}
       {showQueueBadge && (
-        <View style={[styles.queueBadge, { backgroundColor: theme.secondary, borderColor: theme.border }]}>
+        <View
+          style={[
+            styles.queueBadge,
+            { backgroundColor: theme.secondary, borderColor: theme.border },
+            !isBehind && styles.queueBadgeWithInfo,
+            !isBehind && photoVerified ? { top: spacing.md + 36 } : null,
+          ]}
+        >
           <Text style={[styles.queueBadgeText, { color: theme.textSecondary }]}>In a date</Text>
         </View>
+      )}
+      {!isBehind && (
+        <Pressable
+          onPress={() => router.push(`/user/${profile.profile_id}`)}
+          style={styles.profileInfoBtn}
+          accessibilityLabel="View full profile"
+        >
+          <Ionicons name="information-circle-outline" size={24} color="#fff" />
+        </Pressable>
       )}
       <View style={styles.cardBody}>
         <View style={styles.nameAgeRow}>
@@ -945,6 +967,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     zIndex: 10,
+  },
+  queueBadgeWithInfo: {
+    right: spacing.md + 44,
+  },
+  profileInfoBtn: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 12,
+  },
+  photoVerifiedBadgeWithInfo: {
+    right: spacing.md + 44,
   },
   queueBadgeText: { fontSize: 10, fontWeight: '500' },
   nameAgeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.md },

@@ -74,7 +74,6 @@ import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
-import { ProfilePreviewModal } from '@/components/profile/ProfilePreviewModal';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
@@ -270,7 +269,6 @@ export default function ProfileScreen() {
   const [showPromptSheet, setShowPromptSheet] = useState(false);
   const [promptSheetMode, setPromptSheetMode] = useState<'edit' | 'add'>('edit');
   const [promptEditIndex, setPromptEditIndex] = useState<number | null>(null);
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showVibeManageSheet, setShowVibeManageSheet] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
@@ -414,7 +412,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const handlePreviewProfile = () => setShowPreviewModal(true);
+  const handlePreviewProfile = () => router.push('/profile-preview');
 
   const handleSchedulePress = () => {
     router.push('/schedule');
@@ -1747,8 +1745,6 @@ export default function ProfileScreen() {
         </Pressable>
       </Pressable>
     </Modal>
-
-    <ProfilePreviewModal visible={showPreviewModal} onClose={() => setShowPreviewModal(false)} profile={profile ?? null} />
 
     <PhoneVerificationFlow
       visible={showPhoneVerify}

@@ -40,8 +40,10 @@ export function calculateVibeScore(profile: VibeScoreProfile): number {
   const vibes = profile.vibes || [];
   score += Math.min(vibes.length * 3, 12);
 
-  const prompts = profile.prompts || [];
-  score += prompts.filter((p) => p.answer && p.answer.trim()).length * 7;
+  const promptAnswers = (profile.prompts || []).filter((p) => p.answer && p.answer.trim()).length;
+  if (promptAnswers >= 1) score += 4;
+  if (promptAnswers >= 2) score += 3;
+  if (promptAnswers >= 3) score += 3;
 
   if (profile.hasVibeVideo) score += 10;
 

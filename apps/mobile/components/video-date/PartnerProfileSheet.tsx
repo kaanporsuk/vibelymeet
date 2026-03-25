@@ -1,192 +1,63 @@
 /**
- * Bottom sheet: partner photo, name, age, bio, job, location, vibe tags, prompts.
+ * Modal sheet: partner full profile via useUserProfile + UserProfileFullView (about_me, video, lifestyle, etc.).
  */
-
 import React from 'react';
-import { Modal, View, Text, ScrollView, Pressable, StyleSheet, Image } from 'react-native';
-import { typography, spacing, radius } from '@/constants/theme';
+import { Modal, View, ActivityIndicator, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { useUserProfile } from '@/lib/useUserProfile';
+import { UserProfileFullView } from '@/components/profile/UserProfileFullView';
 import type { PartnerProfileData } from '@/lib/videoDateApi';
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
   partner: PartnerProfileData;
+  partnerProfileId: string;
 };
 
-export function PartnerProfileSheet({ isOpen, onClose, partner }: Props) {
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme];
-  const heroUrl = partner.photos?.[0] ?? partner.avatarUrl ?? null;
+export function PartnerProfileSheet({ isOpen, onClose, partner, partnerProfileId }: Props) {
+  void partner;
+  const theme = Colors[useColorScheme()];
+  const userId = isOpen && partnerProfileId ? partnerProfileId : null;
+  const { data: profile, isPending } = useUserProfile(userId);
 
   if (!isOpen) return null;
 
   return (
-    <Modal visible={isOpen} transparent animationType="slide">
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
-        <View style={[styles.handle, { backgroundColor: theme.mutedForeground }]} />
-        <Pressable style={styles.closeBtn} onPress={onClose}>
-          <Text style={[styles.closeText, { color: theme.text }]}>✕</Text>
-        </Pressable>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.heroRow}>
-            {heroUrl ? (
-              <Image source={{ uri: heroUrl }} style={styles.heroImage} />
-            ) : (
-              <View style={[styles.heroPlaceholder, { backgroundColor: theme.muted }]}>
-                <Text style={[styles.heroPlaceholderText, { color: theme.mutedForeground }]}>Photo</Text>
-              </View>
-            )}
-            <View style={styles.heroInfo}>
-              <Text style={[styles.name, { color: theme.text }]}>
-                {partner.name}
-                {partner.age > 0 ? `, ${partner.age}` : ''}
-              </Text>
-              {partner.job ? (
-                <Text style={[styles.meta, { color: theme.mutedForeground }]}>{partner.job}</Text>
-              ) : null}
-            </View>
+    <Modal
+      visible
+      animationType="slide"
+      {...(Platform.OS === 'ios' ? { presentationStyle: 'pageSheet' as const } : {})}
+      onRequestClose={onClose}
+    >
+      <View style={[styles.root, { backgroundColor: theme.background }]}>
+        {!partnerProfileId ? (
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#8B5CF6" />
           </View>
-          {partner.bio ? (
-            <Text style={[styles.bio, { color: theme.text }]}>{partner.bio}</Text>
-          ) : null}
-          {partner.location ? (
-            <Text style={[styles.meta, { color: theme.mutedForeground }]}>📍 {partner.location}</Text>
-          ) : null}
-          {partner.tags.length > 0 ? (
-            <View style={styles.tagsWrap}>
-              {partner.tags.map((tag) => (
-                <View key={tag} style={[styles.tag, { backgroundColor: theme.muted }]}>
-                  <Text style={[styles.tagText, { color: theme.text }]}>{tag}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-          {partner.prompts.length > 0 ? (
-            <View style={styles.promptsWrap}>
-              {partner.prompts.slice(0, 3).map((p, i) => (
-                <View key={i} style={[styles.promptCard, { borderColor: theme.border }]}>
-                  <Text style={[styles.promptQ, { color: theme.mutedForeground }]}>{p.question}</Text>
-                  <Text style={[styles.promptA, { color: theme.text }]}>{p.answer}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </ScrollView>
+        ) : isPending && profile == null ? (
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#8B5CF6" />
+          </View>
+        ) : profile == null ? (
+          <View style={[styles.centered, { paddingHorizontal: 24 }]}>
+            <Text style={[styles.errorText, { color: theme.textSecondary }]}>Could not load profile.</Text>
+            <Pressable onPress={onClose} style={styles.closeBtn}>
+              <Text style={{ color: theme.tint, fontWeight: '600' }}>Close</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <UserProfileFullView profile={profile} isOwnProfile={false} onClose={onClose} />
+        )}
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: radius['3xl'],
-    borderTopRightRadius: radius['3xl'],
-    maxHeight: '85%',
-    paddingTop: spacing.md,
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: spacing.sm,
-    opacity: 0.3,
-  },
-  closeBtn: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.lg,
-    zIndex: 10,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(128,128,128,0.3)',
-  },
-  closeText: {
-    fontSize: 18,
-  },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: spacing.lg,
-    paddingBottom: spacing['3xl'],
-  },
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  heroImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-  },
-  heroPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroPlaceholderText: {
-    fontSize: 12,
-  },
-  heroInfo: {
-    flex: 1,
-  },
-  name: {
-    ...typography.titleLG,
-  },
-  meta: {
-    ...typography.body,
-    marginTop: spacing.xs,
-  },
-  bio: {
-    ...typography.body,
-    marginBottom: spacing.md,
-  },
-  tagsWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginBottom: spacing.lg,
-  },
-  tag: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  tagText: {
-    ...typography.caption,
-  },
-  promptsWrap: {
-    gap: spacing.md,
-  },
-  promptCard: {
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  promptQ: {
-    ...typography.caption,
-    marginBottom: spacing.xs,
-  },
-  promptA: {
-    ...typography.body,
-  },
+  root: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorText: { textAlign: 'center', marginBottom: 16 },
+  closeBtn: { paddingVertical: 12, paddingHorizontal: 20 },
 });

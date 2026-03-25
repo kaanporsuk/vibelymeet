@@ -1,43 +1,41 @@
 /**
- * Public profile — view another user's profile; actions: Message, Report, Block, Unmatch.
+ * Public profile — full parity via fetchUserProfile + UserProfileFullView + action footer.
  */
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Image, useWindowDimensions, Alert } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { View, ActivityIndicator, Alert, Pressable, StyleSheet } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { GlassSurface, Card, LoadingState, ErrorState, VibelyButton } from '@/components/ui';
-import { spacing } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
-import { fetchPublicProfile } from '@/lib/publicProfileApi';
-import { getImageUrl } from '@/lib/imageUrl';
+import { Text } from '@/components/Themed';
+import { useUserProfile } from '@/lib/useUserProfile';
+import { UserProfileFullView } from '@/components/profile/UserProfileFullView';
+import { ErrorState } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
 import { useMatches } from '@/lib/chatApi';
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
-import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
+
+function paramToString(v: string | string[] | undefined): string | undefined {
+  if (typeof v === 'string') return v;
+  if (Array.isArray(v) && v.length > 0) return v[0];
+  return undefined;
+}
 
 export default function PublicProfileScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const params = useLocalSearchParams<{ userId?: string | string[] }>();
+  const userId = paramToString(params.userId);
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const colorScheme = useColorScheme();
-  const theme = Colors[colorScheme];
+  const theme = Colors[useColorScheme()];
   const { user } = useAuth();
-  const { data: profile, isLoading, error, refetch } = useQuery({
-    queryKey: ['public-profile', userId],
-    queryFn: () => fetchPublicProfile(userId ?? ''),
-    enabled: !!userId,
-  });
+  const { data: profile, isPending, isError } = useUserProfile(userId ?? null);
   const { data: matches = [] } = useMatches(user?.id);
-  // MatchListItem.id = other participant's profile id, matchId = match table primary key (chatApi)
   const matchRow = userId && user?.id ? matches.find((m) => m.id === userId) : null;
   const { mutateAsync: unmatch } = useUnmatch();
   const { blockUser, isUserBlocked } = useBlockUser(user?.id);
-  const [photoIndex, setPhotoIndex] = React.useState(0);
   const [showReport, setShowReport] = useState(false);
 
   const handleUnmatch = useCallback(() => {
@@ -83,185 +81,108 @@ export default function PublicProfileScreen() {
 
   if (!userId) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState title="Invalid profile" message="User not found." actionLabel="Go back" onActionPress={() => router.back()} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        <ErrorState
+          title="Invalid profile"
+          message="User not found."
+          actionLabel="Go back"
+          onActionPress={() => router.back()}
+        />
       </View>
     );
   }
 
-  if (isLoading && !profile) {
+  if (isPending || (profile == null && !isError)) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading profile…" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        <ActivityIndicator size="large" color="#8B5CF6" />
       </View>
     );
   }
 
-  if (error || !profile) {
+  if (!profile) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState title="Could not load profile" message="This profile may be unavailable." actionLabel="Go back" onActionPress={() => router.back()} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        <ErrorState
+          title="Could not load this profile."
+          actionLabel="Go back"
+          onActionPress={() => router.back()}
+        />
       </View>
     );
   }
-
-  const photoUrl = profile.avatar_url || profile.photos?.[0];
-  const photoUris = (profile.photos ?? []).filter(Boolean).map((p) => getImageUrl(p, { width: 800, quality: 90 }));
-  const displayPhoto = photoUris.length > 0 ? photoUris[photoIndex % photoUris.length] : (photoUrl ? getImageUrl(photoUrl, { width: 800, quality: 90 }) : null);
-  const lookingForDisplay = getLookingForDisplay(profile.looking_for);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <GlassSurface style={[styles.header, { paddingTop: insets.top + spacing.sm, paddingBottom: spacing.md, paddingHorizontal: spacing.lg }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          Profile
-        </Text>
-      </GlassSurface>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <UserProfileFullView profile={profile} isOwnProfile={false} onClose={() => router.back()} />
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing['2xl'] }]} showsVerticalScrollIndicator={false}>
-        {/* Photo */}
-        {displayPhoto ? (
-          <View style={[styles.photoWrap, { width }]}>
-            <Image source={{ uri: displayPhoto }} style={styles.photo} resizeMode="cover" />
-            {photoUris.length > 1 && (
-              <View style={styles.photoDots}>
-                {photoUris.map((_, i) => (
-                  <Pressable key={i} onPress={() => setPhotoIndex(i)} style={[styles.dot, i === photoIndex % photoUris.length && styles.dotActive, { backgroundColor: i === photoIndex % photoUris.length ? theme.tint : 'rgba(255,255,255,0.4)' }]} />
-                ))}
-              </View>
-            )}
-          </View>
-        ) : (
-          <View style={[styles.photoPlaceholder, { width, backgroundColor: theme.surfaceSubtle }]}>
-            <Ionicons name="person" size={64} color={theme.textSecondary} />
-          </View>
-        )}
-
-        <View style={styles.content}>
-          <Text style={[styles.name, { color: theme.text }]}>
-            {profile.name ?? 'Unknown'}, {profile.age ?? '—'}
-          </Text>
-          {profile.tagline ? (
-            <Text style={[styles.tagline, { color: theme.tint }]}>"{profile.tagline}"</Text>
+      {user?.id && userId && !isUserBlocked(userId) ? (
+        <View
+          style={[
+            styles.actionFooter,
+            {
+              paddingBottom: insets.bottom + 12,
+              backgroundColor: 'rgba(13,13,18,0.95)',
+              borderTopColor: 'rgba(255,255,255,0.06)',
+            },
+          ]}
+        >
+          {matchRow ? (
+            <Pressable onPress={() => router.push(`/chat/${userId}`)} style={styles.actionBtn}>
+              <Ionicons name="chatbubble-outline" size={20} color="#8B5CF6" />
+              <Text style={[styles.actionLabel, { color: theme.text }]}>Message</Text>
+            </Pressable>
           ) : null}
-          {profile.job ? (
-            <View style={styles.row}>
-              <Ionicons name="briefcase-outline" size={16} color={theme.textSecondary} />
-              <Text style={[styles.meta, { color: theme.textSecondary }]}>{profile.job}</Text>
-            </View>
+          <Pressable onPress={() => setShowReport(true)} style={styles.actionBtn}>
+            <Ionicons name="flag-outline" size={20} color={theme.textSecondary} />
+            <Text style={[styles.actionLabel, { color: theme.textSecondary }]}>Report</Text>
+          </Pressable>
+          <Pressable onPress={handleBlock} style={styles.actionBtn}>
+            <Ionicons name="ban-outline" size={20} color="#E24B4A" />
+            <Text style={[styles.actionLabel, { color: '#E24B4A' }]}>Block</Text>
+          </Pressable>
+          {matchRow ? (
+            <Pressable onPress={handleUnmatch} style={styles.actionBtn}>
+              <Ionicons name="person-remove-outline" size={20} color="#E24B4A" />
+              <Text style={[styles.actionLabel, { color: '#E24B4A' }]}>Unmatch</Text>
+            </Pressable>
           ) : null}
-          {profile.location ? (
-            <View style={styles.row}>
-              <Ionicons name="location-outline" size={16} color={theme.textSecondary} />
-              <Text style={[styles.meta, { color: theme.textSecondary }]}>{profile.location}</Text>
-            </View>
-          ) : null}
-
-          {lookingForDisplay ? (
-            <Card style={styles.card}>
-              <Text style={[styles.cardLabel, { color: theme.textSecondary }]}>Looking for</Text>
-              <View style={styles.lookingForRow}>
-                <Text style={styles.lookingForEmoji}>{lookingForDisplay.emoji}</Text>
-                <Text style={[styles.cardValue, { color: theme.text }]}>{lookingForDisplay.label}</Text>
-              </View>
-            </Card>
-          ) : null}
-
-          {profile.about_me ? (
-            <Card style={styles.card}>
-              <Text style={[styles.cardLabel, { color: theme.textSecondary }]}>About</Text>
-              <Text style={[styles.body, { color: theme.text }]}>{profile.about_me}</Text>
-            </Card>
-          ) : null}
-
-          {profile.vibeLabels.length > 0 ? (
-            <Card style={styles.card}>
-              <Text style={[styles.cardLabel, { color: theme.textSecondary }]}>Vibes</Text>
-              <View style={styles.vibeChips}>
-                {profile.vibeLabels.map((label, i) => (
-                  <View key={i} style={[styles.vibeChip, { backgroundColor: theme.accentSoft }]}>
-                    <Text style={[styles.vibeChipText, { color: theme.text }]}>{label}</Text>
-                  </View>
-                ))}
-              </View>
-            </Card>
-          ) : null}
-
-          {user?.id && userId && !isUserBlocked(userId) && (
-            <View style={[styles.actionsCard, { borderColor: theme.border }]}>
-              {matchRow && (
-                <VibelyButton
-                  label="Message"
-                  onPress={() => (router as any).push(`/chat/${userId}`)}
-                  variant="primary"
-                  style={styles.actionBtn}
-                />
-              )}
-              <Pressable onPress={() => setShowReport(true)} style={[styles.actionRow, { borderTopColor: theme.border }]}>
-                <Ionicons name="flag-outline" size={20} color={theme.textSecondary} />
-                <Text style={[styles.actionLabel, { color: theme.text }]}>Report</Text>
-              </Pressable>
-              <Pressable onPress={handleBlock} style={[styles.actionRow, { borderTopColor: theme.border }]}>
-                <Ionicons name="ban-outline" size={20} color={theme.danger} />
-                <Text style={[styles.actionLabel, { color: theme.danger }]}>Block</Text>
-              </Pressable>
-              {matchRow && (
-                <Pressable onPress={handleUnmatch} style={[styles.actionRow, { borderTopColor: theme.border }]}>
-                  <Ionicons name="person-remove-outline" size={20} color={theme.danger} />
-                  <Text style={[styles.actionLabel, { color: theme.danger }]}>Unmatch</Text>
-                </Pressable>
-              )}
-            </View>
-          )}
         </View>
-      </ScrollView>
+      ) : null}
 
-      {user?.id && showReport && (
+      {user?.id && showReport && userId ? (
         <ReportFlowModal
           visible={showReport}
           onClose={() => setShowReport(false)}
-          onSuccess={() => setShowReport(false)}
-          reportedId={userId!}
+          onSuccess={() => {
+            setShowReport(false);
+            router.back();
+          }}
+          reportedId={userId}
           reportedName={profile?.name ?? 'User'}
           reporterId={user.id}
         />
-      )}
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  backBtn: { padding: spacing.xs },
-  headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },
-  scroll: { paddingTop: 0 },
-  photoWrap: { aspectRatio: 3 / 4, maxHeight: 400, backgroundColor: '#111' },
-  photo: { width: '100%', height: '100%' },
-  photoDots: { position: 'absolute', bottom: 12, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  dotActive: {},
-  photoPlaceholder: { aspectRatio: 3 / 4, maxHeight: 280, justifyContent: 'center', alignItems: 'center' },
-  content: { padding: spacing.lg },
-  name: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  tagline: { fontSize: 15, fontStyle: 'italic', marginBottom: spacing.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  meta: { fontSize: 14 },
-  card: { marginTop: spacing.md, padding: spacing.lg },
-  cardLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
-  cardValue: { fontSize: 15 },
-  lookingForRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  lookingForEmoji: { fontSize: 18 },
-  body: { fontSize: 15, lineHeight: 22 },
-  vibeChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
-  vibeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
-  vibeChipText: { fontSize: 14 },
-  actionsCard: { marginTop: spacing.xl, padding: spacing.lg, borderRadius: 12, borderWidth: 1 },
-  actionBtn: { marginBottom: spacing.md },
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
-  actionLabel: { fontSize: 15, fontWeight: '500' },
+  actionFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  actionBtn: {
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
 });

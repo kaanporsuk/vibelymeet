@@ -23,6 +23,7 @@ import {
   useMicrophonePermissions,
 } from 'expo-camera';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,11 +40,21 @@ import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
+import { supabase } from '@/lib/supabase';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
+const SUPABASE_PROJECT_REF = (() => {
+  try {
+    const raw = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+    const host = new URL(raw).hostname;
+    return host.split('.')[0] ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 type Stage = 'idle' | 'recording' | 'preview' | 'uploading' | 'processing';
 
@@ -337,13 +348,25 @@ export default function VibeVideoRecordScreen() {
     setUploadProgress(0);
 
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       const uploadSource = uploadSourceRef.current;
       vibeVideoDiagVerbose('upload.pipeline.start', {
+        userId: user?.id ?? null,
+        projectRef: SUPABASE_PROJECT_REF,
         source: uploadSource,
         uriScheme: recordedUri.includes(':') ? recordedUri.split(':')[0] : 'path',
+        uriTail: recordedUri.slice(-96),
       });
 
       const creds = await getCreateVideoUploadCredentials();
+      vibeVideoDiagVerbose('upload.pipeline.creds', {
+        userId: user?.id ?? null,
+        projectRef: SUPABASE_PROJECT_REF,
+        videoId: creds.videoId,
+        libraryId: creds.libraryId,
+      });
 
       await uploadVibeVideoToBunny(
         recordedUri,
@@ -361,6 +384,11 @@ export default function VibeVideoRecordScreen() {
 
       await saveVibeVideoToProfile(creds.videoId, {
         vibeCaption: vibeCaption.trim() || null,
+      });
+      vibeVideoDiagVerbose('upload.pipeline.profile_saved', {
+        userId: user?.id ?? null,
+        projectRef: SUPABASE_PROJECT_REF,
+        videoId: creds.videoId,
       });
 
       trackEvent('vibe_video_uploaded');
@@ -473,50 +501,69 @@ export default function VibeVideoRecordScreen() {
   if (stage === 'preview' && recordedUri) {
     return (
       <View style={styles.container}>
-        <View style={StyleSheet.absoluteFill}>
-          <VibeVideoPlayer
-            sourceUri={recordedUri}
-            playing
-            diagContext="record-preview"
-            onPlayerFatalError={() => {
-              vibeVideoDiagVerbose('record-preview.playback_error', {});
-              Alert.alert(
-                'Playback',
-                'Could not play this clip on device. You can still upload — our servers may process it.',
-              );
-            }}
-          />
-        </View>
+        <View style={styles.previewStageColumn}>
+          <View style={styles.previewPlayerShell}>
+            <VibeVideoPlayer
+              sourceUri={recordedUri}
+              playing={stage === 'preview'}
+              nativeControls
+              contentFit="contain"
+              style={styles.previewPlayerFlex}
+              diagContext="record-preview"
+              onPlayerFatalError={() => {
+                vibeVideoDiagVerbose('record-preview.playback_error', {});
+                Alert.alert(
+                  'Playback',
+                  'Could not play this clip on device. You can still upload — our servers may process it.',
+                );
+              }}
+            />
 
-        <Pressable
-          style={[styles.closeBtn, { top: Math.max(insets.top, 12) + 8 }]}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="close" size={28} color="#fff" />
-        </Pressable>
+            <Pressable
+              style={[styles.closeBtn, { top: Math.max(insets.top, 12) + 8 }]}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </Pressable>
 
-        <Pressable style={[styles.captionPill, { top: Math.max(insets.top, 12) + 56 }]} onPress={openCaptionEditor}>
-          {vibeCaption.trim() ? (
-            <Text style={styles.captionPillText} numberOfLines={1}>
-              {vibeCaption.trim()}
-            </Text>
-          ) : (
-            <Text style={styles.captionPillPlaceholder}>What are you vibing on? Tap to add ✦</Text>
-          )}
-        </Pressable>
+            <Pressable
+              style={[styles.captionPill, { top: Math.max(insets.top, 12) + 56 }]}
+              onPress={openCaptionEditor}
+            >
+              {vibeCaption.trim() ? (
+                <Text style={styles.captionPillText} numberOfLines={1}>
+                  {vibeCaption.trim()}
+                </Text>
+              ) : (
+                <Text style={styles.captionPillPlaceholder}>What are you vibing on? Tap to add ✦</Text>
+              )}
+            </Pressable>
+          </View>
 
-        <View style={[styles.previewBar, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-          <Pressable style={styles.roundBtn} onPress={retake}>
-            <Ionicons name="refresh" size={26} color="#fff" />
-            <Text style={styles.roundLabel}>Retake</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.roundBtn, { backgroundColor: 'rgba(139,92,246,0.9)' }]}
-            onPress={() => void doUpload()}
+          <View
+            style={[
+              styles.previewBottomActions,
+              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+            ]}
           >
-            <Ionicons name="cloud-upload" size={26} color="#fff" />
-            <Text style={[styles.roundLabel, { color: '#fff' }]}>Upload</Text>
-          </Pressable>
+            <LinearGradient
+              colors={['#8B5CF6', '#E84393']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.previewUploadGradient}
+            >
+              <Pressable
+                onPress={() => void doUpload()}
+                style={styles.previewUploadPressable}
+              >
+                <Text style={styles.previewUploadLabel}>Upload Vibe Video</Text>
+              </Pressable>
+            </LinearGradient>
+
+            <Pressable onPress={retake} style={styles.previewSecondaryPressable}>
+              <Text style={styles.previewSecondaryLabel}>Choose different video</Text>
+            </Pressable>
+          </View>
         </View>
 
         {captionModalEl}
@@ -589,6 +636,48 @@ export default function VibeVideoRecordScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
+  previewStageColumn: {
+    flex: 1,
+    minHeight: 0,
+  },
+  previewPlayerShell: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+  },
+  previewPlayerFlex: {
+    flex: 1,
+  },
+  previewBottomActions: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    gap: 12,
+  },
+  previewUploadGradient: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  previewUploadPressable: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewUploadLabel: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  previewSecondaryPressable: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  previewSecondaryLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
+    fontWeight: '500',
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   copy: { fontSize: 16, textAlign: 'center' },
   btn: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, marginTop: 16 },
@@ -712,31 +801,6 @@ const styles = StyleSheet.create({
     height: 28,
     backgroundColor: '#fff',
     borderRadius: 4,
-  },
-  previewBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-  },
-  roundBtn: {
-    alignItems: 'center',
-    gap: 6,
-    minWidth: 88,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  roundLabel: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 12,
-    fontFamily: fonts.bodySemiBold,
   },
   captionModalCard: {
     borderRadius: 16,

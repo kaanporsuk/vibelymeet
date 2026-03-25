@@ -50,9 +50,11 @@ export function calculateVibeScore(profile: VibeScoreProfile): number {
   const vibes = profile.vibes || [];
   score += Math.min(vibes.length * 3, 12);
 
-  // Prompts: 7 points each (up to 21 for 3 prompts)
-  const prompts = profile.prompts || [];
-  score += prompts.filter(p => p.answer && p.answer.trim()).length * 7;
+  // Prompts: 4 + 3 + 3 = max 10 (aligned with server calculate_vibe_score)
+  const promptAnswers = (profile.prompts || []).filter((p) => p.answer && p.answer.trim()).length;
+  if (promptAnswers >= 1) score += 4;
+  if (promptAnswers >= 2) score += 3;
+  if (promptAnswers >= 3) score += 3;
 
   // Vibe Video: 10 points
   if (profile.hasVibeVideo) score += 10;
