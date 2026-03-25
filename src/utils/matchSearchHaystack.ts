@@ -6,8 +6,10 @@ import {
   matchPassesClientSearch as sharedMatchPassesClientSearch,
 } from "../../shared/matches/search";
 
-export const MATCHES_SEARCH_PLACEHOLDER =
-  "Search by name, vibe, intent, city, matched event, or last message";
+export {
+  MATCHES_SEARCH_HINT,
+  MATCHES_SEARCH_LEAD,
+} from "../../shared/matches/searchUi";
 
 function buildIntentSearchHaystack(lookingFor: string): string {
   if (!lookingFor) return "";

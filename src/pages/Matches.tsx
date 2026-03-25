@@ -45,7 +45,8 @@ import { useSubscription } from "@/hooks/useSubscription";
 import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 import { formatConversationCount } from "@/utils/matchSortScore";
 import {
-  MATCHES_SEARCH_PLACEHOLDER,
+  MATCHES_SEARCH_HINT,
+  MATCHES_SEARCH_LEAD,
   matchPassesClientSearch,
 } from "@/utils/matchSearchHaystack";
 import {
@@ -372,14 +373,28 @@ const Matches = () => {
           {activeTab === 'conversations' && regularMatches.length > 0 && (
             <>
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <div className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 z-[1] h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder={MATCHES_SEARCH_PLACEHOLDER}
+                    placeholder=""
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 bg-secondary/50 border-border/50 rounded-xl"
+                    aria-label={`${MATCHES_SEARCH_LEAD} ${MATCHES_SEARCH_HINT}`}
+                    className="peer relative z-[1] min-h-10 bg-secondary/50 pl-10 text-sm border-border/50 rounded-xl"
                   />
+                  {searchTrimmed.length === 0 ? (
+                    <div
+                      className="pointer-events-none absolute inset-y-0 left-10 right-3 z-[2] flex min-w-0 items-center gap-1 peer-focus:hidden"
+                      aria-hidden
+                    >
+                      <span className="shrink-0 text-sm text-muted-foreground">
+                        {MATCHES_SEARCH_LEAD}
+                      </span>
+                      <span className="min-w-0 truncate text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
+                        {MATCHES_SEARCH_HINT}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
