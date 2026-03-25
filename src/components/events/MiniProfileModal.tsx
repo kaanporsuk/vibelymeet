@@ -11,7 +11,7 @@ interface Profile {
   name: string;
   age: number;
   avatar: string;
-  bio: string;
+  about_me: string;
   vibeTag: string;
   photos: string[];
   matchPercent?: number;
@@ -187,7 +187,7 @@ const MiniProfileModal = ({
                 )}
 
                 <p className="text-sm text-muted-foreground line-clamp-3">
-                  {profile.bio || "Ready to meet new people!"}
+                  {profile.about_me || "Ready to meet new people!"}
                 </p>
 
                 {/* CTA - Different based on context */}

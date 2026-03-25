@@ -324,7 +324,7 @@ export default function ProfileStudio() {
       case 'prompts':
         scrollToSection('prompts');
         break;
-      case 'bio':
+      case 'about_me':
         setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
         setShowBioDrawer(true);
         scrollToSection('about');

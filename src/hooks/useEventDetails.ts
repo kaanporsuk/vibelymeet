@@ -43,7 +43,7 @@ export interface EventAttendee {
   avatar: string;
   vibeTag: string;
   matchPercent: number;
-  bio: string;
+  about_me: string;
   photos: string[];
   vibeTags?: string[];
   photoVerified?: boolean;
@@ -185,7 +185,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
             name,
             age,
             avatar_url,
-            bio,
+            about_me,
             photos,
             photo_verified
           )
@@ -268,7 +268,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
               name: string;
               age: number;
               avatar_url: string | null;
-              bio: string | null;
+              about_me: string | null;
               photos: string[] | null;
               photo_verified: boolean | null;
             };
@@ -292,7 +292,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
               avatar: resolvedAvatar,
               vibeTag: profileVibes[0] || "New Vibe",
               matchPercent,
-              bio: profile.bio || "",
+              about_me: profile.about_me || "",
               photos: resolvedPhotos,
               vibeTags: profileVibes.slice(0, 2),
               photoVerified: profile.photo_verified || false,

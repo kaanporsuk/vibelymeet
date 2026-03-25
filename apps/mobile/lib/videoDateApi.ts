@@ -226,7 +226,7 @@ export type PartnerProfileData = {
   age: number;
   avatarUrl: string | null;
   photos: string[];
-  bio: string | null;
+  about_me: string | null;
   job: string | null;
   location: string | null;
   heightCm: number | null;
@@ -252,7 +252,7 @@ export async function fetchPartnerProfile(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('name, age, avatar_url, photos, bio, job, location, height_cm, prompts')
+    .select('name, age, avatar_url, photos, about_me, job, location, height_cm, prompts')
     .eq('id', partnerId)
     .maybeSingle();
   if (!profile) return null;
@@ -292,7 +292,7 @@ export async function fetchPartnerProfile(
       age: profile.age ?? 0,
       avatarUrl: avatarUrlResolved,
       photos,
-      bio: profile.bio ?? null,
+      about_me: profile.about_me ?? null,
       job: profile.job ?? null,
       location: profile.location ?? null,
       heightCm: profile.height_cm ?? null,

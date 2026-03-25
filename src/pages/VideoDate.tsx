@@ -37,7 +37,7 @@ interface PartnerData {
   tags: string[];
   avatarUrl?: string;
   photos?: string[];
-  bio?: string;
+  about_me?: string;
   job?: string;
   location?: string;
   heightCm?: number;
@@ -155,7 +155,7 @@ const VideoDate = () => {
 
         const { data: profile } = await supabase
           .from("profiles")
-          .select("name, age, avatar_url, photos, bio, job, location, height_cm, prompts")
+          .select("name, age, avatar_url, photos, about_me, job, location, height_cm, prompts")
           .eq("id", pId)
           .maybeSingle();
 
@@ -192,7 +192,7 @@ const VideoDate = () => {
             tags,
             avatarUrl: resolvedUrl || undefined,
             photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-            bio: profile.bio || undefined,
+            about_me: profile.about_me || undefined,
             job: profile.job || undefined,
             location: profile.location || undefined,
             heightCm: profile.height_cm || undefined,

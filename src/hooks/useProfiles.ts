@@ -9,7 +9,7 @@ export interface Profile {
   job: string | null;
   heightCm: number | null;
   location: string | null;
-  bio: string | null;
+  about_me: string | null;
   avatarUrl: string | null;
   photos: string[];
   vibes: string[];
@@ -26,7 +26,7 @@ export const useProfile = (profileId: string) => {
     queryFn: async (): Promise<Profile | null> => {
       const { data: profile, error } = await supabase
         .from("profiles")
-        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations")
+        .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations")
         .eq("id", profileId)
         .maybeSingle();
 
@@ -47,7 +47,7 @@ export const useProfile = (profileId: string) => {
         job: profile.job,
         heightCm: profile.height_cm,
         location: profile.location,
-        bio: profile.bio,
+        about_me: profile.about_me,
         avatarUrl: profile.avatar_url,
         photos: profile.photos || [],
         vibes: vibes?.map((v: any) => v.vibe_tags?.label).filter(Boolean) || [],

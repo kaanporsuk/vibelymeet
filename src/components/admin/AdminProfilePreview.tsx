@@ -178,9 +178,9 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               )}
 
               {/* Bio */}
-              {profile.bio && (
+              {profile.about_me && (
                 <div className="glass-card p-4 rounded-xl">
-                  <p className="text-foreground leading-relaxed">{profile.bio}</p>
+                  <p className="text-foreground leading-relaxed">{profile.about_me}</p>
                 </div>
               )}
 

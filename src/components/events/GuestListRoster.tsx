@@ -10,7 +10,7 @@ interface Attendee {
   avatar: string;
   vibeTag: string;
   matchPercent: number;
-  bio: string;
+  about_me: string;
   photos: string[];
   hasVibeVideo?: boolean;
   vibeVideoUrl?: string;

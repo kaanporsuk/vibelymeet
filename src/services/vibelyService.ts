@@ -9,7 +9,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 // Legacy types kept for backward compat in this service
-interface MatchCandidate { id: string; name: string; age: number; lastActiveAt: string; avatarUrl: string; vibeTags: string[]; bio: string; location?: string; }
+interface MatchCandidate { id: string; name: string; age: number; lastActiveAt: string; avatarUrl: string; vibeTags: string[]; aboutMe: string; location?: string; }
 interface DailyDrop { id: string; candidate: MatchCandidate; droppedAt: string; expiresAt: string; status: 'ready' | 'viewed' | 'replied' | 'passed' | 'expired'; replySentAt?: string; }
 interface DropHistory { seenUserIds: string[]; lastDropDate: string; }
 import { GamePayload } from "@/types/games";
@@ -29,7 +29,7 @@ export const profileService = {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
+      .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -43,7 +43,7 @@ export const profileService = {
   async getProfile(profileId: string) {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
+      .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .eq("id", profileId)
       .maybeSingle();
 
@@ -162,20 +162,20 @@ export const profileService = {
   },
 
   /**
-   * Save complete profile (photos, bio, vibes)
+   * Save complete profile (photos, about_me, vibes)
    */
   async saveCompleteProfile(
     profileId: string,
     data: {
       photos?: string[];
-      bio?: string;
+      about_me?: string;
       vibeLabels?: string[];
     }
   ) {
     // Update profile fields
     const updates: Record<string, unknown> = {};
     if (data.photos) updates.photos = data.photos;
-    if (data.bio) updates.bio = data.bio;
+    if (data.about_me) updates.about_me = data.about_me;
     updates.is_onboarding_complete = true;
 
     const { error: profileError } = await supabase
@@ -200,7 +200,7 @@ export const profileService = {
   async getDiscoverableProfiles(excludeUserId?: string, limit = 50) {
     let query = supabase
       .from("profiles")
-      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
+      .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -251,7 +251,7 @@ export const dailyDropService = {
       // Fetch candidate profile
       const { data: candidate } = await supabase
         .from("profiles")
-        .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
+        .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
         .eq("id", todaysDrop.candidateId)
         .maybeSingle();
       
@@ -282,7 +282,7 @@ export const dailyDropService = {
     // Get active candidates (not in history, not the current user)
     const { data: profiles, error } = await supabase
       .from("profiles")
-      .select("id, name, age, gender, job, height_cm, location, bio, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
+      .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at")
       .neq("id", userId)
       .order("updated_at", { ascending: false })
       .limit(20);
@@ -655,7 +655,7 @@ function transformProfile(db: Record<string, unknown>) {
     job: db.job as string | null,
     heightCm: db.height_cm as number | null,
     location: db.location as string | null,
-    bio: db.bio as string | null,
+    aboutMe: (db.about_me as string | null) ?? null,
     avatarUrl: db.avatar_url as string | null,
     photos: (db.photos as string[]) || [],
     
@@ -680,7 +680,7 @@ function transformToMatchCandidate(db: Record<string, unknown>, vibes: string[])
     avatarUrl: (db.avatar_url as string) || '',
     
     vibeTags: vibes,
-    bio: (db.bio as string) || '',
+    aboutMe: (db.about_me as string) || '',
     location: db.location as string | undefined
   };
 }
