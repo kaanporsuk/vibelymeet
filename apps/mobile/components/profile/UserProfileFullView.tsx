@@ -60,6 +60,7 @@ export function UserProfileFullView({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
+  const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const photoPagerRef = useRef<ScrollView>(null);
 
@@ -94,6 +95,10 @@ export function UserProfileFullView({
     () => (profile.prompts ?? []).filter((p) => p.question?.trim() && p.answer?.trim()),
     [profile.prompts],
   );
+
+  useEffect(() => {
+    setHideVibingOnLabelAfterComplete(false);
+  }, [vibeInfo.playbackUrl, vibeInfo.uid, profile.id]);
 
   const photos = useMemo(() => (profile.photos ?? []).filter(Boolean), [profile.photos]);
   const vibes = profile.vibes ?? [];
@@ -315,7 +320,9 @@ export function UserProfileFullView({
                 </RNView>
                 {caption ? (
                   <RNView style={s.videoCaptionStrip} pointerEvents="none">
-                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    {!hideVibingOnLabelAfterComplete ? (
+                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    ) : null}
                     <Text style={s.videoCaptionText} numberOfLines={2}>
                       {caption}
                     </Text>
@@ -471,6 +478,7 @@ export function UserProfileFullView({
         bunnyVideoUid={profile.bunny_video_uid ?? vibeInfo.uid}
         vibeCaption={caption}
         posterUrl={vibeInfo.thumbnailUrl}
+        onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
 
       <Modal

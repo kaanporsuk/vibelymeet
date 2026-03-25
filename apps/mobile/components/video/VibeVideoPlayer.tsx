@@ -22,6 +22,8 @@ export type VibeVideoPlayerProps = {
    */
   diagContext: string;
   onPlayerFatalError?: () => void;
+  /** Fires when the current source plays through to its end (expo-video `playToEnd`). Not pause/seek/buffer. */
+  onPlayToEnd?: () => void;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -34,6 +36,7 @@ export function VibeVideoPlayer({
   contentFit = 'contain',
   diagContext,
   onPlayerFatalError,
+  onPlayToEnd,
   style,
 }: VibeVideoPlayerProps) {
   const warnedRef = useRef(false);
@@ -122,6 +125,14 @@ export function VibeVideoPlayer({
     });
     return () => sub.remove();
   }, [player, sourceUri, isRemoteHls, diagContext, onPlayerFatalError]);
+
+  useEffect(() => {
+    if (!onPlayToEnd) return;
+    const sub = player.addListener('playToEnd', () => {
+      onPlayToEnd();
+    });
+    return () => sub.remove();
+  }, [player, onPlayToEnd]);
 
   return (
     <>

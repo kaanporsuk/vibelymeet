@@ -148,6 +148,8 @@ export default function ProfileStudio() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [showVideoDrawer, setShowVideoDrawer] = useState(false);
   const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
+  /** UI: hide system “VIBING ON” label after first natural full play; user caption stays visible. */
+  const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
@@ -245,6 +247,10 @@ export default function ProfileStudio() {
       playbackUrl: videoInfo.playbackUrl,
     });
   }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.state, profile]);
+
+  useEffect(() => {
+    setHideVibingOnLabelAfterComplete(false);
+  }, [videoInfo.playbackUrl, videoInfo.uid]);
 
   const registerSectionLayout = (key: string, y: number, height: number) => {
     sectionOffsets.current[key] = y;
@@ -1004,7 +1010,9 @@ export default function ProfileStudio() {
               <RNView style={s.videoCaptionStrip} pointerEvents="none">
                 {caption ? (
                   <>
-                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    {!hideVibingOnLabelAfterComplete ? (
+                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
+                    ) : null}
                     <Text style={s.videoCaptionText} numberOfLines={2}>
                       {caption}
                     </Text>
@@ -2023,6 +2031,7 @@ export default function ProfileStudio() {
         bunnyVideoUid={videoInfo.uid}
         vibeCaption={caption}
         posterUrl={videoInfo.thumbnailUrl}
+        onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
       />
     </ScrollView>
 

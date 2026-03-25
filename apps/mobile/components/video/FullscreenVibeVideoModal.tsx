@@ -10,6 +10,7 @@ import {
   Pressable,
   StyleSheet,
   StatusBar,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,8 +19,6 @@ import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
-
-const CAPTION_MAX_WIDTH = 400;
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -31,6 +30,11 @@ export interface FullscreenVibeVideoModalProps {
   vibeCaption?: string;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
+  /**
+   * UI only: invoked when the player reaches a natural end (`playToEnd`).
+   * Parent may persist “hide inline metadata” until the stream identity changes.
+   */
+  onPlayToEnd?: () => void;
 }
 
 export function FullscreenVibeVideoModal({
@@ -40,10 +44,15 @@ export function FullscreenVibeVideoModal({
   bunnyVideoUid,
   vibeCaption = '',
   posterUrl,
+  onPlayToEnd,
 }: FullscreenVibeVideoModalProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const captionMaxWidth = Math.round(windowWidth * 0.75);
   const [playbackSurfaceError, setPlaybackSurfaceError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  /** Per fullscreen session: hide top metadata after first natural `playToEnd`; reset when modal/source/retry changes. */
+  const [hasCompletedInitialPlayback, setHasCompletedInitialPlayback] = useState(false);
 
   const { hostname: streamHostname } = resolveVibeVideoStreamHostnameSync();
   const configMissing = !streamHostname.trim();
@@ -63,6 +72,15 @@ export function FullscreenVibeVideoModal({
     setPlaybackSurfaceError(false);
     setRetryKey(0);
   }, [visible, playbackUrl]);
+
+  useEffect(() => {
+    setHasCompletedInitialPlayback(false);
+  }, [visible, playbackUrl, retryKey]);
+
+  const handlePlayToEnd = useCallback(() => {
+    setHasCompletedInitialPlayback(true);
+    onPlayToEnd?.();
+  }, [onPlayToEnd]);
 
   useEffect(() => {
     if (!visible) return;
@@ -176,32 +194,48 @@ export function FullscreenVibeVideoModal({
                         nativeControls
                         contentFit="contain"
                         onPlayerFatalError={handlePlaybackIssue}
+                        onPlayToEnd={handlePlayToEnd}
                       />
 
                       <Pressable
                         onPress={onClose}
-                        style={[styles.closeBtn, { top: insets.top + 12 }]}
+                        style={[styles.closeBtn, { top: insets.top + 10 }]}
                         hitSlop={12}
                         accessibilityLabel="Close video"
                       >
                         <Ionicons name="close" size={26} color="#fff" />
                       </Pressable>
+
+                      {vibeCaption.trim() ? (
+                        <View style={styles.fullscreenMetaOverlay} pointerEvents="none">
+                          <LinearGradient
+                            colors={['rgba(0,0,0,0.5)', 'rgba(0,0,0,0.12)', 'transparent']}
+                            locations={[0, 0.45, 1]}
+                            style={styles.topScrim}
+                            pointerEvents="none"
+                          />
+                          <View
+                            style={[
+                              styles.metaColumn,
+                              { paddingTop: insets.top + 29, paddingHorizontal: 24 },
+                            ]}
+                            pointerEvents="none"
+                          >
+                            {!hasCompletedInitialPlayback ? (
+                              <Text style={styles.captionLabel}>VIBING ON</Text>
+                            ) : null}
+                            <Text
+                              style={[styles.captionText, { maxWidth: captionMaxWidth }]}
+                              numberOfLines={2}
+                            >
+                              {vibeCaption.trim()}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
                     </>
                   )
                 : null}
-
-        {vibeCaption.trim() && errorKind === 'none' && playbackUrl ? (
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.85)']}
-            style={[styles.captionWrap, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}
-            pointerEvents="none"
-          >
-            <Text style={styles.captionLabel}>VIBING ON</Text>
-            <Text style={[styles.captionText, { maxWidth: CAPTION_MAX_WIDTH }]} numberOfLines={3}>
-              {vibeCaption.trim()}
-            </Text>
-          </LinearGradient>
-        ) : null}
       </View>
     </Modal>
   );
@@ -269,24 +303,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  captionWrap: {
+  fullscreenMetaOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    alignItems: 'center',
+  },
+  topScrim: {
     position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    paddingHorizontal: 20,
-    paddingTop: 48,
+    height: 220,
+  },
+  metaColumn: {
+    width: '100%',
+    alignItems: 'center',
   },
   captionLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 2.2,
     color: '#22d3ee',
     marginBottom: 6,
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   captionText: {
     color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 22,
+    textAlign: 'center',
   },
 });
