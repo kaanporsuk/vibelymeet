@@ -1,3 +1,5 @@
+DROP FUNCTION IF EXISTS public.get_event_deck(uuid, uuid, integer);
+
 -- Prefer profiles.about_me (canonical bio text); fall back to legacy bio column.
 CREATE OR REPLACE FUNCTION public.get_event_deck(
   p_event_id uuid,
