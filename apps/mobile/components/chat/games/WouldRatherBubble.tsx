@@ -31,6 +31,9 @@ type BubblePhase =
   | 'invalid_context'
   | 'ambiguous';
 
+type CompletePhase = Extract<BubblePhase, 'complete_match' | 'complete_split'>;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting'>;
+
 function derivePhase(
   snap: WouldRatherSnapshot,
   complete: boolean,
@@ -56,6 +59,14 @@ function optionSnippet(snap: WouldRatherSnapshot, side: 'A' | 'B', maxLen = 52):
   const raw = side === 'A' ? snap.option_a : snap.option_b;
   if (raw.length <= maxLen) return raw;
   return `${raw.slice(0, maxLen - 1)}…`;
+}
+
+function isCompletePhase(phase: BubblePhase): phase is CompletePhase {
+  return phase === 'complete_match' || phase === 'complete_split';
+}
+
+function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
+  return phase !== 'complete_match' && phase !== 'complete_split' && phase !== 'submitting';
 }
 
 export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
@@ -89,11 +100,6 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
     setSubmitError(null);
   }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_vote, snap.status]);
 
-  const starterPicked = snap.sender_vote;
-  const receiverPickedLetter = snap.receiver_vote;
-  const yourLetter = isStarter ? starterPicked : (receiverPickedLetter ?? null);
-  const theirLetter = isStarter ? receiverPickedLetter : starterPicked;
-
   const handlePick = async (vote: 'A' | 'B') => {
     if (tapGuard.current || isPending) return;
     if (!canBuildVote) return;
@@ -112,22 +118,22 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
   };
 
   const statusStrip =
-    !complete && phase !== 'submitting' ? (
+    !complete && isNonCompleteNonSubmittingPhase(phase) ? (
       <StatusStrip
-        phase={phase as NonCompleteNonSubmittingPhase}
+        phase={phase}
         partnerName={partnerName}
         theme={theme}
         senderVote={snap.sender_vote}
       />
     ) : null;
 
-  const completeHero = complete ? (
+  const completeHero = isCompletePhase(phase) ? (
     <CompleteOutcomeBlock
       snap={snap}
       theme={theme}
       partnerName={partnerName}
       isStarter={isStarter}
-      phase={phase as 'complete_match' | 'complete_split'}
+      phase={phase}
     />
   ) : null;
 
@@ -226,8 +232,6 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
     </View>
   );
 }
-
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete_match' | 'complete_split' | 'submitting'>;
 
 function StatusStrip({
   phase,
