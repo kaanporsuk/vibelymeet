@@ -56,6 +56,9 @@ if (SENTRY_DSN) {
 // ─── PostHog (matches web src/main.tsx)
 const POSTHOG_KEY = (process.env.EXPO_PUBLIC_POSTHOG_KEY ?? '').trim();
 const POSTHOG_HOST = (process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://eu.i.posthog.com').trim();
+const POSTHOG_DEV_ENABLED = (process.env.EXPO_PUBLIC_POSTHOG_DEV_ENABLED ?? '').trim().toLowerCase() === 'true';
+const POSTHOG_HOST_VALID = /^https?:\/\/\S+$/i.test(POSTHOG_HOST);
+const POSTHOG_ENABLED = Boolean(POSTHOG_KEY) && POSTHOG_HOST_VALID && (!__DEV__ || POSTHOG_DEV_ENABLED);
 
 if (__DEV__) {
   LogBox.ignoreLogs([
@@ -165,6 +168,24 @@ function RootLayoutNav() {
   }, []);
 
   useEffect(() => {
+    // Keep analytics wrappers safe and quiet when PostHog is disabled.
+    if (!POSTHOG_ENABLED) {
+      setPostHogClient(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    if (POSTHOG_KEY && !POSTHOG_HOST_VALID) {
+      console.warn('[Vibely] PostHog disabled: EXPO_PUBLIC_POSTHOG_HOST must be a valid http(s) URL.');
+      return;
+    }
+    if (POSTHOG_KEY && !POSTHOG_DEV_ENABLED) {
+      console.log('[Vibely] PostHog disabled in dev. Set EXPO_PUBLIC_POSTHOG_DEV_ENABLED=true to opt in.');
+    }
+  }, []);
+
+  useEffect(() => {
     void initStreamCdnHostname().then(() => setCdnHostInitTick((t) => t + 1));
   }, []);
 
@@ -207,7 +228,7 @@ function RootLayoutNav() {
         <BadgeCountUpdater />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
-            {POSTHOG_KEY ? (
+            {POSTHOG_ENABLED ? (
               <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
                 <PostHogScreenTracker />
                 {stack}
