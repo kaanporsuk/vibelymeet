@@ -5,7 +5,6 @@ import { CharadesGame } from "./games/CharadesGame";
 import { ScavengerGame } from "./games/ScavengerGame";
 import { RouletteGame } from "./games/RouletteGame";
 import { IntuitionGame } from "./games/IntuitionGame";
-import { cn } from "@/lib/utils";
 
 interface GameBubbleRendererProps {
   message: GameMessage;

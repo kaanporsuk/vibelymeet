@@ -4,6 +4,7 @@ import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRather
 import { ROULETTE_QUESTIONS as SHARED_ROULETTE_QUESTIONS } from "../../shared/vibely-games/roulettePrompts";
 import { SCAVENGER_PROMPTS as SHARED_SCAVENGER_PROMPTS } from "../../shared/vibely-games/scavengerPrompts";
 import { INTUITION_OPTIONS as SHARED_INTUITION_OPTIONS } from "../../shared/vibely-games/intuitionPrompts";
+import { CHARADES_EMOJI_PICKER as SHARED_CHARADES_EMOJI_PICKER } from "../../shared/vibely-games/charadesEmojiPicker";
 
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
@@ -170,3 +171,6 @@ export const ROULETTE_QUESTIONS = SHARED_ROULETTE_QUESTIONS;
 
 // Shared data source for Intuition options.
 export const INTUITION_OPTIONS = SHARED_INTUITION_OPTIONS;
+
+// Shared data source for Charades emoji picker.
+export const CHARADES_EMOJI_PICKER = SHARED_CHARADES_EMOJI_PICKER;
