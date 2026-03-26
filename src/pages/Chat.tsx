@@ -41,6 +41,7 @@ import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator"
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessages, useSendMessage } from "@/hooks/useMessages";
+import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
@@ -56,7 +57,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
+  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -67,6 +68,7 @@ interface ChatMessage {
   status?: MessageStatusType;
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
+  gameSessionView?: WebHydratedGameSessionView;
 }
 
 const Chat = () => {
@@ -165,6 +167,17 @@ const Chat = () => {
           status: "delivered" as MessageStatusType,
         };
       }
+      if (m.messageKind === "vibe_game_session") {
+        return {
+          id: m.id,
+          text: m.text,
+          sender: m.sender,
+          time: m.time,
+          type: "vibe-game-session" as const,
+          status: "delivered" as MessageStatusType,
+          gameSessionView: m.gameSessionView,
+        };
+      }
       return {
         id: m.id,
         text: m.text,
@@ -258,6 +271,16 @@ const Chat = () => {
       };
     });
   }, [displayMessages]);
+
+  // W1 precedence guard: timeline-backed persisted sessions win on ID collision.
+  const visibleLocalGameMessages = useMemo(() => {
+    const persistedSessionIds = new Set(
+      groupedMessages
+        .filter((m) => m.type === "vibe-game-session")
+        .map((m) => m.id),
+    );
+    return gameMessages.filter((m) => !persistedSessionIds.has(m.id));
+  }, [groupedMessages, gameMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -532,6 +555,31 @@ const Chat = () => {
                     )}
                   </div>
                 </div>
+              ) : message.type === "vibe-game-session" && message.gameSessionView ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5",
+                  )}
+                >
+                  <div className="max-w-[75%] overflow-hidden">
+                    {(() => {
+                      const payload = webGamePayloadFromSessionView(message.gameSessionView);
+                      if (!payload) return null;
+                      const hydratedGameMessage: GameMessage = {
+                        id: message.id,
+                        senderId: message.gameSessionView.starterUserId ?? "",
+                        type: "game_interactive",
+                        sender: message.sender,
+                        time: message.time,
+                        gamePayload: payload,
+                      };
+                      return <GameBubbleRenderer message={hydratedGameMessage} matchName={otherUser.name} />;
+                    })()}
+                  </div>
+                </div>
               ) : message.type === "video-invite" ? (
                 <div
                   key={message.id}
@@ -621,7 +669,7 @@ const Chat = () => {
               )
             )}
 
-            {gameMessages.map((gameMsg) => (
+            {visibleLocalGameMessages.map((gameMsg) => (
               <div
                 key={gameMsg.id}
                 className={cn(
