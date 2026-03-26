@@ -1,6 +1,6 @@
-import { parseVibeGameEnvelopeFromStructuredPayload } from "../../shared/vibely-games/parse";
 import { foldVibeGameSession } from "../../shared/vibely-games/reducer";
 import type { GameType, VibeGameMessageEnvelopeV1, VibeGameSnapshotV1 } from "../../shared/vibely-games/types";
+import { collapseGameSessionRows } from "../../shared/chat/gameSessionCollapse";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import type { GamePayload } from "@/types/games";
 
@@ -97,86 +97,24 @@ function buildSessionView(gameSessionId: string, items: RowEnv[]): WebHydratedGa
 }
 
 export function collapseVibeGameRowsForWeb(rows: WebChatMessageRow[]): CollapsedMessage[] {
-  const groups = new Map<string, RowEnv[]>();
-  const emitIndexBySession = new Map<string, number>();
-
-  rows.forEach((row, index) => {
-    if (row.message_kind !== "vibe_game") return;
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
-    if (!envelope) return;
-    const sid = envelope.game_session_id;
-    if (!groups.has(sid)) groups.set(sid, []);
-    groups.get(sid)!.push({ row, envelope });
-
-    const prevIdx = emitIndexBySession.get(sid);
-    if (prevIdx === undefined) {
-      emitIndexBySession.set(sid, index);
-    } else {
-      const prevRow = rows[prevIdx]!;
-      const tPrev = new Date(prevRow.created_at).getTime();
-      const tNew = new Date(row.created_at).getTime();
-      if (tNew > tPrev || (tNew === tPrev && index > prevIdx)) {
-        emitIndexBySession.set(sid, index);
-      }
-    }
-  });
-
-  const viewBySession = new Map<string, WebHydratedGameSessionView>();
-  for (const [sid, items] of groups) {
-    const view = buildSessionView(sid, items);
-    if (view) viewBySession.set(sid, view);
-  }
-
-  const out: CollapsedMessage[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    if (row.message_kind !== "vibe_game") {
-      out.push({
-        ...row,
-        message_kind: toRenderableMessageKind(row.message_kind),
-        structured_payload:
-          row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
-            ? (row.structured_payload as Record<string, unknown>)
-            : null,
-      });
-      continue;
-    }
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
-    if (!envelope) {
-      // Safe fallback: malformed vibe_game rows render as plain text, never crash chat.
-      out.push({
-        ...row,
-        message_kind: "text",
-        structured_payload:
-          row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
-            ? (row.structured_payload as Record<string, unknown>)
-            : null,
-      });
-      continue;
-    }
-    const sid = envelope.game_session_id;
-    const canonicalEmitIndex = emitIndexBySession.get(sid);
-    if (canonicalEmitIndex === undefined || i !== canonicalEmitIndex) continue;
-    const view = viewBySession.get(sid);
-    if (!view) {
-      out.push({
-        ...row,
-        message_kind: "text",
-        structured_payload:
-          row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
-            ? (row.structured_payload as Record<string, unknown>)
-            : null,
-      });
-      continue;
-    }
-    out.push({
+  return collapseGameSessionRows({
+    rows,
+    mapRegularRow: (row) => ({
       ...row,
+      message_kind: toRenderableMessageKind(row.message_kind),
+      structured_payload:
+        row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
+          ? (row.structured_payload as Record<string, unknown>)
+          : null,
+    }),
+    buildSessionView,
+    mapCollapsedRow: ({ view, anchorRow }) => ({
+      ...anchorRow,
       message_kind: "vibe_game_session",
       structured_payload: null,
       game_session_view: view,
-    });
-  }
-  return out;
+    }),
+  });
 }
 
 export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView): GamePayload | null {
