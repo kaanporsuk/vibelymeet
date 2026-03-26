@@ -87,14 +87,6 @@ export const VibeStudioModal = ({
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
-    if (open) {
-      console.info("[diag] VibeStudioModal opened", { stage, path: window.location.pathname });
-    }
-  }, [open, stage]);
-
   // Request camera/mic permissions when modal opens
   useEffect(() => {
     if (!open) return;

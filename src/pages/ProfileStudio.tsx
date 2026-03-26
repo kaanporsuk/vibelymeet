@@ -399,12 +399,6 @@ const ProfileStudio = () => {
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
-    console.info("[diag] ProfileStudio mounted", { path: window.location.pathname });
-  }, []);
-
   // ── Data loading (same as legacy) ─────────────────────────────
 
   useEffect(() => {
