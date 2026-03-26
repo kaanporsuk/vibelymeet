@@ -1,11 +1,11 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import VoiceMessagePlayer from "./VoiceMessagePlayer";
+import { VoiceMessageBubble } from "./VoiceMessageBubble";
 import { EmojiBar, type ReactionEmoji } from "./EmojiBar";
 import { ReactionBadge } from "./ReactionBadge";
 import { ParticleBurst } from "./ParticleBurst";
 import { MessageStatus, type MessageStatusType } from "./MessageStatus";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface Message {
   id: string;
@@ -15,6 +15,7 @@ interface Message {
   type?: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
   duration?: number;
   audioBlob?: Blob;
+  audioUrl?: string;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
   sendError?: string;
@@ -44,6 +45,7 @@ export const MessageBubble = ({
   const [showEmojiBar, setShowEmojiBar] = useState(false);
   const [showBurst, setShowBurst] = useState<"❤️" | "🔥" | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const lastTapRef = useRef<number>(0);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -108,6 +110,16 @@ export const MessageBubble = ({
     setIsFocused(false);
   }, []);
 
+  useEffect(() => {
+    if (!message.audioBlob) {
+      setBlobUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(message.audioBlob);
+    setBlobUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [message.audioBlob]);
+
   const bubbleContent = (
     <motion.div
       ref={bubbleRef}
@@ -135,10 +147,10 @@ export const MessageBubble = ({
       {/* Voice message */}
       {isVoice ? (
         <div className="flex flex-col">
-          <VoiceMessagePlayer
+          <VoiceMessageBubble
+            audioUrl={message.audioUrl || blobUrl || undefined}
             duration={message.duration || 0}
-            audioBlob={message.audioBlob}
-            sender={message.sender}
+            isMine={isMe}
           />
         </div>
       ) : (

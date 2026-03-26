@@ -862,6 +862,7 @@ const Chat = () => {
                       ? "bg-gradient-primary text-primary-foreground"
                       : "glass-card border border-border/30 text-foreground"
                   )}>
+                    {/* Voice timing is rendered only inside VoiceMessageBubble. */}
                     <VoiceMessageBubble
                       audioUrl={message.audioUrl}
                       duration={message.audioDuration || 0}

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 interface VoiceMessageBubbleProps {
-  audioUrl: string;
+  audioUrl?: string;
   duration: number;
   isMine: boolean;
 }
@@ -37,7 +37,15 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
 
   // Create and configure audio element
   useEffect(() => {
-    if (!audioUrl) { setHasError(true); return; }
+    if (!audioUrl) {
+      setHasError(false);
+      setIsLoading(false);
+      setIsPlaying(false);
+      setProgress(0);
+      setCurrentTime(0);
+      audioRef.current = null;
+      return;
+    }
 
     const audio = new Audio();
     audio.preload = "metadata";
@@ -130,6 +138,8 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  // Canonical voice timing ownership: only this component renders voice time labels.
+  // Parent/footer status rows must not add a second time readout for voice bubbles.
   const displayTime = (() => {
     if (totalDuration <= 0 && !isPlaying && currentTime <= 0) return "Voice message";
     if (isPlaying && totalDuration > 0) return `${formatDuration(currentTime)} · ${formatDuration(totalDuration)}`;
