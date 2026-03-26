@@ -12,6 +12,9 @@ import { supabase } from '@/lib/supabase';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { withAlpha } from '@/lib/colorUtils';
 
+/** Safety-net refetch if realtime misses an event; primary updates come from realtime + foreground. */
+const UNREAD_BADGE_POLL_MS = 180_000;
+
 const TAB_CONFIG = [
   { name: 'index' as const, label: 'Now', iconDefault: 'flash-outline' as const, iconActive: 'flash' as const },
   { name: 'events' as const, label: 'Events', iconDefault: 'calendar-outline' as const, iconActive: 'calendar' as const },
@@ -39,7 +42,7 @@ function VibelyTabBar({ state, navigation }: BottomTabBarProps) {
       return count ?? 0;
     },
     enabled: !!user?.id,
-    refetchInterval: 30_000,
+    refetchInterval: UNREAD_BADGE_POLL_MS,
   });
 
   return (

@@ -18,6 +18,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
+import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
 import { useBadgeCount } from '@/lib/useBadgeCount';
 import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
@@ -145,8 +146,10 @@ function ActivityHeartbeat() {
   return null;
 }
 
-/** Runs badge count query and sets OneSignal app badge (iOS/Android). */
+/** Realtime invalidation for tab unread + combined badge query; badge hook runs the actual counts. */
 function BadgeCountUpdater() {
+  const { user } = useAuth();
+  useGlobalMessagesInboxInvalidation(user?.id);
   useBadgeCount();
   return null;
 }

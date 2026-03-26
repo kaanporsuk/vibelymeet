@@ -87,6 +87,14 @@ export const VibeStudioModal = ({
   // Store detected mimeType for use in onstop
   const detectedMimeTypeRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
+    if (open) {
+      console.info("[diag] VibeStudioModal opened", { stage, path: window.location.pathname });
+    }
+  }, [open, stage]);
+
   // Request camera/mic permissions when modal opens
   useEffect(() => {
     if (!open) return;
@@ -204,6 +212,13 @@ export const VibeStudioModal = ({
     const audioInterval = setInterval(updateLevels, 50);
     return () => clearInterval(audioInterval);
   }, [stage]);
+
+  // Declared before countdown effect to avoid any use-before-init risk.
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
 
   // Recording countdown
   useEffect(() => {
@@ -397,12 +412,6 @@ export const VibeStudioModal = ({
     }
     if (videoRef.current) {
       videoRef.current.srcObject = null;
-    }
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
     }
   }, []);
 

@@ -129,6 +129,7 @@ serve(async (req) => {
           trimmed.length > 80 ? trimmed.slice(0, 80) + "…" : trimmed;
 
         await serviceClient.functions.invoke("send-notification", {
+          headers: { Authorization: `Bearer ${serviceRoleKey}` },
           body: {
             user_id: recipientId,
             category: "messages",

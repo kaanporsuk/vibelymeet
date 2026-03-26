@@ -4,6 +4,13 @@ import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage, uploadChatVideoMessage } from '@/lib/chatMediaUpload';
+import {
+  collapseVibeGameMessageRows,
+  type ChatGameSessionMessageRow,
+  type NativeHydratedGameSessionView,
+} from '@/lib/chatGameSessions';
+
+export type { NativeHydratedGameSessionView };
 
 export type MatchListItem = {
   id: string;
@@ -194,9 +201,11 @@ export type ChatMessage = {
   read_at?: string | null;
   status?: MessageStatusType;
   reaction?: ReactionEmoji | null;
-  messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event';
+  messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event' | 'vibe_game_session';
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
+  /** Populated when `messageKind === 'vibe_game_session'` (collapsed thread rows). */
+  gameSessionView?: NativeHydratedGameSessionView;
 };
 
 export type ChatOtherUser = {
@@ -251,36 +260,61 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
         return m.read_at ? 'read' : 'delivered';
       };
 
+      const mapDbRowToChatMessage = (m: ChatGameSessionMessageRow): ChatMessage => {
+        const mk = (m.message_kind || 'text') as string;
+        const kind: ChatMessage['messageKind'] =
+          mk === 'date_suggestion' || mk === 'date_suggestion_event'
+            ? (mk as ChatMessage['messageKind'])
+            : 'text';
+        return {
+          id: m.id,
+          text: m.content,
+          sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
+          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          audio_url: m.audio_url ?? undefined,
+          audio_duration_seconds: m.audio_duration_seconds ?? undefined,
+          video_url: m.video_url ?? undefined,
+          video_duration_seconds: m.video_duration_seconds ?? undefined,
+          read_at: m.read_at ?? undefined,
+          status: mapStatus(m),
+          messageKind: kind,
+          refId: m.ref_id ?? null,
+          structuredPayload:
+            m.structured_payload !== null &&
+            m.structured_payload !== undefined &&
+            typeof m.structured_payload === 'object' &&
+            !Array.isArray(m.structured_payload)
+              ? (m.structured_payload as Record<string, unknown>)
+              : null,
+        };
+      };
+
+      const rowsForGames: ChatGameSessionMessageRow[] = messages.map((m) => {
+        const row = m as typeof m & {
+          message_kind?: string | null;
+          ref_id?: string | null;
+          structured_payload?: unknown;
+        };
+        return {
+          id: m.id,
+          sender_id: m.sender_id,
+          content: m.content,
+          created_at: m.created_at,
+          read_at: m.read_at,
+          audio_url: m.audio_url,
+          audio_duration_seconds: m.audio_duration_seconds,
+          video_url: m.video_url,
+          video_duration_seconds: m.video_duration_seconds,
+          message_kind: row.message_kind ?? null,
+          ref_id: row.ref_id ?? null,
+          structured_payload: row.structured_payload ?? null,
+        };
+      });
+
       return {
         matchId: match.id,
         otherUser,
-        messages: messages.map((m) => {
-          const row = m as typeof m & {
-            message_kind?: string | null;
-            ref_id?: string | null;
-            structured_payload?: Record<string, unknown> | null;
-          };
-          const mk = (row.message_kind || 'text') as string;
-          const kind: ChatMessage['messageKind'] =
-            mk === 'date_suggestion' || mk === 'date_suggestion_event'
-              ? (mk as ChatMessage['messageKind'])
-              : 'text';
-          return {
-            id: m.id,
-            text: m.content,
-            sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
-            time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            audio_url: m.audio_url ?? undefined,
-            audio_duration_seconds: m.audio_duration_seconds ?? undefined,
-            video_url: m.video_url ?? undefined,
-            video_duration_seconds: m.video_duration_seconds ?? undefined,
-            read_at: m.read_at ?? undefined,
-            status: mapStatus(m),
-            messageKind: kind,
-            refId: row.ref_id ?? null,
-            structuredPayload: row.structured_payload ?? null,
-          };
-        }),
+        messages: collapseVibeGameMessageRows(rowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage),
       };
     },
     enabled: !!otherUserId && !!currentUserId,
@@ -329,6 +363,45 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [matchId, enabled, invalidate]);
+}
+
+/**
+ * Single global `messages` postgres_changes subscription for inbox / OS badge counts (not per-match).
+ *
+ * Supabase Realtime: for Postgres Changes, rows are delivered only to clients that pass SELECT RLS on
+ * `public.messages` (see Supabase docs “Interaction with Postgres Changes”). Our policies restrict
+ * visibility to messages in matches where the user is a participant — not all traffic on the table.
+ * Channel `private` / `realtime.messages` policies apply to Broadcast/Presence, not Postgres Changes.
+ *
+ * Intentional overlap: `useRealtimeMessages(matchId)` still runs in open chat for `messages` query
+ * invalidation; this hook only touches `unread-message-count` + `badge-count`. No feedback loop:
+ * `invalidateQueries` does not emit Realtime events.
+ */
+export function useGlobalMessagesInboxInvalidation(userId: string | null | undefined) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (!userId) return;
+    const invalidateInbox = () => {
+      qc.invalidateQueries({ queryKey: ['unread-message-count'] });
+      qc.invalidateQueries({ queryKey: ['badge-count'] });
+    };
+    const channel = supabase
+      .channel('global-messages-inbox')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId, qc]);
 }
 
 /** Typing indicator: broadcast when local user types, subscribe for partner typing. */

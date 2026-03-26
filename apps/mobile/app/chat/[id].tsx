@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -21,14 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import {
-  useAudioPlayer,
-  useAudioPlayerStatus,
-  useAudioRecorder,
-  RecordingPresets,
-  setAudioModeAsync,
-  requestRecordingPermissionsAsync,
-} from 'expo-audio';
+import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { LoadingState, ErrorState } from '@/components/ui';
@@ -57,8 +50,12 @@ import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
 import { MessageStatus } from '@/components/chat/MessageStatus';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
+import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
+import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
+import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
+import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
@@ -73,7 +70,7 @@ import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
-/** No native Vibe Arcade in-app yet; Games opens web chat (authenticated session may be required). */
+/** When true, Games chip shows an alert: native Would You Rather plus optional “Open in browser”. */
 const GAMES_WEB_FALLBACK = true;
 
 /** Message list + chrome background (slightly lifted from pure black). */
@@ -82,65 +79,6 @@ const MEDIA_CARD_SIZE = Math.max(
   172,
   Math.min(206, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.95))
 );
-
-function formatAudioClock(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-  const s = Math.floor(seconds % 60);
-  const m = Math.floor(seconds / 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function VoiceMessagePlayer({
-  uri,
-  durationSeconds,
-  isMine,
-  theme,
-  footer,
-}: {
-  uri: string;
-  durationSeconds?: number | null;
-  isMine: boolean;
-  theme: (typeof Colors)['light'];
-  footer: ReactNode;
-}) {
-  const player = useAudioPlayer(uri);
-  const status = useAudioPlayerStatus(player);
-  const playing = status.playing;
-  const position = status.currentTime ?? 0;
-  const reportedDur =
-    durationSeconds != null && durationSeconds > 0
-      ? durationSeconds
-      : status.duration != null && status.duration > 0
-        ? status.duration
-        : 0;
-  const progress = reportedDur > 0 ? Math.min(1, position / reportedDur) : 0;
-  const fg = isMine ? 'rgba(255,255,255,0.95)' : theme.text;
-  const track = isMine ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)';
-  const fill = isMine ? 'rgba(255,255,255,0.95)' : theme.tint;
-
-  const toggle = () => {
-    if (playing) player.pause();
-    else player.play();
-  };
-
-  return (
-    <View style={styles.voicePlayerWrap}>
-      <Pressable onPress={toggle} style={styles.voicePlayerRow} accessibilityRole="button">
-        <Ionicons name={playing ? 'pause' : 'play'} size={22} color={fg} />
-        <View style={styles.voicePlayerMid}>
-          <View style={[styles.voiceProgressTrack, { backgroundColor: track }]}>
-            <View style={[styles.voiceProgressFill, { width: `${progress * 100}%`, backgroundColor: fill }]} />
-          </View>
-          <Text style={[styles.voiceTimeRow, { color: isMine ? 'rgba(255,255,255,0.75)' : theme.textSecondary }]}>
-            {formatAudioClock(position)}
-            {reportedDur > 0 ? ` · ${formatAudioClock(reportedDur)}` : ''}
-          </Text>
-        </View>
-      </Pressable>
-      {footer}
-    </View>
-  );
-}
 
 function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
@@ -237,6 +175,8 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
+  const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -599,16 +539,17 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const confirmOpenGamesWebFallback = () => {
-    if (!GAMES_WEB_FALLBACK) return;
-    Alert.alert(
-      'Open Vibely Arcade',
-      'Arcade currently runs in your browser so you get the full game experience. You can return to chat anytime.',
-      [
-        { text: 'Stay in chat', style: 'cancel' },
-        { text: 'Open browser', onPress: () => void openGamesWebInBrowser() },
-      ]
-    );
+  const openGamesEntry = () => {
+    if (!GAMES_WEB_FALLBACK) {
+      setShowTwoTruthsStart(true);
+      return;
+    }
+    Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
+      { text: 'Two Truths', onPress: () => setShowTwoTruthsStart(true) },
+      { text: 'Would You Rather', onPress: () => setShowWouldRatherStart(true) },
+      { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   if (!otherUserId || !user?.id) {
@@ -685,6 +626,7 @@ export default function ChatThreadScreen() {
             durationSeconds={item.audio_duration_seconds}
             isMine={isMe}
             theme={theme}
+            wrapStyle={styles.voicePlayerWrap}
             footer={
               <>
                 {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -763,6 +705,21 @@ export default function ChatThreadScreen() {
               Loading date suggestion…
             </Text>
           )}
+        </View>
+      );
+    }
+
+    // Full-width timeline card (same outer container semantics as date suggestion rows — not a left/right chat bubble).
+    if (item.messageKind === 'vibe_game_session' && item.gameSessionView) {
+      return (
+        <View style={{ marginBottom: spacing.md, width: '100%' }}>
+          <GameSessionBubble
+            view={item.gameSessionView}
+            matchId={data?.matchId ?? ''}
+            currentUserId={user?.id ?? ''}
+            partnerName={otherName ?? 'Them'}
+            timeLabel={item.time}
+          />
         </View>
       );
     }
@@ -1152,7 +1109,7 @@ export default function ChatThreadScreen() {
             <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
           </Pressable>
           <Pressable
-            onPress={() => confirmOpenGamesWebFallback()}
+            onPress={() => openGamesEntry()}
             style={({ pressed }) => [
               styles.contextChip,
               { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
@@ -1296,6 +1253,22 @@ export default function ChatThreadScreen() {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <TwoTruthsStartSheet
+          visible={showTwoTruthsStart}
+          onClose={() => setShowTwoTruthsStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <WouldRatherStartSheet
+          visible={showWouldRatherStart}
+          onClose={() => setShowWouldRatherStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
         />
       ) : null}
     </View>
@@ -1458,11 +1431,6 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { opacity: 0.45 },
   voicePlayerWrap: { minWidth: 0, width: '100%', maxWidth: MEDIA_CARD_SIZE + 14 },
-  voicePlayerRow: { flexDirection: 'row', alignItems: 'center' },
-  voicePlayerMid: { flex: 1, marginLeft: 10 },
-  voiceProgressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  voiceProgressFill: { height: '100%', borderRadius: 2 },
-  voiceTimeRow: { fontSize: 11, marginTop: 6 },
   chatVideoCardOuter: {
     width: MEDIA_CARD_SIZE,
     borderRadius: 16,

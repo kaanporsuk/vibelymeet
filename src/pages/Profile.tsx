@@ -276,9 +276,7 @@ import { Crown } from "lucide-react";
 
 type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | "tagline" | null;
 
-const Profile = () => {
-  if (USE_PROFILE_STUDIO) return <ProfileStudio />;
-
+const LegacyProfilePage = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { isPremium, premiumUntil } = usePremium();
@@ -1774,6 +1772,19 @@ const Profile = () => {
       <BottomNav />
     </div>
   );
+};
+
+const Profile = () => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
+    console.info("[diag] Profile route entry", {
+      path: window.location.pathname,
+      useProfileStudio: USE_PROFILE_STUDIO,
+    });
+  }, []);
+
+  return USE_PROFILE_STUDIO ? <ProfileStudio /> : <LegacyProfilePage />;
 };
 
 export default Profile;
