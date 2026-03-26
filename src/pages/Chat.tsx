@@ -101,10 +101,10 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [isSubmittingGameStart, setIsSubmittingGameStart] = useState(false);
-  const [pendingGameSessionIds, setPendingGameSessionIds] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const gameStartLockRef = useRef(false);
+  const actionLockRef = useRef<Set<string>>(new Set());
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || "",
@@ -229,8 +229,8 @@ const Chat = () => {
         toast.error("No active conversation found");
         return;
       }
-      if (isSubmittingGameStart) return;
-      setIsSubmittingGameStart(true);
+      if (gameStartLockRef.current) return;
+      gameStartLockRef.current = true;
       setActiveGameCreator(null);
       const gameSessionId = newVibeGameSessionId();
 
@@ -295,29 +295,32 @@ const Chat = () => {
       }
 
       if (!input) {
-        setIsSubmittingGameStart(false);
+        gameStartLockRef.current = false;
         toast.error("Unsupported game payload");
         return;
       }
 
-      const result = await sendGameEvent({
-        match_id: chatData.matchId,
-        game_session_id: gameSessionId,
-        event_index: 0,
-        event_type: input.event_type,
-        game_type: input.game_type,
-        payload: input.payload,
-      });
-      setIsSubmittingGameStart(false);
-      if (!result.ok) {
-        toast.error(formatSendGameEventError(result.error));
-        return;
+      try {
+        const result = await sendGameEvent({
+          match_id: chatData.matchId,
+          game_session_id: gameSessionId,
+          event_index: 0,
+          event_type: input.event_type,
+          game_type: input.game_type,
+          payload: input.payload,
+        });
+        if (!result.ok) {
+          toast.error(formatSendGameEventError(result.error));
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({ queryKey: ["matches"] });
+        toast.success("Game sent!");
+      } finally {
+        gameStartLockRef.current = false;
       }
-      queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
-      toast.success("Game sent!");
     },
-    [chatData?.matchId, currentUserId, id, isSubmittingGameStart, queryClient]
+    [chatData?.matchId, currentUserId, id, queryClient]
   );
 
   const submitPersistedGameAction = useCallback(
@@ -329,7 +332,7 @@ const Chat = () => {
       if (!chatData?.matchId || !currentUserId) return;
       if (!view.starterUserId || view.starterUserId === currentUserId) return;
       if (view.status !== "active") return;
-      if (pendingGameSessionIds.includes(view.gameSessionId)) return;
+      if (actionLockRef.current.has(view.gameSessionId)) return;
 
       let event_type:
         | "two_truths_guess"
@@ -366,26 +369,29 @@ const Chat = () => {
 
       if (!event_type || !eventPayload) return;
 
-      setPendingGameSessionIds((prev) => [...prev, view.gameSessionId]);
-      const result = await sendGameEvent({
-        match_id: chatData.matchId,
-        game_session_id: view.gameSessionId,
-        event_index: view.latestEventIndex + 1,
-        event_type,
-        game_type: payload.gameType,
-        payload: eventPayload,
-      });
-      setPendingGameSessionIds((prev) => prev.filter((sid) => sid !== view.gameSessionId));
+      actionLockRef.current.add(view.gameSessionId);
+      try {
+        const result = await sendGameEvent({
+          match_id: chatData.matchId,
+          game_session_id: view.gameSessionId,
+          event_index: view.latestEventIndex + 1,
+          event_type,
+          game_type: payload.gameType,
+          payload: eventPayload,
+        });
 
-      if (!result.ok) {
-        toast.error(formatSendGameEventError(result.error));
-        return;
+        if (!result.ok) {
+          toast.error(formatSendGameEventError(result.error));
+          return;
+        }
+
+        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({ queryKey: ["matches"] });
+      } finally {
+        actionLockRef.current.delete(view.gameSessionId);
       }
-
-      queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
     },
-    [chatData?.matchId, currentUserId, id, pendingGameSessionIds, queryClient]
+    [chatData?.matchId, currentUserId, id, queryClient]
   );
 
   const scrollToBottom = useCallback(() => {
