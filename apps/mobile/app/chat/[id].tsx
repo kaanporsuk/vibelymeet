@@ -704,6 +704,7 @@ export default function ChatThreadScreen() {
       );
     }
 
+    // Full-width timeline card (same outer container semantics as date suggestion rows — not a left/right chat bubble).
     if (item.messageKind === 'vibe_game_session' && item.gameSessionView) {
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>

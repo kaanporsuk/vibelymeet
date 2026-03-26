@@ -5,7 +5,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
-import type { WouldRatherSnapshot } from '../../../../../shared/vibely-games/types';
+import type { WouldRatherSnapshot } from '@/lib/vibelyGamesTypes';
 
 type Props = {
   view: NativeHydratedGameSessionView;
@@ -14,14 +14,10 @@ type Props = {
   timeLabel: string;
 };
 
-function isWouldRatherSnapshot(s: NativeHydratedGameSessionView['foldedSnapshot']): s is WouldRatherSnapshot {
-  return s.game_type === 'would_rather';
-}
-
 export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (!isWouldRatherSnapshot(snap)) return null;
+  if (snap.game_type !== 'would_rather') return null;
 
   const isStarter = view.starterUserId === currentUserId;
   const complete = snap.status === 'complete';
