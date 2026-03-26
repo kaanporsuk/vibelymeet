@@ -298,6 +298,94 @@ export function sendTwoTruthsGuess(params: {
   });
 }
 
+/** `session_start` for Intuition (starter, `event_index` 0). */
+export function startIntuitionGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  options: [string, string];
+  senderChoice: 0 | 1;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'intuition',
+    payload: {
+      options: params.options,
+      sender_choice: params.senderChoice,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** `session_start` for Roulette (starter, `event_index` 0). */
+export function startRouletteGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  question: string;
+  senderAnswer: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'roulette',
+    payload: {
+      question: params.question,
+      sender_answer: params.senderAnswer,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** `session_start` for Charades (starter, `event_index` 0). */
+export function startCharadesGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  answer: string;
+  emojis: string[];
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'charades',
+    payload: {
+      answer: params.answer,
+      emojis: params.emojis,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** `session_start` for Scavenger (starter, `event_index` 0). */
+export function startScavengerGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  prompt: string;
+  senderPhotoUrl: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'scavenger',
+    payload: {
+      prompt: params.prompt,
+      sender_photo_url: params.senderPhotoUrl,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
 /** Partner reply after starter's `session_start`. */
 export function sendWouldRatherVote(params: {
   matchId: string;
@@ -313,6 +401,82 @@ export function sendWouldRatherVote(params: {
     event_type: 'would_rather_vote',
     game_type: 'would_rather',
     payload: { receiver_vote: params.receiverVote },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner photo after starter's Scavenger `session_start`. */
+export function sendScavengerPhoto(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverPhotoUrl: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'scavenger_photo',
+    game_type: 'scavenger',
+    payload: { receiver_photo_url: params.receiverPhotoUrl },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner guess after starter's Charades `session_start`. */
+export function sendCharadesGuess(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guess: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'charades_guess',
+    game_type: 'charades',
+    payload: { guess: params.guess },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner answer after starter's Roulette `session_start`. */
+export function sendRouletteAnswer(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverAnswer: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'roulette_answer',
+    game_type: 'roulette',
+    payload: { receiver_answer: params.receiverAnswer },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner response after starter's Intuition `session_start`. */
+export function sendIntuitionResult(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  result: 'correct' | 'wrong';
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'intuition_result',
+    game_type: 'intuition',
+    payload: { result: params.result },
     client_request_id: params.client_request_id,
   });
 }
@@ -386,6 +550,152 @@ export function buildTwoTruthsGuessParams(
   };
 }
 
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendIntuitionResult`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildIntuitionResultParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  result: 'correct' | 'wrong'
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  result: 'correct' | 'wrong';
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'intuition') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'intuition') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_result != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (!Array.isArray(snap.options) || snap.options.length !== 2) return null;
+  if (snap.sender_choice !== 0 && snap.sender_choice !== 1) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    result,
+  };
+}
+
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendRouletteAnswer`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildRouletteAnswerParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverAnswer: string
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverAnswer: string;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'roulette') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'roulette') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_answer != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  const q = typeof snap.question === 'string' ? snap.question.trim() : '';
+  const sa = typeof snap.sender_answer === 'string' ? snap.sender_answer.trim() : '';
+  const ra = receiverAnswer.trim();
+  if (!q || !sa || !ra) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    receiverAnswer: ra,
+  };
+}
+
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendCharadesGuess`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildCharadesGuessParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guess: string
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guess: string;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'charades') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'charades') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.is_guessed === true) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (!Array.isArray(snap.emojis) || snap.emojis.length === 0) return null;
+  if (typeof snap.answer !== 'string' || !snap.answer.trim()) return null;
+  const g = guess.trim();
+  if (!g) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    guess: g,
+  };
+}
+
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendScavengerPhoto`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildScavengerPhotoParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverPhotoUrl: string
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverPhotoUrl: string;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'scavenger') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'scavenger') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_photo_url != null || snap.is_unlocked === true) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (typeof snap.prompt !== 'string' || !snap.prompt.trim()) return null;
+  if (typeof snap.sender_photo_url !== 'string' || !snap.sender_photo_url.trim()) return null;
+  const photoUrl = receiverPhotoUrl.trim();
+  if (!photoUrl) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    receiverPhotoUrl: photoUrl,
+  };
+}
+
 /** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
 export function sendWouldRatherChoice(
   view: NativeHydratedGameSessionView,
@@ -418,6 +728,74 @@ export function sendTwoTruthsChoice(
     });
   }
   return sendTwoTruthsGuess({ ...params, client_request_id });
+}
+
+/** Native Intuition: receiver marks sender prediction as correct/wrong. */
+export function sendIntuitionChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  result: 'correct' | 'wrong',
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildIntuitionResultParams(view, matchId, result);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this response right now.' },
+    });
+  }
+  return sendIntuitionResult({ ...params, client_request_id });
+}
+
+/** Native Roulette: receiver answer only (uses live `send-game-event`). */
+export function sendRouletteChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverAnswer: string,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildRouletteAnswerParams(view, matchId, receiverAnswer);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this answer right now.' },
+    });
+  }
+  return sendRouletteAnswer({ ...params, client_request_id });
+}
+
+/** Native Charades: receiver guess only (uses live `send-game-event`). */
+export function sendCharadesChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guess: string,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildCharadesGuessParams(view, matchId, guess);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this guess right now.' },
+    });
+  }
+  return sendCharadesGuess({ ...params, client_request_id });
+}
+
+/** Native Scavenger: receiver photo only (uses live `send-game-event`). */
+export function sendScavengerChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverPhotoUrl: string,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildScavengerPhotoParams(view, matchId, receiverPhotoUrl);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this photo right now.' },
+    });
+  }
+  return sendScavengerPhoto({ ...params, client_request_id });
 }
 
 export function formatSendGameEventError(err: SendGameEventError): string {
@@ -462,6 +840,110 @@ export function useStartTwoTruthsGame() {
         gameSessionId: vars.gameSessionId,
         statements: vars.statements,
         lieIndex: vars.lieIndex,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Intuition session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartIntuitionGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      options: [string, string];
+      senderChoice: 0 | 1;
+    }) =>
+      startIntuitionGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        options: vars.options,
+        senderChoice: vars.senderChoice,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Roulette session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartRouletteGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      question: string;
+      senderAnswer: string;
+    }) =>
+      startRouletteGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        question: vars.question,
+        senderAnswer: vars.senderAnswer,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Charades session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartCharadesGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      answer: string;
+      emojis: string[];
+    }) =>
+      startCharadesGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        answer: vars.answer,
+        emojis: vars.emojis,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Scavenger session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartScavengerGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      prompt: string;
+      senderPhotoUrl: string;
+    }) =>
+      startScavengerGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        prompt: vars.prompt,
+        senderPhotoUrl: vars.senderPhotoUrl,
       }),
     onSuccess: (result) => {
       if (!result.ok) return;
@@ -529,6 +1011,82 @@ export function useSendTwoTruthsChoice() {
       matchId: string;
       guessIndex: 0 | 1 | 2;
     }) => sendTwoTruthsChoice(vars.view, vars.matchId, vars.guessIndex),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver response; on `result.ok` invalidates messages + matches.
+ */
+export function useSendIntuitionChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      result: 'correct' | 'wrong';
+    }) => sendIntuitionChoice(vars.view, vars.matchId, vars.result),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver answer; on `result.ok` invalidates messages + matches.
+ */
+export function useSendRouletteChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      receiverAnswer: string;
+    }) => sendRouletteChoice(vars.view, vars.matchId, vars.receiverAnswer),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver guess; on `result.ok` invalidates messages + matches.
+ */
+export function useSendCharadesChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      guess: string;
+    }) => sendCharadesChoice(vars.view, vars.matchId, vars.guess),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver photo; on `result.ok` invalidates messages + matches.
+ */
+export function useSendScavengerChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      receiverPhotoUrl: string;
+    }) => sendScavengerChoice(vars.view, vars.matchId, vars.receiverPhotoUrl),
     onSuccess: (result) => {
       if (!result.ok) return;
       qc.invalidateQueries({ queryKey: ['messages'] });

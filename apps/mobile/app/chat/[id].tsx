@@ -53,7 +53,11 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
+import { CharadesStartSheet } from '@/components/chat/games/CharadesStartSheet';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
+import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
+import { RouletteStartSheet } from '@/components/chat/games/RouletteStartSheet';
+import { ScavengerStartSheet } from '@/components/chat/games/ScavengerStartSheet';
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -70,7 +74,7 @@ import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
-/** When true, Games chip shows an alert: native Would You Rather plus optional “Open in browser”. */
+/** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;
 
 /** Message list + chrome background (slightly lifted from pure black). */
@@ -175,6 +179,10 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showCharadesStart, setShowCharadesStart] = useState(false);
+  const [showIntuitionStart, setShowIntuitionStart] = useState(false);
+  const [showRouletteStart, setShowRouletteStart] = useState(false);
+  const [showScavengerStart, setShowScavengerStart] = useState(false);
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
@@ -539,14 +547,80 @@ export default function ChatThreadScreen() {
     }
   };
 
+  const openTwoTruthsStart = () => {
+    setShowCharadesStart(false);
+    setShowIntuitionStart(false);
+    setShowRouletteStart(false);
+    setShowScavengerStart(false);
+    setShowWouldRatherStart(false);
+    setShowTwoTruthsStart(true);
+  };
+
+  const openWouldRatherStart = () => {
+    setShowCharadesStart(false);
+    setShowIntuitionStart(false);
+    setShowRouletteStart(false);
+    setShowScavengerStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(true);
+  };
+
+  const openIntuitionStart = () => {
+    setShowCharadesStart(false);
+    setShowRouletteStart(false);
+    setShowScavengerStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowIntuitionStart(true);
+  };
+
+  const openRouletteStart = () => {
+    setShowCharadesStart(false);
+    setShowIntuitionStart(false);
+    setShowScavengerStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowRouletteStart(true);
+  };
+
+  const openCharadesStart = () => {
+    setShowIntuitionStart(false);
+    setShowRouletteStart(false);
+    setShowScavengerStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowCharadesStart(true);
+  };
+
+  const openScavengerStart = () => {
+    setShowCharadesStart(false);
+    setShowIntuitionStart(false);
+    setShowRouletteStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowScavengerStart(true);
+  };
+
   const openGamesEntry = () => {
     if (!GAMES_WEB_FALLBACK) {
-      setShowTwoTruthsStart(true);
+      Alert.alert('Games', 'Choose a game to start in chat.', [
+        { text: 'Intuition Test', onPress: openIntuitionStart },
+        { text: 'Two Truths', onPress: openTwoTruthsStart },
+        { text: 'Would You Rather', onPress: openWouldRatherStart },
+        { text: 'Roulette', onPress: openRouletteStart },
+        { text: 'Charades', onPress: openCharadesStart },
+        { text: 'Scavenger', onPress: openScavengerStart },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
       return;
     }
     Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
-      { text: 'Two Truths', onPress: () => setShowTwoTruthsStart(true) },
-      { text: 'Would You Rather', onPress: () => setShowWouldRatherStart(true) },
+      { text: 'Intuition Test', onPress: openIntuitionStart },
+      { text: 'Two Truths', onPress: openTwoTruthsStart },
+      { text: 'Would You Rather', onPress: openWouldRatherStart },
+      { text: 'Roulette', onPress: openRouletteStart },
+      { text: 'Charades', onPress: openCharadesStart },
+      { text: 'Scavenger', onPress: openScavengerStart },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -1253,6 +1327,38 @@ export default function ChatThreadScreen() {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <CharadesStartSheet
+          visible={showCharadesStart}
+          onClose={() => setShowCharadesStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <IntuitionStartSheet
+          visible={showIntuitionStart}
+          onClose={() => setShowIntuitionStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <RouletteStartSheet
+          visible={showRouletteStart}
+          onClose={() => setShowRouletteStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <ScavengerStartSheet
+          visible={showScavengerStart}
+          onClose={() => setShowScavengerStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
         />
       ) : null}
       {data?.matchId ? (

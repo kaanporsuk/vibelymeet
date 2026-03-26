@@ -1775,6 +1775,15 @@ const LegacyProfilePage = () => {
 };
 
 const Profile = () => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
+    console.info("[diag] Profile route entry", {
+      path: window.location.pathname,
+      useProfileStudio: USE_PROFILE_STUDIO,
+    });
+  }, []);
+
   return USE_PROFILE_STUDIO ? <ProfileStudio /> : <LegacyProfilePage />;
 };
 

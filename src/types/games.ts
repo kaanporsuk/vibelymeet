@@ -1,6 +1,9 @@
 // VibeArcade Game Types - Backend Ready Data Structures
 
 import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
+import { ROULETTE_QUESTIONS as SHARED_ROULETTE_QUESTIONS } from "../../shared/vibely-games/roulettePrompts";
+import { SCAVENGER_PROMPTS as SHARED_SCAVENGER_PROMPTS } from "../../shared/vibely-games/scavengerPrompts";
+import { INTUITION_OPTIONS as SHARED_INTUITION_OPTIONS } from "../../shared/vibely-games/intuitionPrompts";
 
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
@@ -159,38 +162,11 @@ export const WOULD_RATHER_OPTIONS = WOULD_RATHER_PROMPT_PAIRS.map((p) => ({
   optionB: p.option_b,
 }));
 
-// Mock data for Scavenger Hunt prompts
-export const SCAVENGER_PROMPTS = [
-  'Show me... your fridge',
-  'Show me... your view right now',
-  'Show me... your favorite mug',
-  'Show me... something that makes you smile',
-  'Show me... your current mood as an object',
-  'Show me... the last thing you bought',
-  'Show me... your workspace',
-  'Show me... something purple',
-];
+// Shared data source for Scavenger prompts.
+export const SCAVENGER_PROMPTS = SHARED_SCAVENGER_PROMPTS;
 
-// Mock data for Vibe Roulette questions
-export const ROULETTE_QUESTIONS = [
-  'What\'s your biggest regret?',
-  'What\'s the most spontaneous thing you\'ve ever done?',
-  'What\'s your guilty pleasure?',
-  'What\'s a secret talent you have?',
-  'What\'s your earliest memory?',
-  'What would your perfect day look like?',
-  'What\'s something you\'ve never told anyone?',
-  'What\'s the best advice you\'ve ever received?',
-];
+// Shared data source for Vibe Roulette questions.
+export const ROULETTE_QUESTIONS = SHARED_ROULETTE_QUESTIONS;
 
-// Mock data for Intuition Test options
-export const INTUITION_OPTIONS = [
-  ['Staying In', 'Going Out'],
-  ['Coffee', 'Tea'],
-  ['Morning Person', 'Night Owl'],
-  ['Sweet', 'Savory'],
-  ['Beach', 'Mountains'],
-  ['Cats', 'Dogs'],
-  ['Books', 'Movies'],
-  ['Plan Everything', 'Go With The Flow'],
-];
+// Shared data source for Intuition options.
+export const INTUITION_OPTIONS = SHARED_INTUITION_OPTIONS;

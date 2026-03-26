@@ -3,6 +3,10 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
+import { CharadesBubble } from '@/components/chat/games/CharadesBubble';
+import { IntuitionBubble } from '@/components/chat/games/IntuitionBubble';
+import { RouletteBubble } from '@/components/chat/games/RouletteBubble';
+import { ScavengerBubble } from '@/components/chat/games/ScavengerBubble';
 import { TwoTruthsBubble } from '@/components/chat/games/TwoTruthsBubble';
 import { WouldRatherBubble } from '@/components/chat/games/WouldRatherBubble';
 
@@ -24,6 +28,54 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
   if (view.gameType === '2truths' && view.foldedSnapshot.game_type === '2truths') {
     return (
       <TwoTruthsBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
+
+  if (view.gameType === 'intuition' && view.foldedSnapshot.game_type === 'intuition') {
+    return (
+      <IntuitionBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
+
+  if (view.gameType === 'charades' && view.foldedSnapshot.game_type === 'charades') {
+    return (
+      <CharadesBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
+
+  if (view.gameType === 'roulette' && view.foldedSnapshot.game_type === 'roulette') {
+    return (
+      <RouletteBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
+
+  if (view.gameType === 'scavenger' && view.foldedSnapshot.game_type === 'scavenger') {
+    return (
+      <ScavengerBubble
         view={view}
         matchId={matchId}
         currentUserId={currentUserId}
