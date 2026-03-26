@@ -191,7 +191,16 @@ export function collapseVibeGameMessageRows(
       continue;
     }
     const sid = envelope.game_session_id;
-    if (emitIndexBySession.get(sid) !== i) continue;
+    // Single gate: emit the collapsed bubble only at the canonical (latest) backing index for this session.
+    // Intermediate valid `vibe_game` rows are omitted; do not require or compare against the first row index.
+    const canonicalEmitIndex = emitIndexBySession.get(sid);
+    if (canonicalEmitIndex === undefined) {
+      out.push(mapRegularRow(row));
+      continue;
+    }
+    if (i !== canonicalEmitIndex) {
+      continue;
+    }
 
     const view = viewBySession.get(sid);
     if (!view) {
@@ -324,6 +333,66 @@ export function verifyChatGameSessionsCollapseSmoke(): boolean {
       messageKind: 'text',
     }));
     if (mapped2.length !== 2 || mapped2[0]!.id !== 't0' || mapped2[1]!.messageKind !== 'vibe_game_session') return false;
+
+    const withTrailingText: ChatGameSessionMessageRow[] = [
+      ...rows,
+      {
+        id: 't1',
+        sender_id: pid,
+        content: 'after',
+        created_at: '2025-01-01T10:02:00.000Z',
+        read_at: null,
+        audio_url: null,
+        audio_duration_seconds: null,
+        video_url: null,
+        video_duration_seconds: null,
+        message_kind: 'text',
+        ref_id: null,
+        structured_payload: null,
+      },
+    ];
+    const mapped3 = collapseVibeGameMessageRows(withTrailingText, uid, pid, (r): ChatMessage => ({
+      id: r.id,
+      text: r.content,
+      sender: r.sender_id === uid ? 'me' : 'them',
+      time: '',
+      read_at: r.read_at ?? undefined,
+      status: 'sent',
+      messageKind: 'text',
+    }));
+    if (mapped3.length !== 2 || mapped3[0]!.messageKind !== 'vibe_game_session' || mapped3[1]!.id !== 't1') return false;
+
+    const withBadMiddle: ChatGameSessionMessageRow[] = [
+      rows[0]!,
+      {
+        id: 'bad',
+        sender_id: uid,
+        content: 'broken game row',
+        created_at: '2025-01-01T10:00:30.000Z',
+        read_at: null,
+        audio_url: null,
+        audio_duration_seconds: null,
+        video_url: null,
+        video_duration_seconds: null,
+        message_kind: 'vibe_game',
+        ref_id: null,
+        structured_payload: { not: 'an envelope' },
+      },
+      rows[1]!,
+    ];
+    const mapped4 = collapseVibeGameMessageRows(withBadMiddle, uid, pid, (r): ChatMessage => ({
+      id: r.id,
+      text: r.content,
+      sender: r.sender_id === uid ? 'me' : 'them',
+      time: '',
+      read_at: r.read_at ?? undefined,
+      status: 'sent',
+      messageKind: 'text',
+    }));
+    // m1 is skipped (folded); malformed row maps as regular; synthetic emits at m2's index.
+    if (mapped4.length !== 2) return false;
+    if (mapped4[0]!.id !== 'bad' || mapped4[1]!.messageKind !== 'vibe_game_session') return false;
+    if (mapped4[1]!.gameSessionView?.backingMessageIds.join(',') !== 'm1,m2') return false;
 
     return true;
   } catch {
