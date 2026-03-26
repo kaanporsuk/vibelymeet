@@ -76,6 +76,8 @@ interface ChatMessage {
   gameSessionView?: WebHydratedGameSessionView;
 }
 
+type TextMessage = ChatMessage & { type: "text" };
+
 const Chat = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -437,12 +439,13 @@ const Chat = () => {
         return;
       }
       const tempId = opts?.tempId ?? `temp-${Date.now()}`;
+      const optimisticKind = inferChatMediaRenderKind({ content: text });
       const tempMsg: ChatMessage = {
         id: tempId,
         text,
         sender: "me",
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        type: "text",
+        type: optimisticKind === "image" ? "image" : "text",
         status: "sending",
       };
       if (!opts?.tempId) {
@@ -861,10 +864,10 @@ const Chat = () => {
                     />
                   </div>
                 </div>
-              ) : (
+              ) : message.type === "text" ? (
                 <MessageBubble
                   key={message.id}
-                  message={message}
+                  message={message as TextMessage}
                   isFirstInGroup={message.isFirstInGroup}
                   isLastInGroup={message.isLastInGroup}
                   showAvatar={message.showAvatar}
@@ -876,7 +879,7 @@ const Chat = () => {
                     sendTextMessage({ tempId: failed.id, text: failed.text });
                   }}
                 />
-              )
+              ) : null
             )}
 
             <AnimatePresence>

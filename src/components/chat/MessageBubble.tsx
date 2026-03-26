@@ -11,7 +11,7 @@ interface Message {
   text: string;
   sender: "me" | "them";
   time: string;
-  type?: "text" | "video-invite" | "video" | "date-suggestion" | "date-suggestion-event";
+  type: "text";
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
   sendError?: string;
