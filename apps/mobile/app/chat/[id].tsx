@@ -192,6 +192,7 @@ export default function ChatThreadScreen() {
   );
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
+  const [reactionHintShown, setReactionHintShown] = useState(false);
   const [showDateSheet, setShowDateSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
@@ -874,6 +875,10 @@ export default function ChatThreadScreen() {
       <Pressable
         onLongPress={() => {
           Vibration.vibrate(30);
+          if (!reactionHintShown) {
+            Alert.alert('Reactions', 'Reactions are currently local to this device.');
+            setReactionHintShown(true);
+          }
           setReactionPickerMessageId(item.id);
         }}
         delayLongPress={400}

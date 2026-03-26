@@ -101,6 +101,7 @@ export function DateSuggestionCard({
   }, [suggestion.id, status, authorOfCurrent, current]);
 
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
+  const optionalNote = current?.optional_message?.trim() ?? "";
 
   const handleAccept = async () => {
     try {
@@ -264,15 +265,15 @@ export function DateSuggestionCard({
                 placeLine(current)
               )}
             </p>
-            {current.optional_message && (
+            {optionalNote.length > 0 && (
               <p>
                 <span className="text-muted-foreground">Note:</span>{" "}
                 {showAgreedChips && agreed?.optional_message ? (
                   <span>
-                    <AgreedChip /> {current.optional_message}
+                    <AgreedChip /> {optionalNote}
                   </span>
                 ) : (
-                  current.optional_message
+                  optionalNote
                 )}
               </p>
             )}

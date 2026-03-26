@@ -57,7 +57,7 @@ export function VoiceMessagePlayer({
   const timeLabel = (() => {
     if (!playing) {
       if (totalDuration > 0) return formatVoiceDurationClock(totalDuration);
-      return '—:—';
+      return 'Voice message';
     }
     if (totalDuration > 0) {
       return `${formatVoiceDurationClock(position)} · ${formatVoiceDurationClock(totalDuration)}`;
