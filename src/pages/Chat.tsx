@@ -22,6 +22,7 @@ import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
+import { MessageStatus } from "@/components/chat/MessageStatus";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -67,6 +68,7 @@ interface ChatMessage {
   videoDuration?: number;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
+  sendError?: string;
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
   gameSessionView?: WebHydratedGameSessionView;
@@ -101,6 +103,7 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
+  const [reactionHintShown, setReactionHintShown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const gameStartLockRef = useRef(false);
@@ -425,19 +428,15 @@ const Chat = () => {
     scrollToBottom();
   }, [groupedMessages, scrollToBottom]);
 
-  const handleSend = () => {
-    if (!newMessage.trim()) return;
-    if (!navigator.onLine) {
-      toast.error("You're offline — message will send when you reconnect");
-      return;
-    }
-    
-    const text = newMessage.trim();
-    setNewMessage("");
-    setShowDateSuggestion(false);
-
-    if (chatData?.matchId) {
-      const tempId = `temp-${Date.now()}`;
+  const sendTextMessage = useCallback(
+    (opts?: { tempId?: string; text?: string }) => {
+      const text = (opts?.text ?? newMessage).trim();
+      if (!text) return;
+      if (!chatData?.matchId) {
+        toast.error("No active conversation found");
+        return;
+      }
+      const tempId = opts?.tempId ?? `temp-${Date.now()}`;
       const tempMsg: ChatMessage = {
         id: tempId,
         text,
@@ -446,8 +445,11 @@ const Chat = () => {
         type: "text",
         status: "sending",
       };
-      setLocalMessages((prev) => [...prev, tempMsg]);
-
+      if (!opts?.tempId) {
+        setLocalMessages((prev) => [...prev, tempMsg]);
+      } else {
+        setLocalMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "sending", sendError: undefined } : m)));
+      }
       sendMessage(
         { matchId: chatData.matchId, content: text },
         {
@@ -456,15 +458,29 @@ const Chat = () => {
           },
           onError: () => {
             setLocalMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? { ...m, status: "sending" as MessageStatusType } : m))
+              prev.map((m) =>
+                m.id === tempId
+                  ? { ...m, status: "sent" as MessageStatusType, sendError: "Failed to send. Tap retry." }
+                  : m
+              )
             );
             toast.error("Failed to send message");
           },
         }
       );
-    } else {
-      toast.error("No active conversation found");
+    },
+    [chatData?.matchId, newMessage, sendMessage]
+  );
+
+  const handleSend = () => {
+    if (!newMessage.trim()) return;
+    if (!navigator.onLine) {
+      toast.error("You're offline — message will send when you reconnect");
+      return;
     }
+    setNewMessage("");
+    setShowDateSuggestion(false);
+    sendTextMessage();
   };
 
   const handleOpenDateComposerFromChip = () => {
@@ -594,6 +610,10 @@ const Chat = () => {
   };
 
   const handleReaction = useCallback((messageId: string, emoji: ReactionEmoji | null) => {
+    if (!reactionHintShown) {
+      toast.message("Reactions are currently local to this device.");
+      setReactionHintShown(true);
+    }
     setLocalMessages((prev) =>
       prev.map((msg) =>
         msg.id === messageId
@@ -601,7 +621,7 @@ const Chat = () => {
           : msg
       )
     );
-  }, []);
+  }, [reactionHintShown]);
 
   const hasText = newMessage.trim().length > 0;
 
@@ -767,7 +787,13 @@ const Chat = () => {
                       isMine={message.sender === "me"}
                     />
                     {message.isLastInGroup && (
-                      <p className={cn("text-[10px] mt-1", message.sender === "me" ? "text-right text-muted-foreground" : "text-muted-foreground")}>{message.time}</p>
+                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+                        <MessageStatus
+                          status={message.status || "delivered"}
+                          time={message.time}
+                          isMyMessage={message.sender === "me"}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -799,7 +825,13 @@ const Chat = () => {
                       isMine={message.sender === "me"}
                     />
                     {message.isLastInGroup && (
-                      <p className={cn("text-[10px] mt-1", message.sender === "me" ? "text-primary-foreground/60 text-right" : "text-muted-foreground")}>{message.time}</p>
+                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+                        <MessageStatus
+                          status={message.status || "delivered"}
+                          time={message.time}
+                          isMyMessage={message.sender === "me"}
+                        />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -812,6 +844,11 @@ const Chat = () => {
                   showAvatar={message.showAvatar}
                   avatarUrl={otherUser.avatar_url}
                   onReaction={handleReaction}
+                  onRetryFailedSend={(id) => {
+                    const failed = localMessages.find((m) => m.id === id);
+                    if (!failed) return;
+                    sendTextMessage({ tempId: failed.id, text: failed.text });
+                  }}
                 />
               )
             )}

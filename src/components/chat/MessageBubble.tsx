@@ -17,6 +17,7 @@ interface Message {
   audioBlob?: Blob;
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
+  sendError?: string;
 }
 
 interface MessageBubbleProps {
@@ -26,6 +27,7 @@ interface MessageBubbleProps {
   showAvatar: boolean;
   avatarUrl?: string;
   onReaction?: (messageId: string, emoji: ReactionEmoji | null) => void;
+  onRetryFailedSend?: (messageId: string) => void;
 }
 
 export const MessageBubble = ({
@@ -35,6 +37,7 @@ export const MessageBubble = ({
   showAvatar,
   avatarUrl,
   onReaction,
+  onRetryFailedSend,
 }: MessageBubbleProps) => {
   const isMe = message.sender === "me";
   const isVoice = message.type === "voice";
@@ -175,16 +178,28 @@ export const MessageBubble = ({
           )}
         >
           <p className="text-sm leading-relaxed">{message.text}</p>
+          {isMe && message.sendError ? (
+            <button
+              onClick={() => onRetryFailedSend?.(message.id)}
+              className="mt-1 text-[10px] underline underline-offset-2 text-primary-foreground/85 hover:text-primary-foreground"
+            >
+              {message.sendError}
+            </button>
+          ) : null}
           {isLastInGroup && (
             <div className={cn(
               "flex items-center gap-1 mt-1",
               isMe ? "justify-end" : "justify-start"
             )}>
-              <MessageStatus
-                status={message.status || "delivered"}
-                time={message.time}
-                isMyMessage={isMe}
-              />
+              {isMe && message.sendError ? (
+                <span className="text-[10px] text-primary-foreground/75">{message.time} · failed</span>
+              ) : (
+                <MessageStatus
+                  status={message.status || "delivered"}
+                  time={message.time}
+                  isMyMessage={isMe}
+                />
+              )}
             </div>
           )}
 
@@ -204,11 +219,24 @@ export const MessageBubble = ({
       {/* Emoji bar */}
       <AnimatePresence>
         {showEmojiBar && (
-          <EmojiBar
-            onSelect={handleSelectReaction}
-            onClose={handleCloseEmojiBar}
-            position={isMe ? "right" : "left"}
-          />
+          <>
+            <EmojiBar
+              onSelect={handleSelectReaction}
+              onClose={handleCloseEmojiBar}
+              position={isMe ? "right" : "left"}
+            />
+            <motion.p
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              className={cn(
+                "absolute bottom-full mb-[-16px] text-[10px] text-muted-foreground z-[101]",
+                isMe ? "right-1" : "left-1"
+              )}
+            >
+              Local only
+            </motion.p>
+          </>
         )}
       </AnimatePresence>
     </motion.div>

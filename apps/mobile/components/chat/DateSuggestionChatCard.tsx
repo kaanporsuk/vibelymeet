@@ -105,6 +105,7 @@ export function DateSuggestionChatCard({
   }, [suggestion.id, status, authorOfCurrent, current]);
 
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
+  const optionalNote = current?.optional_message?.trim() ?? '';
 
   const handleAccept = async () => {
     try {
@@ -293,13 +294,13 @@ export function DateSuggestionChatCard({
             <Text style={[styles.lineValue, { color: theme.text }]}>{placeLine(current)}</Text>
           </View>
 
-          {current.optional_message ? (
+          {optionalNote.length > 0 ? (
             <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
               <View style={styles.lineRow}>
                 <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Note</Text>
                 {showAgreedChips && agreed?.optional_message ? <AgreedChip /> : null}
               </View>
-              <Text style={[styles.lineValue, { color: theme.text, flex: 1 }]}>{current.optional_message}</Text>
+              <Text style={[styles.lineValue, { color: theme.text, flex: 1 }]}>{optionalNote}</Text>
             </View>
           ) : null}
         </View>
