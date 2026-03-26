@@ -140,16 +140,6 @@ export const MessageBubble = ({
             audioBlob={message.audioBlob}
             sender={message.sender}
           />
-          {isLastInGroup && (
-            <p
-              className={cn(
-                "text-[10px] mt-1",
-                isMe ? "text-right text-muted-foreground" : "text-muted-foreground"
-              )}
-            >
-              {message.time}
-            </p>
-          )}
         </div>
       ) : (
         /* Text message bubble */

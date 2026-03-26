@@ -167,8 +167,16 @@ const VoiceMessagePlayer = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const totalDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   // Calculate progress percentage
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
+  const displayTime = (() => {
+    if (totalDuration <= 0 && !isPlaying && currentTime <= 0) return 'Voice message';
+    if (isPlaying && totalDuration > 0) return `${formatTime(currentTime)} · ${formatTime(totalDuration)}`;
+    if (isPlaying) return formatTime(currentTime);
+    return formatTime(totalDuration > 0 ? totalDuration : currentTime);
+  })();
+
 
   const isMine = sender === 'me';
 
@@ -259,7 +267,7 @@ const VoiceMessagePlayer = ({
             "text-xs font-mono",
             isMine ? "text-white/80" : "text-muted-foreground"
           )}>
-            {formatTime(currentTime)} / {formatTime(duration)}
+            {displayTime}
           </span>
 
           {/* Speed toggle */}
