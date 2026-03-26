@@ -54,6 +54,7 @@ import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
+import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
@@ -173,6 +174,7 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -535,16 +537,16 @@ export default function ChatThreadScreen() {
     }
   };
 
-  const confirmOpenGamesWebFallback = () => {
-    if (!GAMES_WEB_FALLBACK) return;
-    Alert.alert(
-      'Open Vibely Arcade',
-      'Arcade currently runs in your browser so you get the full game experience. You can return to chat anytime.',
-      [
-        { text: 'Stay in chat', style: 'cancel' },
-        { text: 'Open browser', onPress: () => void openGamesWebInBrowser() },
-      ]
-    );
+  const openGamesEntry = () => {
+    if (!GAMES_WEB_FALLBACK) {
+      setShowWouldRatherStart(true);
+      return;
+    }
+    Alert.alert('Games', 'Start Would You Rather in chat or open the full arcade in your browser.', [
+      { text: 'Would You Rather', onPress: () => setShowWouldRatherStart(true) },
+      { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   if (!otherUserId || !user?.id) {
@@ -1104,7 +1106,7 @@ export default function ChatThreadScreen() {
             <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
           </Pressable>
           <Pressable
-            onPress={() => confirmOpenGamesWebFallback()}
+            onPress={() => openGamesEntry()}
             style={({ pressed }) => [
               styles.contextChip,
               { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
@@ -1248,6 +1250,14 @@ export default function ChatThreadScreen() {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <WouldRatherStartSheet
+          visible={showWouldRatherStart}
+          onClose={() => setShowWouldRatherStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
         />
       ) : null}
     </View>

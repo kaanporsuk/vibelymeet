@@ -151,17 +151,13 @@ export const ARCADE_GAMES: GameDefinition[] = [
   },
 ];
 
-// Mock data for Would You Rather options
-export const WOULD_RATHER_OPTIONS = [
-  { optionA: 'Travel to the past', optionB: 'Travel to the future' },
-  { optionA: 'Read minds', optionB: 'Be invisible' },
-  { optionA: 'Live in the city', optionB: 'Live in the countryside' },
-  { optionA: 'Always be early', optionB: 'Always be late' },
-  { optionA: 'Have unlimited money', optionB: 'Have unlimited time' },
-  { optionA: 'Never use social media', optionB: 'Never watch TV' },
-  { optionA: 'Be a famous musician', optionB: 'Be a famous actor' },
-  { optionA: 'Have breakfast for dinner', optionB: 'Have dinner for breakfast' },
-];
+import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
+
+/** CamelCase view of `WOULD_RATHER_PROMPT_PAIRS` (web arcade). */
+export const WOULD_RATHER_OPTIONS = WOULD_RATHER_PROMPT_PAIRS.map((p) => ({
+  optionA: p.option_a,
+  optionB: p.option_b,
+}));
 
 // Mock data for Scavenger Hunt prompts
 export const SCAVENGER_PROMPTS = [

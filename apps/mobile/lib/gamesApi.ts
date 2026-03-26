@@ -136,7 +136,7 @@ function mapRawRow(raw: unknown): GameEventMessageRow | null {
   };
 }
 
-function newClientRequestId(): string {
+function randomUuidV4(): string {
   const c = globalThis.crypto;
   if (c?.getRandomValues) {
     const bytes = new Uint8Array(16);
@@ -150,6 +150,15 @@ function newClientRequestId(): string {
     const n = (Math.random() * 16) | 0;
     return (ch === 'x' ? n : (n & 0x3) | 0x8).toString(16);
   });
+}
+
+function newClientRequestId(): string {
+  return randomUuidV4();
+}
+
+/** New `game_session_id` for starting a native (or any client) arcade session. */
+export function newVibeGameSessionId(): string {
+  return randomUuidV4();
 }
 
 /**
@@ -333,9 +342,41 @@ export function formatSendGameEventError(err: SendGameEventError): string {
       return 'Not your turn.';
     case 'insert_failed':
       return 'Could not save your pick. Try again.';
+    case 'session_already_started':
+      return 'This game round was already started. Refresh the chat.';
+    case 'session_start_must_be_index_0':
+      return 'Could not start the round. Try again.';
     default:
       return err.rawCode || err.code || 'Could not send your pick.';
   }
+}
+
+/**
+ * Start a new Would You Rather session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartWouldRatherGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      optionA: string;
+      optionB: string;
+      senderVote: 'A' | 'B';
+    }) =>
+      startWouldRatherGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        optionA: vars.optionA,
+        optionB: vars.optionB,
+        senderVote: vars.senderVote,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
 }
 
 /**
