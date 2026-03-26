@@ -70,7 +70,7 @@ import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
-/** When true, Games chip shows an alert: native Would You Rather plus optional “Open in browser”. */
+/** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;
 
 /** Message list + chrome background (slightly lifted from pure black). */
@@ -539,14 +539,28 @@ export default function ChatThreadScreen() {
     }
   };
 
+  const openTwoTruthsStart = () => {
+    setShowWouldRatherStart(false);
+    setShowTwoTruthsStart(true);
+  };
+
+  const openWouldRatherStart = () => {
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(true);
+  };
+
   const openGamesEntry = () => {
     if (!GAMES_WEB_FALLBACK) {
-      setShowTwoTruthsStart(true);
+      Alert.alert('Games', 'Choose a game to start in chat.', [
+        { text: 'Two Truths', onPress: openTwoTruthsStart },
+        { text: 'Would You Rather', onPress: openWouldRatherStart },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
       return;
     }
     Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
-      { text: 'Two Truths', onPress: () => setShowTwoTruthsStart(true) },
-      { text: 'Would You Rather', onPress: () => setShowWouldRatherStart(true) },
+      { text: 'Two Truths', onPress: openTwoTruthsStart },
+      { text: 'Would You Rather', onPress: openWouldRatherStart },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
       { text: 'Cancel', style: 'cancel' },
     ]);
