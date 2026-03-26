@@ -45,6 +45,7 @@ import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessages, useSendMessage } from "@/hooks/useMessages";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
+import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
@@ -205,16 +206,10 @@ const Chat = () => {
   }, [chatData?.messages, localMessages]);
 
   const displayMessages = useMemo(() => {
-    const lastByRef = new Map<string, string>();
-    for (const m of messages) {
-      if (m.refId && (m.type === "date-suggestion" || m.type === "date-suggestion-event")) {
-        lastByRef.set(m.refId, m.id);
-      }
-    }
-    return messages.filter((m) => {
-      if (!m.refId) return true;
-      if (m.type !== "date-suggestion" && m.type !== "date-suggestion-event") return true;
-      return lastByRef.get(m.refId) === m.id;
+    return dedupeLatestByRefId(messages, {
+      isDedupeCandidate: (m) => m.type === "date-suggestion" || m.type === "date-suggestion-event",
+      getRefId: (m) => m.refId,
+      getId: (m) => m.id,
     });
   }, [messages]);
 

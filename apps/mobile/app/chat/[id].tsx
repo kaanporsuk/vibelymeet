@@ -71,6 +71,7 @@ import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
 import { formatChatImageMessageContent, inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
+import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -216,17 +217,10 @@ export default function ChatThreadScreen() {
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const isSending = sending || sendingVoice || sendingVideo || sendingPhoto;
   const displayMessages = useMemo(() => {
-    const msgs = data?.messages ?? [];
-    const lastByRef = new Map<string, string>();
-    for (const m of msgs) {
-      if (m.refId && (m.messageKind === 'date_suggestion' || m.messageKind === 'date_suggestion_event')) {
-        lastByRef.set(m.refId, m.id);
-      }
-    }
-    return msgs.filter((m) => {
-      if (!m.refId) return true;
-      if (m.messageKind !== 'date_suggestion' && m.messageKind !== 'date_suggestion_event') return true;
-      return lastByRef.get(m.refId) === m.id;
+    return dedupeLatestByRefId<ChatMessage>(data?.messages ?? [], {
+      isDedupeCandidate: (m) => m.messageKind === 'date_suggestion' || m.messageKind === 'date_suggestion_event',
+      getRefId: (m) => m.refId,
+      getId: (m) => m.id,
     });
   }, [data?.messages]);
 
