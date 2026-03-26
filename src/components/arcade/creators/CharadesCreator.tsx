@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CHARADES_EMOJI_PICKER } from "../../../../shared/vibely-games/charadesEmojiPicker";
+import { CHARADES_EMOJI_PICKER } from "@/types/games";
 
 interface CharadesCreatorProps {
   isOpen: boolean;

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
+import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 
 export interface Message {
   id: string;
@@ -12,9 +13,10 @@ export interface Message {
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
-  messageKind?: "text" | "date_suggestion" | "date_suggestion_event";
+  messageKind?: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session";
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
+  gameSessionView?: WebHydratedGameSessionView;
 }
 
 type ChatOtherUser = {
@@ -60,32 +62,43 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
         .eq("id", otherUserId)
         .maybeSingle();
 
+      const collapsedRows = collapseVibeGameRowsForWeb((messages || []).map((msg) => ({
+        id: msg.id,
+        sender_id: msg.sender_id,
+        content: msg.content,
+        created_at: msg.created_at,
+        read_at: msg.read_at,
+        audio_url: msg.audio_url,
+        audio_duration_seconds: msg.audio_duration_seconds,
+        video_url: msg.video_url,
+        video_duration_seconds: msg.video_duration_seconds,
+        message_kind: (msg as { message_kind?: string }).message_kind ?? "text",
+        ref_id: (msg as { ref_id?: string | null }).ref_id ?? null,
+        structured_payload: (msg as { structured_payload?: unknown }).structured_payload ?? null,
+      })));
+
       return {
         matchId: match.id,
         otherUser,
-        messages: (messages || []).map((msg) => {
-          const row = msg as typeof msg & {
-            message_kind?: string;
-            ref_id?: string | null;
-            structured_payload?: Record<string, unknown> | null;
-          };
+        messages: collapsedRows.map((row) => {
           const mk = (row.message_kind || "text") as string;
           return {
-            id: msg.id,
-            text: msg.content,
-            sender: msg.sender_id === currentUserId ? ("me" as const) : ("them" as const),
-            time: new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            createdAt: msg.created_at,
-            audioUrl: msg.audio_url || undefined,
-            audioDuration: msg.audio_duration_seconds || undefined,
-            videoUrl: msg.video_url || undefined,
-            videoDuration: msg.video_duration_seconds || undefined,
+            id: row.id,
+            text: row.content,
+            sender: row.sender_id === currentUserId ? ("me" as const) : ("them" as const),
+            time: new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            createdAt: row.created_at,
+            audioUrl: row.audio_url || undefined,
+            audioDuration: row.audio_duration_seconds || undefined,
+            videoUrl: row.video_url || undefined,
+            videoDuration: row.video_duration_seconds || undefined,
             messageKind:
-              mk === "date_suggestion" || mk === "date_suggestion_event"
+              mk === "date_suggestion" || mk === "date_suggestion_event" || mk === "vibe_game_session"
                 ? (mk as Message["messageKind"])
                 : ("text" as const),
-            refId: row.ref_id ?? null,
+            refId: row.ref_id,
             structuredPayload: row.structured_payload ?? null,
+            gameSessionView: row.game_session_view,
           };
         }),
       };

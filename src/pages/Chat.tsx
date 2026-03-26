@@ -41,6 +41,8 @@ import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator"
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessages, useSendMessage } from "@/hooks/useMessages";
+import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
+import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
@@ -56,7 +58,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
+  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -67,6 +69,7 @@ interface ChatMessage {
   status?: MessageStatusType;
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
+  gameSessionView?: WebHydratedGameSessionView;
 }
 
 const Chat = () => {
@@ -98,9 +101,10 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const gameStartLockRef = useRef(false);
+  const actionLockRef = useRef<Set<string>>(new Set());
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || "",
@@ -165,6 +169,17 @@ const Chat = () => {
           status: "delivered" as MessageStatusType,
         };
       }
+      if (m.messageKind === "vibe_game_session") {
+        return {
+          id: m.id,
+          text: m.text,
+          sender: m.sender,
+          time: m.time,
+          type: "vibe-game-session" as const,
+          status: "delivered" as MessageStatusType,
+          gameSessionView: m.gameSessionView,
+        };
+      }
       return {
         id: m.id,
         text: m.text,
@@ -203,34 +218,181 @@ const Chat = () => {
     return map;
   }, [dateSuggestions]);
 
-  const createGameMessage = (payload: GamePayload): GameMessage => ({
-    id: `game-${Date.now()}`,
-    senderId: "me",
-    type: "game_interactive",
-    sender: "me",
-    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    gamePayload: payload,
-  });
-
   const handleGameSelect = (gameType: GameType) => {
     setShowArcade(false);
     setActiveGameCreator(gameType);
   };
 
-  const handleGameCreated = (payload: GamePayload) => {
-    const newGame = createGameMessage(payload);
-    setGameMessages(prev => [...prev, newGame]);
-    setActiveGameCreator(null);
-    toast.success("Game sent!");
-  };
+  const submitGameStart = useCallback(
+    async (payload: GamePayload) => {
+      if (!chatData?.matchId) {
+        toast.error("No active conversation found");
+        return;
+      }
+      if (gameStartLockRef.current) return;
+      gameStartLockRef.current = true;
+      setActiveGameCreator(null);
+      const gameSessionId = newVibeGameSessionId();
 
-  const handleGameUpdate = (messageId: string, updatedPayload: GamePayload) => {
-    setGameMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId ? { ...msg, gamePayload: updatedPayload } : msg
-      )
-    );
-  };
+      let input:
+        | {
+            event_type: "session_start";
+            game_type: GamePayload["gameType"];
+            payload: Record<string, unknown>;
+          }
+        | null = null;
+
+      if (payload.gameType === "2truths") {
+        const statements = payload.data.statements.slice(0, 3) as [string, string, string];
+        input = {
+          event_type: "session_start",
+          game_type: "2truths",
+          payload: { statements, lie_index: payload.data.lieIndex as 0 | 1 | 2 },
+        };
+      } else if (payload.gameType === "would_rather") {
+        input = {
+          event_type: "session_start",
+          game_type: "would_rather",
+          payload: {
+            option_a: payload.data.optionA,
+            option_b: payload.data.optionB,
+            sender_vote: payload.data.senderVote,
+          },
+        };
+      } else if (payload.gameType === "charades") {
+        input = {
+          event_type: "session_start",
+          game_type: "charades",
+          payload: { answer: payload.data.answer, emojis: payload.data.emojis },
+        };
+      } else if (payload.gameType === "scavenger") {
+        input = {
+          event_type: "session_start",
+          game_type: "scavenger",
+          payload: {
+            prompt: payload.data.prompt,
+            sender_photo_url: payload.data.senderPhotoUrl,
+          },
+        };
+      } else if (payload.gameType === "roulette") {
+        input = {
+          event_type: "session_start",
+          game_type: "roulette",
+          payload: {
+            question: payload.data.question,
+            sender_answer: payload.data.senderAnswer,
+          },
+        };
+      } else if (payload.gameType === "intuition") {
+        input = {
+          event_type: "session_start",
+          game_type: "intuition",
+          payload: {
+            options: payload.data.options as [string, string],
+            sender_choice: payload.data.senderChoice,
+          },
+        };
+      }
+
+      if (!input) {
+        gameStartLockRef.current = false;
+        toast.error("Unsupported game payload");
+        return;
+      }
+
+      try {
+        const result = await sendGameEvent({
+          match_id: chatData.matchId,
+          game_session_id: gameSessionId,
+          event_index: 0,
+          event_type: input.event_type,
+          game_type: input.game_type,
+          payload: input.payload,
+        });
+        if (!result.ok) {
+          toast.error(formatSendGameEventError(result.error));
+          return;
+        }
+        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({ queryKey: ["matches"] });
+        toast.success("Game sent!");
+      } finally {
+        gameStartLockRef.current = false;
+      }
+    },
+    [chatData?.matchId, currentUserId, id, queryClient]
+  );
+
+  const submitPersistedGameAction = useCallback(
+    async (
+      view: WebHydratedGameSessionView,
+      payload: GamePayload,
+      updates: Partial<GamePayload["data"]>
+    ) => {
+      if (!chatData?.matchId || !currentUserId) return;
+      if (!view.starterUserId || view.starterUserId === currentUserId) return;
+      if (view.status !== "active") return;
+      if (actionLockRef.current.has(view.gameSessionId)) return;
+
+      let event_type:
+        | "two_truths_guess"
+        | "would_rather_vote"
+        | "charades_guess"
+        | "scavenger_photo"
+        | "roulette_answer"
+        | "intuition_result"
+        | null = null;
+      let eventPayload: Record<string, unknown> | null = null;
+
+      if (payload.gameType === "2truths" && typeof updates.guessedIndex === "number") {
+        event_type = "two_truths_guess";
+        eventPayload = { guess_index: updates.guessedIndex };
+      } else if (payload.gameType === "would_rather" && (updates.receiverVote === "A" || updates.receiverVote === "B")) {
+        event_type = "would_rather_vote";
+        eventPayload = { receiver_vote: updates.receiverVote };
+      } else if (payload.gameType === "charades" && Array.isArray(updates.guesses) && updates.guesses.length > 0) {
+        const guess = updates.guesses[updates.guesses.length - 1];
+        if (typeof guess === "string" && guess.trim()) {
+          event_type = "charades_guess";
+          eventPayload = { guess };
+        }
+      } else if (payload.gameType === "scavenger" && typeof updates.receiverPhotoUrl === "string") {
+        event_type = "scavenger_photo";
+        eventPayload = { receiver_photo_url: updates.receiverPhotoUrl };
+      } else if (payload.gameType === "roulette" && typeof updates.receiverAnswer === "string") {
+        event_type = "roulette_answer";
+        eventPayload = { receiver_answer: updates.receiverAnswer };
+      } else if (payload.gameType === "intuition" && (updates.receiverResponse === "correct" || updates.receiverResponse === "wrong")) {
+        event_type = "intuition_result";
+        eventPayload = { result: updates.receiverResponse };
+      }
+
+      if (!event_type || !eventPayload) return;
+
+      actionLockRef.current.add(view.gameSessionId);
+      try {
+        const result = await sendGameEvent({
+          match_id: chatData.matchId,
+          game_session_id: view.gameSessionId,
+          event_index: view.latestEventIndex + 1,
+          event_type,
+          game_type: payload.gameType,
+          payload: eventPayload,
+        });
+
+        if (!result.ok) {
+          toast.error(formatSendGameEventError(result.error));
+          return;
+        }
+
+        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({ queryKey: ["matches"] });
+      } finally {
+        actionLockRef.current.delete(view.gameSessionId);
+      }
+    },
+    [chatData?.matchId, currentUserId, id, queryClient]
+  );
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -532,6 +694,39 @@ const Chat = () => {
                     )}
                   </div>
                 </div>
+              ) : message.type === "vibe-game-session" && message.gameSessionView ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5",
+                  )}
+                >
+                  <div className="max-w-[75%] overflow-hidden">
+                    {(() => {
+                      const payload = webGamePayloadFromSessionView(message.gameSessionView);
+                      if (!payload) return null;
+                      const hydratedGameMessage: GameMessage = {
+                        id: message.id,
+                        senderId: message.gameSessionView.starterUserId ?? "",
+                        type: "game_interactive",
+                        sender: message.sender,
+                        time: message.time,
+                        gamePayload: payload,
+                      };
+                      return (
+                        <GameBubbleRenderer
+                          message={hydratedGameMessage}
+                          matchName={otherUser.name}
+                          onGameUpdate={(_, __, updates) =>
+                            submitPersistedGameAction(message.gameSessionView!, payload, updates)
+                          }
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
               ) : message.type === "video-invite" ? (
                 <div
                   key={message.id}
@@ -620,24 +815,6 @@ const Chat = () => {
                 />
               )
             )}
-
-            {gameMessages.map((gameMsg) => (
-              <div
-                key={gameMsg.id}
-                className={cn(
-                  "flex mt-2",
-                  gameMsg.sender === "me" ? "justify-end" : "justify-start"
-                )}
-              >
-                <div className="max-w-[75%] overflow-hidden">
-                  <GameBubbleRenderer
-                    message={gameMsg}
-                    matchName={otherUser.name}
-                    onGameUpdate={handleGameUpdate}
-                  />
-                </div>
-              </div>
-            ))}
 
             <AnimatePresence>
               {isTyping && (
@@ -814,32 +991,56 @@ const Chat = () => {
       <TwoTruthsCreator
         isOpen={activeGameCreator === "2truths"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(statements, lieIndex) => handleGameCreated({ gameType: "2truths", step: "active", data: { statements, lieIndex } })}
+        onSubmit={(statements, lieIndex) =>
+          submitGameStart({ gameType: "2truths", step: "active", data: { statements, lieIndex } })
+        }
       />
       <WouldRatherCreator
         isOpen={activeGameCreator === "would_rather"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(optionA, optionB, vote) => handleGameCreated({ gameType: "would_rather", step: "active", data: { optionA, optionB, senderVote: vote } })}
+        onSubmit={(optionA, optionB, vote) =>
+          submitGameStart({ gameType: "would_rather", step: "active", data: { optionA, optionB, senderVote: vote } })
+        }
       />
       <CharadesCreator
         isOpen={activeGameCreator === "charades"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(answer, emojis) => handleGameCreated({ gameType: "charades", step: "active", data: { answer, emojis, guesses: [] } })}
+        onSubmit={(answer, emojis) =>
+          submitGameStart({ gameType: "charades", step: "active", data: { answer, emojis, guesses: [] } })
+        }
       />
       <ScavengerCreator
         isOpen={activeGameCreator === "scavenger"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(prompt, photoUrl) => handleGameCreated({ gameType: "scavenger", step: "active", data: { prompt, senderPhotoUrl: photoUrl, isUnlocked: false } })}
+        onSubmit={(prompt, photoUrl) =>
+          submitGameStart({
+            gameType: "scavenger",
+            step: "active",
+            data: { prompt, senderPhotoUrl: photoUrl, isUnlocked: false },
+          })
+        }
       />
       <RouletteCreator
         isOpen={activeGameCreator === "roulette"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(question, answer) => handleGameCreated({ gameType: "roulette", step: "active", data: { question, senderAnswer: answer, isUnlocked: false } })}
+        onSubmit={(question, answer) =>
+          submitGameStart({
+            gameType: "roulette",
+            step: "active",
+            data: { question, senderAnswer: answer, isUnlocked: false },
+          })
+        }
       />
       <IntuitionCreator
         isOpen={activeGameCreator === "intuition"}
         onClose={() => setActiveGameCreator(null)}
-        onSubmit={(options, prediction) => handleGameCreated({ gameType: "intuition", step: "active", data: { prediction: options[prediction], options, senderChoice: prediction } })}
+        onSubmit={(options, prediction) =>
+          submitGameStart({
+            gameType: "intuition",
+            step: "active",
+            data: { prediction: options[prediction], options, senderChoice: prediction },
+          })
+        }
         matchName={otherUser.name}
       />
 
