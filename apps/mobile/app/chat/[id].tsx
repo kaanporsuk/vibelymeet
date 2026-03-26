@@ -69,7 +69,7 @@ import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
-/** No native Vibe Arcade in-app yet; Games opens web chat (authenticated session may be required). */
+/** When true, Games chip shows an alert: native Would You Rather plus optional “Open in browser”. */
 const GAMES_WEB_FALLBACK = true;
 
 /** Message list + chrome background (slightly lifted from pure black). */

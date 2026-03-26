@@ -1,5 +1,7 @@
 // VibeArcade Game Types - Backend Ready Data Structures
 
+import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
+
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
 
@@ -150,8 +152,6 @@ export const ARCADE_GAMES: GameDefinition[] = [
     color: 'from-indigo-500 to-blue-600',
   },
 ];
-
-import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
 
 /** CamelCase view of `WOULD_RATHER_PROMPT_PAIRS` (web arcade). */
 export const WOULD_RATHER_OPTIONS = WOULD_RATHER_PROMPT_PAIRS.map((p) => ({

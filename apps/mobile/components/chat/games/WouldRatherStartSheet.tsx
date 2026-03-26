@@ -5,8 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
-import type { WouldRatherPromptPair } from '@/lib/wouldRatherPrompts';
-import { randomWouldRatherPrompt } from '@/lib/wouldRatherPrompts';
+import { randomWouldRatherPrompt, type WouldRatherPromptPair } from '@/lib/wouldRatherPrompts';
 import { formatSendGameEventError, newVibeGameSessionId, useStartWouldRatherGame } from '@/lib/gamesApi';
 
 type Props = {
@@ -71,13 +70,12 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
     }
   };
 
-  const busy = isPending;
-  const canSend = !!senderVote && !busy;
+  const canSend = !!senderVote && !isPending;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={busy ? undefined : onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending ? undefined : onClose}>
       <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={busy ? undefined : onClose} accessibilityLabel="Dismiss" />
+        <Pressable style={styles.backdrop} onPress={isPending ? undefined : onClose} accessibilityLabel="Dismiss" />
         <View
           style={[
             styles.sheet,
@@ -92,12 +90,12 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
             <Text style={[styles.sheetTitle, { color: theme.text }]}>Would You Rather</Text>
             <Pressable
               onPress={onClose}
-              disabled={busy}
+              disabled={isPending}
               hitSlop={12}
               accessibilityRole="button"
               accessibilityLabel="Close"
             >
-              <Ionicons name="close" size={26} color={busy ? theme.textSecondary : theme.text} />
+              <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
             </Pressable>
           </View>
           <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
@@ -116,12 +114,12 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
 
             <Pressable
               onPress={shuffle}
-              disabled={busy}
+              disabled={isPending}
               style={({ pressed }) => [
                 styles.shuffleBtn,
                 {
                   borderColor: theme.border,
-                  opacity: busy ? 0.45 : pressed ? 0.85 : 1,
+                  opacity: isPending ? 0.45 : pressed ? 0.85 : 1,
                 },
               ]}
             >
@@ -132,8 +130,8 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
             <Text style={[styles.pickTitle, { color: theme.textSecondary }]}>Your pick (required)</Text>
             <View style={styles.pickRow}>
               <Pressable
-                onPress={() => !busy && setSenderVote('A')}
-                disabled={busy}
+                onPress={() => !isPending && setSenderVote('A')}
+                disabled={isPending}
                 style={[
                   styles.pickChip,
                   {
@@ -142,11 +140,11 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
                   },
                 ]}
               >
-                <Text style={[styles.pickChipText, { color: theme.text }]}>I’d pick A</Text>
+                <Text style={[styles.pickChipText, { color: theme.text }]}>My pick: A</Text>
               </Pressable>
               <Pressable
-                onPress={() => !busy && setSenderVote('B')}
-                disabled={busy}
+                onPress={() => !isPending && setSenderVote('B')}
+                disabled={isPending}
                 style={[
                   styles.pickChip,
                   {
@@ -155,7 +153,7 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
                   },
                 ]}
               >
-                <Text style={[styles.pickChipText, { color: theme.text }]}>I’d pick B</Text>
+                <Text style={[styles.pickChipText, { color: theme.text }]}>My pick: B</Text>
               </Pressable>
             </View>
 
@@ -178,7 +176,7 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
               },
             ]}
           >
-            {busy ? (
+            {isPending ? (
               <ActivityIndicator color={theme.primaryForeground} />
             ) : (
               <Text style={[styles.sendBtnText, { color: theme.primaryForeground }]}>Send round</Text>
