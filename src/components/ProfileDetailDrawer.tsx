@@ -89,6 +89,14 @@ export const ProfileDetailDrawer = ({
   const [showScrollHint, setShowScrollHint] = useState(true);
   const [signedVideoUrl, setSignedVideoUrl] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
+    if (open) {
+      console.info("[diag] ProfileDetailDrawer opened", { matchId: match.id, path: window.location.pathname });
+    }
+  }, [open, match.id]);
+
   // Use photos from match prop - resolve storage paths to full URLs
   const photos = useMemo(() => {
     const raw =
