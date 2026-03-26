@@ -68,7 +68,7 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
 
   const handlePick = async (vote: 'A' | 'B') => {
     if (tapGuard.current || isPending) return;
-    if (!buildWouldRatherReceiverVoteParams(view, matchId, vote)) return;
+    if (!canBuildVote) return;
     tapGuard.current = true;
     setSubmitError(null);
     try {
