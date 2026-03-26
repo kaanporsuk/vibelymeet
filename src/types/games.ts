@@ -3,6 +3,7 @@
 import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
 import { ROULETTE_QUESTIONS as SHARED_ROULETTE_QUESTIONS } from "../../shared/vibely-games/roulettePrompts";
 import { SCAVENGER_PROMPTS as SHARED_SCAVENGER_PROMPTS } from "../../shared/vibely-games/scavengerPrompts";
+import { INTUITION_OPTIONS as SHARED_INTUITION_OPTIONS } from "../../shared/vibely-games/intuitionPrompts";
 
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
@@ -167,14 +168,5 @@ export const SCAVENGER_PROMPTS = SHARED_SCAVENGER_PROMPTS;
 // Shared data source for Vibe Roulette questions.
 export const ROULETTE_QUESTIONS = SHARED_ROULETTE_QUESTIONS;
 
-// Mock data for Intuition Test options
-export const INTUITION_OPTIONS = [
-  ['Staying In', 'Going Out'],
-  ['Coffee', 'Tea'],
-  ['Morning Person', 'Night Owl'],
-  ['Sweet', 'Savory'],
-  ['Beach', 'Mountains'],
-  ['Cats', 'Dogs'],
-  ['Books', 'Movies'],
-  ['Plan Everything', 'Go With The Flow'],
-];
+// Shared data source for Intuition options.
+export const INTUITION_OPTIONS = SHARED_INTUITION_OPTIONS;

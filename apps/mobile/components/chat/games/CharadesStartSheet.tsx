@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
-import { CHARADES_EMOJI_PICKER } from '../../../../../shared/vibely-games/charadesEmojiPicker';
+import { CHARADES_EMOJI_PICKER } from '@/lib/charadesEmojiPicker';
 import { formatSendGameEventError, newVibeGameSessionId, useStartCharadesGame } from '@/lib/gamesApi';
 
 type Props = {

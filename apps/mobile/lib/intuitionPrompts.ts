@@ -1,16 +1,9 @@
-export type IntuitionOptionPair = readonly [string, string];
+import {
+  INTUITION_OPTIONS,
+  type IntuitionOptionPair,
+} from '../../../shared/vibely-games/intuitionPrompts';
 
-// Mirrors current web arcade options for Intuition.
-const INTUITION_OPTIONS: readonly IntuitionOptionPair[] = [
-  ['Staying In', 'Going Out'],
-  ['Coffee', 'Tea'],
-  ['Morning Person', 'Night Owl'],
-  ['Sweet', 'Savory'],
-  ['Beach', 'Mountains'],
-  ['Cats', 'Dogs'],
-  ['Books', 'Movies'],
-  ['Plan Everything', 'Go With The Flow'],
-] as const;
+export { INTUITION_OPTIONS, type IntuitionOptionPair };
 
 export function randomIntuitionOptions(): IntuitionOptionPair {
   const i = Math.floor(Math.random() * INTUITION_OPTIONS.length);
