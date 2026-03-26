@@ -126,7 +126,12 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const displayTime = isPlaying || currentTime > 0 ? formatDuration(currentTime) : formatDuration(duration);
+  const displayTime = (() => {
+    if (duration <= 0 && !isPlaying && currentTime <= 0) return "Voice message";
+    if (isPlaying && duration > 0) return `${formatDuration(currentTime)} · ${formatDuration(duration)}`;
+    if (isPlaying) return formatDuration(currentTime);
+    return formatDuration(duration > 0 ? duration : currentTime);
+  })();
 
   return (
     <div className="flex items-center gap-2.5 min-w-[160px]">

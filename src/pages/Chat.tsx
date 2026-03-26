@@ -23,6 +23,7 @@ import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
+import { parseChatImageMessageContent } from "@/lib/chatMessageContent";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -59,7 +60,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
+  type: "text" | "image" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -188,7 +189,15 @@ const Chat = () => {
         text: m.text,
         sender: m.sender,
         time: m.time,
-        type: (m.videoUrl ? "video" : m.audioUrl ? "voice" : "text") as ChatMessage["type"],
+        type: (
+          m.videoUrl
+            ? "video"
+            : m.audioUrl
+              ? "voice"
+              : parseChatImageMessageContent(m.text)
+                ? "image"
+                : "text"
+        ) as ChatMessage["type"],
         audioUrl: m.audioUrl,
         audioDuration: m.audioDuration,
         videoUrl: m.videoUrl,
@@ -785,6 +794,40 @@ const Chat = () => {
                       videoUrl={message.videoUrl}
                       duration={message.videoDuration || 0}
                       isMine={message.sender === "me"}
+                    />
+                    {message.isLastInGroup && (
+                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+                        <MessageStatus
+                          status={message.status || "delivered"}
+                          time={message.time}
+                          isMyMessage={message.sender === "me"}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : message.type === "image" ? (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "flex items-end gap-2",
+                    message.sender === "me" ? "justify-end" : "justify-start",
+                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                  )}
+                >
+                  {message.sender !== "me" && (
+                    <div className="w-7 shrink-0">
+                      {message.showAvatar && (
+                        <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+                      )}
+                    </div>
+                  )}
+                  <div className="max-w-[70%]">
+                    <img
+                      src={parseChatImageMessageContent(message.text) || ""}
+                      alt="Shared image"
+                      className="w-56 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40"
+                      loading="lazy"
                     />
                     {message.isLastInGroup && (
                       <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
