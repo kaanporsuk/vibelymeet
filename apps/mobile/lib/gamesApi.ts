@@ -320,6 +320,28 @@ export function startIntuitionGame(params: {
   });
 }
 
+/** `session_start` for Roulette (starter, `event_index` 0). */
+export function startRouletteGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  question: string;
+  senderAnswer: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'roulette',
+    payload: {
+      question: params.question,
+      sender_answer: params.senderAnswer,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
 /** Partner reply after starter's `session_start`. */
 export function sendWouldRatherVote(params: {
   matchId: string;
@@ -335,6 +357,25 @@ export function sendWouldRatherVote(params: {
     event_type: 'would_rather_vote',
     game_type: 'would_rather',
     payload: { receiver_vote: params.receiverVote },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner answer after starter's Roulette `session_start`. */
+export function sendRouletteAnswer(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverAnswer: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'roulette_answer',
+    game_type: 'roulette',
+    payload: { receiver_answer: params.receiverAnswer },
     client_request_id: params.client_request_id,
   });
 }
@@ -462,6 +503,43 @@ export function buildIntuitionResultParams(
   };
 }
 
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendRouletteAnswer`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildRouletteAnswerParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverAnswer: string
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverAnswer: string;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'roulette') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'roulette') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_answer != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  const q = typeof snap.question === 'string' ? snap.question.trim() : '';
+  const sa = typeof snap.sender_answer === 'string' ? snap.sender_answer.trim() : '';
+  const ra = receiverAnswer.trim();
+  if (!q || !sa || !ra) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    receiverAnswer: ra,
+  };
+}
+
 /** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
 export function sendWouldRatherChoice(
   view: NativeHydratedGameSessionView,
@@ -511,6 +589,23 @@ export function sendIntuitionChoice(
     });
   }
   return sendIntuitionResult({ ...params, client_request_id });
+}
+
+/** Native Roulette: receiver answer only (uses live `send-game-event`). */
+export function sendRouletteChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverAnswer: string,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildRouletteAnswerParams(view, matchId, receiverAnswer);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this answer right now.' },
+    });
+  }
+  return sendRouletteAnswer({ ...params, client_request_id });
 }
 
 export function formatSendGameEventError(err: SendGameEventError): string {
@@ -581,6 +676,32 @@ export function useStartIntuitionGame() {
         gameSessionId: vars.gameSessionId,
         options: vars.options,
         senderChoice: vars.senderChoice,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Roulette session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartRouletteGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      question: string;
+      senderAnswer: string;
+    }) =>
+      startRouletteGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        question: vars.question,
+        senderAnswer: vars.senderAnswer,
       }),
     onSuccess: (result) => {
       if (!result.ok) return;
@@ -667,6 +788,25 @@ export function useSendIntuitionChoice() {
       matchId: string;
       result: 'correct' | 'wrong';
     }) => sendIntuitionChoice(vars.view, vars.matchId, vars.result),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver answer; on `result.ok` invalidates messages + matches.
+ */
+export function useSendRouletteChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      receiverAnswer: string;
+    }) => sendRouletteChoice(vars.view, vars.matchId, vars.receiverAnswer),
     onSuccess: (result) => {
       if (!result.ok) return;
       qc.invalidateQueries({ queryKey: ['messages'] });

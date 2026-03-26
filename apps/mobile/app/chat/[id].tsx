@@ -55,6 +55,7 @@ import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSug
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
 import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
+import { RouletteStartSheet } from '@/components/chat/games/RouletteStartSheet';
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -177,6 +178,7 @@ export default function ChatThreadScreen() {
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
+  const [showRouletteStart, setShowRouletteStart] = useState(false);
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
@@ -543,20 +545,30 @@ export default function ChatThreadScreen() {
 
   const openTwoTruthsStart = () => {
     setShowIntuitionStart(false);
+    setShowRouletteStart(false);
     setShowWouldRatherStart(false);
     setShowTwoTruthsStart(true);
   };
 
   const openWouldRatherStart = () => {
     setShowIntuitionStart(false);
+    setShowRouletteStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(true);
   };
 
   const openIntuitionStart = () => {
+    setShowRouletteStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(false);
     setShowIntuitionStart(true);
+  };
+
+  const openRouletteStart = () => {
+    setShowIntuitionStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowRouletteStart(true);
   };
 
   const openGamesEntry = () => {
@@ -565,6 +577,7 @@ export default function ChatThreadScreen() {
         { text: 'Intuition Test', onPress: openIntuitionStart },
         { text: 'Two Truths', onPress: openTwoTruthsStart },
         { text: 'Would You Rather', onPress: openWouldRatherStart },
+        { text: 'Roulette', onPress: openRouletteStart },
         { text: 'Cancel', style: 'cancel' },
       ]);
       return;
@@ -573,6 +586,7 @@ export default function ChatThreadScreen() {
       { text: 'Intuition Test', onPress: openIntuitionStart },
       { text: 'Two Truths', onPress: openTwoTruthsStart },
       { text: 'Would You Rather', onPress: openWouldRatherStart },
+      { text: 'Roulette', onPress: openRouletteStart },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -1285,6 +1299,14 @@ export default function ChatThreadScreen() {
         <IntuitionStartSheet
           visible={showIntuitionStart}
           onClose={() => setShowIntuitionStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <RouletteStartSheet
+          visible={showRouletteStart}
+          onClose={() => setShowRouletteStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
         />
