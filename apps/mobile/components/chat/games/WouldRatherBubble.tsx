@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,43 @@ type Props = {
   timeLabel: string;
 };
 
+/** UI phases derived only from folded snapshot + hydration flags (no invented game rules). */
+type BubblePhase =
+  | 'complete_match'
+  | 'complete_split'
+  | 'submitting'
+  | 'actionable'
+  | 'waiting_partner'
+  | 'invalid_context'
+  | 'ambiguous';
+
+function derivePhase(
+  snap: WouldRatherSnapshot,
+  complete: boolean,
+  isPending: boolean,
+  actionable: boolean,
+  canBuildVote: boolean,
+  canActNext: boolean,
+  isStarter: boolean,
+  receiverPicked: boolean
+): BubblePhase {
+  if (complete) {
+    const match = snap.is_match === true || (snap.receiver_vote != null && snap.sender_vote === snap.receiver_vote);
+    return match ? 'complete_match' : 'complete_split';
+  }
+  if (isPending) return 'submitting';
+  if (actionable) return 'actionable';
+  if (canActNext && !canBuildVote) return 'invalid_context';
+  if (isStarter && !receiverPicked) return 'waiting_partner';
+  return 'ambiguous';
+}
+
+function optionSnippet(snap: WouldRatherSnapshot, side: 'A' | 'B', maxLen = 52): string {
+  const raw = side === 'A' ? snap.option_a : snap.option_b;
+  if (raw.length <= maxLen) return raw;
+  return `${raw.slice(0, maxLen - 1)}…`;
+}
+
 export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
@@ -36,35 +73,26 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
   const actionable = canBuildVote && !complete;
   const optionRowsDisabled = !actionable || isPending;
 
+  const receiverPicked = snap.receiver_vote != null;
+  const phase = derivePhase(
+    snap,
+    complete,
+    isPending,
+    actionable,
+    canBuildVote,
+    view.canCurrentUserActNext,
+    isStarter,
+    receiverPicked
+  );
+
   useEffect(() => {
     setSubmitError(null);
   }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_vote, snap.status]);
 
-  let statusHeadline: string;
-  let statusDetail: string;
-  if (complete) {
-    statusHeadline = snap.is_match === true ? 'Same pick' : 'Different picks';
-    statusDetail =
-      snap.is_match === true ? 'You lined up on this one.' : 'Still a fun compare — no wrong answers.';
-  } else if (isPending) {
-    statusHeadline = 'Sending…';
-    statusDetail = 'Hang tight — updating this round.';
-  } else if (view.canCurrentUserActNext && actionable) {
-    statusHeadline = 'Your turn';
-    statusDetail = `Tap A or B to choose — ${partnerName} already picked.`;
-  } else if (isStarter) {
-    statusHeadline = `Waiting on ${partnerName}`;
-    statusDetail = 'They still need to choose.';
-  } else if (view.canCurrentUserActNext && !canBuildVote) {
-    statusHeadline = 'Your turn';
-    statusDetail = 'This prompt is incomplete — refresh the thread.';
-  } else {
-    statusHeadline = 'In progress';
-    statusDetail = 'Session is still open.';
-  }
-
   const starterPicked = snap.sender_vote;
-  const receiverPicked = snap.receiver_vote;
+  const receiverPickedLetter = snap.receiver_vote;
+  const yourLetter = isStarter ? starterPicked : (receiverPickedLetter ?? null);
+  const theirLetter = isStarter ? receiverPickedLetter : starterPicked;
 
   const handlePick = async (vote: 'A' | 'B') => {
     if (tapGuard.current || isPending) return;
@@ -82,6 +110,26 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
       tapGuard.current = false;
     }
   };
+
+  const statusStrip =
+    !complete && phase !== 'submitting' ? (
+      <StatusStrip
+        phase={phase as NonCompleteNonSubmittingPhase}
+        partnerName={partnerName}
+        theme={theme}
+        senderVote={snap.sender_vote}
+      />
+    ) : null;
+
+  const completeHero = complete ? (
+    <CompleteOutcomeBlock
+      snap={snap}
+      theme={theme}
+      partnerName={partnerName}
+      isStarter={isStarter}
+      phase={phase as 'complete_match' | 'complete_split'}
+    />
+  ) : null;
 
   return (
     <View
@@ -110,15 +158,18 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
           </View>
         </View>
 
-        <View style={[styles.statusPill, { backgroundColor: theme.secondary }]}>
-          <Text style={[styles.statusHeadline, { color: theme.text }]}>{statusHeadline}</Text>
-          <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>{statusDetail}</Text>
-        </View>
+        {completeHero}
+        {statusStrip}
 
-        {isPending ? (
-          <View style={styles.loadingRow}>
+        {phase === 'submitting' ? (
+          <View style={[styles.submittingRow, { backgroundColor: theme.secondary }]}>
             <ActivityIndicator size="small" color={theme.neonPink} />
-            <Text style={[styles.loadingLabel, { color: theme.textSecondary }]}>Submitting pick…</Text>
+            <View style={styles.submittingTextCol}>
+              <Text style={[styles.submittingTitle, { color: theme.text }]}>Sending your pick</Text>
+              <Text style={[styles.submittingSub, { color: theme.textSecondary }]}>
+                This usually takes a moment.
+              </Text>
+            </View>
           </View>
         ) : null}
 
@@ -134,39 +185,38 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
             label="A"
             text={snap.option_a}
             theme={theme}
-            highlightVote={starterPicked === 'A' || receiverPicked === 'A'}
-            voteLabel={optionVoteLabel('A', snap, complete, isStarter, partnerName)}
+            side="A"
+            snap={snap}
+            complete={complete}
+            isStarter={isStarter}
+            partnerName={partnerName}
             interactive={actionable}
             disabled={optionRowsDisabled}
+            phase={phase}
             onPress={() => void handlePick('A')}
           />
           <OptionRow
             label="B"
             text={snap.option_b}
             theme={theme}
-            highlightVote={starterPicked === 'B' || receiverPicked === 'B'}
-            voteLabel={optionVoteLabel('B', snap, complete, isStarter, partnerName)}
+            side="B"
+            snap={snap}
+            complete={complete}
+            isStarter={isStarter}
+            partnerName={partnerName}
             interactive={actionable}
             disabled={optionRowsDisabled}
+            phase={phase}
             onPress={() => void handlePick('B')}
           />
         </View>
 
-        {complete ? (
-          <View style={[styles.resultBanner, { borderColor: theme.border }]}>
-            <Ionicons
-              name={snap.is_match ? 'heart' : 'ellipse-outline'}
-              size={18}
-              color={snap.is_match ? theme.neonPink : theme.textSecondary}
-            />
-            <Text style={[styles.resultText, { color: theme.textSecondary }]}>
-              {snap.is_match
-                ? 'You both chose the same side.'
-                : (() => {
-                    const youPick = isStarter ? starterPicked : (receiverPicked ?? '?');
-                    const themPick = isStarter ? (receiverPicked ?? '?') : starterPicked;
-                    return `You chose ${youPick} · ${partnerName} chose ${themPick}`;
-                  })()}
+        {phase === 'waiting_partner' ? (
+          <View style={[styles.waitingFootnote, { borderColor: theme.border }]}>
+            <Ionicons name="ellipse-outline" size={14} color={theme.neonCyan} />
+            <Text style={[styles.waitingFootnoteText, { color: theme.textSecondary }]}>
+              The other side is still open for {partnerName}. When they choose, you will both see the full
+              result.
             </Text>
           </View>
         ) : null}
@@ -177,53 +227,203 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
   );
 }
 
-function optionVoteLabel(
-  side: 'A' | 'B',
-  snap: WouldRatherSnapshot,
-  complete: boolean,
-  viewerIsStarter: boolean,
-  partnerName: string
-): string | undefined {
-  const starterOnSide = snap.sender_vote === side;
-  const receiverOnSide = snap.receiver_vote === side;
-  if (!starterOnSide && !receiverOnSide) return undefined;
-  if (complete) {
-    if (starterOnSide && receiverOnSide) return 'Both picked';
-    if (starterOnSide) return viewerIsStarter ? 'Your pick' : `${partnerName}'s pick`;
-    return viewerIsStarter ? `${partnerName}'s pick` : 'Your pick';
-  }
-  if (starterOnSide) return viewerIsStarter ? 'Your pick' : `${partnerName}'s pick`;
-  return undefined;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete_match' | 'complete_split' | 'submitting'>;
+
+function StatusStrip({
+  phase,
+  partnerName,
+  senderVote,
+  theme,
+}: {
+  phase: NonCompleteNonSubmittingPhase;
+  partnerName: string;
+  senderVote: 'A' | 'B';
+  theme: (typeof Colors)['light'];
+}) {
+  const cfg: Record<
+    NonCompleteNonSubmittingPhase,
+    { icon: ComponentProps<typeof Ionicons>['name']; headline: string; detail: string; bg: string; iconColor: string }
+  > = {
+    actionable: {
+      icon: 'hand-left-outline',
+      headline: 'Your turn to answer',
+      detail: `${partnerName} already chose option ${senderVote}. Tap A or B for yourself.`,
+      bg: 'rgba(6,182,212,0.12)',
+      iconColor: theme.neonCyan,
+    },
+    waiting_partner: {
+      icon: 'hourglass-outline',
+      headline: `Waiting on ${partnerName}`,
+      detail: 'Your pick is in. They still need to choose a side.',
+      bg: 'rgba(139,92,246,0.14)',
+      iconColor: theme.neonViolet,
+    },
+    invalid_context: {
+      icon: 'warning-outline',
+      headline: 'Something is off',
+      detail: 'Pull to refresh the chat, then try again.',
+      bg: theme.dangerSoft,
+      iconColor: theme.danger,
+    },
+    ambiguous: {
+      icon: 'help-circle-outline',
+      headline: 'Round in progress',
+      detail: 'We will update this when the next event arrives.',
+      bg: theme.secondary,
+      iconColor: theme.textSecondary,
+    },
+  };
+
+  const c = cfg[phase];
+
+  return (
+    <View style={[styles.statusStrip, { backgroundColor: c.bg }]}>
+      <View style={[styles.statusIconCircle, { backgroundColor: 'rgba(0,0,0,0.2)' }]}>
+        <Ionicons name={c.icon} size={22} color={c.iconColor} />
+      </View>
+      <View style={styles.statusStripText}>
+        <Text style={[styles.statusHeadline, { color: theme.text }]}>{c.headline}</Text>
+        <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>{c.detail}</Text>
+      </View>
+    </View>
+  );
+}
+
+function voteSnippet(snap: WouldRatherSnapshot, v: 'A' | 'B' | undefined | null): string {
+  if (v === 'A' || v === 'B') return optionSnippet(snap, v);
+  return '—';
+}
+
+function CompleteOutcomeBlock({
+  snap,
+  theme,
+  partnerName,
+  isStarter,
+  phase,
+}: {
+  snap: WouldRatherSnapshot;
+  theme: (typeof Colors)['light'];
+  partnerName: string;
+  isStarter: boolean;
+  phase: 'complete_match' | 'complete_split';
+}) {
+  const match = phase === 'complete_match';
+  const youVote = isStarter ? snap.sender_vote : snap.receiver_vote;
+  const themVote = isStarter ? snap.receiver_vote : snap.sender_vote;
+
+  return (
+    <View
+      style={[
+        styles.outcomeBlock,
+        {
+          borderColor: match ? 'rgba(236,72,153,0.45)' : 'rgba(139,92,246,0.35)',
+          backgroundColor: match ? 'rgba(236,72,153,0.08)' : 'rgba(139,92,246,0.07)',
+        },
+      ]}
+    >
+      <View style={styles.outcomeTop}>
+        <Ionicons
+          name={match ? 'heart' : 'git-compare-outline'}
+          size={26}
+          color={match ? theme.neonPink : theme.neonViolet}
+        />
+        <View style={styles.outcomeTopText}>
+          <Text style={[styles.outcomeTitle, { color: theme.text }]}>
+            {match ? 'Same wavelength' : 'Two honest picks'}
+          </Text>
+          <Text style={[styles.outcomeSubtitle, { color: theme.textSecondary }]}>
+            {match
+              ? `You and ${partnerName} chose the same letter — no right or wrong, just alignment.`
+              : `Different letters — still a great compare. Here is how each of you landed.`}
+          </Text>
+        </View>
+      </View>
+      <View style={[styles.outcomePicksRow, { borderTopColor: 'rgba(255,255,255,0.08)' }]}>
+        <View style={styles.outcomePickCol}>
+          <Text style={[styles.outcomePickLabel, { color: theme.textSecondary }]}>You</Text>
+          <Text style={[styles.outcomePickLetter, { color: theme.text }]}>{youVote ?? '—'}</Text>
+          <Text style={[styles.outcomePickSnippet, { color: theme.textSecondary }]} numberOfLines={2}>
+            {voteSnippet(snap, youVote)}
+          </Text>
+        </View>
+        <View style={[styles.outcomeDivider, { backgroundColor: 'rgba(255,255,255,0.12)' }]} />
+        <View style={styles.outcomePickCol}>
+          <Text style={[styles.outcomePickLabel, { color: theme.textSecondary }]}>{partnerName}</Text>
+          <Text style={[styles.outcomePickLetter, { color: theme.text }]}>{themVote ?? '—'}</Text>
+          <Text style={[styles.outcomePickSnippet, { color: theme.textSecondary }]} numberOfLines={2}>
+            {voteSnippet(snap, themVote)}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function OptionRow({
   label,
   text,
   theme,
-  highlightVote,
-  voteLabel,
+  side,
+  snap,
+  complete,
+  isStarter,
+  partnerName,
   interactive,
   disabled,
+  phase,
   onPress,
 }: {
   label: string;
   text: string;
   theme: (typeof Colors)['light'];
-  highlightVote: boolean;
-  voteLabel?: string;
-  interactive?: boolean;
-  disabled?: boolean;
-  onPress?: () => void;
+  side: 'A' | 'B';
+  snap: WouldRatherSnapshot;
+  complete: boolean;
+  isStarter: boolean;
+  partnerName: string;
+  interactive: boolean;
+  disabled: boolean;
+  phase: BubblePhase;
+  onPress: () => void;
 }) {
+  const starterOnSide = snap.sender_vote === side;
+  const receiverOnSide = snap.receiver_vote === side;
+  const picked = starterOnSide || receiverOnSide;
+  const yourPick = (isStarter && starterOnSide) || (!isStarter && receiverOnSide);
+  const partnerPick = complete && ((isStarter && receiverOnSide) || (!isStarter && starterOnSide));
+
+  const waitingPartnerOpen = phase === 'waiting_partner' && !starterOnSide && isStarter;
+
+  let badge: string | undefined;
+  if (complete) {
+    if (starterOnSide && receiverOnSide) badge = 'Both';
+    else if (yourPick) badge = 'You';
+    else if (partnerPick) badge = partnerName;
+  } else if (yourPick) badge = 'Your pick';
+  else if (phase === 'waiting_partner' && waitingPartnerOpen) badge = 'Their move';
+
+  const borderColor = picked
+    ? 'rgba(236,72,153,0.42)'
+    : waitingPartnerOpen
+      ? 'rgba(6,182,212,0.35)'
+      : theme.border;
+  const backgroundColor = picked
+    ? 'rgba(236,72,153,0.09)'
+    : waitingPartnerOpen
+      ? 'rgba(6,182,212,0.06)'
+      : theme.surfaceSubtle;
+  const dashStyle = waitingPartnerOpen ? { borderStyle: 'dashed' as const } : {};
+
   const body = (
     <View
       style={[
         styles.optionRow,
         {
-          borderColor: highlightVote ? 'rgba(236,72,153,0.35)' : theme.border,
-          backgroundColor: highlightVote ? 'rgba(236,72,153,0.06)' : theme.surfaceSubtle,
+          borderColor,
+          backgroundColor,
           opacity: disabled && interactive ? 0.55 : 1,
         },
+        dashStyle,
       ]}
     >
       <View style={[styles.optionLetter, { backgroundColor: theme.muted }]}>
@@ -233,17 +433,21 @@ function OptionRow({
         <Text style={[styles.optionText, { color: theme.text }]} numberOfLines={4}>
           {text}
         </Text>
-        {voteLabel ? (
-          <Text style={[styles.optionBadge, { color: theme.neonPink }]}>{voteLabel}</Text>
+        {badge ? (
+          <View style={[styles.badge, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
+            <Text style={[styles.badgeText, { color: theme.neonPink }]}>{badge}</Text>
+          </View>
         ) : null}
       </View>
       {interactive ? (
         <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} style={styles.optionChevron} />
+      ) : complete && picked ? (
+        <Ionicons name="checkmark-circle" size={20} color={theme.neonPink} style={styles.optionChevron} />
       ) : null}
     </View>
   );
 
-  if (interactive && onPress) {
+  if (interactive) {
     return (
       <Pressable
         onPress={onPress}
@@ -303,27 +507,106 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  statusPill: {
+  outcomeBlock: {
     borderRadius: radius.lg,
-    paddingVertical: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  outcomeTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  outcomeTopText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  outcomeTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  outcomeSubtitle: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  outcomePicksRow: {
+    flexDirection: 'row',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: spacing.md,
+    gap: spacing.md,
+  },
+  outcomePickCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  outcomeDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+  },
+  outcomePickLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  outcomePickLetter: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  outcomePickSnippet: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  statusStrip: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
+  },
+  statusIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusStripText: {
+    flex: 1,
+    minWidth: 0,
     gap: 4,
   },
   statusHeadline: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
   },
   statusDetail: {
     fontSize: 13,
     lineHeight: 18,
   },
-  loadingRow: {
+  submittingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
   },
-  loadingLabel: {
-    fontSize: 13,
+  submittingTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  submittingTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  submittingSub: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -365,34 +648,41 @@ const styles = StyleSheet.create({
   optionBody: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 6,
   },
   optionText: {
     fontSize: 15,
     lineHeight: 21,
   },
-  optionBadge: {
-    fontSize: 12,
-    fontWeight: '600',
+  badge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   optionChevron: {
     marginLeft: 'auto',
     marginTop: 4,
     alignSelf: 'center',
   },
-  resultBanner: {
+  waitingFootnote: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: spacing.sm,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  resultText: {
+  waitingFootnoteText: {
     flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
   },
   time: {
     fontSize: 11,
