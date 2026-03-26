@@ -53,6 +53,7 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
+import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
@@ -704,25 +705,14 @@ export default function ChatThreadScreen() {
     }
 
     if (item.messageKind === 'vibe_game_session' && item.gameSessionView) {
-      const v = item.gameSessionView;
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
-          <View
-            style={[
-              styles.gameSessionPlaceholder,
-              {
-                borderColor: theme.border,
-                backgroundColor: theme.surface,
-              },
-            ]}
-          >
-            <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>🎮 Game</Text>
-            <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>
-              {v.gameType ?? 'session'} · {v.status}
-              {v.canCurrentUserActNext ? ' · Your turn' : ''}
-            </Text>
-            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 6 }}>{item.time}</Text>
-          </View>
+          <GameSessionBubble
+            view={item.gameSessionView}
+            currentUserId={user?.id ?? ''}
+            partnerName={otherName ?? 'Them'}
+            timeLabel={item.time}
+          />
         </View>
       );
     }
@@ -1295,11 +1285,6 @@ const styles = StyleSheet.create({
   reactionBadge: { fontSize: 14, marginTop: 4 },
   mediaMetaBlock: { marginTop: 6 },
   proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
-  gameSessionPlaceholder: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
-  },
   proposalBanner: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
