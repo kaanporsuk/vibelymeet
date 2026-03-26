@@ -29,7 +29,7 @@ serve(async (req) => {
     });
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { match_id, content } = await req.json();
+    const { match_id, content, client_request_id } = await req.json();
 
     if (!match_id || typeof content !== "string" || !content.trim()) {
       return new Response(
@@ -68,7 +68,34 @@ serve(async (req) => {
       );
     }
 
-    // Idempotency: check for a very recent identical message from this actor
+    const clientRequestId =
+      (typeof client_request_id === "string" && client_request_id.trim()
+        ? client_request_id.trim()
+        : req.headers.get("x-client-request-id")?.trim()) || null;
+
+    // Idempotency (preferred): durable client_request_id token
+    if (clientRequestId) {
+      const { data: byToken } = await serviceClient
+        .from("messages")
+        .select("id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload")
+        .eq("match_id", match_id)
+        .eq("structured_payload->>client_request_id", clientRequestId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (byToken) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            idempotent: true,
+            message: byToken,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    // Idempotency (legacy): check for a very recent identical message from this actor
     const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
     const trimmed = content.trim();
 
@@ -87,19 +114,40 @@ serve(async (req) => {
     let idempotent = false;
 
     if (!messageRow) {
+      const structured_payload = clientRequestId
+        ? { client_request_id: clientRequestId }
+        : null;
       const { data: inserted, error: insertError } = await serviceClient
         .from("messages")
         .insert({
           match_id,
           sender_id: actorId,
           content: trimmed,
+          structured_payload,
         })
         .select(
-          "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds",
+          "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload",
         )
         .single();
 
       if (insertError || !inserted) {
+        const code = (insertError as { code?: string }).code;
+        if (code === "23505" && clientRequestId) {
+          const { data: existingByToken } = await serviceClient
+            .from("messages")
+            .select("id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload")
+            .eq("match_id", match_id)
+            .eq("structured_payload->>client_request_id", clientRequestId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (existingByToken) {
+            return new Response(
+              JSON.stringify({ success: true, idempotent: true, message: existingByToken }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
         console.error("send-message insert error:", insertError);
         return new Response(
           JSON.stringify({ success: false, error: "insert_failed" }),

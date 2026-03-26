@@ -35,6 +35,7 @@ import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
+import { ChatOutboxRunner } from '@/lib/chatOutbox/runner';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -225,6 +226,7 @@ function RootLayoutNav() {
         <NotificationPauseForeground />
         <DeactivatedAccountReactivationPrompt />
         <ActivityHeartbeat />
+        <ChatOutboxRunner />
         <BadgeCountUpdater />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
