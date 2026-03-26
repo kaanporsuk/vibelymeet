@@ -1,6 +1,6 @@
-import { parseVibeGameEnvelopeFromStructuredPayload } from '../../../shared/vibely-games/parse';
 import { foldVibeGameSession } from '../../../shared/vibely-games/reducer';
 import type { GameType, VibeGameMessageEnvelopeV1, VibeGameSnapshotV1 } from '../../../shared/vibely-games/types';
+import { collapseGameSessionRows } from '../../../shared/chat/gameSessionCollapse';
 import type { ChatMessage } from '@/lib/chatApi';
 
 /** DB row shape needed to hydrate and collapse `vibe_game` messages (thread order = `created_at` ascending). */
@@ -146,72 +146,12 @@ export function collapseVibeGameMessageRows(
   otherUserId: string,
   mapRegularRow: (row: ChatGameSessionMessageRow) => ChatMessage
 ): ChatMessage[] {
-  const groups = new Map<string, RowEnv[]>();
-  /** Thread index where the collapsed bubble is projected (newest backing row for the session). */
-  const emitIndexBySession = new Map<string, number>();
-
-  rows.forEach((row, index) => {
-    if (row.message_kind !== 'vibe_game') return;
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
-    if (!envelope) return;
-    const sid = envelope.game_session_id;
-    if (!groups.has(sid)) groups.set(sid, []);
-    groups.get(sid)!.push({ row, envelope });
-
-    const prevIdx = emitIndexBySession.get(sid);
-    if (prevIdx === undefined) {
-      emitIndexBySession.set(sid, index);
-    } else {
-      const prevRow = rows[prevIdx]!;
-      const tPrev = new Date(prevRow.created_at).getTime();
-      const tNew = new Date(row.created_at).getTime();
-      if (tNew > tPrev || (tNew === tPrev && index > prevIdx)) {
-        emitIndexBySession.set(sid, index);
-      }
-    }
-  });
-
-  const viewBySession = new Map<string, NativeHydratedGameSessionView>();
-  for (const [sid, items] of groups) {
-    const view = buildSessionView(sid, items, currentUserId, otherUserId);
-    if (view) viewBySession.set(sid, view);
-  }
-
-  const out: ChatMessage[] = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]!;
-    if (row.message_kind !== 'vibe_game') {
-      out.push(mapRegularRow(row));
-      continue;
-    }
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
-    if (!envelope) {
-      out.push(mapRegularRow(row));
-      continue;
-    }
-    const sid = envelope.game_session_id;
-    // Single gate: emit the collapsed bubble only at the canonical (latest) backing index for this session.
-    // Intermediate valid `vibe_game` rows are omitted; do not require or compare against the first row index.
-    const canonicalEmitIndex = emitIndexBySession.get(sid);
-    if (canonicalEmitIndex === undefined) {
-      out.push(mapRegularRow(row));
-      continue;
-    }
-    if (i !== canonicalEmitIndex) {
-      continue;
-    }
-
-    const view = viewBySession.get(sid);
-    if (!view) {
-      out.push(mapRegularRow(row));
-      continue;
-    }
-
-    const anchorRow = rows[i]!;
-
-    out.push({
-      id: `vibe-game-session:${sid}`,
+  return collapseGameSessionRows({
+    rows,
+    mapRegularRow,
+    buildSessionView: (sid, items) => buildSessionView(sid, items, currentUserId, otherUserId),
+    mapCollapsedRow: ({ sessionId, view, anchorRow }) => ({
+      id: `vibe-game-session:${sessionId}`,
       text: '🎮 Game',
       sender: anchorRow.sender_id === currentUserId ? 'me' : 'them',
       time: new Date(anchorRow.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -221,10 +161,8 @@ export function collapseVibeGameMessageRows(
       refId: null,
       structuredPayload: null,
       gameSessionView: view,
-    });
-  }
-
-  return out;
+    }),
+  });
 }
 
 /**
