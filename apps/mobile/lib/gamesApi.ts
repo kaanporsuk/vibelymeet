@@ -298,6 +298,28 @@ export function sendTwoTruthsGuess(params: {
   });
 }
 
+/** `session_start` for Intuition (starter, `event_index` 0). */
+export function startIntuitionGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  options: [string, string];
+  senderChoice: 0 | 1;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'intuition',
+    payload: {
+      options: params.options,
+      sender_choice: params.senderChoice,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
 /** Partner reply after starter's `session_start`. */
 export function sendWouldRatherVote(params: {
   matchId: string;
@@ -313,6 +335,25 @@ export function sendWouldRatherVote(params: {
     event_type: 'would_rather_vote',
     game_type: 'would_rather',
     payload: { receiver_vote: params.receiverVote },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner response after starter's Intuition `session_start`. */
+export function sendIntuitionResult(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  result: 'correct' | 'wrong';
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'intuition_result',
+    game_type: 'intuition',
+    payload: { result: params.result },
     client_request_id: params.client_request_id,
   });
 }
@@ -386,6 +427,41 @@ export function buildTwoTruthsGuessParams(
   };
 }
 
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendIntuitionResult`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildIntuitionResultParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  result: 'correct' | 'wrong'
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  result: 'correct' | 'wrong';
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'intuition') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'intuition') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_result != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (!Array.isArray(snap.options) || snap.options.length !== 2) return null;
+  if (snap.sender_choice !== 0 && snap.sender_choice !== 1) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    result,
+  };
+}
+
 /** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
 export function sendWouldRatherChoice(
   view: NativeHydratedGameSessionView,
@@ -418,6 +494,23 @@ export function sendTwoTruthsChoice(
     });
   }
   return sendTwoTruthsGuess({ ...params, client_request_id });
+}
+
+/** Native Intuition: receiver marks sender prediction as correct/wrong. */
+export function sendIntuitionChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  result: 'correct' | 'wrong',
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildIntuitionResultParams(view, matchId, result);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this response right now.' },
+    });
+  }
+  return sendIntuitionResult({ ...params, client_request_id });
 }
 
 export function formatSendGameEventError(err: SendGameEventError): string {
@@ -462,6 +555,32 @@ export function useStartTwoTruthsGame() {
         gameSessionId: vars.gameSessionId,
         statements: vars.statements,
         lieIndex: vars.lieIndex,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Start a new Intuition session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartIntuitionGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      options: [string, string];
+      senderChoice: 0 | 1;
+    }) =>
+      startIntuitionGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        options: vars.options,
+        senderChoice: vars.senderChoice,
       }),
     onSuccess: (result) => {
       if (!result.ok) return;
@@ -529,6 +648,25 @@ export function useSendTwoTruthsChoice() {
       matchId: string;
       guessIndex: 0 | 1 | 2;
     }) => sendTwoTruthsChoice(vars.view, vars.matchId, vars.guessIndex),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver response; on `result.ok` invalidates messages + matches.
+ */
+export function useSendIntuitionChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      result: 'correct' | 'wrong';
+    }) => sendIntuitionChoice(vars.view, vars.matchId, vars.result),
     onSuccess: (result) => {
       if (!result.ok) return;
       qc.invalidateQueries({ queryKey: ['messages'] });

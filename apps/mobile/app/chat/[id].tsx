@@ -54,6 +54,7 @@ import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
+import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -175,6 +176,7 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showIntuitionStart, setShowIntuitionStart] = useState(false);
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
@@ -540,18 +542,27 @@ export default function ChatThreadScreen() {
   };
 
   const openTwoTruthsStart = () => {
+    setShowIntuitionStart(false);
     setShowWouldRatherStart(false);
     setShowTwoTruthsStart(true);
   };
 
   const openWouldRatherStart = () => {
+    setShowIntuitionStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(true);
+  };
+
+  const openIntuitionStart = () => {
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowIntuitionStart(true);
   };
 
   const openGamesEntry = () => {
     if (!GAMES_WEB_FALLBACK) {
       Alert.alert('Games', 'Choose a game to start in chat.', [
+        { text: 'Intuition Test', onPress: openIntuitionStart },
         { text: 'Two Truths', onPress: openTwoTruthsStart },
         { text: 'Would You Rather', onPress: openWouldRatherStart },
         { text: 'Cancel', style: 'cancel' },
@@ -559,6 +570,7 @@ export default function ChatThreadScreen() {
       return;
     }
     Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
+      { text: 'Intuition Test', onPress: openIntuitionStart },
       { text: 'Two Truths', onPress: openTwoTruthsStart },
       { text: 'Would You Rather', onPress: openWouldRatherStart },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
@@ -1267,6 +1279,14 @@ export default function ChatThreadScreen() {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <IntuitionStartSheet
+          visible={showIntuitionStart}
+          onClose={() => setShowIntuitionStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
         />
       ) : null}
       {data?.matchId ? (
