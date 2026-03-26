@@ -1,6 +1,7 @@
 import { parseVibeGameEnvelopeFromStructuredPayload } from "../../shared/vibely-games/parse";
 import { foldVibeGameSession } from "../../shared/vibely-games/reducer";
 import type { GameType, VibeGameMessageEnvelopeV1, VibeGameSnapshotV1 } from "../../shared/vibely-games/types";
+import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import type { GamePayload } from "@/types/games";
 
 export type WebChatMessageRow = {
@@ -132,10 +133,7 @@ export function collapseVibeGameRowsForWeb(rows: WebChatMessageRow[]): Collapsed
     if (row.message_kind !== "vibe_game") {
       out.push({
         ...row,
-        message_kind:
-          row.message_kind === "date_suggestion" || row.message_kind === "date_suggestion_event"
-            ? row.message_kind
-            : "text",
+        message_kind: toRenderableMessageKind(row.message_kind),
         structured_payload:
           row.structured_payload && typeof row.structured_payload === "object" && !Array.isArray(row.structured_payload)
             ? (row.structured_payload as Record<string, unknown>)
