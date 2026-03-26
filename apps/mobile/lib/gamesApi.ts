@@ -257,6 +257,47 @@ export function startWouldRatherGame(params: {
   });
 }
 
+/** `session_start` for Two Truths (starter, `event_index` 0). */
+export function startTwoTruthsGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  statements: [string, string, string];
+  lieIndex: 0 | 1 | 2;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: '2truths',
+    payload: {
+      statements: params.statements,
+      lie_index: params.lieIndex,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner guess after starter's `session_start`. */
+export function sendTwoTruthsGuess(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guessIndex: 0 | 1 | 2;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'two_truths_guess',
+    game_type: '2truths',
+    payload: { guess_index: params.guessIndex },
+    client_request_id: params.client_request_id,
+  });
+}
+
 /** Partner reply after starter's `session_start`. */
 export function sendWouldRatherVote(params: {
   matchId: string;
@@ -311,6 +352,40 @@ export function buildWouldRatherReceiverVoteParams(
   };
 }
 
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendTwoTruthsGuess`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildTwoTruthsGuessParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guessIndex: 0 | 1 | 2
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guessIndex: 0 | 1 | 2;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== '2truths') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== '2truths') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.guessed_index != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (!Array.isArray(snap.statements) || snap.statements.length !== 3) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    guessIndex,
+  };
+}
+
 /** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
 export function sendWouldRatherChoice(
   view: NativeHydratedGameSessionView,
@@ -326,6 +401,23 @@ export function sendWouldRatherChoice(
     });
   }
   return sendWouldRatherVote({ ...params, client_request_id });
+}
+
+/** Native Two Truths: receiver guess only (uses live `send-game-event`). */
+export function sendTwoTruthsChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guessIndex: 0 | 1 | 2,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildTwoTruthsGuessParams(view, matchId, guessIndex);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this guess right now.' },
+    });
+  }
+  return sendTwoTruthsGuess({ ...params, client_request_id });
 }
 
 export function formatSendGameEventError(err: SendGameEventError): string {
@@ -346,9 +438,37 @@ export function formatSendGameEventError(err: SendGameEventError): string {
       return 'This game round was already started. Refresh the chat.';
     case 'session_start_must_be_index_0':
       return 'Could not start the round. Try again.';
+    case 'invalid_event_fields':
+      return 'Some game details are invalid. Edit and try again.';
     default:
       return err.rawCode || err.code || 'Could not send your pick.';
   }
+}
+
+/**
+ * Start a new Two Truths session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartTwoTruthsGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      statements: [string, string, string];
+      lieIndex: 0 | 1 | 2;
+    }) =>
+      startTwoTruthsGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        statements: vars.statements,
+        lieIndex: vars.lieIndex,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
 }
 
 /**
@@ -390,6 +510,25 @@ export function useSendWouldRatherChoice() {
       matchId: string;
       receiverVote: 'A' | 'B';
     }) => sendWouldRatherChoice(vars.view, vars.matchId, vars.receiverVote),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver guess; on `result.ok` invalidates messages + matches (server is source of truth).
+ */
+export function useSendTwoTruthsChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      guessIndex: 0 | 1 | 2;
+    }) => sendTwoTruthsChoice(vars.view, vars.matchId, vars.guessIndex),
     onSuccess: (result) => {
       if (!result.ok) return;
       qc.invalidateQueries({ queryKey: ['messages'] });

@@ -3,6 +3,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
+import { TwoTruthsBubble } from '@/components/chat/games/TwoTruthsBubble';
 import { WouldRatherBubble } from '@/components/chat/games/WouldRatherBubble';
 
 type Props = {
@@ -19,6 +20,18 @@ type Props = {
  */
 export function GameSessionBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
+
+  if (view.gameType === '2truths' && view.foldedSnapshot.game_type === '2truths') {
+    return (
+      <TwoTruthsBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
 
   if (view.gameType === 'would_rather' && view.foldedSnapshot.game_type === 'would_rather') {
     return (

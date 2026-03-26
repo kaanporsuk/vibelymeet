@@ -54,6 +54,7 @@ import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
+import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
@@ -174,6 +175,7 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
@@ -539,10 +541,11 @@ export default function ChatThreadScreen() {
 
   const openGamesEntry = () => {
     if (!GAMES_WEB_FALLBACK) {
-      setShowWouldRatherStart(true);
+      setShowTwoTruthsStart(true);
       return;
     }
-    Alert.alert('Games', 'Start Would You Rather in chat or open the full arcade in your browser.', [
+    Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
+      { text: 'Two Truths', onPress: () => setShowTwoTruthsStart(true) },
       { text: 'Would You Rather', onPress: () => setShowWouldRatherStart(true) },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
       { text: 'Cancel', style: 'cancel' },
@@ -1250,6 +1253,14 @@ export default function ChatThreadScreen() {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <TwoTruthsStartSheet
+          visible={showTwoTruthsStart}
+          onClose={() => setShowTwoTruthsStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
         />
       ) : null}
       {data?.matchId ? (
