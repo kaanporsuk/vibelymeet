@@ -710,6 +710,7 @@ export default function ChatThreadScreen() {
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           <GameSessionBubble
             view={item.gameSessionView}
+            matchId={data?.matchId ?? ''}
             currentUserId={user?.id ?? ''}
             partnerName={otherName ?? 'Them'}
             timeLabel={item.time}

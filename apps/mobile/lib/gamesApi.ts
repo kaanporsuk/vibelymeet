@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { parseVibeGameEnvelopeFromStructuredPayload } from '../../../shared/vibely-games/parse';
 import type { GameType, VibeGameEventType, VibeGameMessageEnvelopeV1 } from '../../../shared/vibely-games/types';
+import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 
 /** Client may never send `session_complete` (server-only). */
 export type ClientVibeGameEventType = Exclude<VibeGameEventType, 'session_complete'>;
@@ -263,6 +264,96 @@ export function sendWouldRatherVote(params: {
     game_type: 'would_rather',
     payload: { receiver_vote: params.receiverVote },
     client_request_id: params.client_request_id,
+  });
+}
+
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendWouldRatherVote`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildWouldRatherReceiverVoteParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverVote: 'A' | 'B'
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  receiverVote: 'A' | 'B';
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'would_rather') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'would_rather') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.receiver_vote != null) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (typeof snap.option_a !== 'string' || !snap.option_a.trim()) return null;
+  if (typeof snap.option_b !== 'string' || !snap.option_b.trim()) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    receiverVote,
+  };
+}
+
+/** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
+export function sendWouldRatherChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  receiverVote: 'A' | 'B',
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildWouldRatherReceiverVoteParams(view, matchId, receiverVote);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this choice right now.' },
+    });
+  }
+  return sendWouldRatherVote({ ...params, client_request_id });
+}
+
+export function formatSendGameEventError(err: SendGameEventError): string {
+  if (err.kind === 'transport') return err.message || 'Something went wrong. Try again.';
+  switch (err.code) {
+    case 'session_already_complete':
+      return 'This round already finished.';
+    case 'event_index_out_of_order':
+      return 'Out of sync with the server. Pull to refresh, then try again.';
+    case 'access_denied':
+    case 'match_not_found':
+      return 'Could not reach this game. Try again later.';
+    case 'partner_event_required':
+      return 'Not your turn.';
+    case 'insert_failed':
+      return 'Could not save your pick. Try again.';
+    default:
+      return err.rawCode || err.code || 'Could not send your pick.';
+  }
+}
+
+/**
+ * Mutation: submit receiver vote; on `result.ok` invalidates messages + matches (server is source of truth).
+ */
+export function useSendWouldRatherChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      receiverVote: 'A' | 'B';
+    }) => sendWouldRatherChoice(vars.view, vars.matchId, vars.receiverVote),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
   });
 }
 

@@ -7,6 +7,7 @@ import { WouldRatherBubble } from '@/components/chat/games/WouldRatherBubble';
 
 type Props = {
   view: NativeHydratedGameSessionView;
+  matchId: string;
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
@@ -16,13 +17,14 @@ type Props = {
  * Routes hydrated `vibe_game_session` rows to the right native renderer; safe generic fallback
  * for unsupported or mismatched game types.
  */
-export function GameSessionBubble({ view, currentUserId, partnerName, timeLabel }: Props) {
+export function GameSessionBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
 
   if (view.gameType === 'would_rather' && view.foldedSnapshot.game_type === 'would_rather') {
     return (
       <WouldRatherBubble
         view={view}
+        matchId={matchId}
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}

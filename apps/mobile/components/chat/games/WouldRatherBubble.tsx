@@ -1,4 +1,5 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -6,22 +7,38 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { WouldRatherSnapshot } from '@/lib/vibelyGamesTypes';
+import {
+  buildWouldRatherReceiverVoteParams,
+  formatSendGameEventError,
+  useSendWouldRatherChoice,
+} from '@/lib/gamesApi';
 
 type Props = {
   view: NativeHydratedGameSessionView;
+  matchId: string;
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
 };
 
-export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel }: Props) {
+export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
   if (snap.game_type !== 'would_rather') return null;
 
   const isStarter = view.starterUserId === currentUserId;
   const complete = snap.status === 'complete';
-  const showCtaShell = !complete && view.canCurrentUserActNext;
+  const { mutateAsync, isPending } = useSendWouldRatherChoice();
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const tapGuard = useRef(false);
+
+  const canBuildVote = buildWouldRatherReceiverVoteParams(view, matchId, 'A') != null;
+  const actionable = canBuildVote && !complete;
+  const optionRowsDisabled = !actionable || isPending;
+
+  useEffect(() => {
+    setSubmitError(null);
+  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_vote, snap.status]);
 
   let statusHeadline: string;
   let statusDetail: string;
@@ -29,12 +46,18 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
     statusHeadline = snap.is_match === true ? 'Same pick' : 'Different picks';
     statusDetail =
       snap.is_match === true ? 'You lined up on this one.' : 'Still a fun compare — no wrong answers.';
-  } else if (view.canCurrentUserActNext) {
+  } else if (isPending) {
+    statusHeadline = 'Sending…';
+    statusDetail = 'Hang tight — updating this round.';
+  } else if (view.canCurrentUserActNext && actionable) {
     statusHeadline = 'Your turn';
-    statusDetail = `Choose A or B — ${partnerName} already picked.`;
+    statusDetail = `Tap A or B to choose — ${partnerName} already picked.`;
   } else if (isStarter) {
     statusHeadline = `Waiting on ${partnerName}`;
     statusDetail = 'They still need to choose.';
+  } else if (view.canCurrentUserActNext && !canBuildVote) {
+    statusHeadline = 'Your turn';
+    statusDetail = 'This prompt is incomplete — refresh the thread.';
   } else {
     statusHeadline = 'In progress';
     statusDetail = 'Session is still open.';
@@ -42,6 +65,23 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
 
   const starterPicked = snap.sender_vote;
   const receiverPicked = snap.receiver_vote;
+
+  const handlePick = async (vote: 'A' | 'B') => {
+    if (tapGuard.current || isPending) return;
+    if (!buildWouldRatherReceiverVoteParams(view, matchId, vote)) return;
+    tapGuard.current = true;
+    setSubmitError(null);
+    try {
+      const result = await mutateAsync({ view, matchId, receiverVote: vote });
+      if (!result.ok) {
+        setSubmitError(formatSendGameEventError(result.error));
+      }
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : 'Something went wrong.');
+    } finally {
+      tapGuard.current = false;
+    }
+  };
 
   return (
     <View
@@ -75,6 +115,20 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
           <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>{statusDetail}</Text>
         </View>
 
+        {isPending ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator size="small" color={theme.neonPink} />
+            <Text style={[styles.loadingLabel, { color: theme.textSecondary }]}>Submitting pick…</Text>
+          </View>
+        ) : null}
+
+        {submitError ? (
+          <View style={[styles.errorBanner, { borderColor: theme.dangerSoft, backgroundColor: theme.dangerSoft }]}>
+            <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
+            <Text style={[styles.errorText, { color: theme.text }]}>{submitError}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.optionsBlock}>
           <OptionRow
             label="A"
@@ -82,6 +136,9 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
             theme={theme}
             highlightVote={starterPicked === 'A' || receiverPicked === 'A'}
             voteLabel={optionVoteLabel('A', snap, complete, isStarter, partnerName)}
+            interactive={actionable}
+            disabled={optionRowsDisabled}
+            onPress={() => void handlePick('A')}
           />
           <OptionRow
             label="B"
@@ -89,6 +146,9 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
             theme={theme}
             highlightVote={starterPicked === 'B' || receiverPicked === 'B'}
             voteLabel={optionVoteLabel('B', snap, complete, isStarter, partnerName)}
+            interactive={actionable}
+            disabled={optionRowsDisabled}
+            onPress={() => void handlePick('B')}
           />
         </View>
 
@@ -108,42 +168,6 @@ export function WouldRatherBubble({ view, currentUserId, partnerName, timeLabel 
                     return `You chose ${youPick} · ${partnerName} chose ${themPick}`;
                   })()}
             </Text>
-          </View>
-        ) : null}
-
-        {showCtaShell ? (
-          <View style={styles.ctaBlock}>
-            <Text style={[styles.ctaHint, { color: theme.textSecondary }]}>
-              Choose your side (actions coming soon)
-            </Text>
-            <View style={styles.ctaRow}>
-              <Pressable
-                disabled
-                style={({ pressed }) => [
-                  styles.ctaBtn,
-                  {
-                    borderColor: 'rgba(236,72,153,0.45)',
-                    backgroundColor: pressed ? 'rgba(236,72,153,0.12)' : 'rgba(236,72,153,0.06)',
-                    opacity: 0.55,
-                  },
-                ]}
-              >
-                <Text style={[styles.ctaBtnText, { color: theme.text }]}>Pick A</Text>
-              </Pressable>
-              <Pressable
-                disabled
-                style={({ pressed }) => [
-                  styles.ctaBtn,
-                  {
-                    borderColor: 'rgba(139,92,246,0.45)',
-                    backgroundColor: pressed ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.06)',
-                    opacity: 0.55,
-                  },
-                ]}
-              >
-                <Text style={[styles.ctaBtnText, { color: theme.text }]}>Pick B</Text>
-              </Pressable>
-            </View>
           </View>
         ) : null}
 
@@ -178,20 +202,27 @@ function OptionRow({
   theme,
   highlightVote,
   voteLabel,
+  interactive,
+  disabled,
+  onPress,
 }: {
   label: string;
   text: string;
   theme: (typeof Colors)['light'];
   highlightVote: boolean;
   voteLabel?: string;
+  interactive?: boolean;
+  disabled?: boolean;
+  onPress?: () => void;
 }) {
-  return (
+  const body = (
     <View
       style={[
         styles.optionRow,
         {
           borderColor: highlightVote ? 'rgba(236,72,153,0.35)' : theme.border,
           backgroundColor: highlightVote ? 'rgba(236,72,153,0.06)' : theme.surfaceSubtle,
+          opacity: disabled && interactive ? 0.55 : 1,
         },
       ]}
     >
@@ -206,8 +237,29 @@ function OptionRow({
           <Text style={[styles.optionBadge, { color: theme.neonPink }]}>{voteLabel}</Text>
         ) : null}
       </View>
+      {interactive ? (
+        <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} style={styles.optionChevron} />
+      ) : null}
     </View>
   );
+
+  if (interactive && onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Choose option ${label}`}
+        style={({ pressed }) => [
+          { alignSelf: 'stretch', opacity: pressed && !disabled ? 0.88 : 1 },
+        ]}
+      >
+        {body}
+      </Pressable>
+    );
+  }
+
+  return body;
 }
 
 const styles = StyleSheet.create({
@@ -265,6 +317,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadingLabel: {
+    fontSize: 13,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   optionsBlock: {
     gap: spacing.sm,
   },
@@ -272,6 +346,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.md,
+    width: '100%',
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
@@ -300,6 +375,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  optionChevron: {
+    marginLeft: 'auto',
+    marginTop: 4,
+    alignSelf: 'center',
+  },
   resultBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -313,28 +393,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 18,
-  },
-  ctaBlock: {
-    gap: spacing.sm,
-  },
-  ctaHint: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  ctaRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  ctaBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: radius.button,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-  },
-  ctaBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
   },
   time: {
     fontSize: 11,
