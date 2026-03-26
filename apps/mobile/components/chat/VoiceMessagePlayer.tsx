@@ -79,7 +79,7 @@ export function VoiceMessagePlayer({
       >
         <View style={styles.playSide}>
           <Ionicons name={playing ? 'pause' : 'play'} size={22} color={fg} />
-          {status.isBuffering ? (
+          {status.isBuffering && playing ? (
             <ActivityIndicator size="small" color={fg} style={styles.bufferSpinner} />
           ) : null}
         </View>
@@ -87,7 +87,7 @@ export function VoiceMessagePlayer({
           <View style={[styles.progressTrack, { backgroundColor: track }]}>
             <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: fill }]} />
           </View>
-          <Text style={[styles.timeRow, { color: sub }]}>{timeLabel}</Text>
+          <Text numberOfLines={1} style={[styles.timeRow, { color: sub }]}>{timeLabel}</Text>
         </View>
       </Pressable>
       {footer}
@@ -97,11 +97,11 @@ export function VoiceMessagePlayer({
 
 const styles = StyleSheet.create({
   wrap: { minWidth: 0, width: '100%' },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   playSide: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   bufferSpinner: { width: 18, height: 18 },
-  mid: { flex: 1, marginLeft: 10 },
+  mid: { flex: 1, minWidth: 0, marginLeft: 10 },
   progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 2 },
-  timeRow: { fontSize: 11, marginTop: 6 },
+  timeRow: { fontSize: 11, marginTop: 6, includeFontPadding: false },
 });

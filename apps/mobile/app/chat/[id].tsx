@@ -25,7 +25,7 @@ import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecording
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { LoadingState, ErrorState } from '@/components/ui';
-import { spacing, radius, layout } from '@/constants/theme';
+import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -83,6 +83,7 @@ const MEDIA_CARD_SIZE = Math.max(
   172,
   Math.min(206, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.95))
 );
+const MEDIA_CARD_MIN_WIDTH = 164;
 
 function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
@@ -105,13 +106,20 @@ function ChatVideoCard({
   isMine: boolean;
 }) {
   const [hasError, setHasError] = useState(false);
+  const [isReady, setIsReady] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
 
   useEffect(() => {
     const sub = player.addListener('statusChange', (payload) => {
-      if (payload.status === 'error') setHasError(true);
+      if (payload.status === 'error') {
+        setHasError(true);
+        return;
+      }
+      if (payload.status === 'readyToPlay') {
+        setIsReady(true);
+      }
     });
     return () => sub.remove();
   }, [player]);
@@ -143,9 +151,15 @@ function ChatVideoCard({
       ]}
     >
       <VideoView style={styles.chatVideoInner} player={player} nativeControls contentFit="cover" />
+      {!isReady ? (
+        <View style={styles.chatVideoFallback}>
+          <Ionicons name="play-circle-outline" size={34} color="rgba(255,255,255,0.86)" />
+          <Text style={styles.chatVideoFallbackLabel}>Video</Text>
+        </View>
+      ) : null}
       {durLabel ? (
         <View style={[styles.videoDurationBadge, { backgroundColor: isMine ? 'rgba(17,17,24,0.78)' : 'rgba(0,0,0,0.65)' }]}>
-          <Text style={styles.videoDurationText}>{durLabel}</Text>
+          <Text numberOfLines={1} style={styles.videoDurationText}>{durLabel}</Text>
         </View>
       ) : null}
     </View>
@@ -694,7 +708,7 @@ export default function ChatThreadScreen() {
     );
     if (item.audio_url) {
       return (
-        <View>
+        <View style={styles.voiceContentWrap}>
           <VoiceMessagePlayer
             uri={item.audio_url}
             durationSeconds={item.audio_duration_seconds}
@@ -702,10 +716,10 @@ export default function ChatThreadScreen() {
             theme={theme}
             wrapStyle={styles.voicePlayerWrap}
             footer={
-              <>
-                {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+              <View style={[styles.voiceMetaRow, isMe ? styles.voiceMetaRowMine : null]}>
+                {reaction ? <Text style={styles.voiceReactionBadge}>{reaction}</Text> : null}
                 {statusOrTime}
-              </>
+              </View>
             }
           />
         </View>
@@ -713,7 +727,7 @@ export default function ChatThreadScreen() {
     }
     if (item.video_url) {
       return (
-        <View>
+        <View style={styles.mediaContentWrap}>
           <ChatVideoCard
             uri={item.video_url}
             durationSec={item.video_duration_seconds ?? null}
@@ -730,7 +744,7 @@ export default function ChatThreadScreen() {
     const imageUrl = parseChatImageMessageContent(item.text);
     if (imageUrl) {
       return (
-        <View>
+        <View style={styles.mediaContentWrap}>
           <ChatImageCard uri={imageUrl} isMine={isMe} theme={theme} />
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1412,26 +1426,12 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
-  mediaMetaBlock: { marginTop: 6 },
-  proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
-  proposalBanner: {
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
-  },
-  proposalBannerTitle: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
-  proposalBannerMeta: { fontSize: 13, lineHeight: 18 },
-  proposalBannerActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-  proposalBtn: { flex: 1, paddingVertical: 10, borderRadius: radius.md, alignItems: 'center' },
-  proposalBtnOutline: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-  },
-  proposalBtnLabelLight: { color: '#fff', fontWeight: '600', fontSize: 15 },
-  proposalBtnLabel: { fontWeight: '600', fontSize: 15 },
+  mediaContentWrap: { width: MEDIA_CARD_SIZE, maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
+  mediaMetaBlock: { marginTop: 6, width: '100%', minWidth: 0, alignSelf: 'stretch' },
+  voiceContentWrap: { width: MEDIA_CARD_SIZE, maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
+  voiceMetaRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minWidth: 0, gap: 8 },
+  voiceMetaRowMine: { justifyContent: 'flex-end' },
+  voiceReactionBadge: { fontSize: 14, flexShrink: 0 },
   keyboard: { flex: 1 },
   messageList: { flex: 1 },
   list: {
@@ -1536,17 +1536,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.45 },
-  voicePlayerWrap: { minWidth: 0, width: '100%', maxWidth: MEDIA_CARD_SIZE + 14 },
+  voicePlayerWrap: { minWidth: MEDIA_CARD_MIN_WIDTH, width: '100%', maxWidth: MEDIA_CARD_SIZE },
   chatVideoCardOuter: {
-    width: MEDIA_CARD_SIZE,
+    width: '100%',
+    maxWidth: MEDIA_CARD_SIZE,
+    minWidth: MEDIA_CARD_MIN_WIDTH,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  chatVideoInner: { width: MEDIA_CARD_SIZE, height: Math.round(MEDIA_CARD_SIZE * 0.66) },
-  chatVideoCard: { width: MEDIA_CARD_SIZE, height: Math.round(MEDIA_CARD_SIZE * 0.66) },
+  chatVideoInner: { width: '100%', aspectRatio: 16 / 9 },
+  chatVideoCard: { width: '100%', aspectRatio: 16 / 9 },
   chatVideoError: { alignItems: 'center', justifyContent: 'center' },
+  chatVideoFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(12,12,18,0.28)',
+    gap: 6,
+  },
+  chatVideoFallbackLabel: { color: 'rgba(255,255,255,0.86)', fontSize: 12, fontWeight: '600' },
   videoDurationBadge: {
     position: 'absolute',
     bottom: 8,
@@ -1554,15 +1564,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
+    maxWidth: '80%',
   },
   videoDurationText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   chatImageOuter: {
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: MEDIA_CARD_SIZE + 12,
+    width: '100%',
+    maxWidth: MEDIA_CARD_SIZE,
+    minWidth: MEDIA_CARD_MIN_WIDTH,
   },
-  chatImage: { width: MEDIA_CARD_SIZE, height: MEDIA_CARD_SIZE, backgroundColor: 'rgba(0,0,0,0.2)' },
+  chatImage: { width: '100%', aspectRatio: 1, backgroundColor: 'rgba(0,0,0,0.2)' },
   voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
   recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
 });
