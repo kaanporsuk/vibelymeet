@@ -1,21 +1,17 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { VoiceMessageBubble } from "./VoiceMessageBubble";
 import { EmojiBar, type ReactionEmoji } from "./EmojiBar";
 import { ReactionBadge } from "./ReactionBadge";
 import { ParticleBurst } from "./ParticleBurst";
 import { MessageStatus, type MessageStatusType } from "./MessageStatus";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 
 interface Message {
   id: string;
   text: string;
   sender: "me" | "them";
   time: string;
-  type?: "text" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event";
-  duration?: number;
-  audioBlob?: Blob;
-  audioUrl?: string;
+  type?: "text" | "video-invite" | "video" | "date-suggestion" | "date-suggestion-event";
   reaction?: ReactionEmoji;
   status?: MessageStatusType;
   sendError?: string;
@@ -41,11 +37,9 @@ export const MessageBubble = ({
   onRetryFailedSend,
 }: MessageBubbleProps) => {
   const isMe = message.sender === "me";
-  const isVoice = message.type === "voice";
   const [showEmojiBar, setShowEmojiBar] = useState(false);
   const [showBurst, setShowBurst] = useState<"❤️" | "🔥" | null>(null);
   const [isFocused, setIsFocused] = useState(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const lastTapRef = useRef<number>(0);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -110,16 +104,6 @@ export const MessageBubble = ({
     setIsFocused(false);
   }, []);
 
-  useEffect(() => {
-    if (!message.audioBlob) {
-      setBlobUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(message.audioBlob);
-    setBlobUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [message.audioBlob]);
-
   const bubbleContent = (
     <motion.div
       ref={bubbleRef}
@@ -144,79 +128,67 @@ export const MessageBubble = ({
         )}
       </AnimatePresence>
 
-      {/* Voice message */}
-      {isVoice ? (
-        <div className="flex flex-col">
-          <VoiceMessageBubble
-            audioUrl={message.audioUrl || blobUrl || undefined}
-            duration={message.duration || 0}
-            isMine={isMe}
-          />
-        </div>
-      ) : (
-        /* Text message bubble */
-        <div
-          className={cn(
-            "max-w-[75%] px-4 py-2.5 relative",
-            isMe
-              ? "bg-gradient-primary text-primary-foreground"
-              : "glass-card text-foreground",
-            // Rounded corners based on position in group
-            isMe
-              ? cn(
-                  "rounded-2xl",
-                  isFirstInGroup && "rounded-tr-2xl",
-                  !isFirstInGroup && "rounded-tr-md",
-                  isLastInGroup && "rounded-br-md",
-                  !isLastInGroup && "rounded-br-2xl"
-                )
-              : cn(
-                  "rounded-2xl",
-                  isFirstInGroup && "rounded-tl-2xl",
-                  !isFirstInGroup && "rounded-tl-md",
-                  isLastInGroup && "rounded-bl-md",
-                  !isLastInGroup && "rounded-bl-2xl"
-                )
-          )}
-        >
-          <p className="text-sm leading-relaxed">{message.text}</p>
-          {isMe && message.sendError ? (
-            <button
-              onClick={() => onRetryFailedSend?.(message.id)}
-              className="mt-1 text-[10px] underline underline-offset-2 text-primary-foreground/85 hover:text-primary-foreground"
-            >
-              {message.sendError}
-            </button>
-          ) : null}
-          {isLastInGroup && (
-            <div className={cn(
-              "flex items-center gap-1 mt-1",
-              isMe ? "justify-end" : "justify-start"
-            )}>
-              {isMe && message.sendError ? (
-                <span className="text-[10px] text-primary-foreground/75">{message.time} · failed</span>
-              ) : (
-                <MessageStatus
-                  status={message.status || "delivered"}
-                  time={message.time}
-                  isMyMessage={isMe}
-                />
-              )}
-            </div>
-          )}
-
-          {/* Reaction badge */}
-          <AnimatePresence>
-            {message.reaction && (
-              <ReactionBadge
-                emoji={message.reaction}
-                position={isMe ? "right" : "left"}
-                onRemove={handleRemoveReaction}
+      <div
+        className={cn(
+          "max-w-[75%] px-4 py-2.5 relative",
+          isMe
+            ? "bg-gradient-primary text-primary-foreground"
+            : "glass-card text-foreground",
+          // Rounded corners based on position in group
+          isMe
+            ? cn(
+                "rounded-2xl",
+                isFirstInGroup && "rounded-tr-2xl",
+                !isFirstInGroup && "rounded-tr-md",
+                isLastInGroup && "rounded-br-md",
+                !isLastInGroup && "rounded-br-2xl"
+              )
+            : cn(
+                "rounded-2xl",
+                isFirstInGroup && "rounded-tl-2xl",
+                !isFirstInGroup && "rounded-tl-md",
+                isLastInGroup && "rounded-bl-md",
+                !isLastInGroup && "rounded-bl-2xl"
+              )
+        )}
+      >
+        <p className="text-sm leading-relaxed">{message.text}</p>
+        {isMe && message.sendError ? (
+          <button
+            onClick={() => onRetryFailedSend?.(message.id)}
+            className="mt-1 text-[10px] underline underline-offset-2 text-primary-foreground/85 hover:text-primary-foreground"
+          >
+            {message.sendError}
+          </button>
+        ) : null}
+        {isLastInGroup && (
+          <div className={cn(
+            "flex items-center gap-1 mt-1",
+            isMe ? "justify-end" : "justify-start"
+          )}>
+            {isMe && message.sendError ? (
+              <span className="text-[10px] text-primary-foreground/75">{message.time} · failed</span>
+            ) : (
+              <MessageStatus
+                status={message.status || "delivered"}
+                time={message.time}
+                isMyMessage={isMe}
               />
             )}
-          </AnimatePresence>
-        </div>
-      )}
+          </div>
+        )}
+
+        {/* Reaction badge */}
+        <AnimatePresence>
+          {message.reaction && (
+            <ReactionBadge
+              emoji={message.reaction}
+              position={isMe ? "right" : "left"}
+              onRemove={handleRemoveReaction}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Emoji bar */}
       <AnimatePresence>
