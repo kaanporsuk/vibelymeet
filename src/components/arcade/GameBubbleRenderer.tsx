@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 interface GameBubbleRendererProps {
   message: GameMessage;
   matchName?: string;
-  onGameUpdate?: (messageId: string, updatedPayload: GamePayload) => void;
+  onGameUpdate?: (
+    messageId: string,
+    updatedPayload: GamePayload,
+    updates: Partial<GamePayload["data"]>
+  ) => void;
 }
 
 export const GameBubbleRenderer = ({ message, matchName = "Match", onGameUpdate }: GameBubbleRendererProps) => {
@@ -31,7 +35,7 @@ export const GameBubbleRenderer = ({ message, matchName = "Match", onGameUpdate 
       }
     } as GamePayload;
     
-    onGameUpdate?.(message.id, updatedPayload);
+    onGameUpdate?.(message.id, updatedPayload, updates);
   };
 
   const renderGame = () => {
