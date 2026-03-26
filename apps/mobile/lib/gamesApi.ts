@@ -342,6 +342,28 @@ export function startRouletteGame(params: {
   });
 }
 
+/** `session_start` for Charades (starter, `event_index` 0). */
+export function startCharadesGame(params: {
+  matchId: string;
+  gameSessionId: string;
+  answer: string;
+  emojis: string[];
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: 0,
+    event_type: 'session_start',
+    game_type: 'charades',
+    payload: {
+      answer: params.answer,
+      emojis: params.emojis,
+    },
+    client_request_id: params.client_request_id,
+  });
+}
+
 /** Partner reply after starter's `session_start`. */
 export function sendWouldRatherVote(params: {
   matchId: string;
@@ -357,6 +379,25 @@ export function sendWouldRatherVote(params: {
     event_type: 'would_rather_vote',
     game_type: 'would_rather',
     payload: { receiver_vote: params.receiverVote },
+    client_request_id: params.client_request_id,
+  });
+}
+
+/** Partner guess after starter's Charades `session_start`. */
+export function sendCharadesGuess(params: {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guess: string;
+  client_request_id?: string;
+}): Promise<SendGameEventResult> {
+  return sendGameEvent({
+    match_id: params.matchId,
+    game_session_id: params.gameSessionId,
+    event_index: params.eventIndex,
+    event_type: 'charades_guess',
+    game_type: 'charades',
+    payload: { guess: params.guess },
     client_request_id: params.client_request_id,
   });
 }
@@ -540,6 +581,43 @@ export function buildRouletteAnswerParams(
   };
 }
 
+/**
+ * Validates hydrated session + folded snapshot, then returns args for `sendCharadesGuess`
+ * (`event_index` = `view.latestEventIndex + 1`). Returns null if the viewer cannot act.
+ */
+export function buildCharadesGuessParams(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guess: string
+): {
+  matchId: string;
+  gameSessionId: string;
+  eventIndex: number;
+  guess: string;
+} | null {
+  const mid = matchId.trim();
+  if (!mid) return null;
+  if (view.gameType !== 'charades') return null;
+  const snap = view.foldedSnapshot;
+  if (snap.game_type !== 'charades') return null;
+  if (snap.status !== 'active') return null;
+  if (snap.is_guessed === true) return null;
+  if (!view.canCurrentUserActNext) return null;
+  if (!view.gameSessionId) return null;
+  if (!Array.isArray(snap.emojis) || snap.emojis.length === 0) return null;
+  if (typeof snap.answer !== 'string' || !snap.answer.trim()) return null;
+  const g = guess.trim();
+  if (!g) return null;
+  const nextIndex = view.latestEventIndex + 1;
+  if (nextIndex < 1) return null;
+  return {
+    matchId: mid,
+    gameSessionId: view.gameSessionId,
+    eventIndex: nextIndex,
+    guess: g,
+  };
+}
+
 /** Native Would You Rather: receiver pick only (uses live `send-game-event`). */
 export function sendWouldRatherChoice(
   view: NativeHydratedGameSessionView,
@@ -606,6 +684,23 @@ export function sendRouletteChoice(
     });
   }
   return sendRouletteAnswer({ ...params, client_request_id });
+}
+
+/** Native Charades: receiver guess only (uses live `send-game-event`). */
+export function sendCharadesChoice(
+  view: NativeHydratedGameSessionView,
+  matchId: string,
+  guess: string,
+  client_request_id?: string
+): Promise<SendGameEventResult> {
+  const params = buildCharadesGuessParams(view, matchId, guess);
+  if (!params) {
+    return Promise.resolve({
+      ok: false,
+      error: { kind: 'transport', code: 'unknown', message: 'Cannot submit this guess right now.' },
+    });
+  }
+  return sendCharadesGuess({ ...params, client_request_id });
 }
 
 export function formatSendGameEventError(err: SendGameEventError): string {
@@ -712,6 +807,32 @@ export function useStartRouletteGame() {
 }
 
 /**
+ * Start a new Charades session (`session_start`, `event_index` 0). Invalidates messages on success.
+ */
+export function useStartCharadesGame() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      matchId: string;
+      gameSessionId: string;
+      answer: string;
+      emojis: string[];
+    }) =>
+      startCharadesGame({
+        matchId: vars.matchId,
+        gameSessionId: vars.gameSessionId,
+        answer: vars.answer,
+        emojis: vars.emojis,
+      }),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
  * Start a new Would You Rather session (`session_start`, `event_index` 0). Invalidates messages on success.
  */
 export function useStartWouldRatherGame() {
@@ -807,6 +928,25 @@ export function useSendRouletteChoice() {
       matchId: string;
       receiverAnswer: string;
     }) => sendRouletteChoice(vars.view, vars.matchId, vars.receiverAnswer),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      qc.invalidateQueries({ queryKey: ['messages'] });
+      qc.invalidateQueries({ queryKey: ['matches'] });
+    },
+  });
+}
+
+/**
+ * Mutation: submit receiver guess; on `result.ok` invalidates messages + matches.
+ */
+export function useSendCharadesChoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      view: NativeHydratedGameSessionView;
+      matchId: string;
+      guess: string;
+    }) => sendCharadesChoice(vars.view, vars.matchId, vars.guess),
     onSuccess: (result) => {
       if (!result.ok) return;
       qc.invalidateQueries({ queryKey: ['messages'] });

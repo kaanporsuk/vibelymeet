@@ -2,9 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-// Common emoji options for charades
-const EMOJI_PICKER = ['🎬', '🎭', '🎤', '🎸', '🎹', '💃', '🕺', '👑', '💎', '🌟', '⭐', '✨', '🔥', '💥', '💫', '🌈', '🌙', '☀️', '🌊', '🏔️', '🌴', '🌺', '🦁', '🐺', '🦅', '🦋', '🐉', '🦖', '🚀', '✈️', '🚢', '🏎️', '🏰', '🗼', '🗽', '💀', '👻', '👽', '🤖', '🧙', '🧛', '🧟', '🦸', '💘', '💔', '💍', '🗡️', '🛡️', '🧊', '🔮', '🎭', '🎪', '🎡', '🎢', '🎯', '🎲', '🃏', '👁️', '💋', '🖤', '❤️', '💜', '💙'];
+import { CHARADES_EMOJI_PICKER } from "../../../../shared/vibely-games/charadesEmojiPicker";
 
 interface CharadesCreatorProps {
   isOpen: boolean;
@@ -97,7 +95,7 @@ export const CharadesCreator = ({ isOpen, onClose, onSubmit }: CharadesCreatorPr
 
                 {/* Emoji Picker */}
                 <div className="grid grid-cols-8 gap-2">
-                  {EMOJI_PICKER.map((emoji) => (
+                  {CHARADES_EMOJI_PICKER.map((emoji) => (
                     <button
                       key={emoji}
                       onClick={() => toggleEmoji(emoji)}
