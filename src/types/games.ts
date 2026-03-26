@@ -1,6 +1,7 @@
 // VibeArcade Game Types - Backend Ready Data Structures
 
 import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
+import { ROULETTE_QUESTIONS as SHARED_ROULETTE_QUESTIONS } from "../../shared/vibely-games/roulettePrompts";
 
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
@@ -171,17 +172,8 @@ export const SCAVENGER_PROMPTS = [
   'Show me... something purple',
 ];
 
-// Mock data for Vibe Roulette questions
-export const ROULETTE_QUESTIONS = [
-  'What\'s your biggest regret?',
-  'What\'s the most spontaneous thing you\'ve ever done?',
-  'What\'s your guilty pleasure?',
-  'What\'s a secret talent you have?',
-  'What\'s your earliest memory?',
-  'What would your perfect day look like?',
-  'What\'s something you\'ve never told anyone?',
-  'What\'s the best advice you\'ve ever received?',
-];
+// Shared data source for Vibe Roulette questions.
+export const ROULETTE_QUESTIONS = SHARED_ROULETTE_QUESTIONS;
 
 // Mock data for Intuition Test options
 export const INTUITION_OPTIONS = [
