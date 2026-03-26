@@ -71,11 +71,11 @@ export const ProfileDetailDrawer = ({
   mode = 'match',
 }: ProfileDetailDrawerProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : internalOpen;
   const { data: fetchedProfile } = useUserProfile(open ? match.id : null);
   
   // Use controlled or uncontrolled mode
-  const isControlled = controlledOpen !== undefined;
-  const open = isControlled ? controlledOpen : internalOpen;
   const setOpen = (value: boolean) => {
     if (isControlled && onOpenChange) {
       onOpenChange(value);
@@ -88,6 +88,14 @@ export const ProfileDetailDrawer = ({
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(true);
   const [signedVideoUrl, setSignedVideoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.localStorage.getItem("__vibely_diag") !== "1") return;
+    if (open) {
+      console.info("[diag] ProfileDetailDrawer opened", { matchId: match.id, path: window.location.pathname });
+    }
+  }, [open, match.id]);
 
   // Use photos from match prop - resolve storage paths to full URLs
   const photos = useMemo(() => {
