@@ -96,12 +96,50 @@ serve(async (req) => {
     }
 
     const { data: rpcResult, error: rpcError } = await userClient.rpc(
-      "date_suggestion_apply",
+      "date_suggestion_apply_v2",
       { p_action, p_payload },
     );
 
     if (rpcError) {
       console.error("date_suggestion_apply error:", rpcError);
+      const rpcMessage = String(rpcError.message || "");
+      const isActiveConflict =
+        p_action === "send_proposal" &&
+        (rpcMessage.includes("date_suggestions_one_open_per_match") ||
+          rpcMessage.toLowerCase().includes("duplicate key"));
+
+      if (isActiveConflict) {
+        const payloadMatchId = typeof p_payload?.match_id === "string"
+          ? p_payload.match_id
+          : null;
+        let existingSuggestionId: string | null = null;
+        let existingStatus: string | null = null;
+
+        if (payloadMatchId) {
+          const { data: existing } = await userClient
+            .from("date_suggestions")
+            .select("id, status")
+            .eq("match_id", payloadMatchId)
+            .in("status", ["draft", "proposed", "viewed", "countered"])
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          existingSuggestionId = existing?.id ?? null;
+          existingStatus = existing?.status ?? null;
+        }
+
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "active_suggestion_exists",
+            error_code: "active_suggestion_exists",
+            suggestion_id: existingSuggestionId,
+            status: existingStatus,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       return new Response(
         JSON.stringify({ ok: false, error: rpcError.message }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

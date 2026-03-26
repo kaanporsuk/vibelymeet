@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
 } from "@/lib/dateSuggestionCopy";
 import { slotDateBlockToStartsAt } from "@/lib/dateSuggestionTime";
 import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
-import { dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
+import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import type { DateSuggestionRevisionRow } from "@/hooks/useDateSuggestionData";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
@@ -117,6 +117,7 @@ export function DateSuggestionComposer({
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(defaultWizard);
   const [saving, setSaving] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [draftId, setDraftId] = useState<string | null>(draftSuggestionId ?? null);
 
   const shareEnabled = w.timeChoiceKey === "share_schedule";
@@ -199,6 +200,8 @@ export function DateSuggestionComposer({
   };
 
   const submitProposal = async () => {
+    if (submitInFlightRef.current || saving) return;
+    submitInFlightRef.current = true;
     setSaving(true);
     try {
       const revision = buildRevision(w);
@@ -218,9 +221,17 @@ export function DateSuggestionComposer({
       onSuccess?.();
       onClose();
     } catch (e) {
-      console.error(e);
-      toast.error(counterContext ? "Could not send counter" : "Could not send suggestion");
+      if (e instanceof DateSuggestionDomainError && e.code === "active_suggestion_exists") {
+        if (e.suggestionId) setDraftId(e.suggestionId);
+        onSuccess?.();
+        onClose();
+        toast.message("You already have an active date suggestion in this chat.");
+      } else {
+        console.error(e);
+        toast.error(counterContext ? "Could not send counter" : "Could not send suggestion");
+      }
     } finally {
+      submitInFlightRef.current = false;
       setSaving(false);
     }
   };

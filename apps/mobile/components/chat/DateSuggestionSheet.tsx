@@ -2,7 +2,7 @@
  * Multi-step date suggestion composer (parity with web DateSuggestionComposer).
  * Uses KeyboardAwareBottomSheetModal for text/keyboard safety.
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -32,7 +32,7 @@ import {
 } from '@/lib/dateSuggestionCopy';
 import { slotDateBlockToStartsAt } from '@/lib/dateSuggestionTime';
 import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
-import { dateSuggestionApply } from '@/lib/dateSuggestionApply';
+import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import type { DateSuggestionRevisionRow } from '@/lib/useDateSuggestionData';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
@@ -128,6 +128,7 @@ export function DateSuggestionSheet({
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(defaultWizard);
   const [saving, setSaving] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [draftId, setDraftId] = useState<string | null>(draftSuggestionId ?? null);
 
   const shareEnabled = w.timeChoiceKey === 'share_schedule';
@@ -204,6 +205,8 @@ export function DateSuggestionSheet({
   };
 
   const submitProposal = async () => {
+    if (submitInFlightRef.current || saving) return;
+    submitInFlightRef.current = true;
     setSaving(true);
     try {
       const revision = buildRevision(w);
@@ -221,9 +224,17 @@ export function DateSuggestionSheet({
       onSuccess?.();
       onClose();
     } catch (e) {
-      console.error(e);
-      Alert.alert('Error', counterContext ? 'Could not send counter.' : 'Could not send suggestion.');
+      if (e instanceof DateSuggestionDomainError && e.code === 'active_suggestion_exists') {
+        if (e.suggestionId) setDraftId(e.suggestionId);
+        onSuccess?.();
+        onClose();
+        Alert.alert('Date suggestion', 'You already have an active date suggestion in this chat.');
+      } else {
+        console.error(e);
+        Alert.alert('Error', counterContext ? 'Could not send counter.' : 'Could not send suggestion.');
+      }
     } finally {
+      submitInFlightRef.current = false;
       setSaving(false);
     }
   };
