@@ -86,6 +86,34 @@ const MEDIA_CARD_SIZE = Math.max(
 );
 const MEDIA_CARD_MIN_WIDTH = 164;
 
+type LocalMediaSendPayload =
+  | { kind: 'image'; uri: string; mimeType: string }
+  | { kind: 'voice'; uri: string; durationSeconds: number }
+  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string };
+
+type LocalMediaSendState = 'sending' | 'failed' | 'sent';
+
+type LocalMediaMeta = {
+  localId: string;
+  state: LocalMediaSendState;
+  payload: LocalMediaSendPayload;
+  errorMessage?: string;
+  serverMessageId?: string;
+};
+
+type LocalMediaChatMessage = ChatMessage & { localMedia: LocalMediaMeta };
+type ThreadMessage = ChatMessage | LocalMediaChatMessage;
+
+function isLocalMediaMessage(message: ThreadMessage): message is LocalMediaChatMessage {
+  return typeof message === 'object' && message !== null && 'localMedia' in message;
+}
+
+function getServerMessageId(row: unknown): string | null {
+  if (!row || typeof row !== 'object') return null;
+  const id = (row as { id?: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
 function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
   return (
@@ -215,14 +243,156 @@ export default function ChatThreadScreen() {
   const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [localMediaMessages, setLocalMediaMessages] = useState<LocalMediaChatMessage[]>([]);
+  const localMediaMessagesRef = useRef<LocalMediaChatMessage[]>([]);
+  const mediaSendLocksRef = useRef<Set<string>>(new Set());
   const isSending = sending || sendingVoice || sendingVideo || sendingPhoto;
+  useEffect(() => {
+    localMediaMessagesRef.current = localMediaMessages;
+  }, [localMediaMessages]);
+
+  const updateLocalMediaState = useCallback(
+    (localId: string, updater: (prev: LocalMediaChatMessage) => LocalMediaChatMessage | null) => {
+      setLocalMediaMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === localId);
+        if (idx < 0) return prev;
+        const nextItem = updater(prev[idx]);
+        if (!nextItem) {
+          return prev.filter((m) => m.id !== localId);
+        }
+        const next = [...prev];
+        next[idx] = nextItem;
+        return next;
+      });
+    },
+    []
+  );
+
+  const createLocalMediaMessage = useCallback((payload: LocalMediaSendPayload): LocalMediaChatMessage => {
+    const localId = `local-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const base: LocalMediaChatMessage = {
+      id: localId,
+      text: payload.kind === 'image' ? 'Photo' : payload.kind === 'voice' ? '🎤 Voice message' : '📹 Video message',
+      sender: 'me',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'sending',
+      ...(payload.kind === 'voice'
+        ? { audio_url: payload.uri, audio_duration_seconds: Math.round(payload.durationSeconds) }
+        : {}),
+      ...(payload.kind === 'video'
+        ? { video_url: payload.uri, video_duration_seconds: Math.round(payload.durationSeconds) }
+        : {}),
+      localMedia: {
+        localId,
+        state: 'sending',
+        payload,
+      },
+    };
+    return base;
+  }, []);
+
+  const sendLocalMediaById = useCallback(
+    async (localId: string) => {
+      const current = localMediaMessagesRef.current.find((m) => m.id === localId);
+      if (!current || !data?.matchId || !user?.id) return;
+      if (mediaSendLocksRef.current.has(localId)) return;
+      mediaSendLocksRef.current.add(localId);
+      updateLocalMediaState(localId, (prev) => ({
+        ...prev,
+        status: 'sending',
+        localMedia: { ...prev.localMedia, state: 'sending', errorMessage: undefined },
+      }));
+      try {
+        const payload = current.localMedia.payload;
+        let serverMessageId: string | null = null;
+        if (payload.kind === 'image') {
+          const publicUrl = await uploadChatImageMessage(payload.uri, payload.mimeType);
+          const result = await sendMessage({ matchId: data.matchId, content: formatChatImageMessageContent(publicUrl) });
+          serverMessageId = getServerMessageId(result);
+        } else if (payload.kind === 'voice') {
+          const result = await sendVoiceMessage({
+            matchId: data.matchId,
+            audioUri: payload.uri,
+            durationSeconds: payload.durationSeconds,
+            currentUserId: user.id,
+          });
+          serverMessageId = getServerMessageId(result);
+        } else {
+          const result = await sendChatVideoMessage({
+            matchId: data.matchId,
+            videoUri: payload.uri,
+            durationSeconds: payload.durationSeconds,
+            currentUserId: user.id,
+            mimeType: payload.mimeType,
+          });
+          serverMessageId = getServerMessageId(result);
+        }
+
+        if (!serverMessageId) {
+          // Fallback: remove local artifact immediately when mutation succeeds but returned row id is unavailable.
+          updateLocalMediaState(localId, () => null);
+          return;
+        }
+
+        updateLocalMediaState(localId, (prev) => ({
+          ...prev,
+          status: 'sent',
+          localMedia: { ...prev.localMedia, state: 'sent', serverMessageId, errorMessage: undefined },
+        }));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not send media message.';
+        updateLocalMediaState(localId, (prev) => ({
+          ...prev,
+          status: 'sent',
+          localMedia: { ...prev.localMedia, state: 'failed', errorMessage: msg },
+        }));
+        Alert.alert('Media message failed', msg);
+      } finally {
+        mediaSendLocksRef.current.delete(localId);
+      }
+    },
+    [data?.matchId, sendChatVideoMessage, sendMessage, sendVoiceMessage, updateLocalMediaState, user?.id]
+  );
+
+  const queueAndSendLocalMedia = useCallback(
+    (payload: LocalMediaSendPayload) => {
+      const local = createLocalMediaMessage(payload);
+      setLocalMediaMessages((prev) => [...prev, local]);
+      void sendLocalMediaById(local.id);
+    },
+    [createLocalMediaMessage, sendLocalMediaById]
+  );
+
+  const retryLocalMedia = useCallback(
+    (localId: string) => {
+      void sendLocalMediaById(localId);
+    },
+    [sendLocalMediaById]
+  );
+
+  useEffect(() => {
+    const serverIds = new Set((data?.messages ?? []).map((m) => m.id));
+    setLocalMediaMessages((prev) =>
+      prev.filter((m) => {
+        const serverId = m.localMedia.serverMessageId;
+        if (!serverId) return true;
+        return !serverIds.has(serverId);
+      })
+    );
+  }, [data?.messages]);
+
+  const threadMessages = useMemo<ThreadMessage[]>(
+    () => [...(data?.messages ?? []), ...localMediaMessages],
+    [data?.messages, localMediaMessages]
+  );
+
   const displayMessages = useMemo(() => {
-    return dedupeLatestByRefId<ChatMessage>(data?.messages ?? [], {
+    return dedupeLatestByRefId<ThreadMessage>(threadMessages, {
       isDedupeCandidate: (m) => m.messageKind === 'date_suggestion' || m.messageKind === 'date_suggestion_event',
       getRefId: (m) => m.refId,
       getId: (m) => m.id,
     });
-  }, [data?.messages]);
+  }, [threadMessages]);
 
   const suggestionById = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
@@ -394,11 +564,10 @@ export default function ChatThreadScreen() {
       const recAny = audioRecorder as { currentTime?: number };
       const fromRecorder = typeof recAny.currentTime === 'number' ? recAny.currentTime : 0;
       const durationSec = Math.max(1, Math.round(elapsed > 0.3 ? elapsed : fromRecorder > 0 ? fromRecorder : 1));
-      await sendVoiceMessage({
-        matchId: data.matchId,
-        audioUri: uri,
+      queueAndSendLocalMedia({
+        kind: 'voice',
+        uri,
         durationSeconds: durationSec,
-        currentUserId: user.id,
       });
     } catch (e) {
       Alert.alert('Voice message failed', e instanceof Error ? e.message : 'Please try again.');
@@ -430,11 +599,10 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
-      await sendChatVideoMessage({
-        matchId: data.matchId,
-        videoUri: asset.uri,
+      queueAndSendLocalMedia({
+        kind: 'video',
+        uri: asset.uri,
         durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
-        currentUserId: user.id,
         mimeType: asset.mimeType ?? undefined,
       });
     } catch (e) {
@@ -461,11 +629,10 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
-      await sendChatVideoMessage({
-        matchId: data.matchId,
-        videoUri: asset.uri,
+      queueAndSendLocalMedia({
+        kind: 'video',
+        uri: asset.uri,
         durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
-        currentUserId: user.id,
         mimeType: asset.mimeType ?? 'video/mp4',
       });
     } catch (e) {
@@ -489,10 +656,13 @@ export default function ChatThreadScreen() {
       Alert.alert("Can't send", 'Check your connection.');
       return;
     }
-    setSendingPhoto(true);
     try {
-      const publicUrl = await uploadChatImageMessage(uri, mimeType ?? 'image/jpeg');
-      await sendMessage({ matchId: data.matchId, content: formatChatImageMessageContent(publicUrl) });
+      setSendingPhoto(true);
+      queueAndSendLocalMedia({
+        kind: 'image',
+        uri,
+        mimeType: mimeType ?? 'image/jpeg',
+      });
     } catch (e) {
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
     } finally {
@@ -694,15 +864,38 @@ export default function ChatThreadScreen() {
     lastSeenAtMs: lastSeenAt,
   });
 
-  const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string, isMe: boolean) => {
+  const renderBubbleContent = (item: ThreadMessage, textColor: string, timeColor: string, isMe: boolean) => {
     const reaction = localReactions[item.id] ?? item.reaction ?? null;
+    const localMedia = isLocalMediaMessage(item) ? item.localMedia : null;
     const mediaKind = inferChatMediaRenderKind({
       content: item.text,
       audioUrl: item.audio_url,
       videoUrl: item.video_url,
     });
+    const localStateFooter = isMe && localMedia ? (
+      <View style={[styles.localSendRow, localMedia.state === 'failed' ? styles.localSendRowFailed : null]}>
+        <Text style={[styles.localSendText, { color: localMedia.state === 'failed' ? theme.danger : timeColor }]}>
+          {localMedia.state === 'sending'
+            ? 'Sending…'
+            : localMedia.state === 'failed'
+              ? 'Failed to send'
+              : item.time}
+        </Text>
+        {localMedia.state === 'failed' ? (
+          <Pressable
+            onPress={() => retryLocalMedia(item.id)}
+            disabled={mediaSendLocksRef.current.has(item.id)}
+            style={({ pressed }) => [styles.retryActionBtn, pressed ? { opacity: 0.75 } : null]}
+          >
+            <Text style={[styles.retryActionText, { color: theme.tint }]}>
+              {mediaSendLocksRef.current.has(item.id) ? 'Retrying…' : 'Retry'}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+    ) : null;
     const statusOrTime = isMe ? (
-      <MessageStatus status={item.status ?? 'delivered'} time={item.time} isMyMessage />
+      localStateFooter ?? <MessageStatus status={item.status ?? 'delivered'} time={item.time} isMyMessage />
     ) : (
       <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
     );
@@ -741,7 +934,12 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    const imageUrl = mediaKind === 'image' ? parseChatImageMessageContent(item.text) : null;
+    const imageUrl =
+      localMedia?.payload.kind === 'image'
+        ? localMedia.payload.uri
+        : mediaKind === 'image'
+          ? parseChatImageMessageContent(item.text)
+          : null;
     if (imageUrl) {
       return (
         <View style={styles.mediaContentWrap}>
@@ -765,7 +963,7 @@ export default function ChatThreadScreen() {
   const otherAge =
     otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0;
 
-  const renderItem: ListRenderItem<ChatMessage> = ({ item, index }) => {
+  const renderItem: ListRenderItem<ThreadMessage> = ({ item, index }) => {
     const isDateTimeline =
       item.messageKind === 'date_suggestion' || item.messageKind === 'date_suggestion_event';
     if (isDateTimeline && !item.refId) {
@@ -1496,6 +1694,28 @@ const styles = StyleSheet.create({
   },
   bubbleText: { fontSize: 15, lineHeight: 20 },
   bubbleTime: { fontSize: 10, marginTop: 6, opacity: 0.85 },
+  localSendRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  localSendRowFailed: {
+    justifyContent: 'space-between',
+  },
+  localSendText: {
+    fontSize: 10,
+    opacity: 0.9,
+  },
+  retryActionBtn: {
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+  },
+  retryActionText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
   contextualRow: {
     flexDirection: 'row',
     justifyContent: 'center',
