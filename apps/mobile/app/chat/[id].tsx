@@ -703,6 +703,30 @@ export default function ChatThreadScreen() {
       );
     }
 
+    if (item.messageKind === 'vibe_game_session' && item.gameSessionView) {
+      const v = item.gameSessionView;
+      return (
+        <View style={{ marginBottom: spacing.md, width: '100%' }}>
+          <View
+            style={[
+              styles.gameSessionPlaceholder,
+              {
+                borderColor: theme.border,
+                backgroundColor: theme.surface,
+              },
+            ]}
+          >
+            <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }}>🎮 Game</Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 4 }}>
+              {v.gameType ?? 'session'} · {v.status}
+              {v.canCurrentUserActNext ? ' · Your turn' : ''}
+            </Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 11, marginTop: 6 }}>{item.time}</Text>
+          </View>
+        </View>
+      );
+    }
+
     const isMe = item.sender === 'me';
     const messages = displayMessages;
     const next = index < messages.length - 1 ? messages[index + 1] : null;
@@ -1271,6 +1295,11 @@ const styles = StyleSheet.create({
   reactionBadge: { fontSize: 14, marginTop: 4 },
   mediaMetaBlock: { marginTop: 6 },
   proposalBanners: { marginBottom: spacing.md, gap: spacing.sm },
+  gameSessionPlaceholder: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+  },
   proposalBanner: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
