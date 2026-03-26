@@ -6,6 +6,7 @@ import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import { CharadesBubble } from '@/components/chat/games/CharadesBubble';
 import { IntuitionBubble } from '@/components/chat/games/IntuitionBubble';
 import { RouletteBubble } from '@/components/chat/games/RouletteBubble';
+import { ScavengerBubble } from '@/components/chat/games/ScavengerBubble';
 import { TwoTruthsBubble } from '@/components/chat/games/TwoTruthsBubble';
 import { WouldRatherBubble } from '@/components/chat/games/WouldRatherBubble';
 
@@ -63,6 +64,18 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
   if (view.gameType === 'roulette' && view.foldedSnapshot.game_type === 'roulette') {
     return (
       <RouletteBubble
+        view={view}
+        matchId={matchId}
+        currentUserId={currentUserId}
+        partnerName={partnerName}
+        timeLabel={timeLabel}
+      />
+    );
+  }
+
+  if (view.gameType === 'scavenger' && view.foldedSnapshot.game_type === 'scavenger') {
+    return (
+      <ScavengerBubble
         view={view}
         matchId={matchId}
         currentUserId={currentUserId}

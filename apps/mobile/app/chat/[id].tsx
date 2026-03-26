@@ -57,6 +57,7 @@ import { CharadesStartSheet } from '@/components/chat/games/CharadesStartSheet';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
 import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
 import { RouletteStartSheet } from '@/components/chat/games/RouletteStartSheet';
+import { ScavengerStartSheet } from '@/components/chat/games/ScavengerStartSheet';
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -181,6 +182,7 @@ export default function ChatThreadScreen() {
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
   const [showRouletteStart, setShowRouletteStart] = useState(false);
+  const [showScavengerStart, setShowScavengerStart] = useState(false);
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
@@ -549,6 +551,7 @@ export default function ChatThreadScreen() {
     setShowCharadesStart(false);
     setShowIntuitionStart(false);
     setShowRouletteStart(false);
+    setShowScavengerStart(false);
     setShowWouldRatherStart(false);
     setShowTwoTruthsStart(true);
   };
@@ -557,6 +560,7 @@ export default function ChatThreadScreen() {
     setShowCharadesStart(false);
     setShowIntuitionStart(false);
     setShowRouletteStart(false);
+    setShowScavengerStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(true);
   };
@@ -564,6 +568,7 @@ export default function ChatThreadScreen() {
   const openIntuitionStart = () => {
     setShowCharadesStart(false);
     setShowRouletteStart(false);
+    setShowScavengerStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(false);
     setShowIntuitionStart(true);
@@ -572,6 +577,7 @@ export default function ChatThreadScreen() {
   const openRouletteStart = () => {
     setShowCharadesStart(false);
     setShowIntuitionStart(false);
+    setShowScavengerStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(false);
     setShowRouletteStart(true);
@@ -580,9 +586,19 @@ export default function ChatThreadScreen() {
   const openCharadesStart = () => {
     setShowIntuitionStart(false);
     setShowRouletteStart(false);
+    setShowScavengerStart(false);
     setShowTwoTruthsStart(false);
     setShowWouldRatherStart(false);
     setShowCharadesStart(true);
+  };
+
+  const openScavengerStart = () => {
+    setShowCharadesStart(false);
+    setShowIntuitionStart(false);
+    setShowRouletteStart(false);
+    setShowTwoTruthsStart(false);
+    setShowWouldRatherStart(false);
+    setShowScavengerStart(true);
   };
 
   const openGamesEntry = () => {
@@ -593,6 +609,7 @@ export default function ChatThreadScreen() {
         { text: 'Would You Rather', onPress: openWouldRatherStart },
         { text: 'Roulette', onPress: openRouletteStart },
         { text: 'Charades', onPress: openCharadesStart },
+        { text: 'Scavenger', onPress: openScavengerStart },
         { text: 'Cancel', style: 'cancel' },
       ]);
       return;
@@ -603,6 +620,7 @@ export default function ChatThreadScreen() {
       { text: 'Would You Rather', onPress: openWouldRatherStart },
       { text: 'Roulette', onPress: openRouletteStart },
       { text: 'Charades', onPress: openCharadesStart },
+      { text: 'Scavenger', onPress: openScavengerStart },
       { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -1331,6 +1349,14 @@ export default function ChatThreadScreen() {
         <RouletteStartSheet
           visible={showRouletteStart}
           onClose={() => setShowRouletteStart(false)}
+          matchId={data.matchId}
+          partnerName={otherName ?? 'Them'}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <ScavengerStartSheet
+          visible={showScavengerStart}
+          onClose={() => setShowScavengerStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
         />

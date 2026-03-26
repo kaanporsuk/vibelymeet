@@ -2,6 +2,7 @@
 
 import { WOULD_RATHER_PROMPT_PAIRS } from "../../shared/vibely-games/wouldRatherPrompts";
 import { ROULETTE_QUESTIONS as SHARED_ROULETTE_QUESTIONS } from "../../shared/vibely-games/roulettePrompts";
+import { SCAVENGER_PROMPTS as SHARED_SCAVENGER_PROMPTS } from "../../shared/vibely-games/scavengerPrompts";
 
 export type GameType = '2truths' | 'would_rather' | 'charades' | 'scavenger' | 'roulette' | 'intuition';
 export type GameStep = 'created' | 'active' | 'completed';
@@ -160,17 +161,8 @@ export const WOULD_RATHER_OPTIONS = WOULD_RATHER_PROMPT_PAIRS.map((p) => ({
   optionB: p.option_b,
 }));
 
-// Mock data for Scavenger Hunt prompts
-export const SCAVENGER_PROMPTS = [
-  'Show me... your fridge',
-  'Show me... your view right now',
-  'Show me... your favorite mug',
-  'Show me... something that makes you smile',
-  'Show me... your current mood as an object',
-  'Show me... the last thing you bought',
-  'Show me... your workspace',
-  'Show me... something purple',
-];
+// Shared data source for Scavenger prompts.
+export const SCAVENGER_PROMPTS = SHARED_SCAVENGER_PROMPTS;
 
 // Shared data source for Vibe Roulette questions.
 export const ROULETTE_QUESTIONS = SHARED_ROULETTE_QUESTIONS;
