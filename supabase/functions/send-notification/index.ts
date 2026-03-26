@@ -131,6 +131,21 @@ function timePartsMinutes(timeStr: string): number {
   return h * 60 + m
 }
 
+/** Role claim from a JWT body (base64url). Edge `verify_jwt` already validated the signature. */
+function jwtPayloadRole(token: string): string | null {
+  try {
+    const parts = token.split(".")
+    if (parts.length !== 3) return null
+    const mid = parts[1]
+    const b64 = mid.replace(/-/g, "+").replace(/_/g, "/")
+    const pad = (4 - (b64.length % 4)) % 4
+    const json = JSON.parse(atob(b64 + "=".repeat(pad)))
+    return typeof json?.role === "string" ? json.role : null
+  } catch {
+    return null
+  }
+}
+
 function isInQuietHours(start: string, end: string, timezone: string): boolean {
   try {
     const now = new Date()
@@ -174,7 +189,9 @@ Deno.serve(async (req) => {
 
     const token = authHeader.replace('Bearer ', '')
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const isServiceRole = token === serviceKey
+    // String equality can fail across key rotations / API vs runtime representations; role claim is stable.
+    const isServiceRole =
+      token === serviceKey || jwtPayloadRole(token) === 'service_role'
 
     if (!isServiceRole) {
       // Validate as user JWT

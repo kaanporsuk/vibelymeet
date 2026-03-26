@@ -578,6 +578,7 @@ serve(async (req) => {
         .maybeSingle();
 
       await serviceClient.functions.invoke("send-notification", {
+        headers: { Authorization: `Bearer ${serviceRoleKey}` },
         body: {
           user_id: recipientId,
           category: "messages",
