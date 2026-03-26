@@ -29,7 +29,11 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const waveformData = useMemo(() => generateWaveformData(30), []);
 
-  const duration = resolvedDuration || initialDuration;
+  const totalDuration = (() => {
+    const resolved = Number.isFinite(resolvedDuration) && resolvedDuration > 0 ? resolvedDuration : 0;
+    const initial = Number.isFinite(initialDuration) && initialDuration > 0 ? initialDuration : 0;
+    return resolved > 0 ? resolved : initial;
+  })();
 
   // Create and configure audio element
   useEffect(() => {
@@ -127,10 +131,10 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   };
 
   const displayTime = (() => {
-    if (duration <= 0 && !isPlaying && currentTime <= 0) return "Voice message";
-    if (isPlaying && duration > 0) return `${formatDuration(currentTime)} · ${formatDuration(duration)}`;
+    if (totalDuration <= 0 && !isPlaying && currentTime <= 0) return "Voice message";
+    if (isPlaying && totalDuration > 0) return `${formatDuration(currentTime)} · ${formatDuration(totalDuration)}`;
     if (isPlaying) return formatDuration(currentTime);
-    return formatDuration(duration > 0 ? duration : currentTime);
+    return formatDuration(totalDuration > 0 ? totalDuration : currentTime);
   })();
 
   return (

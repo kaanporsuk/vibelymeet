@@ -867,15 +867,6 @@ const Chat = () => {
                       duration={message.audioDuration || 0}
                       isMine={message.sender === "me"}
                     />
-                    {message.isLastInGroup && (
-                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
-                        <MessageStatus
-                          status={message.status || "delivered"}
-                          time={message.time}
-                          isMyMessage={message.sender === "me"}
-                        />
-                      </div>
-                    )}
                   </div>
                 </div>
               ) : (
