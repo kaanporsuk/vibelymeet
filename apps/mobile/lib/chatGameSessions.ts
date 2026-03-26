@@ -135,7 +135,9 @@ function messageStatusForRow(row: ChatGameSessionMessageRow, currentUserId: stri
 /**
  * Walk rows in `created_at` order (caller must pre-sort).
  * - Each non-`vibe_game` row maps with `mapRegularRow`.
- * - Valid `vibe_game` rows: first row per `game_session_id` becomes one `vibe_game_session` item; later rows for that session are omitted (folded into `gameSessionView`).
+ * - Valid `vibe_game` rows: one `vibe_game_session` item is emitted at the **newest** backing row for that
+ *   `game_session_id` (max `created_at`, tie-break later thread index); other rows for that session are
+ *   omitted (folded into `gameSessionView`).
  * - Unparseable `vibe_game` rows map with `mapRegularRow` (safe fallback).
  */
 export function collapseVibeGameMessageRows(
@@ -145,18 +147,28 @@ export function collapseVibeGameMessageRows(
   mapRegularRow: (row: ChatGameSessionMessageRow) => ChatMessage
 ): ChatMessage[] {
   const groups = new Map<string, RowEnv[]>();
-  const firstIndexBySession = new Map<string, number>();
+  /** Thread index where the collapsed bubble is projected (newest backing row for the session). */
+  const emitIndexBySession = new Map<string, number>();
 
   rows.forEach((row, index) => {
     if (row.message_kind !== 'vibe_game') return;
     const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
     if (!envelope) return;
     const sid = envelope.game_session_id;
-    if (!groups.has(sid)) {
-      groups.set(sid, []);
-      firstIndexBySession.set(sid, index);
-    }
+    if (!groups.has(sid)) groups.set(sid, []);
     groups.get(sid)!.push({ row, envelope });
+
+    const prevIdx = emitIndexBySession.get(sid);
+    if (prevIdx === undefined) {
+      emitIndexBySession.set(sid, index);
+    } else {
+      const prevRow = rows[prevIdx]!;
+      const tPrev = new Date(prevRow.created_at).getTime();
+      const tNew = new Date(row.created_at).getTime();
+      if (tNew > tPrev || (tNew === tPrev && index > prevIdx)) {
+        emitIndexBySession.set(sid, index);
+      }
+    }
   });
 
   const viewBySession = new Map<string, NativeHydratedGameSessionView>();
@@ -179,7 +191,7 @@ export function collapseVibeGameMessageRows(
       continue;
     }
     const sid = envelope.game_session_id;
-    if (firstIndexBySession.get(sid) !== i) continue;
+    if (emitIndexBySession.get(sid) !== i) continue;
 
     const view = viewBySession.get(sid);
     if (!view) {
@@ -187,19 +199,15 @@ export function collapseVibeGameMessageRows(
       continue;
     }
 
-    const sessionRows = groups.get(sid)!.map((x) => x.row).sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
-    const firstRow = sessionRows[0]!;
-    const lastRow = sessionRows[sessionRows.length - 1]!;
+    const anchorRow = rows[i]!;
 
     out.push({
       id: `vibe-game-session:${sid}`,
       text: '🎮 Game',
-      sender: firstRow.sender_id === currentUserId ? 'me' : 'them',
-      time: new Date(lastRow.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      read_at: lastRow.read_at ?? undefined,
-      status: messageStatusForRow(lastRow, currentUserId),
+      sender: anchorRow.sender_id === currentUserId ? 'me' : 'them',
+      time: new Date(anchorRow.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      read_at: anchorRow.read_at ?? undefined,
+      status: messageStatusForRow(anchorRow, currentUserId),
       messageKind: 'vibe_game_session',
       refId: null,
       structuredPayload: null,
@@ -285,6 +293,38 @@ export function verifyChatGameSessionsCollapseSmoke(): boolean {
     if (m.gameSessionView.foldedSnapshot.game_type !== 'would_rather') return false;
     if (m.gameSessionView.foldedSnapshot.status !== 'complete') return false;
     if (m.gameSessionView.backingMessageIds.length !== 2) return false;
+    if (m.id !== `vibe-game-session:${sessionId}`) return false;
+    // Chronology: bubble is projected at the latest backing row (here: m2), not m1.
+    if (m.sender !== 'them' || m.gameSessionView.latestMessageId !== 'm2') return false;
+
+    const withText: ChatGameSessionMessageRow[] = [
+      {
+        id: 't0',
+        sender_id: uid,
+        content: 'hey',
+        created_at: '2025-01-01T09:58:00.000Z',
+        read_at: null,
+        audio_url: null,
+        audio_duration_seconds: null,
+        video_url: null,
+        video_duration_seconds: null,
+        message_kind: 'text',
+        ref_id: null,
+        structured_payload: null,
+      },
+      ...rows,
+    ];
+    const mapped2 = collapseVibeGameMessageRows(withText, uid, pid, (r): ChatMessage => ({
+      id: r.id,
+      text: r.content,
+      sender: r.sender_id === uid ? 'me' : 'them',
+      time: '',
+      read_at: r.read_at ?? undefined,
+      status: 'sent',
+      messageKind: 'text',
+    }));
+    if (mapped2.length !== 2 || mapped2[0]!.id !== 't0' || mapped2[1]!.messageKind !== 'vibe_game_session') return false;
+
     return true;
   } catch {
     return false;
