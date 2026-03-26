@@ -101,7 +101,6 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [gameMessages, setGameMessages] = useState<GameMessage[]>([]);
   const [isSubmittingGameStart, setIsSubmittingGameStart] = useState(false);
   const [pendingGameSessionIds, setPendingGameSessionIds] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -222,14 +221,6 @@ const Chat = () => {
   const handleGameSelect = (gameType: GameType) => {
     setShowArcade(false);
     setActiveGameCreator(gameType);
-  };
-
-  const handleGameUpdate = (messageId: string, updatedPayload: GamePayload) => {
-    setGameMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId ? { ...msg, gamePayload: updatedPayload } : msg
-      )
-    );
   };
 
   const submitGameStart = useCallback(
@@ -423,16 +414,6 @@ const Chat = () => {
       };
     });
   }, [displayMessages]);
-
-  // W1 precedence guard: timeline-backed persisted sessions win on ID collision.
-  const visibleLocalGameMessages = useMemo(() => {
-    const persistedSessionIds = new Set(
-      groupedMessages
-        .filter((m) => m.type === "vibe-game-session")
-        .map((m) => m.id),
-    );
-    return gameMessages.filter((m) => !persistedSessionIds.has(m.id));
-  }, [groupedMessages, gameMessages]);
 
   useEffect(() => {
     scrollToBottom();
@@ -828,24 +809,6 @@ const Chat = () => {
                 />
               )
             )}
-
-            {visibleLocalGameMessages.map((gameMsg) => (
-              <div
-                key={gameMsg.id}
-                className={cn(
-                  "flex mt-2",
-                  gameMsg.sender === "me" ? "justify-end" : "justify-start"
-                )}
-              >
-                <div className="max-w-[75%] overflow-hidden">
-                  <GameBubbleRenderer
-                    message={gameMsg}
-                    matchName={otherUser.name}
-                    onGameUpdate={handleGameUpdate}
-                  />
-                </div>
-              </div>
-            ))}
 
             <AnimatePresence>
               {isTyping && (
