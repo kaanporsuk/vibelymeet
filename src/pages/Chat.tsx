@@ -219,25 +219,9 @@ const Chat = () => {
     return map;
   }, [dateSuggestions]);
 
-  const createGameMessage = (payload: GamePayload): GameMessage => ({
-    id: `game-${Date.now()}`,
-    senderId: "me",
-    type: "game_interactive",
-    sender: "me",
-    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    gamePayload: payload,
-  });
-
   const handleGameSelect = (gameType: GameType) => {
     setShowArcade(false);
     setActiveGameCreator(gameType);
-  };
-
-  const handleGameCreatedLocal = (payload: GamePayload) => {
-    const newGame = createGameMessage(payload);
-    setGameMessages((prev) => [...prev, newGame]);
-    setActiveGameCreator(null);
-    toast.success("Game sent!");
   };
 
   const handleGameUpdate = (messageId: string, updatedPayload: GamePayload) => {
