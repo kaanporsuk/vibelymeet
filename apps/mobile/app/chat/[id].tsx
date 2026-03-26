@@ -69,7 +69,7 @@ import { useIsOffline } from '@/lib/useNetworkStatus';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
-import { formatChatImageMessageContent, parseChatImageMessageContent } from '@/lib/chatMessageContent';
+import { formatChatImageMessageContent, inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
@@ -702,12 +702,17 @@ export default function ChatThreadScreen() {
 
   const renderBubbleContent = (item: ChatMessage, textColor: string, timeColor: string, isMe: boolean) => {
     const reaction = localReactions[item.id] ?? item.reaction ?? null;
+    const mediaKind = inferChatMediaRenderKind({
+      content: item.text,
+      audioUrl: item.audio_url,
+      videoUrl: item.video_url,
+    });
     const statusOrTime = isMe ? (
       <MessageStatus status={item.status ?? 'delivered'} time={item.time} isMyMessage />
     ) : (
       <Text style={[styles.bubbleTime, { color: timeColor }]}>{item.time}</Text>
     );
-    if (item.audio_url) {
+    if (mediaKind === 'voice' && item.audio_url) {
       return (
         <View style={styles.voiceContentWrap}>
           <VoiceMessagePlayer
@@ -726,7 +731,7 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    if (item.video_url) {
+    if (mediaKind === 'video' && item.video_url) {
       return (
         <View style={styles.mediaContentWrap}>
           <ChatVideoCard
@@ -742,7 +747,7 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    const imageUrl = parseChatImageMessageContent(item.text);
+    const imageUrl = mediaKind === 'image' ? parseChatImageMessageContent(item.text) : null;
     if (imageUrl) {
       return (
         <View style={styles.mediaContentWrap}>
@@ -818,11 +823,20 @@ export default function ChatThreadScreen() {
     const next = index < messages.length - 1 ? messages[index + 1] : null;
     const prev = index > 0 ? messages[index - 1] : null;
     const isLastInGroup = !next || next.sender !== item.sender;
-    const hasVideo = !!item.video_url;
-    const hasImage = !!parseChatImageMessageContent(item.text);
-    const isMediaBubble = hasVideo || hasImage;
-    const prevIsMedia = !!prev && (!!prev.video_url || !!parseChatImageMessageContent(prev.text));
-    const nextIsMedia = !!next && (!!next.video_url || !!parseChatImageMessageContent(next.text));
+    const mediaKind = inferChatMediaRenderKind({
+      content: item.text,
+      audioUrl: item.audio_url,
+      videoUrl: item.video_url,
+    });
+    const isMediaBubble = mediaKind === 'video' || mediaKind === 'image';
+    const prevKind = prev
+      ? inferChatMediaRenderKind({ content: prev.text, audioUrl: prev.audio_url, videoUrl: prev.video_url })
+      : 'text';
+    const nextKind = next
+      ? inferChatMediaRenderKind({ content: next.text, audioUrl: next.audio_url, videoUrl: next.video_url })
+      : 'text';
+    const prevIsMedia = prevKind === 'video' || prevKind === 'image';
+    const nextIsMedia = nextKind === 'video' || nextKind === 'image';
     const bubbleMarginBottom = isLastInGroup
       ? spacing.md
       : isMediaBubble && nextIsMedia

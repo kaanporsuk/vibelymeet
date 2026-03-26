@@ -9,6 +9,7 @@ import {
   type ChatGameSessionMessageRow,
   type NativeHydratedGameSessionView,
 } from '@/lib/chatGameSessions';
+import { toRenderableMessageKind } from '../../../shared/chat/messageRouting';
 
 export type { NativeHydratedGameSessionView };
 
@@ -261,11 +262,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
       };
 
       const mapDbRowToChatMessage = (m: ChatGameSessionMessageRow): ChatMessage => {
-        const mk = (m.message_kind || 'text') as string;
-        const kind: ChatMessage['messageKind'] =
-          mk === 'date_suggestion' || mk === 'date_suggestion_event'
-            ? (mk as ChatMessage['messageKind'])
-            : 'text';
+        const kind = toRenderableMessageKind(m.message_kind) as ChatMessage['messageKind'];
         return {
           id: m.id,
           text: m.content,

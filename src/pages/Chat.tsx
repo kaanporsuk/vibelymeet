@@ -23,7 +23,7 @@ import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
-import { parseChatImageMessageContent } from "@/lib/chatMessageContent";
+import { inferChatMediaRenderKind, parseChatImageMessageContent } from "@/lib/chatMessageContent";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -189,15 +189,11 @@ const Chat = () => {
         text: m.text,
         sender: m.sender,
         time: m.time,
-        type: (
-          m.videoUrl
-            ? "video"
-            : m.audioUrl
-              ? "voice"
-              : parseChatImageMessageContent(m.text)
-                ? "image"
-                : "text"
-        ) as ChatMessage["type"],
+        type: inferChatMediaRenderKind({
+          content: m.text,
+          audioUrl: m.audioUrl,
+          videoUrl: m.videoUrl,
+        }) as ChatMessage["type"],
         audioUrl: m.audioUrl,
         audioDuration: m.audioDuration,
         videoUrl: m.videoUrl,
@@ -773,7 +769,7 @@ const Chat = () => {
                     onDecline={() => toast.info("Maybe next time!")}
                   />
                 </div>
-              ) : message.videoUrl ? (
+              ) : message.type === "video" ? (
                 <div
                   key={message.id}
                   className={cn(
@@ -840,7 +836,7 @@ const Chat = () => {
                     )}
                   </div>
                 </div>
-              ) : message.audioUrl ? (
+              ) : message.type === "voice" ? (
                 <div
                   key={message.id}
                   className={cn(
