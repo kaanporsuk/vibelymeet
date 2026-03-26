@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { VideoDateCard } from "@/components/chat/VideoDateCard";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
@@ -61,7 +60,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "image" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
+  type: "text" | "image" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -749,23 +748,6 @@ const Chat = () => {
                       );
                     })()}
                   </div>
-                </div>
-              ) : message.type === "video-invite" ? (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex",
-                    message.sender === "me" ? "justify-end" : "justify-start"
-                  )}
-                >
-                  <VideoDateCard
-                    senderName={message.sender === "me" ? "You" : otherUser.name}
-                    onAccept={() => {
-                      toast.success("Video date accepted! 🎉");
-                      navigate("/video-date");
-                    }}
-                    onDecline={() => toast.info("Maybe next time!")}
-                  />
                 </div>
               ) : message.type === "video" ? (
                 <div
