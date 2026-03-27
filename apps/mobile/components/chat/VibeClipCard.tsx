@@ -191,7 +191,13 @@ export function VibeClipCard({
               {onVoiceReply && (
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.7 }]}
-                  onPress={onVoiceReply}
+                  onPress={() => {
+                    trackVibeClipEvent('clip_voice_reply_clicked', {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    onVoiceReply();
+                  }}
                   accessibilityLabel="Reply with voice"
                 >
                   <Ionicons name="mic-outline" size={14} color={ACCENT} />

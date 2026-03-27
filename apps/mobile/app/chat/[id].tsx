@@ -434,7 +434,8 @@ export default function ChatThreadScreen() {
       is_sender: true,
       launched_from: 'chat',
     });
-  }, [showVibeClipSendSheet, displayMessages.length]);
+    // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while sheet stays open.
+  }, [showVibeClipSendSheet]);
 
   useEffect(() => {
     if (!showDateSheet || dateComposerLaunchSource !== 'vibe_clip') return;
@@ -442,7 +443,7 @@ export default function ChatThreadScreen() {
       launched_from: 'clip_context',
       thread_bucket: threadBucketFromCount(displayMessages.length),
     });
-  }, [showDateSheet, dateComposerLaunchSource, displayMessages.length]);
+  }, [showDateSheet, dateComposerLaunchSource]);
 
   const reactionByMessageId = useMemo(() => {
     if (!user?.id || !otherUserId) return new Map<string, ReactionPair>();

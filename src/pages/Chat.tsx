@@ -338,7 +338,8 @@ const Chat = () => {
       launched_from: "clip_context",
       thread_bucket: threadBucketFromCount(displayMessages.length),
     });
-  }, [showDateComposer, dateComposerLaunchSource, displayMessages.length]);
+    // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while composer stays open.
+  }, [showDateComposer, dateComposerLaunchSource]);
 
   const suggestionById = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
