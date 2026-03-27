@@ -57,7 +57,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `send-message` | Edge Function | Validate match, write message, idempotency, send-notification | Same; all sends via EF |
+| `send-message` | Edge Function | Text/image (`content`), **`message_kind: voice`** (after `upload-voice`), **`message_kind: vibe_clip`** (after `upload-chat-video`); idempotency via `client_request_id`; `send-notification` | Same; no client `messages.insert` for voice or Vibe Clip — see `docs/chat-video-vibe-clip-architecture.md` |
 | `messages` | Table + Realtime | History and live updates | Same; subscribe same channel |
 | Bunny (voice/chat video) | Upload then URL in message | Audio/video message payloads | Same upload flow or native adapter |
 

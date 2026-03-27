@@ -1,9 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import {
-  insertVoiceMessageRow,
-  invokeSendMessageEdge,
-  invokePublishVibeClip,
-} from '@/lib/chatApi';
+import { invokeSendMessageEdge, invokePublishVibeClip, invokePublishVoiceMessage } from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage, uploadChatVideoMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
@@ -65,9 +61,8 @@ export async function executeOutboxItem(
     } else if (payload.kind === 'voice') {
       const audioUrl = item.uploadedMediaUrl ?? (await uploadVoiceMessage(payload.uri, matchId));
       uploadedMediaUrl = audioUrl;
-      const row = await insertVoiceMessageRow({
+      const row = await invokePublishVoiceMessage({
         matchId,
-        currentUserId: userId,
         audioUrl,
         durationSeconds: payload.durationSeconds,
         clientRequestId,

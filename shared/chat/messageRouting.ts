@@ -4,7 +4,8 @@ export type ChatDbMessageKind =
   | "date_suggestion_event"
   | "vibe_game"
   | "vibe_game_session"
-  | "vibe_clip";
+  | "vibe_clip"
+  | "voice";
 
 export type ChatRenderableMessageKind =
   | "text"
@@ -114,7 +115,8 @@ export function normalizeChatDbMessageKind(messageKind: string | null | undefine
     messageKind === "date_suggestion_event" ||
     messageKind === "vibe_game" ||
     messageKind === "vibe_game_session" ||
-    messageKind === "vibe_clip"
+    messageKind === "vibe_clip" ||
+    messageKind === "voice"
   ) {
     return messageKind;
   }
@@ -127,6 +129,9 @@ export function normalizeChatDbMessageKind(messageKind: string | null | undefine
  */
 export function toRenderableMessageKind(messageKind: string | null | undefined): ChatRenderableMessageKind {
   const normalized = normalizeChatDbMessageKind(messageKind);
+  if (normalized === "voice") {
+    return "text";
+  }
   if (
     normalized === "date_suggestion" ||
     normalized === "date_suggestion_event" ||

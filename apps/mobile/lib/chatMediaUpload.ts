@@ -1,8 +1,8 @@
 /**
  * Chat media upload: upload-voice and upload-chat-video Edge Functions.
- * Voice → `messages.audio_url` (native still inserts via `insertVoiceMessageRow`).
- * Chat video → Bunny URLs; **Vibe Clip rows** are created only via `send-message`
- * (`invokePublishVibeClip` / outbox `execute.ts`), not direct `messages.insert`.
+ * Same contract as web (voiceUploadService, chatVideoUploadService).
+ * After upload, voice and Vibe Clip rows are persisted only via `send-message`
+ * (`invokePublishVoiceMessage`, `invokePublishVibeClip`), not client `messages.insert`.
  */
 
 import { supabase } from '@/lib/supabase';

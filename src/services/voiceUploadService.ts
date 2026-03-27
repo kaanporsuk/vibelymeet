@@ -42,6 +42,6 @@ export async function uploadVoiceToBunny(
     throw new Error(data.error || "Voice upload failed");
   }
 
-  // Return the full CDN URL — ready to store in messages.audio_url
+  // Return the full CDN URL — pass to send-message (message_kind: voice), not client messages.insert
   return data.url;
 }

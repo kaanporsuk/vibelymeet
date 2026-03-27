@@ -276,7 +276,7 @@
 |-------|---------|
 | Loading chat | Spinner |
 | Empty thread | Match celebration empty state, “Send a Wave 👋” |
-| Messages | Text (`MessageBubble` + persisted `message_reactions`), voice, legacy generic video (`VideoMessageBubble`), **Vibe Clip** (`VibeClipBubble`), game bubbles, date suggestion cards, `DateProposalTicket`, typing indicator |
+| Messages | Text (`MessageBubble` + persisted `message_reactions`), voice (server `send-message`), legacy generic video + **Vibe Clip** (`VibeClipBubble`), game bubbles, date cards, `DateProposalTicket`, typing indicator — see `docs/chat-video-vibe-clip-architecture.md` |
 
 **Composer:** Textarea, Send, `VoiceRecorder`, video clip button → `VideoMessageRecorder` overlay, calendar → `VibeSyncModal`, gamepad → `VibeArcadeMenu` + creators (2 truths, would rather, charades, scavenger, roulette, intuition).
 

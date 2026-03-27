@@ -7,7 +7,7 @@ Sprint 3 implements chat (matches list, message thread, send message) and push n
 ### Chat / messages
 - **Matches list:** Web `useMatches` — `matches` table with `profile_id_1`/`profile_id_2`, joined to `profiles` and latest row from `messages` for last message and unread. Mobile `lib/chatApi.ts` `useMatches` mirrors this (same tables, same ordering).
 - **Message thread:** Web `useMessages(otherUserId, currentUserId)` — finds match by profile pair, loads `messages` for that `match_id`. Chat route uses **other profile id** as `id` (e.g. `/chat/:id`). Mobile `useMessages` and `app/chat/[id].tsx` use the same contract; `id` = other user’s profile id.
-- **Send message:** Web `useSendMessage` → Edge Function `send-message` with body `{ match_id, content }`. Inserts into `messages`, then invokes `send-notification` for recipient. Mobile uses same Edge Function; no direct table writes.
+- **Send message:** Web `useSendMessage` → Edge Function `send-message` with body `{ match_id, content }`. Inserts into `messages`, then invokes `send-notification` for recipient. Mobile uses same Edge Function; no direct table writes. *(Sprint 3 snapshot; voice/Vibe Clip today: see operative `docs/chat-video-vibe-clip-architecture.md`.)*
 - **Realtime:** Web `useRealtimeMessages` subscribes to `postgres_changes` on `messages` for the match; invalidates queries. Mobile `useRealtimeMessages` in `lib/chatApi.ts` does the same.
 
 ### Notifications

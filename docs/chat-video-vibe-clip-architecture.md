@@ -1,58 +1,93 @@
-# Chat video & Vibe Clips — architecture (source of truth)
+# Chat media architecture (operative contract)
 
-Internal contract summary. Last aligned with repo audit **2026-03-27**.
+**Precedence:** This file is the **operative** source of truth for chat **media** (voice, Vibe Clip, legacy generic video) and how rows reach `messages`. Older audits and sitemaps may be historical; if they disagree, **trust this doc** and treat conflicting lines elsewhere as superseded unless they explicitly cite a newer decision.
 
-## Verdict: canonical product shape
+**Supersedes / clarifies:** Stale claims in some inventory docs about `video-invite`, `VideoDateCard`, “reactions local-only”, or client-owned voice/video inserts.
 
-- **New chat video** is **canonical `vibe_clip`**: `messages.message_kind = 'vibe_clip'`, `video_url`, `video_duration_seconds`, and `structured_payload` v2 per `shared/chat/messageRouting.ts` (`VibeClipPayload`).
-- **Legacy generic video** remains supported for **existing rows**: `message_kind = 'text'` (or older patterns) with `video_url` set — UI maps these to render kind `"video"` and uses `VideoMessageBubble` (web) / non–Vibe Clip video path (native). No new sends should use this path.
+---
 
-There is **no separate “video-invite”** product path in code; that name was documentation drift only.
+## 1. Canonical new sends (server-owned)
 
-## Publish & upload flow (web + native)
+All **new user-authored** chat media persistence goes through the **`send-message`** Edge Function after the appropriate upload EF:
 
-1. **Upload** — `POST /functions/v1/upload-chat-video` (multipart: `file`, `match_id`, optional `thumbnail`, optional `aspect_ratio`).
-2. **Response** — JSON includes `url`, `thumbnail_url`, `poster_source`, `aspect_ratio`, `processing_status`, `upload_provider` (not URL-only).
-3. **Persist message** — `POST /functions/v1/send-message` with `message_kind: "vibe_clip"`, `video_url`, `duration_ms`, `client_request_id` (UUID), optional `thumbnail_url` / `aspect_ratio`.
+| Medium | Upload | Persist (`send-message` body) |
+|--------|--------|--------------------------------|
+| **Text** | N/A | `match_id`, `content`, optional `client_request_id` |
+| **Image** (URL in content) | `upload-image` | `match_id`, `content` (`__IMAGE__\|…` or URL), optional `client_request_id` |
+| **Voice** | `upload-voice` | `message_kind: "voice"`, `audio_url`, `audio_duration_seconds`, **`client_request_id` (UUID, required)** |
+| **Vibe Clip** | `upload-chat-video` | `message_kind: "vibe_clip"`, `video_url`, `duration_ms`, `client_request_id`, optional `thumbnail_url` / `aspect_ratio` |
 
-Implementations:
+**Clients must not** `insert` into `public.messages` for voice, Vibe Clip, or **new** legacy generic video (use `send-message` / `vibe_clip` only).
 
-- **Web:** `uploadChatVideoToBunny` → `usePublishVibeClip` (`src/hooks/useMessages.ts`).
-- **Native:** `uploadChatVideoMessage` → `invokePublishVibeClip` (`apps/mobile/lib/chatApi.ts`) from outbox `execute.ts`.
+**Idempotency:** Voice and Vibe Clip use `structured_payload.client_request_id` (and the partial unique index on `(match_id, client_request_id)` for non–`vibe_game` rows). Retries must reuse the same UUID.
 
-**Voice** and **legacy native video insert** are out of scope for this doc: voice still uses direct `messages.insert` on native (and web equivalent patterns); only **Vibe Clip** is required to go through `send-message`.
+**DB `message_kind`:** Voice rows use `message_kind = 'voice'` (requires migration `20260330100000_messages_message_kind_voice.sql`). Older voice rows may still be `message_kind = 'text'` with `audio_url` set; rendering uses `inferChatMediaRenderKind` (audio URL wins).
 
-## Duration cap
+---
 
-Single constant: `VIBE_CLIP_MAX_DURATION_SEC` in `shared/chat/vibeClipCaptureCopy.ts` (currently **30s**). Web recorder and native picker/camera both reference it.
+## 2. Legacy generic video (read-only compatibility)
 
-## Reactions
+**Definition:** A message that **renders** as inline chat video but is **not** `message_kind = 'vibe_clip'` — typically `message_kind = 'text'` (or default) with `video_url` / `video_duration_seconds` populated, or historical variants.
 
-`message_reactions` is a **real persisted** table (see `supabase/migrations/20260329150000_message_reactions.sql`) with web/native hooks (`useMessageReactions`). Not local-only.
+**Policy (this sprint):**
 
-## Clip analytics
+- **Read:** Keep render support (`VideoMessageBubble` on web, native video path) for **existing** rows.
+- **Write:** **No client path** may create **new** legacy generic-video rows (removed: native `insertChatVideoMessageRow` / `useSendChatVideoMessage`). New video must be **`vibe_clip`** via `send-message` / outbox `invokePublishVibeClip`.
+- **Data migration:** Not in scope; do not bulk-rewrite historical rows without a dedicated migration + QA plan.
+- **Future deprecation:** Removing renderers requires either migrating old rows to `vibe_clip` or accepting broken display for legacy data.
 
-PostHog events live in `shared/chat/vibeClipAnalytics.ts` and `trackVibeClipEvent` wrappers under `src/lib/` and `apps/mobile/lib/`.
+---
 
-## Storage / buckets
+## 3. Vibe Clip (unchanged summary)
 
-Chat media uploads go through Edge Functions to **Bunny** (e.g. `chat-videos/…`, `photos/…` for `upload-image`). The legacy Supabase **`voice-messages`** bucket name may still exist in old migrations; **current app code does not store chat images there** — chat images use `upload-image`.
+- Upload: `upload-chat-video` (returns `url`, `thumbnail_url`, `aspect_ratio`, …).
+- Persist: `send-message` with `message_kind: "vibe_clip"`.
+- Payload shape: `VibeClipPayload` in `shared/chat/messageRouting.ts`.
 
-## Obsolete artifacts
+---
 
-- **`VideoDateCard`** — not present in the repo (removed or never landed); inventory docs were wrong.
-- **`useSendChatVideoMessage` / `insertChatVideoMessageRow`** — were dead code (direct insert generic video); **removed** in favor of outbox + `invokePublishVibeClip`.
+## 4. Voice (post–sprint contract)
 
-## Alignment checklist
+- Upload: `upload-voice` (unchanged; Bunny CDN URL).
+- Persist: `send-message` with:
+  - `message_kind: "voice"`
+  - `audio_url` (trimmed string)
+  - `audio_duration_seconds` (integer ≥ 1)
+  - `client_request_id` (UUID)
+- Inserted row: `content: "🎤 Voice message"`, `message_kind: "voice"`, `structured_payload: { v: 1, client_request_id }`.
+- **Web:** `usePublishVoiceMessage` in `src/hooks/useMessages.ts` after `uploadVoiceToBunny`.
+- **Native:** `invokePublishVoiceMessage` in `apps/mobile/lib/chatApi.ts` from `chatOutbox/execute.ts` after `uploadVoiceMessage`.
 
-| Layer | Vibe Clip publish | Legacy `video_url` render |
-|-------|-------------------|---------------------------|
-| Backend | `send-message` vibe branch + migration `message_kind` | Existing rows only |
-| Web | `usePublishVibeClip` | `VideoMessageBubble` branch in `Chat.tsx` |
-| Native | Outbox + `invokePublishVibeClip` | `inferChatMediaRenderKind` → video UI |
+**Removed (replaced by above):**
 
-## Remaining gaps (not closed in audit pass)
+- `insertVoiceMessageRow` — direct `messages.insert`; **replaced by** `invokePublishVoiceMessage`.
+- `useSendVoiceMessage` — unused hook wrapping the old insert; **replaced by** outbox + `invokePublishVoiceMessage` on native, **`usePublishVoiceMessage`** on web.
+- `insertChatVideoMessageRow` / `useSendChatVideoMessage` — client `messages.insert` for generic video; **removed**; new video is **`invokePublishVibeClip`** only.
 
-- **Voice** still bypasses `send-message` on native (`insertVoiceMessageRow`) — intentional scope boundary unless product wants server-owned voice.
-- **Web voice** may still use direct insert in `Chat.tsx` — same note.
-- Funnel instrumentation nuances (e.g. native `thread_bucket` on some events) — see `docs/vibe-clips-phase10-funnel-review.md`.
+---
+
+## 5. Related systems
+
+- **`message_reactions`:** Persisted Postgres + RLS + realtime (not local-only).
+- **Clip analytics:** `shared/chat/vibeClipAnalytics.ts` + `trackVibeClipEvent`.
+- **Storage:** Chat uploads use Edge Functions → **Bunny**; legacy Supabase bucket names in old migrations do not define current app paths.
+
+---
+
+## 6. Deploy order (when shipping this sprint)
+
+1. Apply migration **`20260330100000_messages_message_kind_voice.sql`** (adds `'voice'` to `message_kind` check).
+2. Deploy **`send-message`** Edge Function (voice branch).
+
+Deploying the function **before** the migration will cause voice inserts to fail with a constraint error until the migration runs.
+
+---
+
+## 7. Implementation map
+
+| Area | Files |
+|------|--------|
+| Edge | `supabase/functions/send-message/index.ts` |
+| Shared routing | `shared/chat/messageRouting.ts` (`voice` in DB kind; UI kind stays `text` via `toRenderableMessageKind`) |
+| Web | `src/hooks/useMessages.ts`, `src/pages/Chat.tsx` |
+| Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts` (comment) |
