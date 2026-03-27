@@ -93,6 +93,8 @@ import {
   VIBE_CLIP_PERM_LIBRARY_TITLE,
 } from '../../../../shared/chat/vibeClipCaptureCopy';
 import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
+import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -356,6 +358,7 @@ export default function ChatThreadScreen() {
   );
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [showDateSheet, setShowDateSheet] = useState(false);
+  const [dateComposerLaunchSource, setDateComposerLaunchSource] = useState<DateComposerLaunchSource>('default');
   const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
@@ -423,6 +426,24 @@ export default function ChatThreadScreen() {
       getId: (m) => m.id,
     });
   }, [threadMessages]);
+
+  useEffect(() => {
+    if (!showVibeClipSendSheet) return;
+    trackVibeClipEvent('clip_entry_opened', {
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+      is_sender: true,
+      launched_from: 'chat',
+    });
+    // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while sheet stays open.
+  }, [showVibeClipSendSheet]);
+
+  useEffect(() => {
+    if (!showDateSheet || dateComposerLaunchSource !== 'vibe_clip') return;
+    trackVibeClipEvent('clip_date_flow_opened', {
+      launched_from: 'clip_context',
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+    });
+  }, [showDateSheet, dateComposerLaunchSource]);
 
   const reactionByMessageId = useMemo(() => {
     if (!user?.id || !otherUserId) return new Map<string, ReactionPair>();
@@ -643,6 +664,11 @@ export default function ChatThreadScreen() {
         Alert.alert(VIBE_CLIP_PERM_LIBRARY_TITLE, VIBE_CLIP_PERM_LIBRARY_MESSAGE);
         return;
       }
+      trackVibeClipEvent('clip_record_started', {
+        capture_source: 'library',
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.7,
@@ -651,6 +677,12 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
+      trackVibeClipEvent('clip_record_completed', {
+        capture_source: 'library',
+        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
       const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? undefined));
       void enqueue({
         matchId: data.matchId,
@@ -665,6 +697,13 @@ export default function ChatThreadScreen() {
               ? asset.width / asset.height
               : undefined,
         },
+      });
+      trackVibeClipEvent('clip_send_attempted', {
+        capture_source: 'library',
+        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        has_poster: false,
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not attach video.';
@@ -683,6 +722,11 @@ export default function ChatThreadScreen() {
         Alert.alert(VIBE_CLIP_PERM_CAMERA_TITLE, VIBE_CLIP_PERM_CAMERA_MESSAGE);
         return;
       }
+      trackVibeClipEvent('clip_record_started', {
+        capture_source: 'camera',
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
@@ -690,6 +734,12 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
+      trackVibeClipEvent('clip_record_completed', {
+        capture_source: 'camera',
+        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
+      });
       const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? 'video/mp4'));
       void enqueue({
         matchId: data.matchId,
@@ -704,6 +754,13 @@ export default function ChatThreadScreen() {
               ? asset.width / asset.height
               : undefined,
         },
+      });
+      trackVibeClipEvent('clip_send_attempted', {
+        capture_source: 'camera',
+        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        has_poster: false,
+        thread_bucket: threadBucketFromCount(displayMessages.length),
+        is_sender: true,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not record video.';
@@ -1722,6 +1779,11 @@ export default function ChatThreadScreen() {
               : null
           }
           onSuccess={() => {
+            if (dateComposerLaunchSource === 'vibe_clip') {
+              trackVibeClipEvent('clip_date_submitted_from_clip', {
+                thread_bucket: threadBucketFromCount(displayMessages.length),
+              });
+            }
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
           }}

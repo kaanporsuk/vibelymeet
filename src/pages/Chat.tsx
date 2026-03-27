@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
@@ -58,6 +59,12 @@ import {
   VIBE_CLIP_TOAST_SENT,
   VIBE_CLIP_TOAST_UPLOAD_FAIL,
 } from "../../shared/chat/vibeClipCaptureCopy";
+import {
+  classifySendFailureMessage,
+  durationBucketFromSeconds,
+  threadBucketFromCount,
+} from "../../shared/chat/vibeClipAnalytics";
+import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
@@ -324,6 +331,15 @@ const Chat = () => {
       getId: (m) => m.id,
     });
   }, [messages]);
+
+  useEffect(() => {
+    if (!showDateComposer || dateComposerLaunchSource !== "vibe_clip") return;
+    trackVibeClipEvent("clip_date_flow_opened", {
+      launched_from: "clip_context",
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+    });
+    // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while composer stays open.
+  }, [showDateComposer, dateComposerLaunchSource]);
 
   const suggestionById = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
@@ -706,9 +722,20 @@ const Chat = () => {
       return;
     }
 
+    const durationBucket = durationBucketFromSeconds(duration);
+    const threadBucket = threadBucketFromCount(displayMessages.length);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
+
+      trackVibeClipEvent("clip_send_attempted", {
+        capture_source: "web_recorder",
+        duration_bucket: durationBucket,
+        has_poster: false,
+        thread_bucket: threadBucket,
+        is_sender: true,
+      });
 
       const uploaded = await uploadChatVideoToBunny(
         videoBlob,
@@ -728,15 +755,31 @@ const Chat = () => {
           aspectRatio: uploaded.aspectRatio,
         },
         {
-          onSuccess: () => toast.success(VIBE_CLIP_TOAST_SENT),
+          onSuccess: () => {
+            trackVibeClipEvent("clip_send_succeeded", {
+              duration_bucket: durationBucket,
+              has_poster: !!uploaded.thumbnailUrl,
+              thread_bucket: threadBucket,
+              is_sender: true,
+            });
+            toast.success(VIBE_CLIP_TOAST_SENT);
+          },
           onError: (err) => {
             console.error("Vibe Clip publish error:", err);
+            Sentry.captureException(err, { tags: { funnel: "vibe_clip_publish" } });
+            trackVibeClipEvent("clip_send_failed", {
+              failure_class: classifySendFailureMessage(err instanceof Error ? err.message : "publish"),
+            });
             toast.error(VIBE_CLIP_TOAST_SEND_FAIL);
           },
         },
       );
     } catch (err) {
       console.error("Vibe Clip upload error:", err);
+      Sentry.captureException(err, { tags: { funnel: "vibe_clip_upload" } });
+      trackVibeClipEvent("clip_send_failed", {
+        failure_class: classifySendFailureMessage(err instanceof Error ? err.message : "upload"),
+      });
       toast.error(VIBE_CLIP_TOAST_UPLOAD_FAIL);
     }
   };
@@ -1069,7 +1112,14 @@ const Chat = () => {
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
                 whileTap={{ scale: 0.9 }}
-                onClick={() => setIsRecordingVideo(true)}
+                onClick={() => {
+                  trackVibeClipEvent("clip_entry_opened", {
+                    thread_bucket: threadBucketFromCount(displayMessages.length),
+                    is_sender: true,
+                    launched_from: "chat",
+                  });
+                  setIsRecordingVideo(true);
+                }}
                 className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20"
                 title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
               >
@@ -1201,6 +1251,7 @@ const Chat = () => {
             queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
           }}
           launchSource={dateComposerLaunchSource}
+          threadMessageCount={displayMessages.length}
         />
       )}
 

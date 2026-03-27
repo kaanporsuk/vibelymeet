@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -8,6 +8,9 @@ import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting
 import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
 import { compactReactionLabel } from '../../../../shared/chat/messageReactionModel';
 import { replyPromptForContext } from '../../../../shared/chat/vibeClipPrompts';
+import { CLIP_DATE_ACTION_HINT } from '../../../../shared/dateSuggestions/dateComposerLaunch';
+import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -43,6 +46,8 @@ export function VibeClipCard({
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const playStartTracked = useRef(false);
+  const playCompleteTracked = useRef(false);
 
   const player = useVideoPlayer(meta.videoUrl, (p) => {
     p.loop = false;
@@ -67,6 +72,38 @@ export function VibeClipCard({
     });
     return () => sub.remove();
   }, [player]);
+
+  useEffect(() => {
+    playStartTracked.current = false;
+    playCompleteTracked.current = false;
+  }, [meta.videoUrl]);
+
+  useEffect(() => {
+    const sub1 = player.addListener('playingChange', (ev) => {
+      if (!ev.isPlaying || playStartTracked.current) return;
+      playStartTracked.current = true;
+      trackVibeClipEvent('clip_play_started', {
+        thread_bucket: threadBucketFromCount(threadMessageCount),
+        is_sender: isMine,
+        duration_bucket: durationBucketFromSeconds(meta.durationSec),
+        has_poster: !!meta.thumbnailUrl,
+      });
+    });
+    const sub2 = player.addListener('playToEnd', () => {
+      if (playCompleteTracked.current) return;
+      playCompleteTracked.current = true;
+      trackVibeClipEvent('clip_play_completed', {
+        thread_bucket: threadBucketFromCount(threadMessageCount),
+        is_sender: isMine,
+        duration_bucket: durationBucketFromSeconds(meta.durationSec),
+        has_poster: !!meta.thumbnailUrl,
+      });
+    });
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
+  }, [player, isMine, threadMessageCount, meta.videoUrl, meta.durationSec, meta.thumbnailUrl]);
 
   const hasPrimary = !!onReplyWithClip || !!onVoiceReply;
   const hasSecondary = !!onSuggestDate || !!onReact;
@@ -138,7 +175,13 @@ export function VibeClipCard({
               {onReplyWithClip && (
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.7 }]}
-                  onPress={onReplyWithClip}
+                  onPress={() => {
+                    trackVibeClipEvent('clip_reply_with_clip_clicked', {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    onReplyWithClip();
+                  }}
                   accessibilityLabel="Reply with a Vibe Clip"
                 >
                   <Ionicons name="film-outline" size={14} color={ACCENT} />
@@ -148,7 +191,13 @@ export function VibeClipCard({
               {onVoiceReply && (
                 <Pressable
                   style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.7 }]}
-                  onPress={onVoiceReply}
+                  onPress={() => {
+                    trackVibeClipEvent('clip_voice_reply_clicked', {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    onVoiceReply();
+                  }}
                   accessibilityLabel="Reply with voice"
                 >
                   <Ionicons name="mic-outline" size={14} color={ACCENT} />
@@ -164,7 +213,14 @@ export function VibeClipCard({
                 <View style={styles.dateBridgeCol}>
                   <Pressable
                     style={({ pressed }) => [styles.dateBridgeBtn, pressed && { opacity: 0.88 }]}
-                    onPress={onSuggestDate}
+                    onPress={() => {
+                      trackVibeClipEvent('clip_date_cta_clicked', {
+                        thread_bucket: threadBucketFromCount(threadMessageCount),
+                        is_receiver: true,
+                        launched_from: 'clip_context',
+                      });
+                      onSuggestDate();
+                    }}
                     accessibilityLabel="Suggest a date"
                   >
                     <Ionicons name="calendar-outline" size={14} color="rgba(254,205,211,0.95)" />
@@ -178,7 +234,13 @@ export function VibeClipCard({
               {onReact && (
                 <Pressable
                   style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
-                  onPress={onReact}
+                  onPress={() => {
+                    trackVibeClipEvent('clip_react_clicked', {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    onReact();
+                  }}
                   accessibilityLabel="React"
                 >
                   <Ionicons name="heart-outline" size={13} color={SECONDARY} />

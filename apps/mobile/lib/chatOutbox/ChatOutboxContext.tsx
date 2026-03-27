@@ -16,6 +16,8 @@ import { newOutboxClientRequestId } from '@/lib/chatOutbox/id';
 import { executeOutboxItem, nextBackoffMs, OutboxExecuteError } from '@/lib/chatOutbox/execute';
 import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
+import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
 
 type ChatOutboxContextValue = {
   items: ChatOutboxItem[];
@@ -306,6 +308,15 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 : it
             )
           );
+          if (next.payload.kind === 'video') {
+            const dur = next.payload.durationSeconds;
+            trackVibeClipEvent('clip_send_succeeded', {
+              duration_bucket: durationBucketFromSeconds(dur),
+              has_poster: !!(uploadedPublicUrl ?? next.uploadedPublicUrl),
+              thread_bucket: 'unknown',
+              is_sender: true,
+            });
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'Send failed';
           const backoff = nextBackoffMs(attemptCount);
@@ -328,6 +339,11 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 : it
             )
           );
+          if (next.payload.kind === 'video') {
+            trackVibeClipEvent('clip_send_failed', {
+              failure_class: classifySendFailureMessage(msg),
+            });
+          }
         } finally {
           processingRef.current.delete(next.id);
         }

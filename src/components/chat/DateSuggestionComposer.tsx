@@ -28,6 +28,8 @@ import {
   CLIP_DATE_COMPOSER_SUBCOPY,
   type DateComposerLaunchSource,
 } from "../../../shared/dateSuggestions/dateComposerLaunch";
+import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
+import { threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 
 const STEPS = ["Type", "When", "Place", "Message", "Review"] as const;
 
@@ -107,6 +109,8 @@ type Props = {
   /** Client-only; does not change persisted suggestion payload. */
   launchSource?: DateComposerLaunchSource;
   onSuccess?: () => void;
+  /** For analytics (thread warm/cold bucket). */
+  threadMessageCount?: number;
 };
 
 export function DateSuggestionComposer({
@@ -121,6 +125,7 @@ export function DateSuggestionComposer({
   counterContext,
   launchSource = "default",
   onSuccess,
+  threadMessageCount = 0,
 }: Props) {
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(defaultWizard);
@@ -197,6 +202,11 @@ export function DateSuggestionComposer({
         else payload.match_id = matchId;
         await dateSuggestionApply("send_proposal", payload);
         toast.success("Date suggestion sent");
+      }
+      if (launchSource === "vibe_clip" && !counterContext) {
+        trackVibeClipEvent("clip_date_submitted_from_clip", {
+          thread_bucket: threadBucketFromCount(threadMessageCount),
+        });
       }
       onSuccess?.();
       onClose();
