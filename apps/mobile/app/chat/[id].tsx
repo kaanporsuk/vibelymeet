@@ -73,6 +73,7 @@ import { supabase } from '@/lib/supabase';
 import { formatChatImageMessageContent, inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
+import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -559,13 +560,20 @@ export default function ChatThreadScreen() {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
+        if (matchHasOpenDateSuggestion(dateSuggestions)) {
+          Alert.alert(
+            'Date suggestion',
+            'You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.'
+          );
+          return;
+        }
         setComposerCounter(null);
         setComposerDraftId(null);
         setComposerDraftPayload(null);
       }
       setShowDateSheet(true);
     },
-    []
+    [dateSuggestions]
   );
 
   const closeDateComposer = useCallback(() => {

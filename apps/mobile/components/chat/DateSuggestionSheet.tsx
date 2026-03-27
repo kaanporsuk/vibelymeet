@@ -176,34 +176,6 @@ export function DateSuggestionSheet({
     setDraftId(draftSuggestionId ?? null);
   }, [visible, counterContext, draftSuggestionId, draftFromParent]);
 
-  const handleSaveDraft = async () => {
-    if (!matchId) return;
-    setSaving(true);
-    try {
-      let sid = draftId;
-      if (!sid) {
-        const created = (await dateSuggestionApply('create_draft', {
-          match_id: matchId,
-          draft: { wizard: w, step },
-        })) as { suggestion_id?: string };
-        sid = created?.suggestion_id ?? null;
-        if (sid) setDraftId(sid);
-      }
-      if (sid) {
-        await dateSuggestionApply('update_draft', {
-          suggestion_id: sid,
-          draft: { wizard: w, step },
-        });
-        Alert.alert('Draft saved', 'You can continue later from the chat card.');
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Could not save draft.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
     submitInFlightRef.current = true;
@@ -567,15 +539,6 @@ export function DateSuggestionSheet({
         >
           <Ionicons name="chevron-back" size={18} color={theme.text} />
           <Text style={{ color: theme.text, fontWeight: '600' }}>Back</Text>
-        </Pressable>
-      )}
-      {!counterContext && step === 4 && (
-        <Pressable
-          onPress={handleSaveDraft}
-          disabled={saving}
-          style={[styles.footerBtn, { backgroundColor: theme.surfaceSubtle, borderWidth: 1, borderColor: theme.border }]}
-        >
-          <Text style={{ color: theme.text, fontWeight: '600' }}>Save draft</Text>
         </Pressable>
       )}
       {step < 4 ? (
