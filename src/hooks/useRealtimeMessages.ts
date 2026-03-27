@@ -30,8 +30,7 @@ export const useRealtimeMessages = ({ matchId, enabled = true }: UseRealtimeMess
           table: 'messages',
           filter: `match_id=eq.${matchId}`
         },
-        (payload) => {
-          console.log('New message received:', payload);
+        (_payload) => {
           invalidateMessages();
         }
       )
@@ -43,17 +42,17 @@ export const useRealtimeMessages = ({ matchId, enabled = true }: UseRealtimeMess
           table: 'messages',
           filter: `match_id=eq.${matchId}`
         },
-        (payload) => {
-          console.log('Message updated:', payload);
+        (_payload) => {
           invalidateMessages();
         }
       )
       .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
+        if (status === 'CHANNEL_ERROR') {
+          console.error('[useRealtimeMessages] channel error for match', matchId);
+        }
       });
 
     return () => {
-      console.log('Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
   }, [matchId, enabled, invalidateMessages]);

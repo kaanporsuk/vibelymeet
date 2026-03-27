@@ -1,4 +1,5 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, Pressable, StyleSheet, Share, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -13,7 +14,7 @@ import {
   DATE_SAFETY_NOTE,
 } from '@/lib/dateSuggestionCopy';
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
-import { dateSuggestionApply } from '@/lib/dateSuggestionApply';
+import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -74,6 +75,9 @@ export function DateSuggestionChatCard({
   onUpdated,
 }: Props) {
   const theme = Colors[useColorScheme()];
+  const queryClient = useQueryClient();
+  const cancelInFlightRef = useRef(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const markedRef = useRef(false);
   const revs = suggestion.revisions;
   const current = useMemo(() => {
@@ -135,14 +139,52 @@ export function DateSuggestionChatCard({
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
+    if (cancelInFlightRef.current) return;
+    cancelInFlightRef.current = true;
+    setCancelBusy(true);
     try {
       await dateSuggestionApply('cancel', { suggestion_id: suggestion.id });
       onUpdated();
-    } catch {
-      Alert.alert('Error', 'Could not cancel.');
+    } catch (e) {
+      if (e instanceof DateSuggestionDomainError) {
+        const { code } = e;
+        if (code === 'invalid_status') {
+          await queryClient.refetchQueries({ queryKey: ['date-suggestions', suggestion.match_id] });
+          const list = queryClient.getQueryData<DateSuggestionWithRelations[]>([
+            'date-suggestions',
+            suggestion.match_id,
+          ]);
+          const row = list?.find((s) => s.id === suggestion.id);
+          if (row?.status === 'cancelled') {
+            Alert.alert('Date suggestion', 'Already cancelled.');
+            onUpdated();
+            return;
+          }
+          Alert.alert('Date suggestion', 'This suggestion can no longer be cancelled.');
+          onUpdated();
+          return;
+        }
+        if (code === 'forbidden') {
+          Alert.alert('Date suggestion', 'You can only cancel your own suggestions.');
+          return;
+        }
+        if (code === 'suggestion_id_required') {
+          Alert.alert('Date suggestion', 'Something went wrong. Try again.');
+          return;
+        }
+        if (code === 'not_found') {
+          Alert.alert('Date suggestion', 'This suggestion is no longer available.');
+          onUpdated();
+          return;
+        }
+      }
+      Alert.alert('Date suggestion', 'Could not cancel. Try again.');
+    } finally {
+      cancelInFlightRef.current = false;
+      setCancelBusy(false);
     }
-  };
+  }, [onUpdated, queryClient, suggestion.id, suggestion.match_id]);
 
   const handleShare = async () => {
     if (!current) return;
@@ -190,16 +232,23 @@ export function DateSuggestionChatCard({
   const plan = suggestion.date_plan;
   const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
 
-  const btn = (label: string, onPress: () => void, variant: 'primary' | 'secondary' | 'ghost' = 'secondary') => (
+  const btn = (
+    label: string,
+    onPress: () => void,
+    variant: 'primary' | 'secondary' | 'ghost' = 'secondary',
+    disabled = false
+  ) => (
     <Pressable
       key={label}
-      onPress={onPress}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [
         styles.actionBtn,
         variant === 'primary' && { backgroundColor: theme.tint },
         variant === 'secondary' && { backgroundColor: theme.muted, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border },
         variant === 'ghost' && { backgroundColor: 'transparent' },
-        { opacity: pressed ? 0.85 : 1 },
+        { opacity: disabled ? 0.5 : pressed ? 0.85 : 1 },
       ]}
     >
       <Text
@@ -338,7 +387,7 @@ export function DateSuggestionChatCard({
                 draftPayload: suggestion.draft_payload,
               })
             )}
-            {btn('Discard', handleCancel, 'ghost')}
+            {btn('Discard', handleCancel, 'ghost', cancelBusy)}
           </>
         )}
 
@@ -360,7 +409,9 @@ export function DateSuggestionChatCard({
           </>
         )}
 
-        {['proposed', 'viewed', 'countered', 'draft'].includes(status) && isProposer ? btn('Cancel', handleCancel, 'ghost') : null}
+        {['proposed', 'viewed', 'countered', 'draft'].includes(status) && isProposer
+          ? btn('Cancel', handleCancel, 'ghost', cancelBusy)
+          : null}
 
         {status === 'accepted' && (
           <>

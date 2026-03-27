@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { VideoDateCard } from "@/components/chat/VideoDateCard";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
@@ -46,6 +45,7 @@ import { useMessages, useSendMessage } from "@/hooks/useMessages";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
+import { matchHasOpenDateSuggestion } from "../../shared/dateSuggestions/openStatus";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
@@ -61,7 +61,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "image" | "video-invite" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
+  type: "text" | "image" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -487,6 +487,12 @@ const Chat = () => {
   };
 
   const handleOpenDateComposerFromChip = () => {
+    if (matchHasOpenDateSuggestion(dateSuggestions)) {
+      toast.message(
+        "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
+      );
+      return;
+    }
     setComposerCounter(null);
     setComposerDraftId(null);
     setComposerDraftPayload(null);
@@ -517,13 +523,19 @@ const Chat = () => {
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
       } else {
+        if (matchHasOpenDateSuggestion(dateSuggestions)) {
+          toast.message(
+            "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
+          );
+          return;
+        }
         setComposerCounter(null);
         setComposerDraftId(null);
         setComposerDraftPayload(null);
       }
       setShowDateComposer(true);
     },
-    [],
+    [dateSuggestions],
   );
 
   const closeDateComposer = useCallback(() => {
@@ -750,23 +762,6 @@ const Chat = () => {
                     })()}
                   </div>
                 </div>
-              ) : message.type === "video-invite" ? (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex",
-                    message.sender === "me" ? "justify-end" : "justify-start"
-                  )}
-                >
-                  <VideoDateCard
-                    senderName={message.sender === "me" ? "You" : otherUser.name}
-                    onAccept={() => {
-                      toast.success("Video date accepted! 🎉");
-                      navigate("/video-date");
-                    }}
-                    onDecline={() => toast.info("Maybe next time!")}
-                  />
-                </div>
               ) : message.type === "video" ? (
                 <div
                   key={message.id}
@@ -929,8 +924,15 @@ const Chat = () => {
               </motion.button>
 
               <motion.button
+                type="button"
                 whileTap={{ scale: 0.9 }}
                 onClick={() => {
+                  if (matchHasOpenDateSuggestion(dateSuggestions)) {
+                    toast.message(
+                      "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
+                    );
+                    return;
+                  }
                   setComposerCounter(null);
                   setComposerDraftId(null);
                   setComposerDraftPayload(null);

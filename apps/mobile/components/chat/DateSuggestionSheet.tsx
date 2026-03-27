@@ -18,7 +18,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { spacing, radius } from '@/constants/theme';
+import { spacing, radius, fonts, shadows, typography } from '@/constants/theme';
 import { VibelyText } from '@/components/ui';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import {
@@ -176,34 +176,6 @@ export function DateSuggestionSheet({
     setDraftId(draftSuggestionId ?? null);
   }, [visible, counterContext, draftSuggestionId, draftFromParent]);
 
-  const handleSaveDraft = async () => {
-    if (!matchId) return;
-    setSaving(true);
-    try {
-      let sid = draftId;
-      if (!sid) {
-        const created = (await dateSuggestionApply('create_draft', {
-          match_id: matchId,
-          draft: { wizard: w, step },
-        })) as { suggestion_id?: string };
-        sid = created?.suggestion_id ?? null;
-        if (sid) setDraftId(sid);
-      }
-      if (sid) {
-        await dateSuggestionApply('update_draft', {
-          suggestion_id: sid,
-          draft: { wizard: w, step },
-        });
-        Alert.alert('Draft saved', 'You can continue later from the chat card.');
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Could not save draft.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
     submitInFlightRef.current = true;
@@ -273,7 +245,11 @@ export function DateSuggestionSheet({
   };
 
   const stepContent = (
-    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}
+    >
       <View style={styles.stepDots}>
         {STEPS.map((s, i) => (
           <Text
@@ -315,27 +291,54 @@ export function DateSuggestionSheet({
       )}
 
       {step === 1 && (
-        <View style={{ gap: spacing.sm }}>
-          {TIME_CHOICE_OPTIONS.map((o) => (
-            <Pressable
-              key={o.key}
-              onPress={() =>
-                setW((p) => ({
-                  ...p,
-                  timeChoiceKey: o.key,
-                  scheduleShareEnabled: o.key === 'share_schedule',
-                }))
-              }
-              style={[
-                styles.option,
-                { borderColor: w.timeChoiceKey === o.key ? theme.tint : theme.border, backgroundColor: theme.surfaceSubtle },
-              ]}
-            >
-              <Text style={{ color: theme.text, fontSize: 14 }}>{o.label}</Text>
-            </Pressable>
-          ))}
+        <View style={styles.whenStep}>
+          {TIME_CHOICE_OPTIONS.map((o) => {
+            const selected = w.timeChoiceKey === o.key;
+            const isPickTime = o.key === 'pick_a_time';
+            return (
+              <Pressable
+                key={o.key}
+                onPress={() =>
+                  setW((p) => ({
+                    ...p,
+                    timeChoiceKey: o.key,
+                    scheduleShareEnabled: o.key === 'share_schedule',
+                  }))
+                }
+                style={({ pressed }) => [
+                  styles.whenOption,
+                  {
+                    borderColor: selected ? theme.tint : theme.border,
+                    backgroundColor: selected
+                      ? isPickTime
+                        ? 'rgba(139,92,246,0.14)'
+                        : theme.surfaceSubtle
+                      : theme.surfaceSubtle,
+                    borderWidth: selected ? 2 : 1,
+                    opacity: pressed ? 0.92 : 1,
+                  },
+                ]}
+              >
+                {selected ? (
+                  <View style={[styles.whenOptionAccent, { backgroundColor: theme.tint }]} />
+                ) : null}
+                <Text
+                  style={[
+                    styles.whenOptionLabel,
+                    { color: selected ? theme.text : theme.textSecondary },
+                  ]}
+                >
+                  {o.label}
+                </Text>
+              </Pressable>
+            );
+          })}
           {w.timeChoiceKey === 'pick_a_time' && (
-            <View>
+            <View style={styles.pickTimeBlock}>
+              <View style={[styles.whenSectionDivider, { backgroundColor: theme.border }]} />
+              <Text style={[styles.pickerSectionOverline, { color: theme.textSecondary }]}>
+                Choose date & time
+              </Text>
               {Platform.OS === 'android' && (
                 <Pressable
                   onPress={() => {
@@ -344,22 +347,44 @@ export function DateSuggestionSheet({
                     setAndroidPickMode('date');
                     setPickOpen(true);
                   }}
-                  style={[styles.option, { borderColor: theme.border }]}
+                  style={({ pressed }) => [
+                    styles.androidPickerTrigger,
+                    {
+                      borderColor: 'rgba(255,255,255,0.12)',
+                      backgroundColor: 'hsl(240, 9%, 17%)',
+                      opacity: pressed ? 0.9 : 1,
+                    },
+                  ]}
                 >
-                  <Text style={{ color: theme.tint, fontSize: 14, fontWeight: '600' }}>
+                  <Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />
+                  <Text style={[styles.androidPickerTriggerText, { color: theme.text }]}>
                     {w.pickStartIso
                       ? new Date(w.pickStartIso).toLocaleString()
-                      : 'Choose date & time'}
+                      : 'Tap to choose date & time'}
                   </Text>
+                  <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
                 </Pressable>
               )}
               {Platform.OS === 'ios' && (
-                <DateTimePicker
-                  value={w.pickStartIso ? new Date(w.pickStartIso) : new Date()}
-                  mode="datetime"
-                  display="spinner"
-                  onChange={onDtChange}
-                />
+                <View
+                  style={[
+                    styles.pickerSurface,
+                    {
+                      borderColor: 'rgba(255,255,255,0.14)',
+                      backgroundColor: 'hsl(240, 8%, 11%)',
+                    },
+                  ]}
+                >
+                  {/* Light `themeVariant`: wheel columns stay high-contrast inside the dark frame. */}
+                  <DateTimePicker
+                    value={w.pickStartIso ? new Date(w.pickStartIso) : new Date()}
+                    mode="datetime"
+                    display="spinner"
+                    onChange={onDtChange}
+                    themeVariant="light"
+                    style={styles.iosPickerWheel}
+                  />
+                </View>
               )}
               {pickOpen && Platform.OS === 'android' && (
                 <DateTimePicker
@@ -506,7 +531,7 @@ export function DateSuggestionSheet({
   );
 
   const footer = (
-    <View style={styles.footer}>
+    <View style={[styles.footer, { borderTopColor: theme.border }]}>
       {step > 0 && (
         <Pressable
           onPress={() => setStep((s) => s - 1)}
@@ -514,15 +539,6 @@ export function DateSuggestionSheet({
         >
           <Ionicons name="chevron-back" size={18} color={theme.text} />
           <Text style={{ color: theme.text, fontWeight: '600' }}>Back</Text>
-        </Pressable>
-      )}
-      {!counterContext && step === 4 && (
-        <Pressable
-          onPress={handleSaveDraft}
-          disabled={saving}
-          style={[styles.footerBtn, { backgroundColor: theme.surfaceSubtle, borderWidth: 1, borderColor: theme.border }]}
-        >
-          <Text style={{ color: theme.text, fontWeight: '600' }}>Save draft</Text>
         </Pressable>
       )}
       {step < 4 ? (
@@ -570,10 +586,83 @@ export function DateSuggestionSheet({
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    paddingBottom: spacing.xl,
+    flexGrow: 1,
+  },
   title: { marginBottom: spacing.md },
   stepDots: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.md, alignItems: 'center', gap: 4 },
   stepDot: { fontSize: 11 },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  whenStep: {
+    gap: spacing.sm,
+  },
+  whenOption: {
+    width: '100%',
+    minWidth: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  whenOptionAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderTopLeftRadius: radius.lg,
+    borderBottomLeftRadius: radius.lg,
+  },
+  whenOptionLabel: {
+    fontSize: 15,
+    fontFamily: fonts.bodySemiBold,
+    flex: 1,
+  },
+  pickTimeBlock: {
+    marginTop: spacing.sm,
+  },
+  whenSectionDivider: {
+    height: 1,
+    opacity: 0.45,
+    marginBottom: spacing.md,
+    marginTop: spacing.xs,
+  },
+  pickerSectionOverline: {
+    ...typography.overline,
+    marginBottom: spacing.sm,
+  },
+  pickerSurface: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  iosPickerWheel: {
+    width: '100%',
+    height: 216,
+    alignSelf: 'center',
+  },
+  androidPickerTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
+    ...shadows.card,
+  },
+  androidPickerTriggerText: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: fonts.bodySemiBold,
+  },
   option: {
     minWidth: '47%',
     flexGrow: 1,
@@ -620,7 +709,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     alignItems: 'center',
     justifyContent: 'flex-end',
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
+    marginTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   footerBtn: {
     flexDirection: 'row',
