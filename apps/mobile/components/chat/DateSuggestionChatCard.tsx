@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, Pressable, StyleSheet, Share, Alert } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import Colors from '@/constants/Colors';
@@ -179,12 +180,24 @@ export function DateSuggestionChatCard({
           return;
         }
       }
-      Alert.alert('Date suggestion', 'Could not cancel. Try again.');
+      Sentry.captureException(e, {
+        tags: {
+          feature: 'date_suggestion',
+          action: 'cancel',
+          surface: 'native_chat_card',
+        },
+        extra: {
+          suggestionId: suggestion.id,
+          matchId: suggestion.match_id,
+          status,
+        },
+      });
+      Alert.alert('Date suggestion', 'We couldn’t cancel that right now. Please try again.');
     } finally {
       cancelInFlightRef.current = false;
       setCancelBusy(false);
     }
-  }, [onUpdated, queryClient, suggestion.id, suggestion.match_id]);
+  }, [onUpdated, queryClient, status, suggestion.id, suggestion.match_id]);
 
   const handleShare = async () => {
     if (!current) return;
