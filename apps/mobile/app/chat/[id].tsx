@@ -139,12 +139,13 @@ function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendSt
   return 'sending';
 }
 
-function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined): string | null {
+function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, payloadKind?: string): string | null {
   if (!phase) return null;
-  if (phase === 'queued') return 'Queued…';
+  const isClip = payloadKind === 'video';
+  if (phase === 'queued') return isClip ? 'Clip queued…' : 'Queued…';
   if (phase === 'waiting_for_network') return 'Waiting for network…';
-  if (phase === 'sending' || phase === 'awaiting_hydration') return 'Sending…';
-  if (phase === 'failed') return 'Failed to send';
+  if (phase === 'sending' || phase === 'awaiting_hydration') return isClip ? 'Sending Vibe Clip…' : 'Sending…';
+  if (phase === 'failed') return isClip ? 'Clip failed to send' : 'Failed to send';
   return null;
 }
 
@@ -359,6 +360,7 @@ export default function ChatThreadScreen() {
   const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [voiceReplyHint, setVoiceReplyHint] = useState(false);
   const listRef = useRef<FlatList>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
 
@@ -589,13 +591,19 @@ export default function ChatThreadScreen() {
     }
   };
 
+  const armVoiceReply = () => {
+    listRef.current?.scrollToEnd({ animated: true });
+    setVoiceReplyHint(true);
+    setTimeout(() => setVoiceReplyHint(false), 2200);
+  };
+
   const pickVideoFromLibrary = async () => {
     if (!data?.matchId || !user?.id || isSending) return;
     setVideoError(null);
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your media library to send a video.');
+        Alert.alert('Permission needed', 'Allow access to your media library to send a Vibe Clip.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -631,7 +639,7 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow camera access to record a video message.');
+        Alert.alert('Permission needed', 'Allow camera access to record a Vibe Clip.');
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
@@ -660,8 +668,8 @@ export default function ChatThreadScreen() {
   };
 
   const openVideoMessageOptions = () => {
-    Alert.alert('Video message', 'Record a new clip, or choose one from your library.', [
-      { text: 'Record video', onPress: () => void recordVideoWithCamera() },
+    Alert.alert('Vibe Clip', 'Record a clip or choose one to send.', [
+      { text: 'Record a Vibe Clip', onPress: () => void recordVideoWithCamera() },
       { text: 'Choose from library', onPress: () => void pickVideoFromLibrary() },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -897,8 +905,9 @@ export default function ChatThreadScreen() {
     const localSendState = localMedia?.state ?? localText?.state ?? null;
     const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
     const outboxItemId = localMedia?.outboxItemId ?? localText?.outboxItemId;
+    const outboxPayloadKind = localMedia?.payload.kind ?? (localText ? 'text' : undefined);
     const outboxPrimary =
-      outboxFooterPrimaryLabel(outboxPhase) ??
+      outboxFooterPrimaryLabel(outboxPhase, outboxPayloadKind) ??
       (localSendState === 'sending'
         ? 'Sending…'
         : localSendState === 'failed'
@@ -966,7 +975,12 @@ export default function ChatThreadScreen() {
       if (clipMeta) {
         return (
           <View style={styles.mediaContentWrap}>
-            <VibeClipCard meta={clipMeta} isMine={isMe} />
+            <VibeClipCard
+              meta={clipMeta}
+              isMine={isMe}
+              onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
+              onVoiceReply={isMe ? undefined : () => armVoiceReply()}
+            />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
               {statusOrTime}
@@ -1501,15 +1515,15 @@ export default function ChatThreadScreen() {
             )}
           </Pressable>
           <Pressable
-            style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
+            style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
             onPress={() => openVideoMessageOptions()}
             disabled={isSending}
-            accessibilityLabel="Video message: record or choose from library"
+            accessibilityLabel="Send a Vibe Clip"
           >
             {sendingVideo ? (
-              <ActivityIndicator size="small" color={theme.tint} />
+              <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
             ) : (
-              <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
+              <Ionicons name="film-outline" size={20} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
             )}
           </Pressable>
           <TextInput
@@ -1530,7 +1544,17 @@ export default function ChatThreadScreen() {
             editable={!isSending}
           />
           <Pressable
-            style={[styles.composerIconBtn, { backgroundColor: recording ? theme.dangerSoft : theme.muted }]}
+            style={[
+              styles.composerIconBtn,
+              {
+                backgroundColor: recording
+                  ? theme.dangerSoft
+                  : voiceReplyHint
+                    ? 'rgba(139,92,246,0.18)'
+                    : theme.muted,
+              },
+              voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
+            ]}
             onPress={handleVoicePress}
             disabled={isSending && !recording}
             accessibilityLabel="Voice message"
@@ -1540,7 +1564,7 @@ export default function ChatThreadScreen() {
             ) : recording ? (
               <Ionicons name="stop" size={20} color={theme.danger} />
             ) : (
-              <Ionicons name="mic-outline" size={20} color={theme.textSecondary} />
+              <Ionicons name="mic-outline" size={20} color={voiceReplyHint ? 'rgba(139,92,246,1)' : theme.textSecondary} />
             )}
           </Pressable>
           <Pressable

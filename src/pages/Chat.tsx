@@ -8,7 +8,7 @@ import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
 import {
   Send,
-  Video,
+  Film,
   CalendarDays,
   CalendarPlus,
   Gamepad2,
@@ -80,9 +80,11 @@ interface ChatMessage {
 
 type TextMessage = ChatMessage & { type: "text" };
 
-function VibeClipMessageRow({ message, otherUser }: {
+function VibeClipMessageRow({ message, otherUser, onReplyWithClip, onVoiceReply }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
+  onReplyWithClip?: () => void;
+  onVoiceReply?: () => void;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -90,15 +92,16 @@ function VibeClipMessageRow({ message, otherUser }: {
     structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
     message_kind: "vibe_clip",
   });
+  const isMine = message.sender === "me";
   return (
     <div
       className={cn(
         "flex items-end gap-2",
-        message.sender === "me" ? "justify-end" : "justify-start",
+        isMine ? "justify-end" : "justify-start",
         message.isFirstInGroup ? "mt-3" : "mt-0.5"
       )}
     >
-      {message.sender !== "me" && (
+      {!isMine && (
         <div className="w-7 shrink-0">
           {message.showAvatar && otherUser?.avatar_url && (
             <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
@@ -107,20 +110,25 @@ function VibeClipMessageRow({ message, otherUser }: {
       )}
       <div>
         {clipMeta ? (
-          <VibeClipBubble meta={clipMeta} isMine={message.sender === "me"} />
+          <VibeClipBubble
+            meta={clipMeta}
+            isMine={isMine}
+            onReplyWithClip={isMine ? undefined : onReplyWithClip}
+            onVoiceReply={isMine ? undefined : onVoiceReply}
+          />
         ) : (
           <VideoMessageBubble
             videoUrl={message.videoUrl}
             duration={message.videoDuration || 0}
-            isMine={message.sender === "me"}
+            isMine={isMine}
           />
         )}
         {message.isLastInGroup && (
-          <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+          <div className={cn("mt-1 flex", isMine ? "justify-end" : "justify-start")}>
             <MessageStatus
               status={message.status || "delivered"}
               time={message.time}
-              isMyMessage={message.sender === "me"}
+              isMyMessage={isMine}
             />
           </div>
         )}
@@ -641,7 +649,7 @@ const Chat = () => {
     setIsRecordingVideo(false);
 
     if (!chatData?.matchId || !user?.id) {
-      toast.error("Cannot send video message right now");
+      toast.error("Cannot send Vibe Clip right now");
       return;
     }
 
@@ -673,8 +681,8 @@ const Chat = () => {
         },
       );
     } catch (err) {
-      console.error("Video upload error:", err);
-      toast.error("Failed to upload video");
+      console.error("Vibe Clip upload error:", err);
+      toast.error("Failed to upload Vibe Clip");
     }
   };
 
@@ -824,7 +832,13 @@ const Chat = () => {
                   </div>
                 </div>
               ) : message.type === "vibe_clip" ? (
-                <VibeClipMessageRow key={message.id} message={message} otherUser={otherUser} />
+                <VibeClipMessageRow
+                  key={message.id}
+                  message={message}
+                  otherUser={otherUser}
+                  onReplyWithClip={() => setIsRecordingVideo(true)}
+                  onVoiceReply={() => scrollToBottom()}
+                />
               ) : message.type === "video" ? (
                 <div
                   key={message.id}
@@ -997,9 +1011,10 @@ const Chat = () => {
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setIsRecordingVideo(true)}
-                className="w-9 h-9 rounded-full bg-secondary text-foreground hover:bg-secondary/80 flex items-center justify-center transition-colors"
+                className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20"
+                title="Record a Vibe Clip"
               >
-                <Video className="w-4 h-4" />
+                <Film className="w-4 h-4" />
               </motion.button>
 
               <motion.button

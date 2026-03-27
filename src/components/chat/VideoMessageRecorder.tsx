@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, SwitchCamera, Circle, Square } from 'lucide-react';
+import { X, SwitchCamera, Circle, Square, Film } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -210,10 +210,11 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
             <X className="w-5 h-5 text-white" />
           </motion.button>
 
-          {/* Timer */}
-          <AnimatePresence>
-            {isRecording && (
+          {/* Vibe Clip brand + timer */}
+          <AnimatePresence mode="wait">
+            {isRecording ? (
               <motion.div
+                key="timer"
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
@@ -227,6 +228,17 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
                 <span className="font-mono text-sm font-semibold text-white">
                   {formatDuration(duration)}
                 </span>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="brand"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-500/20 backdrop-blur-sm border border-violet-400/30"
+              >
+                <Film className="w-3.5 h-3.5 text-violet-300" />
+                <span className="text-xs font-bold text-violet-300 tracking-wide">Vibe Clip</span>
               </motion.div>
             )}
           </AnimatePresence>
@@ -259,7 +271,10 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={isRecording ? stopRecording : startRecording}
-            className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center"
+            className={cn(
+              "w-20 h-20 rounded-full border-4 flex items-center justify-center",
+              isRecording ? "border-white" : "border-violet-400"
+            )}
           >
             {isRecording ? (
               <motion.div
@@ -268,12 +283,12 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
                 className="w-8 h-8 rounded-md bg-red-500"
               />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-red-500" />
+              <div className="w-16 h-16 rounded-full bg-violet-500" />
             )}
           </motion.button>
 
           {!isRecording && (
-            <p className="text-white/60 text-xs">Tap to record · Up to {MAX_DURATION}s</p>
+            <p className="text-white/60 text-xs">Tap to record your Vibe Clip · Up to {MAX_DURATION}s</p>
           )}
         </div>
       </div>
