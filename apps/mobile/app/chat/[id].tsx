@@ -50,6 +50,7 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
+import { ActiveDateSuggestionWarningModal } from '@/components/chat/ActiveDateSuggestionWarningModal';
 import { CharadesStartSheet } from '@/components/chat/games/CharadesStartSheet';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
 import { IntuitionStartSheet } from '@/components/chat/games/IntuitionStartSheet';
@@ -342,6 +343,7 @@ export default function ChatThreadScreen() {
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
   const [showGamesPicker, setShowGamesPicker] = useState(false);
+  const [showActiveDateSuggestionWarning, setShowActiveDateSuggestionWarning] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -428,10 +430,7 @@ export default function ChatThreadScreen() {
         setComposerCounter(null);
       } else {
         if (matchHasOpenDateSuggestion(dateSuggestions)) {
-          Alert.alert(
-            'Date suggestion',
-            'You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.'
-          );
+          setShowActiveDateSuggestionWarning(true);
           return;
         }
         setComposerCounter(null);
@@ -1601,6 +1600,10 @@ export default function ChatThreadScreen() {
           }}
         />
       ) : null}
+      <ActiveDateSuggestionWarningModal
+        visible={showActiveDateSuggestionWarning}
+        onClose={() => setShowActiveDateSuggestionWarning(false)}
+      />
       {data?.matchId ? (
         <CharadesStartSheet
           visible={showCharadesStart}
