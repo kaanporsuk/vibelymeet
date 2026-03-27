@@ -26,7 +26,6 @@ import {
   TIME_CHOICE_OPTIONS,
   PLACE_MODE_OPTIONS,
   OPTIONAL_MESSAGE_VARIANTS,
-  type DateTypeKey,
   type TimeChoiceKey,
   type PlaceModeKey,
 } from '@/lib/dateSuggestionCopy';
@@ -38,7 +37,8 @@ import type { DateSuggestionRevisionRow } from '@/lib/useDateSuggestionData';
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
 
 export type WizardState = {
-  dateTypeKey: DateTypeKey;
+  dateTypeKey: string;
+  customDateTypeText: string;
   timeChoiceKey: TimeChoiceKey;
   placeModeKey: PlaceModeKey;
   venueText: string;
@@ -53,6 +53,7 @@ export type WizardState = {
 
 const defaultWizard = (): WizardState => ({
   dateTypeKey: 'coffee',
+  customDateTypeText: '',
   timeChoiceKey: 'tomorrow',
   placeModeKey: 'decide_together',
   venueText: '',
@@ -64,6 +65,13 @@ const defaultWizard = (): WizardState => ({
   pickSlotDate: null,
   pickTimeBlock: null,
 });
+
+const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
+
+function resolveDateTypeValue(w: Pick<WizardState, 'dateTypeKey' | 'customDateTypeText'>): string {
+  if (w.dateTypeKey !== 'custom') return w.dateTypeKey;
+  return w.customDateTypeText.trim();
+}
 
 function buildRevision(w: WizardState) {
   const share = w.timeChoiceKey === 'share_schedule';
@@ -82,7 +90,7 @@ function buildRevision(w: WizardState) {
   }
 
   return {
-    date_type_key: w.dateTypeKey,
+    date_type_key: resolveDateTypeValue(w),
     time_choice_key: w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
     venue_text: w.placeModeKey === 'custom_venue' ? (w.venueText.trim() || null) : null,
@@ -146,8 +154,11 @@ export function DateSuggestionSheet({
     if (!visible) return;
     if (counterContext) {
       const r = counterContext.previousRevision;
+      const incomingType = (r.date_type_key ?? '').trim();
+      const hasKnownType = incomingType.length > 0 && DATE_TYPE_KEYS.has(incomingType);
       setW({
-        dateTypeKey: (r.date_type_key as DateTypeKey) || 'coffee',
+        dateTypeKey: hasKnownType ? incomingType : 'custom',
+        customDateTypeText: hasKnownType ? '' : incomingType,
         timeChoiceKey: (r.time_choice_key as TimeChoiceKey) || 'tomorrow',
         placeModeKey: (r.place_mode_key as PlaceModeKey) || 'decide_together',
         venueText: r.venue_text || '',
@@ -164,7 +175,14 @@ export function DateSuggestionSheet({
       return;
     }
     if (draftFromParent?.wizard) {
-      setW((prev) => ({ ...defaultWizard(), ...draftFromParent.wizard }));
+      setW(() => {
+        const next = { ...defaultWizard(), ...draftFromParent.wizard };
+        const incomingType = typeof next.dateTypeKey === 'string' ? next.dateTypeKey.trim() : '';
+        const incomingCustom = typeof next.customDateTypeText === 'string' ? next.customDateTypeText : '';
+        if (!incomingType) return { ...next, dateTypeKey: 'coffee', customDateTypeText: '' };
+        if (DATE_TYPE_KEYS.has(incomingType)) return { ...next, dateTypeKey: incomingType };
+        return { ...next, dateTypeKey: 'custom', customDateTypeText: incomingCustom || incomingType };
+      });
       if (typeof draftFromParent.step === 'number') {
         setStep(Math.min(4, Math.max(0, draftFromParent.step)));
       }
@@ -212,6 +230,7 @@ export function DateSuggestionSheet({
   };
 
   const canNext = useCallback(() => {
+    if (step === 0 && w.dateTypeKey === 'custom' && !w.customDateTypeText.trim()) return false;
     if (step === 1 && w.timeChoiceKey === 'pick_a_time' && !w.pickStartIso) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
       return false;
@@ -266,27 +285,45 @@ export function DateSuggestionSheet({
       </View>
 
       {step === 0 && (
-        <View style={styles.grid2}>
-          {DATE_TYPE_OPTIONS.map((o) => (
-            <Pressable
-              key={o.key}
-              onPress={() => {
-                const v = OPTIONAL_MESSAGE_VARIANTS[o.key] || OPTIONAL_MESSAGE_VARIANTS.custom;
-                setW((p) => ({
-                  ...p,
-                  dateTypeKey: o.key,
-                  variantIndex: 0,
-                  optionalMessage: v[0],
-                }));
-              }}
-              style={[
-                styles.option,
-                { borderColor: w.dateTypeKey === o.key ? theme.tint : theme.border, backgroundColor: theme.surfaceSubtle },
-              ]}
-            >
-              <Text style={{ color: theme.text, fontSize: 14 }}>{o.label}</Text>
-            </Pressable>
-          ))}
+        <View style={{ gap: spacing.sm }}>
+          <View style={styles.grid2}>
+            {DATE_TYPE_OPTIONS.map((o) => (
+              <Pressable
+                key={o.key}
+                onPress={() => {
+                  const v = OPTIONAL_MESSAGE_VARIANTS[o.key] || OPTIONAL_MESSAGE_VARIANTS.custom;
+                  setW((p) => ({
+                    ...p,
+                    dateTypeKey: o.key,
+                    variantIndex: 0,
+                    optionalMessage: v[0],
+                  }));
+                }}
+                style={[
+                  styles.option,
+                  { borderColor: w.dateTypeKey === o.key ? theme.tint : theme.border, backgroundColor: theme.surfaceSubtle },
+                ]}
+              >
+                <Text style={{ color: theme.text, fontSize: 14 }}>{o.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {w.dateTypeKey === 'custom' ? (
+            <View style={{ gap: spacing.xs }}>
+              <TextInput
+                value={w.customDateTypeText}
+                onChangeText={(t) => setW((p) => ({ ...p, customDateTypeText: t }))}
+                placeholder="What do you have in mind?"
+                placeholderTextColor={theme.mutedForeground}
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+              />
+              {!w.customDateTypeText.trim() ? (
+                <Text style={[styles.hint, { color: theme.textSecondary, marginTop: 0 }]}>
+                  Add a custom type to continue.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -505,7 +542,9 @@ export function DateSuggestionSheet({
         <View style={[styles.review, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
           <Text style={{ color: theme.text, fontSize: 14 }}>
             <Text style={{ color: theme.textSecondary }}>Type: </Text>
-            {DATE_TYPE_OPTIONS.find((x) => x.key === w.dateTypeKey)?.label}
+            {w.dateTypeKey === 'custom'
+              ? w.customDateTypeText.trim() || 'Custom'
+              : (DATE_TYPE_OPTIONS.find((x) => x.key === w.dateTypeKey)?.label ?? w.dateTypeKey)}
           </Text>
           <Text style={{ color: theme.text, fontSize: 14, marginTop: 6 }}>
             <Text style={{ color: theme.textSecondary }}>When: </Text>
