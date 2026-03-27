@@ -10,9 +10,11 @@ import React, {
 import type { QueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { connectivityService } from '@/lib/connectivityService';
+import { supabase } from '@/lib/supabase';
 import { loadOutboxItems, saveOutboxItems } from '@/lib/chatOutbox/store';
 import { newOutboxClientRequestId } from '@/lib/chatOutbox/id';
-import { executeOutboxItem, nextBackoffMs } from '@/lib/chatOutbox/execute';
+import { executeOutboxItem, nextBackoffMs, OutboxExecuteError } from '@/lib/chatOutbox/execute';
+import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 
 type ChatOutboxContextValue = {
@@ -33,6 +35,14 @@ type ChatOutboxContextValue = {
 };
 
 const ChatOutboxContext = createContext<ChatOutboxContextValue | null>(null);
+const HYDRATION_CHECK_INTERVAL_MS = 10_000;
+const HYDRATION_TIMEOUT_MS = 90_000;
+const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
+
+function itemPayloadUri(item: ChatOutboxItem): string | null {
+  if (item.payload.kind === 'text') return null;
+  return item.payload.uri;
+}
 
 function isEligibleToSend(item: ChatOutboxItem, online: boolean): boolean {
   if (!online) return false;
@@ -121,16 +131,34 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const remove = useCallback((itemId: string) => {
-    setItems((prev) => prev.filter((it) => it.id !== itemId));
+    const toCleanup: string[] = [];
+    setItems((prev) =>
+      prev.filter((it) => {
+        if (it.id !== itemId) return true;
+        const uri = itemPayloadUri(it);
+        if (uri) toCleanup.push(uri);
+        return false;
+      })
+    );
+    if (toCleanup.length > 0) {
+      void Promise.all(toCleanup.map((uri) => cleanupOutboxCacheUri(uri)));
+    }
   }, []);
 
   const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
+    const toCleanup: string[] = [];
     setItems((prev) =>
       prev.filter((it) => {
         if (!it.serverMessageId) return true;
-        return !serverMessageIds.has(it.serverMessageId);
+        if (!serverMessageIds.has(it.serverMessageId)) return true;
+        const uri = itemPayloadUri(it);
+        if (uri) toCleanup.push(uri);
+        return false;
       })
     );
+    if (toCleanup.length > 0) {
+      void Promise.all(toCleanup.map((uri) => cleanupOutboxCacheUri(uri)));
+    }
   }, []);
 
   const itemsForMatch = useCallback(
@@ -142,6 +170,93 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
     async (queryClient: QueryClient) => {
       if (!userId) return;
       const online = connectivityService.getState() === 'online';
+      const now = Date.now();
+
+      // Bounded recovery: awaiting_hydration is not terminal.
+      for (const item of itemsRef.current) {
+        if (item.state !== 'awaiting_hydration') continue;
+        if (!item.serverMessageId) {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: 'failed' as const,
+                    lastError: 'Message confirmation missing. Retry to continue.',
+                    nextRetryAtMs: now + HYDRATION_RECOVERY_BACKOFF_MS,
+                    updatedAtMs: now,
+                  }
+                : it
+            )
+          );
+          continue;
+        }
+        if (!online) continue;
+
+        const deadlineAtMs = item.hydrationDeadlineAtMs ?? item.updatedAtMs + HYDRATION_TIMEOUT_MS;
+        const lastCheckedAtMs = item.hydrationLastCheckedAtMs ?? 0;
+        const dueForCheck = now - lastCheckedAtMs >= HYDRATION_CHECK_INTERVAL_MS;
+        const pastDeadline = now >= deadlineAtMs;
+        if (!dueForCheck && !pastDeadline) continue;
+
+        const { data: serverRow } = await supabase
+          .from('messages')
+          .select('id')
+          .eq('id', item.serverMessageId)
+          .eq('match_id', item.matchId)
+          .maybeSingle();
+
+        if (serverRow?.id) {
+          const uri = itemPayloadUri(item);
+          if (uri) void cleanupOutboxCacheUri(uri);
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: 'sent' as const,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                    updatedAtMs: now,
+                  }
+                : it
+            )
+          );
+          queryClient.invalidateQueries({ queryKey: ['messages'] });
+          queryClient.invalidateQueries({ queryKey: ['matches'] });
+          continue;
+        }
+
+        if (pastDeadline) {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: 'failed' as const,
+                    lastError: 'Message still syncing. Retry to resend safely.',
+                    nextRetryAtMs: now + HYDRATION_RECOVERY_BACKOFF_MS,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                    updatedAtMs: now,
+                  }
+                : it
+            )
+          );
+        } else {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                  }
+                : it
+            )
+          );
+        }
+      }
 
       const byMatch = new Map<string, ChatOutboxItem[]>();
       for (const it of itemsRef.current) {
@@ -168,20 +283,25 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         );
 
         try {
-          const { serverMessageId } = await executeOutboxItem(
+          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl } = await executeOutboxItem(
             { ...next, attemptCount },
             queryClient
           );
+          const successAtMs = Date.now();
           setItems((prev) =>
             prev.map((it) =>
               it.id === next.id
                 ? {
                     ...it,
                     serverMessageId,
+                    uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
+                    uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
                     state: 'awaiting_hydration' as const,
                     lastError: undefined,
                     nextRetryAtMs: undefined,
-                    updatedAtMs: Date.now(),
+                    hydrationLastCheckedAtMs: undefined,
+                    hydrationDeadlineAtMs: successAtMs + HYDRATION_TIMEOUT_MS,
+                    updatedAtMs: successAtMs,
                   }
                 : it
             )
@@ -189,11 +309,17 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'Send failed';
           const backoff = nextBackoffMs(attemptCount);
+          const uploadedPublicUrl =
+            e instanceof OutboxExecuteError ? e.uploadedPublicUrl : undefined;
+          const uploadedMediaUrl =
+            e instanceof OutboxExecuteError ? e.uploadedMediaUrl : undefined;
           setItems((prev) =>
             prev.map((it) =>
               it.id === next.id
                 ? {
                     ...it,
+                    uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
+                    uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
                     state: 'failed' as const,
                     lastError: msg,
                     nextRetryAtMs: Date.now() + backoff,

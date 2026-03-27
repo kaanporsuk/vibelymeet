@@ -30,4 +30,10 @@ export type ChatOutboxItem = {
   serverMessageId?: string;
   /** After image upload succeeds (retry skips re-upload) */
   uploadedPublicUrl?: string;
+  /** After voice/video upload succeeds (retry skips re-upload). */
+  uploadedMediaUrl?: string;
+  /** Last time we checked whether serverMessageId is visible on authoritative server state. */
+  hydrationLastCheckedAtMs?: number;
+  /** Bounded deadline for awaiting_hydration before transitioning to recoverable failure. */
+  hydrationDeadlineAtMs?: number;
 };
