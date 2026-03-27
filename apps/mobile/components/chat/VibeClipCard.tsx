@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
@@ -9,15 +9,18 @@ import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting
 type Props = {
   meta: VibeClipDisplayMeta;
   isMine: boolean;
+  onReplyWithClip?: () => void;
+  onVoiceReply?: () => void;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
 const ACCENT_DIM = 'rgba(139,92,246,0.55)';
 
-export function VibeClipCard({ meta, isMine }: Props) {
+export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Props) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
 
   const player = useVideoPlayer(meta.videoUrl, (p) => {
     p.loop = false;
@@ -35,6 +38,15 @@ export function VibeClipCard({ meta, isMine }: Props) {
     });
     return () => sub.remove();
   }, [player]);
+
+  useEffect(() => {
+    const sub = player.addListener('playingChange', (ev) => {
+      if (ev.isPlaying) setHasPlayed(true);
+    });
+    return () => sub.remove();
+  }, [player]);
+
+  const showActions = hasPlayed && !isMine && (!!onReplyWithClip || !!onVoiceReply);
 
   if (hasError) {
     return (
@@ -80,6 +92,32 @@ export function VibeClipCard({ meta, isMine }: Props) {
           <Text style={styles.durationText}>{meta.durationLabel}</Text>
         </View>
       </View>
+
+      {/* After-play interaction scaffold */}
+      {showActions && (
+        <View style={styles.actionsRow}>
+          {onReplyWithClip && (
+            <Pressable
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
+              onPress={onReplyWithClip}
+              accessibilityLabel="Reply with a Vibe Clip"
+            >
+              <Ionicons name="film-outline" size={14} color={ACCENT} />
+              <Text style={styles.actionLabel}>Reply with clip</Text>
+            </Pressable>
+          )}
+          {onVoiceReply && (
+            <Pressable
+              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
+              onPress={onVoiceReply}
+              accessibilityLabel="Reply with voice"
+            >
+              <Ionicons name="mic-outline" size={14} color={ACCENT} />
+              <Text style={styles.actionLabel}>Voice reply</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -148,5 +186,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(139,92,246,0.18)',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(139,92,246,0.10)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(139,92,246,0.25)',
+  },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: ACCENT,
   },
 });

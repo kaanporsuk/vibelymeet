@@ -15,9 +15,11 @@ import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
   isMine: boolean;
+  onReplyWithClip?: () => void;
+  onVoiceReply?: () => void;
 }
 
-export const VibeClipBubble = ({ meta, isMine }: VibeClipBubbleProps) => {
+export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -26,6 +28,7 @@ export const VibeClipBubble = ({ meta, isMine }: VibeClipBubbleProps) => {
   const [isReady, setIsReady] = useState(false);
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [hasPlayed, setHasPlayed] = useState(false);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -69,7 +72,10 @@ export const VibeClipBubble = ({ meta, isMine }: VibeClipBubbleProps) => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      video.play().then(() => setIsPlaying(true)).catch((err: unknown) => {
+      video.play().then(() => {
+        setIsPlaying(true);
+        setHasPlayed(true);
+      }).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
           setLoadError(true);
@@ -243,6 +249,34 @@ export const VibeClipBubble = ({ meta, isMine }: VibeClipBubbleProps) => {
           </div>
         </AspectRatio>
       </div>
+
+      {/* After-play interaction scaffold */}
+      {hasPlayed && !isMine && (onReplyWithClip || onVoiceReply) && (
+        <div className="flex items-center gap-1.5 px-2.5 py-2 border-t border-violet-500/15">
+          {onReplyWithClip && (
+            <button
+              onClick={onReplyWithClip}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
+            >
+              <Film className="w-3 h-3" />
+              Reply with clip
+            </button>
+          )}
+          {onVoiceReply && (
+            <button
+              onClick={onVoiceReply}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+              </svg>
+              Voice reply
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
