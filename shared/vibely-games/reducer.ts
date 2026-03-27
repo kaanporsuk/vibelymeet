@@ -1,14 +1,20 @@
-import type {
-  CharadesSnapshot,
-  EmptySnapshot,
-  IntuitionSnapshot,
-  RouletteSnapshot,
-  ScavengerSnapshot,
-  TwoTruthsSnapshot,
-  VibeGameFoldResult,
-  VibeGameMessageEnvelopeV1,
-  VibeGameSnapshotV1,
-  WouldRatherSnapshot,
+import {
+  type CharadesSnapshot,
+  type EmptySnapshot,
+  type IntuitionSnapshot,
+  type RouletteSnapshot,
+  type ScavengerSnapshot,
+  type TwoTruthsSnapshot,
+  type VibeGameFoldResult,
+  type VibeGameMessageEnvelopeV1,
+  type VibeGameSnapshotV1,
+  type WouldRatherSnapshot,
+  isCharadesSnapshot,
+  isIntuitionSnapshot,
+  isRouletteSnapshot,
+  isScavengerSnapshot,
+  isTwoTruthsSnapshot,
+  isWouldRatherSnapshot,
 } from "./types";
 
 function emptySnapshot(): EmptySnapshot {
@@ -110,8 +116,8 @@ export function foldVibeGameSession(
         break;
       }
       case "two_truths_guess": {
-        if (snapshot.game_type !== "2truths") break;
-        const s: TwoTruthsSnapshot = snapshot;
+        if (!isTwoTruthsSnapshot(snapshot)) break;
+        const s = snapshot;
         const gi = (ev.payload as { guess_index: number }).guess_index as 0 | 1 | 2;
         snapshot = {
           game_type: "2truths",
@@ -124,8 +130,8 @@ export function foldVibeGameSession(
         break;
       }
       case "would_rather_vote": {
-        if (snapshot.game_type !== "would_rather") break;
-        const s: WouldRatherSnapshot = snapshot;
+        if (!isWouldRatherSnapshot(snapshot)) break;
+        const s = snapshot;
         const rv = (ev.payload as { receiver_vote: "A" | "B" }).receiver_vote;
         snapshot = {
           game_type: "would_rather",
@@ -139,8 +145,8 @@ export function foldVibeGameSession(
         break;
       }
       case "charades_guess": {
-        if (snapshot.game_type !== "charades") break;
-        const s: CharadesSnapshot = snapshot;
+        if (!isCharadesSnapshot(snapshot)) break;
+        const s = snapshot;
         const guess = String((ev.payload as { guess: string }).guess);
         const nextGuesses: string[] = [...s.guesses, guess];
         const hit = charadesGuessMatches(s.answer, guess);
@@ -155,8 +161,8 @@ export function foldVibeGameSession(
         break;
       }
       case "scavenger_photo": {
-        if (snapshot.game_type !== "scavenger") break;
-        const s: ScavengerSnapshot = snapshot;
+        if (!isScavengerSnapshot(snapshot)) break;
+        const s = snapshot;
         const url = String((ev.payload as { receiver_photo_url: string }).receiver_photo_url);
         snapshot = {
           game_type: "scavenger",
@@ -169,8 +175,8 @@ export function foldVibeGameSession(
         break;
       }
       case "roulette_answer": {
-        if (snapshot.game_type !== "roulette") break;
-        const s: RouletteSnapshot = snapshot;
+        if (!isRouletteSnapshot(snapshot)) break;
+        const s = snapshot;
         snapshot = {
           game_type: "roulette",
           status: "complete",
@@ -182,8 +188,8 @@ export function foldVibeGameSession(
         break;
       }
       case "intuition_result": {
-        if (snapshot.game_type !== "intuition") break;
-        const s: IntuitionSnapshot = snapshot;
+        if (!isIntuitionSnapshot(snapshot)) break;
+        const s = snapshot;
         snapshot = {
           game_type: "intuition",
           status: "complete",
@@ -197,23 +203,23 @@ export function foldVibeGameSession(
         if (snapshot.status === "empty") break;
         const st = snapshot.status;
         if (st === "complete") break;
-        if (snapshot.game_type === "2truths") {
-          const s: TwoTruthsSnapshot = snapshot;
+        if (isTwoTruthsSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
-        } else if (snapshot.game_type === "would_rather") {
-          const s: WouldRatherSnapshot = snapshot;
+        } else if (isWouldRatherSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
-        } else if (snapshot.game_type === "charades") {
-          const s: CharadesSnapshot = snapshot;
+        } else if (isCharadesSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
-        } else if (snapshot.game_type === "scavenger") {
-          const s: ScavengerSnapshot = snapshot;
+        } else if (isScavengerSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
-        } else if (snapshot.game_type === "roulette") {
-          const s: RouletteSnapshot = snapshot;
+        } else if (isRouletteSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
-        } else if (snapshot.game_type === "intuition") {
-          const s: IntuitionSnapshot = snapshot;
+        } else if (isIntuitionSnapshot(snapshot)) {
+          const s = snapshot;
           snapshot = { ...s, status: "complete" };
         }
         break;

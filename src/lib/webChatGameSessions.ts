@@ -1,5 +1,15 @@
 import { foldVibeGameSession } from "../../shared/vibely-games/reducer";
-import type { GameType, VibeGameMessageEnvelopeV1, VibeGameSnapshotV1 } from "../../shared/vibely-games/types";
+import {
+  type GameType,
+  type VibeGameMessageEnvelopeV1,
+  type VibeGameSnapshotV1,
+  isCharadesSnapshot,
+  isIntuitionSnapshot,
+  isRouletteSnapshot,
+  isScavengerSnapshot,
+  isTwoTruthsSnapshot,
+  isWouldRatherSnapshot,
+} from "../../shared/vibely-games/types";
 import { collapseGameSessionRows } from "../../shared/chat/gameSessionCollapse";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import type { GamePayload } from "@/types/games";
@@ -120,7 +130,7 @@ export function collapseVibeGameRowsForWeb(rows: WebChatMessageRow[]): Collapsed
 export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView): GamePayload | null {
   const snap = view.foldedSnapshot;
   const step = snap.status === "complete" ? "completed" : "active";
-  if (snap.game_type === "2truths") {
+  if (isTwoTruthsSnapshot(snap)) {
     return {
       gameType: "2truths",
       step,
@@ -132,7 +142,7 @@ export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView):
       },
     };
   }
-  if (snap.game_type === "would_rather") {
+  if (isWouldRatherSnapshot(snap)) {
     return {
       gameType: "would_rather",
       step,
@@ -145,7 +155,7 @@ export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView):
       },
     };
   }
-  if (snap.game_type === "charades") {
+  if (isCharadesSnapshot(snap)) {
     return {
       gameType: "charades",
       step,
@@ -157,7 +167,7 @@ export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView):
       },
     };
   }
-  if (snap.game_type === "scavenger") {
+  if (isScavengerSnapshot(snap)) {
     return {
       gameType: "scavenger",
       step,
@@ -169,7 +179,7 @@ export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView):
       },
     };
   }
-  if (snap.game_type === "roulette") {
+  if (isRouletteSnapshot(snap)) {
     return {
       gameType: "roulette",
       step,
@@ -181,7 +191,7 @@ export function webGamePayloadFromSessionView(view: WebHydratedGameSessionView):
       },
     };
   }
-  if (snap.game_type === "intuition") {
+  if (isIntuitionSnapshot(snap)) {
     return {
       gameType: "intuition",
       step,

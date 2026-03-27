@@ -191,3 +191,27 @@ export interface VibeGameFoldResult {
   /** Non-fatal warnings from fold (e.g. unexpected ordering) */
   warnings: string[];
 }
+
+export function isTwoTruthsSnapshot(s: VibeGameSnapshotV1): s is TwoTruthsSnapshot {
+  return s.game_type === "2truths";
+}
+
+export function isWouldRatherSnapshot(s: VibeGameSnapshotV1): s is WouldRatherSnapshot {
+  return s.game_type === "would_rather";
+}
+
+export function isCharadesSnapshot(s: VibeGameSnapshotV1): s is CharadesSnapshot {
+  return s.game_type === "charades";
+}
+
+export function isScavengerSnapshot(s: VibeGameSnapshotV1): s is ScavengerSnapshot {
+  return s.game_type === "scavenger";
+}
+
+export function isRouletteSnapshot(s: VibeGameSnapshotV1): s is RouletteSnapshot {
+  return s.game_type === "roulette";
+}
+
+export function isIntuitionSnapshot(s: VibeGameSnapshotV1): s is IntuitionSnapshot {
+  return s.game_type === "intuition";
+}
