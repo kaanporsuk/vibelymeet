@@ -14,7 +14,7 @@ export interface Message {
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
-  messageKind?: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session";
+  messageKind?: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session" | "vibe_clip";
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
   gameSessionView?: WebHydratedGameSessionView;
@@ -126,6 +126,43 @@ export const useSendMessage = () => {
 
       const payload = data as { message?: unknown } | null | undefined;
       return payload?.message;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+    },
+  });
+};
+
+/** Canonical server-owned publish for Vibe Clip video messages. */
+export const usePublishVibeClip = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      matchId: string;
+      videoUrl: string;
+      durationMs: number;
+      clientRequestId: string;
+      thumbnailUrl?: string | null;
+    }) => {
+      const body: Record<string, unknown> = {
+        match_id: params.matchId,
+        message_kind: "vibe_clip",
+        video_url: params.videoUrl,
+        duration_ms: params.durationMs,
+        client_request_id: params.clientRequestId,
+      };
+      if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
+
+      const { data, error } = await supabase.functions.invoke("send-message", { body });
+      if (error) {
+        captureSupabaseError("publish-vibe-clip", error);
+        throw error;
+      }
+      const payload = data as { success?: boolean; message?: unknown; error?: string } | null;
+      if (!payload?.success) throw new Error(payload?.error || "Vibe Clip publish failed");
+      return payload.message;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["messages"] });

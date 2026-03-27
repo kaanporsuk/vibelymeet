@@ -1,8 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import {
-  insertChatVideoMessageRow,
   insertVoiceMessageRow,
   invokeSendMessageEdge,
+  invokePublishVibeClip,
 } from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage, uploadChatVideoMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
@@ -77,11 +77,10 @@ export async function executeOutboxItem(
       const videoUrl =
         item.uploadedMediaUrl ?? (await uploadChatVideoMessage(payload.uri, matchId, payload.mimeType ?? 'video/mp4'));
       uploadedMediaUrl = videoUrl;
-      const row = await insertChatVideoMessageRow({
+      const row = await invokePublishVibeClip({
         matchId,
-        currentUserId: userId,
         videoUrl,
-        durationSeconds: payload.durationSeconds,
+        durationMs: Math.round(payload.durationSeconds * 1000),
         clientRequestId,
       });
       serverMessageId = getServerMessageId(row);

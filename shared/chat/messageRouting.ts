@@ -3,17 +3,35 @@ export type ChatDbMessageKind =
   | "date_suggestion"
   | "date_suggestion_event"
   | "vibe_game"
-  | "vibe_game_session";
+  | "vibe_game_session"
+  | "vibe_clip";
 
 export type ChatRenderableMessageKind =
   | "text"
   | "date_suggestion"
   | "date_suggestion_event"
-  | "vibe_game_session";
+  | "vibe_game_session"
+  | "vibe_clip";
 
-export type ChatMediaRenderKind = "text" | "image" | "voice" | "video";
+export type ChatMediaRenderKind = "text" | "image" | "voice" | "video" | "vibe_clip";
 
 export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
+
+/**
+ * Canonical structured_payload shape for vibe_clip messages (v2).
+ * Stored in `messages.structured_payload` when `message_kind = 'vibe_clip'`.
+ */
+export interface VibeClipPayload {
+  v: 2;
+  kind: "vibe_clip";
+  client_request_id: string;
+  duration_ms: number;
+  thumbnail_url: string | null;
+  processing_status: "ready";
+  upload_provider: "bunny";
+}
+
+export const VIBE_CLIP_CONTENT_LABEL = "🎬 Vibe Clip";
 
 /** Returns image URL when this text should render as a photo bubble. */
 export function parseChatImageMessageContent(content: string): string | null {
@@ -43,7 +61,8 @@ export function normalizeChatDbMessageKind(messageKind: string | null | undefine
     messageKind === "date_suggestion" ||
     messageKind === "date_suggestion_event" ||
     messageKind === "vibe_game" ||
-    messageKind === "vibe_game_session"
+    messageKind === "vibe_game_session" ||
+    messageKind === "vibe_clip"
   ) {
     return messageKind;
   }
@@ -56,7 +75,12 @@ export function normalizeChatDbMessageKind(messageKind: string | null | undefine
  */
 export function toRenderableMessageKind(messageKind: string | null | undefined): ChatRenderableMessageKind {
   const normalized = normalizeChatDbMessageKind(messageKind);
-  if (normalized === "date_suggestion" || normalized === "date_suggestion_event" || normalized === "vibe_game_session") {
+  if (
+    normalized === "date_suggestion" ||
+    normalized === "date_suggestion_event" ||
+    normalized === "vibe_game_session" ||
+    normalized === "vibe_clip"
+  ) {
     return normalized;
   }
   return "text";
@@ -64,13 +88,19 @@ export function toRenderableMessageKind(messageKind: string | null | undefined):
 
 /**
  * Canonical media routing precedence:
- * video field > audio field > image marker/plain URL > text.
+ * vibe_clip kind > video field > audio field > image marker/plain URL > text.
+ *
+ * When `messageKind` is `vibe_clip`, returns `"vibe_clip"` regardless of other
+ * fields so the UI can render the clip-specific bubble. Legacy video messages
+ * (kind=text + video_url) continue to return `"video"`.
  */
 export function inferChatMediaRenderKind(params: {
   content: string;
   audioUrl?: string | null;
   videoUrl?: string | null;
+  messageKind?: string | null;
 }): ChatMediaRenderKind {
+  if (params.messageKind === "vibe_clip") return "vibe_clip";
   if (params.videoUrl) return "video";
   if (params.audioUrl) return "voice";
   if (parseChatImageMessageContent(params.content)) return "image";

@@ -46,7 +46,7 @@ export type CollapsedMessage = {
   audio_duration_seconds: number | null;
   video_url: string | null;
   video_duration_seconds: number | null;
-  message_kind: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session";
+  message_kind: "text" | "date_suggestion" | "date_suggestion_event" | "vibe_game_session" | "vibe_clip";
   ref_id: string | null;
   structured_payload: Record<string, unknown> | null;
   game_session_view?: WebHydratedGameSessionView;

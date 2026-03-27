@@ -41,7 +41,7 @@ import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
 import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
-import { useMessages, useSendMessage } from "@/hooks/useMessages";
+import { useMessages, useSendMessage, usePublishVibeClip } from "@/hooks/useMessages";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
@@ -61,7 +61,7 @@ interface ChatMessage {
   text: string;
   sender: "me" | "them";
   time: string;
-  type: "text" | "image" | "voice" | "video" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
+  type: "text" | "image" | "voice" | "video" | "vibe_clip" | "date-suggestion" | "date-suggestion-event" | "vibe-game-session";
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
@@ -87,6 +87,7 @@ const Chat = () => {
   
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
   const { mutate: sendMessage } = useSendMessage();
+  const publishVibeClip = usePublishVibeClip();
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
@@ -196,6 +197,7 @@ const Chat = () => {
           content: m.text,
           audioUrl: m.audioUrl,
           videoUrl: m.videoUrl,
+          messageKind: m.messageKind,
         }) as ChatMessage["type"],
         audioUrl: m.audioUrl,
         audioDuration: m.audioDuration,
@@ -601,19 +603,26 @@ const Chat = () => {
         chatData.matchId
       );
 
-      const { error: msgError } = await supabase.from("messages").insert({
-        match_id: chatData.matchId,
-        sender_id: user.id,
-        content: "📹 Video message",
-        video_url: videoUrl,
-        video_duration_seconds: Math.round(duration),
-      });
+      const clientRequestId = crypto.randomUUID();
 
-      if (msgError) throw msgError;
-      toast.success("Video message sent!");
+      publishVibeClip.mutate(
+        {
+          matchId: chatData.matchId,
+          videoUrl,
+          durationMs: Math.round(duration * 1000),
+          clientRequestId,
+        },
+        {
+          onSuccess: () => toast.success("Vibe Clip sent!"),
+          onError: (err) => {
+            console.error("Vibe Clip publish error:", err);
+            toast.error("Failed to send Vibe Clip");
+          },
+        },
+      );
     } catch (err) {
-      console.error("Video message error:", err);
-      toast.error("Failed to send video message");
+      console.error("Video upload error:", err);
+      toast.error("Failed to upload video");
     }
   };
 
@@ -762,7 +771,7 @@ const Chat = () => {
                     })()}
                   </div>
                 </div>
-              ) : message.type === "video" ? (
+              ) : message.type === "video" || message.type === "vibe_clip" ? (
                 <div
                   key={message.id}
                   className={cn(
