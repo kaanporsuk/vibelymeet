@@ -171,34 +171,6 @@ export function DateSuggestionComposer({
     }));
   }, [open, w.dateTypeKey, w.variantIndex]);
 
-  const handleSaveDraft = async () => {
-    if (!matchId) return;
-    setSaving(true);
-    try {
-      let sid = draftId;
-      if (!sid) {
-        const created = (await dateSuggestionApply("create_draft", {
-          match_id: matchId,
-          draft: { wizard: w, step },
-        })) as { suggestion_id?: string };
-        sid = created?.suggestion_id ?? null;
-        if (sid) setDraftId(sid);
-      }
-      if (sid) {
-        await dateSuggestionApply("update_draft", {
-          suggestion_id: sid,
-          draft: { wizard: w, step },
-        });
-        toast.success("Draft saved");
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error("Could not save draft");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
     submitInFlightRef.current = true;
@@ -460,11 +432,6 @@ export function DateSuggestionComposer({
           {step > 0 && (
             <Button type="button" variant="outline" onClick={() => setStep((s) => s - 1)}>
               <ChevronLeft className="h-4 w-4 mr-1" /> Back
-            </Button>
-          )}
-          {!counterContext && step === 4 && (
-            <Button type="button" variant="secondary" onClick={handleSaveDraft} disabled={saving}>
-              Save draft
             </Button>
           )}
           {step < 4 ? (
