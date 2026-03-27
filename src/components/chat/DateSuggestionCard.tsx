@@ -1,4 +1,5 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, useState, useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,7 +10,7 @@ import {
   DATE_SAFETY_NOTE,
 } from "@/lib/dateSuggestionCopy";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
-import { dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
+import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Calendar, Check, Sparkles, Share2 } from "lucide-react";
@@ -70,6 +71,9 @@ export function DateSuggestionCard({
   onOpenComposer,
   onUpdated,
 }: Props) {
+  const queryClient = useQueryClient();
+  const cancelInFlightRef = useRef(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const markedRef = useRef(false);
   const revs = suggestion.revisions;
   const current = useMemo(() => {
@@ -132,14 +136,52 @@ export function DateSuggestionCard({
     }
   };
 
-  const handleCancel = async () => {
+  const handleCancel = useCallback(async () => {
+    if (cancelInFlightRef.current) return;
+    cancelInFlightRef.current = true;
+    setCancelBusy(true);
     try {
       await dateSuggestionApply("cancel", { suggestion_id: suggestion.id });
       onUpdated();
-    } catch {
-      toast.error("Could not cancel");
+    } catch (e) {
+      if (e instanceof DateSuggestionDomainError) {
+        const { code } = e;
+        if (code === "invalid_status") {
+          await queryClient.refetchQueries({ queryKey: ["date-suggestions", suggestion.match_id] });
+          const list = queryClient.getQueryData<DateSuggestionWithRelations[]>([
+            "date-suggestions",
+            suggestion.match_id,
+          ]);
+          const row = list?.find((s) => s.id === suggestion.id);
+          if (row?.status === "cancelled") {
+            toast.message("Already cancelled.");
+            onUpdated();
+            return;
+          }
+          toast.message("This suggestion can no longer be cancelled.");
+          onUpdated();
+          return;
+        }
+        if (code === "forbidden") {
+          toast.message("You can only cancel your own suggestions.");
+          return;
+        }
+        if (code === "suggestion_id_required") {
+          toast.message("Something went wrong. Try again.");
+          return;
+        }
+        if (code === "not_found") {
+          toast.message("This suggestion is no longer available.");
+          onUpdated();
+          return;
+        }
+      }
+      toast.error("Could not cancel. Try again.");
+    } finally {
+      cancelInFlightRef.current = false;
+      setCancelBusy(false);
     }
-  };
+  }, [onUpdated, queryClient, suggestion.id, suggestion.match_id]);
 
   const handleShare = async () => {
     if (!current) return;
@@ -317,7 +359,7 @@ export function DateSuggestionCard({
             >
               Continue draft
             </Button>
-            <Button size="sm" variant="outline" onClick={handleCancel}>
+            <Button size="sm" variant="outline" onClick={handleCancel} disabled={cancelBusy}>
               Discard
             </Button>
           </>
@@ -353,7 +395,7 @@ export function DateSuggestionCard({
         )}
 
         {["proposed", "viewed", "countered", "draft"].includes(status) && isProposer && (
-          <Button size="sm" variant="outline" onClick={handleCancel}>
+          <Button size="sm" variant="outline" onClick={handleCancel} disabled={cancelBusy}>
             Cancel
           </Button>
         )}
