@@ -441,7 +441,7 @@ const Chat = () => {
           game_type: input.game_type,
           payload: input.payload,
         });
-        if (!result.ok) {
+        if (result.ok === false) {
           toast.error(formatSendGameEventError(result.error));
           return;
         }
@@ -476,25 +476,50 @@ const Chat = () => {
         | null = null;
       let eventPayload: Record<string, unknown> | null = null;
 
-      if (payload.gameType === "2truths" && typeof updates.guessedIndex === "number") {
+      if (
+        payload.gameType === "2truths" &&
+        "guessedIndex" in updates &&
+        typeof updates.guessedIndex === "number"
+      ) {
         event_type = "two_truths_guess";
         eventPayload = { guess_index: updates.guessedIndex };
-      } else if (payload.gameType === "would_rather" && (updates.receiverVote === "A" || updates.receiverVote === "B")) {
+      } else if (
+        payload.gameType === "would_rather" &&
+        "receiverVote" in updates &&
+        (updates.receiverVote === "A" || updates.receiverVote === "B")
+      ) {
         event_type = "would_rather_vote";
         eventPayload = { receiver_vote: updates.receiverVote };
-      } else if (payload.gameType === "charades" && Array.isArray(updates.guesses) && updates.guesses.length > 0) {
+      } else if (
+        payload.gameType === "charades" &&
+        "guesses" in updates &&
+        Array.isArray(updates.guesses) &&
+        updates.guesses.length > 0
+      ) {
         const guess = updates.guesses[updates.guesses.length - 1];
         if (typeof guess === "string" && guess.trim()) {
           event_type = "charades_guess";
           eventPayload = { guess };
         }
-      } else if (payload.gameType === "scavenger" && typeof updates.receiverPhotoUrl === "string") {
+      } else if (
+        payload.gameType === "scavenger" &&
+        "receiverPhotoUrl" in updates &&
+        typeof updates.receiverPhotoUrl === "string"
+      ) {
         event_type = "scavenger_photo";
         eventPayload = { receiver_photo_url: updates.receiverPhotoUrl };
-      } else if (payload.gameType === "roulette" && typeof updates.receiverAnswer === "string") {
+      } else if (
+        payload.gameType === "roulette" &&
+        "receiverAnswer" in updates &&
+        typeof updates.receiverAnswer === "string"
+      ) {
         event_type = "roulette_answer";
         eventPayload = { receiver_answer: updates.receiverAnswer };
-      } else if (payload.gameType === "intuition" && (updates.receiverResponse === "correct" || updates.receiverResponse === "wrong")) {
+      } else if (
+        payload.gameType === "intuition" &&
+        "receiverResponse" in updates &&
+        (updates.receiverResponse === "correct" || updates.receiverResponse === "wrong")
+      ) {
         event_type = "intuition_result";
         eventPayload = { result: updates.receiverResponse };
       }
@@ -512,7 +537,7 @@ const Chat = () => {
           payload: eventPayload,
         });
 
-        if (!result.ok) {
+        if (result.ok === false) {
           toast.error(formatSendGameEventError(result.error));
           return;
         }

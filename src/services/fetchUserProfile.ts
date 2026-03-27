@@ -134,8 +134,11 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
   }
 
   if (profileRes.error) return null;
-  const row = profileRes.data as Record<string, unknown> | null;
-  if (!row || typeof row.id !== "string") return null;
+  const rawData = profileRes.data;
+  if (rawData === null || rawData === undefined) return null;
+  if (typeof rawData !== "object" || Array.isArray(rawData)) return null;
+  const row = rawData as Record<string, unknown>;
+  if (typeof row.id !== "string") return null;
 
   const { data: vibeRows } = await supabase
     .from("profile_vibes")
