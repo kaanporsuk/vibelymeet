@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  Modal,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,6 +103,21 @@ function buildRevision(w: WizardState) {
   };
 }
 
+function formatPickDateTimeLabel(iso: string | null): string {
+  if (!iso) return 'No time selected yet';
+  try {
+    return new Date(iso).toLocaleString([], {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
 type CounterCtx = {
   suggestionId: string;
   previousRevision: DateSuggestionRevisionRow;
@@ -149,6 +165,8 @@ export function DateSuggestionSheet({
   const [pickOpen, setPickOpen] = useState(false);
   const [androidPickMode, setAndroidPickMode] = useState<'date' | 'time'>('date');
   const [tempPick, setTempPick] = useState(new Date());
+  const [iosPickOpen, setIosPickOpen] = useState(false);
+  const [iosTempPick, setIosTempPick] = useState(new Date());
 
   useEffect(() => {
     if (!visible) return;
@@ -261,6 +279,17 @@ export function DateSuggestionSheet({
       return;
     }
     if (date) setW((p) => ({ ...p, pickStartIso: date.toISOString() }));
+  };
+
+  const openIosPicker = () => {
+    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
+    setIosTempPick(base);
+    setIosPickOpen(true);
+  };
+
+  const confirmIosPicker = () => {
+    setW((p) => ({ ...p, pickStartIso: iosTempPick.toISOString() }));
+    setIosPickOpen(false);
   };
 
   const stepContent = (
@@ -403,24 +432,31 @@ export function DateSuggestionSheet({
                 </Pressable>
               )}
               {Platform.OS === 'ios' && (
-                <View
-                  style={[
-                    styles.pickerSurface,
-                    {
-                      borderColor: 'rgba(255,255,255,0.14)',
-                      backgroundColor: 'hsl(240, 8%, 11%)',
-                    },
-                  ]}
+                <View style={[styles.iosPickCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
                 >
-                  {/* Light `themeVariant`: wheel columns stay high-contrast inside the dark frame. */}
-                  <DateTimePicker
-                    value={w.pickStartIso ? new Date(w.pickStartIso) : new Date()}
-                    mode="datetime"
-                    display="spinner"
-                    onChange={onDtChange}
-                    themeVariant="light"
-                    style={styles.iosPickerWheel}
-                  />
+                  <View style={styles.iosPickCardHeader}>
+                    <Ionicons name="time-outline" size={18} color={theme.neonCyan} />
+                    <Text style={[styles.iosPickCardTitle, { color: theme.textSecondary }]}>Selected time</Text>
+                  </View>
+                  <Text style={[styles.iosPickCardValue, { color: theme.text }]}>
+                    {formatPickDateTimeLabel(w.pickStartIso)}
+                  </Text>
+                  <Pressable
+                    onPress={openIosPicker}
+                    style={({ pressed }) => [
+                      styles.iosPickBtn,
+                      {
+                        borderColor: 'rgba(139,92,246,0.55)',
+                        backgroundColor: 'rgba(139,92,246,0.2)',
+                        opacity: pressed ? 0.9 : 1,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="calendar-outline" size={16} color={theme.neonViolet} />
+                    <Text style={[styles.iosPickBtnText, { color: theme.text }]}>
+                      {w.pickStartIso ? 'Change date & time' : 'Choose date & time'}
+                    </Text>
+                  </Pressable>
                 </View>
               )}
               {pickOpen && Platform.OS === 'android' && (
@@ -608,19 +644,58 @@ export function DateSuggestionSheet({
   );
 
   return (
-    <KeyboardAwareBottomSheetModal
-      visible={visible}
-      onRequestClose={onClose}
-      backdropColor="rgba(0,0,0,0.85)"
-      showHandle
-      handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
-      footer={footer}
-    >
-      <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
-        {counterContext ? 'Counter proposal' : `Suggest a date with ${partnerName}`}
-      </VibelyText>
-      {stepContent}
-    </KeyboardAwareBottomSheetModal>
+    <>
+      <KeyboardAwareBottomSheetModal
+        visible={visible}
+        onRequestClose={onClose}
+        backdropColor="rgba(0,0,0,0.85)"
+        showHandle
+        handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
+        footer={footer}
+      >
+        <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
+          {counterContext ? 'Counter proposal' : `Suggest a date with ${partnerName}`}
+        </VibelyText>
+        {stepContent}
+      </KeyboardAwareBottomSheetModal>
+      <Modal visible={iosPickOpen} transparent animationType="fade" onRequestClose={() => setIosPickOpen(false)}>
+        <View style={styles.iosModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIosPickOpen(false)} accessibilityLabel="Close picker" />
+          <View style={[styles.iosModalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.iosModalTitle, { color: theme.text }]}>Pick a time</Text>
+            <Text style={[styles.iosModalValue, { color: theme.textSecondary }]}>
+              {formatPickDateTimeLabel(iosTempPick.toISOString())}
+            </Text>
+            <View style={styles.iosWheelWrap}>
+              <DateTimePicker
+                value={iosTempPick}
+                mode="datetime"
+                display="spinner"
+                onChange={(_, date) => {
+                  if (date) setIosTempPick(date);
+                }}
+                themeVariant="light"
+                style={styles.iosPickerWheel}
+              />
+            </View>
+            <View style={styles.iosModalActions}>
+              <Pressable
+                onPress={() => setIosPickOpen(false)}
+                style={({ pressed }) => [styles.iosActionBtn, { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Text style={[styles.iosActionText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmIosPicker}
+                style={({ pressed }) => [styles.iosActionBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 }]}
+              >
+                <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Done</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -685,6 +760,83 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 216,
     alignSelf: 'center',
+  },
+  iosPickCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    gap: spacing.sm,
+    ...shadows.card,
+  },
+  iosPickCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  iosPickCardTitle: {
+    ...typography.overline,
+  },
+  iosPickCardValue: {
+    fontSize: 17,
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: 24,
+  },
+  iosPickBtn: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
+  iosPickBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.bodySemiBold,
+  },
+  iosModalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  iosModalCard: {
+    borderRadius: radius['2xl'],
+    borderWidth: 1,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  iosModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  iosModalValue: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  iosWheelWrap: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    paddingVertical: spacing.xs,
+  },
+  iosModalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  iosActionBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  iosActionText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   androidPickerTrigger: {
     flexDirection: 'row',
