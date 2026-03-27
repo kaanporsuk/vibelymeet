@@ -60,6 +60,7 @@ import { RouletteStartSheet } from '@/components/chat/games/RouletteStartSheet';
 import { ScavengerStartSheet } from '@/components/chat/games/ScavengerStartSheet';
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
+import { GamesPickerSheet, type GamesPickerGameId } from '@/components/chat/games/GamesPickerSheet';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
@@ -250,6 +251,7 @@ export default function ChatThreadScreen() {
   const [showScavengerStart, setShowScavengerStart] = useState(false);
   const [showTwoTruthsStart, setShowTwoTruthsStart] = useState(false);
   const [showWouldRatherStart, setShowWouldRatherStart] = useState(false);
+  const [showGamesPicker, setShowGamesPicker] = useState(false);
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -913,28 +915,33 @@ export default function ChatThreadScreen() {
   };
 
   const openGamesEntry = () => {
-    if (!GAMES_WEB_FALLBACK) {
-      Alert.alert('Games', 'Choose a game to start in chat.', [
-        { text: 'Intuition Test', onPress: openIntuitionStart },
-        { text: 'Two Truths', onPress: openTwoTruthsStart },
-        { text: 'Would You Rather', onPress: openWouldRatherStart },
-        { text: 'Roulette', onPress: openRouletteStart },
-        { text: 'Charades', onPress: openCharadesStart },
-        { text: 'Scavenger', onPress: openScavengerStart },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
-      return;
-    }
-    Alert.alert('Games', 'Start a game in chat or open the full arcade in your browser.', [
-      { text: 'Intuition Test', onPress: openIntuitionStart },
-      { text: 'Two Truths', onPress: openTwoTruthsStart },
-      { text: 'Would You Rather', onPress: openWouldRatherStart },
-      { text: 'Roulette', onPress: openRouletteStart },
-      { text: 'Charades', onPress: openCharadesStart },
-      { text: 'Scavenger', onPress: openScavengerStart },
-      { text: 'Open in browser', onPress: () => void openGamesWebInBrowser() },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setShowGamesPicker(true);
+  };
+
+  const handleGamesPickerSelect = (game: GamesPickerGameId) => {
+    setShowGamesPicker(false);
+    requestAnimationFrame(() => {
+      switch (game) {
+        case 'intuition':
+          openIntuitionStart();
+          break;
+        case 'two_truths':
+          openTwoTruthsStart();
+          break;
+        case 'would_rather':
+          openWouldRatherStart();
+          break;
+        case 'roulette':
+          openRouletteStart();
+          break;
+        case 'charades':
+          openCharadesStart();
+          break;
+        case 'scavenger':
+          openScavengerStart();
+          break;
+      }
+    });
   };
 
   if (!otherUserId || !user?.id) {
@@ -1670,6 +1677,18 @@ export default function ChatThreadScreen() {
         }
       />
 
+      {data?.matchId ? (
+        <GamesPickerSheet
+          visible={showGamesPicker}
+          onClose={() => setShowGamesPicker(false)}
+          showBrowserFallback={GAMES_WEB_FALLBACK}
+          onSelectGame={handleGamesPickerSelect}
+          onOpenBrowser={() => {
+            setShowGamesPicker(false);
+            void openGamesWebInBrowser();
+          }}
+        />
+      ) : null}
       {data?.matchId && user?.id && otherUserId ? (
         <DateSuggestionSheet
           visible={showDateSheet}
