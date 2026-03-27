@@ -988,6 +988,19 @@ export default function ChatThreadScreen() {
               isMine={isMe}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
               onVoiceReply={isMe ? undefined : () => armVoiceReply()}
+              onSuggestDate={isMe ? undefined : () => openDateComposer({ mode: 'new' })}
+              onReact={
+                isMe
+                  ? undefined
+                  : () => {
+                      Vibration.vibrate(30);
+                      if (!reactionHintShown) {
+                        Alert.alert('Reactions', 'Reactions are currently local to this device.');
+                        setReactionHintShown(true);
+                      }
+                      setReactionPickerMessageId(item.id);
+                    }
+              }
             />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}

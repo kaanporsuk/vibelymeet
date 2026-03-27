@@ -80,11 +80,20 @@ interface ChatMessage {
 
 type TextMessage = ChatMessage & { type: "text" };
 
-function VibeClipMessageRow({ message, otherUser, onReplyWithClip, onVoiceReply }: {
+function VibeClipMessageRow({
+  message,
+  otherUser,
+  onReplyWithClip,
+  onVoiceReply,
+  onSuggestDate,
+  onReactionPick,
+}: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
   onReplyWithClip?: () => void;
   onVoiceReply?: () => void;
+  onSuggestDate?: () => void;
+  onReactionPick?: (emoji: ReactionEmoji) => void;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -115,6 +124,8 @@ function VibeClipMessageRow({ message, otherUser, onReplyWithClip, onVoiceReply 
             isMine={isMine}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}
             onVoiceReply={isMine ? undefined : onVoiceReply}
+            onSuggestDate={isMine ? undefined : onSuggestDate}
+            onReactionPick={isMine ? undefined : onReactionPick}
           />
         ) : (
           <VideoMessageBubble
@@ -840,6 +851,8 @@ const Chat = () => {
                   otherUser={otherUser}
                   onReplyWithClip={() => setIsRecordingVideo(true)}
                   onVoiceReply={() => scrollToBottom()}
+                  onSuggestDate={() => handleOpenDateComposer({ mode: "new" })}
+                  onReactionPick={(emoji) => handleReaction(message.id, emoji)}
                 />
               ) : message.type === "video" ? (
                 <div

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -11,12 +11,24 @@ type Props = {
   isMine: boolean;
   onReplyWithClip?: () => void;
   onVoiceReply?: () => void;
+  /** Secondary: opens existing date-suggestion composer (gated upstream). */
+  onSuggestDate?: () => void;
+  /** Secondary: opens existing reaction picker for this message. */
+  onReact?: () => void;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
 const ACCENT_DIM = 'rgba(139,92,246,0.55)';
+const SECONDARY = 'rgba(255,255,255,0.55)';
 
-export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Props) {
+export function VibeClipCard({
+  meta,
+  isMine,
+  onReplyWithClip,
+  onVoiceReply,
+  onSuggestDate,
+  onReact,
+}: Props) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -46,7 +58,9 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
     return () => sub.remove();
   }, [player]);
 
-  const showActions = hasPlayed && !isMine && (!!onReplyWithClip || !!onVoiceReply);
+  const hasPrimary = !!onReplyWithClip || !!onVoiceReply;
+  const hasSecondary = !!onSuggestDate || !!onReact;
+  const showActions = hasPlayed && !isMine && (hasPrimary || hasSecondary);
   const cardAspectRatio =
     typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
@@ -73,7 +87,6 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
         },
       ]}
     >
-      {/* Branded header strip */}
       <View style={styles.header}>
         <View style={styles.brandPill}>
           <Ionicons name="film-outline" size={11} color={ACCENT} />
@@ -81,7 +94,6 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
         </View>
       </View>
 
-      {/* Video surface */}
       <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio }]}>
         {meta.thumbnailUrl && !isReady && (
           <Image source={{ uri: meta.thumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
@@ -94,35 +106,62 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
           </View>
         )}
 
-        {/* Duration badge — bottom-right, always visible */}
         <View style={styles.durationBadge}>
           <Text style={styles.durationText}>{meta.durationLabel}</Text>
         </View>
       </View>
 
-      {/* After-play interaction scaffold */}
       {showActions && (
-        <View style={styles.actionsRow}>
-          {onReplyWithClip && (
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
-              onPress={onReplyWithClip}
-              accessibilityLabel="Reply with a Vibe Clip"
-            >
-              <Ionicons name="film-outline" size={14} color={ACCENT} />
-              <Text style={styles.actionLabel}>Reply with clip</Text>
-            </Pressable>
-          )}
-          {onVoiceReply && (
-            <Pressable
-              style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.7 }]}
-              onPress={onVoiceReply}
-              accessibilityLabel="Reply with voice"
-            >
-              <Ionicons name="mic-outline" size={14} color={ACCENT} />
-              <Text style={styles.actionLabel}>Voice reply</Text>
-            </Pressable>
-          )}
+        <View style={styles.actionsBlock}>
+          {hasPrimary ? (
+            <View style={styles.primaryRow}>
+              {onReplyWithClip && (
+                <Pressable
+                  style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.7 }]}
+                  onPress={onReplyWithClip}
+                  accessibilityLabel="Reply with a Vibe Clip"
+                >
+                  <Ionicons name="film-outline" size={14} color={ACCENT} />
+                  <Text style={styles.primaryLabel}>Reply with clip</Text>
+                </Pressable>
+              )}
+              {onVoiceReply && (
+                <Pressable
+                  style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.7 }]}
+                  onPress={onVoiceReply}
+                  accessibilityLabel="Reply with voice"
+                >
+                  <Ionicons name="mic-outline" size={14} color={ACCENT} />
+                  <Text style={styles.primaryLabel}>Voice reply</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
+
+          {hasSecondary ? (
+            <View style={styles.secondaryRow}>
+              {onSuggestDate && (
+                <Pressable
+                  style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
+                  onPress={onSuggestDate}
+                  accessibilityLabel="Suggest a date"
+                >
+                  <Ionicons name="calendar-outline" size={13} color={SECONDARY} />
+                  <Text style={styles.secondaryLabel}>Suggest a date</Text>
+                </Pressable>
+              )}
+              {onReact && (
+                <Pressable
+                  style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
+                  onPress={onReact}
+                  accessibilityLabel="React"
+                >
+                  <Ionicons name="heart-outline" size={13} color={SECONDARY} />
+                  <Text style={styles.secondaryLabel}>React</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -193,16 +232,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
   },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  actionsBlock: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(139,92,246,0.18)',
   },
-  actionBtn: {
+  primaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -213,9 +256,29 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(139,92,246,0.25)',
   },
-  actionLabel: {
+  primaryLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: ACCENT,
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+    paddingTop: 2,
+  },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+  },
+  secondaryLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.55)',
   },
 });
