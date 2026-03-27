@@ -356,8 +356,7 @@ export default function ChatThreadScreen() {
   );
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [showDateSheet, setShowDateSheet] = useState(false);
-  const [dateComposerLaunchSource, setDateComposerLaunchSource] =
-    useState<DateComposerLaunchSource>('default');
+  const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
   const [showRouletteStart, setShowRouletteStart] = useState(false);
@@ -1025,6 +1024,8 @@ export default function ChatThreadScreen() {
               meta={clipMeta}
               isMine={isMe}
               reactionPair={pair}
+              threadMessageCount={displayMessages.length}
+              sparkMessageId={item.id}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
               onVoiceReply={isMe ? undefined : () => armVoiceReply()}
               onSuggestDate={
@@ -1677,6 +1678,7 @@ export default function ChatThreadScreen() {
           void pickVideoFromLibrary();
         }}
         disabled={isSending}
+        promptSeed={data?.matchId ?? otherUserId ?? ''}
       />
 
       {data?.matchId ? (

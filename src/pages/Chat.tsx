@@ -97,6 +97,7 @@ function VibeClipMessageRow({
   onVoiceReply,
   onSuggestDate,
   onReactionPick,
+  threadMessageCount,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -104,6 +105,7 @@ function VibeClipMessageRow({
   onVoiceReply?: () => void;
   onSuggestDate?: () => void;
   onReactionPick?: (emoji: ReactionEmoji) => void;
+  threadMessageCount: number;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -132,6 +134,8 @@ function VibeClipMessageRow({
           <VibeClipBubble
             meta={clipMeta}
             isMine={isMine}
+            threadMessageCount={threadMessageCount}
+            sparkMessageId={message.id}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}
             onVoiceReply={isMine ? undefined : onVoiceReply}
             onSuggestDate={isMine ? undefined : onSuggestDate}
@@ -886,6 +890,7 @@ const Chat = () => {
                   key={message.id}
                   message={message}
                   otherUser={otherUser}
+                  threadMessageCount={displayMessages.length}
                   onReplyWithClip={() => setIsRecordingVideo(true)}
                   onVoiceReply={() => scrollToBottom()}
                   onSuggestDate={() =>
@@ -1157,6 +1162,7 @@ const Chat = () => {
       <AnimatePresence>
         {isRecordingVideo && (
           <VideoMessageRecorder
+            promptSeed={chatData?.matchId ?? id ?? ""}
             onRecordingComplete={handleVideoRecordingComplete}
             onCancel={() => setIsRecordingVideo(false)}
           />
