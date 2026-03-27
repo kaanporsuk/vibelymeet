@@ -14,6 +14,8 @@ import {
   VIBE_CLIP_WEB_TOAST_UNSUPPORTED,
 } from "../../../shared/chat/vibeClipCaptureCopy";
 import { capturePromptForSeed } from "../../../shared/chat/vibeClipPrompts";
+import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
+import { durationBucketFromSeconds } from "../../../shared/chat/vibeClipAnalytics";
 
 interface VideoMessageRecorderProps {
   onRecordingComplete: (videoBlob: Blob, duration: number) => void;
@@ -144,12 +146,16 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     recorder.start(100);
     setIsRecording(true);
     setDuration(0);
+    trackVibeClipEvent("clip_record_started", {
+      capture_source: "web_recorder",
+      is_sender: true,
+    });
 
     timerRef.current = setInterval(() => {
       setDuration((prev) => {
         const next = prev + 1;
         durationRef.current = next;
-        if (next >= MAX_DURATION) {
+        if (next >= VIBE_CLIP_MAX_DURATION_SEC) {
           stopRecording();
         }
         return next;
@@ -163,6 +169,11 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      trackVibeClipEvent("clip_record_completed", {
+        capture_source: "web_recorder",
+        duration_bucket: durationBucketFromSeconds(durationRef.current),
+        is_sender: true,
+      });
       mediaRecorderRef.current.stop();
     }
     if (timerRef.current) clearInterval(timerRef.current);

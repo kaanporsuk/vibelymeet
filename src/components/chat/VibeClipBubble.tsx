@@ -17,6 +17,9 @@ import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
 import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
 import { compactReactionLabel } from "../../../shared/chat/messageReactionModel";
 import { replyPromptForContext } from "../../../shared/chat/vibeClipPrompts";
+import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateComposerLaunch";
+import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
+import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -53,6 +56,8 @@ export const VibeClipBubble = ({
   const [loadError, setLoadError] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [showReactBar, setShowReactBar] = useState(false);
+  const playStartTracked = useRef(false);
+  const playCompleteTracked = useRef(false);
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
@@ -77,6 +82,8 @@ export const VibeClipBubble = ({
     setIsReady(false);
     setHasMetadata(false);
     setLoadError(false);
+    playStartTracked.current = false;
+    playCompleteTracked.current = false;
   }, [meta.videoUrl]);
 
   useEffect(() => {
@@ -111,6 +118,15 @@ export const VibeClipBubble = ({
       video.play().then(() => {
         setIsPlaying(true);
         setHasPlayed(true);
+        if (!playStartTracked.current) {
+          playStartTracked.current = true;
+          trackVibeClipEvent("clip_play_started", {
+            thread_bucket: threadBucketFromCount(threadMessageCount),
+            is_sender: isMine,
+            duration_bucket: durationBucketFromSeconds(meta.durationSec),
+            has_poster: !!meta.thumbnailUrl,
+          });
+        }
       }).catch((err: unknown) => {
         const name = err instanceof Error ? err.name : "";
         if (name === "AbortError" || name === "NotAllowedError" || name === "NotSupportedError") {
@@ -149,7 +165,16 @@ export const VibeClipBubble = ({
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setCurrentTime(0);
-  }, []);
+    if (!playCompleteTracked.current) {
+      playCompleteTracked.current = true;
+      trackVibeClipEvent("clip_play_completed", {
+        thread_bucket: threadBucketFromCount(threadMessageCount),
+        is_sender: isMine,
+        duration_bucket: durationBucketFromSeconds(meta.durationSec),
+        has_poster: !!meta.thumbnailUrl,
+      });
+    }
+  }, [isMine, meta.durationSec, meta.thumbnailUrl, threadMessageCount]);
 
   const progress = meta.durationSec > 0 ? (currentTime / meta.durationSec) * 100 : 0;
   const clipAspectRatio =
@@ -304,7 +329,18 @@ export const VibeClipBubble = ({
               {onReplyWithClip && (
                 <button
                   type="button"
-                  onClick={onReplyWithClip}
+                  onClick={() => {
+                    trackVibeClipEvent("clip_reply_with_clip_clicked", {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    trackVibeClipEvent("clip_entry_opened", {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_sender: true,
+                      launched_from: "clip_context",
+                    });
+                    onReplyWithClip();
+                  }}
                   className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
                 >
                   <Film className="w-3 h-3" />
@@ -314,7 +350,13 @@ export const VibeClipBubble = ({
               {onVoiceReply && (
                 <button
                   type="button"
-                  onClick={onVoiceReply}
+                  onClick={() => {
+                    trackVibeClipEvent("clip_voice_reply_clicked", {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    onVoiceReply();
+                  }}
                   className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
                 >
                   <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -333,7 +375,14 @@ export const VibeClipBubble = ({
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <button
                     type="button"
-                    onClick={onSuggestDate}
+                    onClick={() => {
+                      trackVibeClipEvent("clip_date_cta_clicked", {
+                        thread_bucket: threadBucketFromCount(threadMessageCount),
+                        is_receiver: true,
+                        launched_from: "clip_context",
+                      });
+                      onSuggestDate();
+                    }}
                     className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/35 bg-rose-500/12 px-2.5 py-1.5 text-[10px] font-semibold text-rose-100/95 shadow-sm hover:bg-rose-500/20 transition-colors text-left"
                   >
                     <CalendarPlus className="w-3.5 h-3.5 shrink-0 text-rose-300" />
@@ -347,7 +396,13 @@ export const VibeClipBubble = ({
               {onReactionPick && (
                 <button
                   type="button"
-                  onClick={() => setShowReactBar(true)}
+                  onClick={() => {
+                    trackVibeClipEvent("clip_react_clicked", {
+                      thread_bucket: threadBucketFromCount(threadMessageCount),
+                      is_receiver: true,
+                    });
+                    setShowReactBar(true);
+                  }}
                   className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground/90 hover:text-foreground/90 transition-colors pb-0.5"
                 >
                   <Heart className="w-3 h-3 shrink-0 opacity-75" />
