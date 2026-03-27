@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
@@ -47,6 +47,10 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
   }, [player]);
 
   const showActions = hasPlayed && !isMine && (!!onReplyWithClip || !!onVoiceReply);
+  const cardAspectRatio =
+    typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
+      ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
+      : 9 / 16;
 
   if (hasError) {
     return (
@@ -78,7 +82,10 @@ export function VibeClipCard({ meta, isMine, onReplyWithClip, onVoiceReply }: Pr
       </View>
 
       {/* Video surface */}
-      <View style={styles.videoWrap}>
+      <View style={[styles.videoWrap, { aspectRatio: cardAspectRatio }]}>
+        {meta.thumbnailUrl && !isReady && (
+          <Image source={{ uri: meta.thumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        )}
         <VideoView style={styles.video} player={player} nativeControls contentFit="cover" />
 
         {!isReady && (
@@ -159,7 +166,6 @@ const styles = StyleSheet.create({
   },
   videoWrap: {
     width: '100%',
-    aspectRatio: 9 / 16,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
   video: {

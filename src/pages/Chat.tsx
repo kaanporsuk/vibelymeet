@@ -657,7 +657,7 @@ const Chat = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const videoUrl = await uploadChatVideoToBunny(
+      const uploaded = await uploadChatVideoToBunny(
         videoBlob,
         session.access_token,
         chatData.matchId
@@ -668,9 +668,11 @@ const Chat = () => {
       publishVibeClip.mutate(
         {
           matchId: chatData.matchId,
-          videoUrl,
+          videoUrl: uploaded.videoUrl,
           durationMs: Math.round(duration * 1000),
           clientRequestId,
+          thumbnailUrl: uploaded.thumbnailUrl,
+          aspectRatio: uploaded.aspectRatio,
         },
         {
           onSuccess: () => toast.success("Vibe Clip sent!"),

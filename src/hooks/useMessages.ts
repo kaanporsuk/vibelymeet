@@ -145,6 +145,7 @@ export const usePublishVibeClip = () => {
       durationMs: number;
       clientRequestId: string;
       thumbnailUrl?: string | null;
+      aspectRatio?: number | null;
     }) => {
       const body: Record<string, unknown> = {
         match_id: params.matchId,
@@ -154,6 +155,9 @@ export const usePublishVibeClip = () => {
         client_request_id: params.clientRequestId,
       };
       if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
+      if (typeof params.aspectRatio === "number" && Number.isFinite(params.aspectRatio) && params.aspectRatio > 0) {
+        body.aspect_ratio = params.aspectRatio;
+      }
 
       const { data, error } = await supabase.functions.invoke("send-message", { body });
       if (error) {

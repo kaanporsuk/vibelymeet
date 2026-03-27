@@ -21,9 +21,10 @@ export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
  * Canonical structured_payload shape for vibe_clip messages (v2).
  * Stored in `messages.structured_payload` when `message_kind = 'vibe_clip'`.
  *
- * Thumbnail reality: Bunny Storage does not generate thumbnails. When
- * `thumbnail_url` is null, renderers should extract a poster from the
- * video element's first frame (`poster_source: "first_frame"`).
+ * Thumbnail reality: chat upload pipeline may include a caller-generated
+ * thumbnail uploaded to Bunny (`poster_source: "uploaded_thumbnail"`).
+ * Older rows can still have `thumbnail_url = null`, where renderers should
+ * fall back to first-frame poster extraction (`poster_source: "first_frame"`).
  */
 export interface VibeClipPayload {
   v: 2;
@@ -31,6 +32,8 @@ export interface VibeClipPayload {
   client_request_id: string;
   duration_ms: number;
   thumbnail_url: string | null;
+  poster_source: "uploaded_thumbnail" | "first_frame";
+  aspect_ratio: number | null;
   processing_status: "ready";
   upload_provider: "bunny";
 }
@@ -44,6 +47,8 @@ export interface VibeClipDisplayMeta {
   durationMs: number;
   durationLabel: string;
   thumbnailUrl: string | null;
+  posterSource: "uploaded_thumbnail" | "first_frame";
+  aspectRatio: number | null;
   processingStatus: "ready";
 }
 
@@ -71,6 +76,11 @@ export function extractVibeClipMeta(row: {
     durationSec,
     durationLabel: `${mins}:${secs.toString().padStart(2, "0")}`,
     thumbnailUrl: typeof sp?.thumbnail_url === "string" && sp.thumbnail_url ? sp.thumbnail_url : null,
+    posterSource: sp?.poster_source === "uploaded_thumbnail" ? "uploaded_thumbnail" : "first_frame",
+    aspectRatio:
+      typeof sp?.aspect_ratio === "number" && Number.isFinite(sp.aspect_ratio) && sp.aspect_ratio > 0
+        ? sp.aspect_ratio
+        : null,
     processingStatus: "ready",
   };
 }

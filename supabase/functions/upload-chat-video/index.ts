@@ -36,7 +36,9 @@ serve(async (req) => {
 
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    const thumbnailFile = formData.get("thumbnail") as File | null;
     const matchId = formData.get("match_id") as string | null;
+    const aspectRatioRaw = formData.get("aspect_ratio");
 
     if (!file) {
       return new Response(
@@ -99,6 +101,7 @@ serve(async (req) => {
     const ext = extMap[baseType] ?? "webm";
     const timestamp = Date.now();
     const storagePath = `chat-videos/${matchId.trim()}/${user.id}_${timestamp}.${ext}`;
+    let thumbnailPath: string | null = null;
 
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
@@ -125,11 +128,64 @@ serve(async (req) => {
       );
     }
 
+    if (thumbnailFile) {
+      const thumbBaseType = thumbnailFile.type.split(";")[0].trim();
+      const allowedThumbTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+      if (!allowedThumbTypes.includes(thumbBaseType)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Invalid thumbnail type." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (thumbnailFile.size > 2 * 1024 * 1024) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Thumbnail too large. Maximum 2MB." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const thumbExtMap: Record<string, string> = {
+        "image/jpeg": "jpg",
+        "image/jpg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+      };
+      const thumbExt = thumbExtMap[thumbBaseType] ?? "jpg";
+      thumbnailPath = `chat-videos/${matchId.trim()}/${user.id}_${timestamp}_thumb.${thumbExt}`;
+      const thumbBuffer = await thumbnailFile.arrayBuffer();
+      const thumbUploadRes = await fetch(
+        `https://storage.bunnycdn.com/${storageZone}/${thumbnailPath}`,
+        {
+          method: "PUT",
+          headers: {
+            "AccessKey": apiKey,
+            "Content-Type": thumbBaseType,
+          },
+          body: thumbBuffer,
+        }
+      );
+      if (!thumbUploadRes.ok) {
+        const thumbErr = await thumbUploadRes.text();
+        console.error("[upload-chat-video] Bunny thumbnail upload failed:", thumbUploadRes.status, thumbErr);
+      }
+    }
+
     const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
     const videoUrl = `https://${cdnHostname}/${storagePath}`;
+    const thumbnailUrl = thumbnailPath ? `https://${cdnHostname}/${thumbnailPath}` : null;
+    const aspectRatioNum = typeof aspectRatioRaw === "string" ? Number.parseFloat(aspectRatioRaw) : NaN;
+    const aspectRatio =
+      Number.isFinite(aspectRatioNum) && aspectRatioNum > 0 ? aspectRatioNum : null;
 
     return new Response(
-      JSON.stringify({ success: true, url: videoUrl }),
+      JSON.stringify({
+        success: true,
+        url: videoUrl,
+        thumbnail_url: thumbnailUrl,
+        poster_source: thumbnailUrl ? "uploaded_thumbnail" : "first_frame",
+        aspect_ratio: aspectRatio,
+        processing_status: "ready",
+        upload_provider: "bunny",
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

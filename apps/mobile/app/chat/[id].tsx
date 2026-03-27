@@ -93,7 +93,7 @@ const MEDIA_CARD_MIN_WIDTH = 164;
 type LocalMediaSendPayload =
   | { kind: 'image'; uri: string; mimeType: string }
   | { kind: 'voice'; uri: string; durationSeconds: number }
-  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string };
+  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string; aspectRatio?: number };
 
 type LocalMediaSendState = 'sending' | 'failed' | 'sent';
 
@@ -623,6 +623,10 @@ export default function ChatThreadScreen() {
           uri: stable,
           durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
           mimeType: asset.mimeType ?? undefined,
+          aspectRatio:
+            typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
+              ? asset.width / asset.height
+              : undefined,
         },
       });
     } catch (e) {
@@ -658,6 +662,10 @@ export default function ChatThreadScreen() {
           uri: stable,
           durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
           mimeType: asset.mimeType ?? 'video/mp4',
+          aspectRatio:
+            typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
+              ? asset.width / asset.height
+              : undefined,
         },
       });
     } catch (e) {

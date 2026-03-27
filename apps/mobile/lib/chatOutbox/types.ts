@@ -11,7 +11,7 @@ export type ChatOutboxPayload =
   | { kind: 'text'; text: string }
   | { kind: 'image'; uri: string; mimeType: string }
   | { kind: 'voice'; uri: string; durationSeconds: number }
-  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string };
+  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string; aspectRatio?: number };
 
 export type ChatOutboxItem = {
   /** UUID — `structured_payload.client_request_id` + durable idempotency key */
