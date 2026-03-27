@@ -17,7 +17,7 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 | **Voice** | `upload-voice` | `message_kind: "voice"`, `audio_url`, `audio_duration_seconds`, **`client_request_id` (UUID, required)** |
 | **Vibe Clip** | `upload-chat-video` | `message_kind: "vibe_clip"`, `video_url`, `duration_ms`, `client_request_id`, optional `thumbnail_url` / `aspect_ratio` |
 
-**Clients must not** `insert` into `public.messages` for voice or Vibe Clip.
+**Clients must not** `insert` into `public.messages` for voice, Vibe Clip, or **new** legacy generic video (use `send-message` / `vibe_clip` only).
 
 **Idempotency:** Voice and Vibe Clip use `structured_payload.client_request_id` (and the partial unique index on `(match_id, client_request_id)` for non–`vibe_game` rows). Retries must reuse the same UUID.
 
@@ -32,7 +32,7 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 **Policy (this sprint):**
 
 - **Read:** Keep render support (`VideoMessageBubble` on web, native video path) for **existing** rows.
-- **Write:** **No active client path** may create **new** legacy generic-video rows. New video must be **`vibe_clip`** via `send-message`.
+- **Write:** **No client path** may create **new** legacy generic-video rows (removed: native `insertChatVideoMessageRow` / `useSendChatVideoMessage`). New video must be **`vibe_clip`** via `send-message` / outbox `invokePublishVibeClip`.
 - **Data migration:** Not in scope; do not bulk-rewrite historical rows without a dedicated migration + QA plan.
 - **Future deprecation:** Removing renderers requires either migrating old rows to `vibe_clip` or accepting broken display for legacy data.
 
@@ -62,6 +62,7 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 
 - `insertVoiceMessageRow` — direct `messages.insert`; **replaced by** `invokePublishVoiceMessage`.
 - `useSendVoiceMessage` — unused hook wrapping the old insert; **replaced by** outbox + `invokePublishVoiceMessage` on native, **`usePublishVoiceMessage`** on web.
+- `insertChatVideoMessageRow` / `useSendChatVideoMessage` — client `messages.insert` for generic video; **removed**; new video is **`invokePublishVibeClip`** only.
 
 ---
 
