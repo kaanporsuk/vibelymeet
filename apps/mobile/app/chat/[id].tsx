@@ -69,6 +69,8 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
 import { inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
+import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
+import { VibeClipCard } from '@/components/chat/VibeClipCard';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
@@ -954,7 +956,26 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    if ((mediaKind === 'video' || mediaKind === 'vibe_clip') && item.video_url) {
+    if (mediaKind === 'vibe_clip' && item.video_url) {
+      const clipMeta = extractVibeClipMeta({
+        video_url: item.video_url,
+        video_duration_seconds: item.video_duration_seconds,
+        structured_payload: item.structuredPayload as Record<string, unknown> | null,
+        message_kind: item.messageKind,
+      });
+      if (clipMeta) {
+        return (
+          <View style={styles.mediaContentWrap}>
+            <VibeClipCard meta={clipMeta} isMine={isMe} />
+            <View style={styles.mediaMetaBlock}>
+              {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
+              {statusOrTime}
+            </View>
+          </View>
+        );
+      }
+    }
+    if ((mediaKind === 'video' || (mediaKind === 'vibe_clip' && item.video_url)) && item.video_url) {
       return (
         <View style={styles.mediaContentWrap}>
           <ChatVideoCard

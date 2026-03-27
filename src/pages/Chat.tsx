@@ -21,8 +21,10 @@ import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
+import { VibeClipBubble } from "@/components/chat/VibeClipBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import { inferChatMediaRenderKind, parseChatImageMessageContent } from "@/lib/chatMessageContent";
+import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -77,6 +79,55 @@ interface ChatMessage {
 }
 
 type TextMessage = ChatMessage & { type: "text" };
+
+function VibeClipMessageRow({ message, otherUser }: {
+  message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
+  otherUser: { avatar_url: string | null } | null;
+}) {
+  const clipMeta = extractVibeClipMeta({
+    video_url: message.videoUrl,
+    video_duration_seconds: message.videoDuration,
+    structured_payload: (message.structuredPayload as Record<string, unknown>) ?? null,
+    message_kind: "vibe_clip",
+  });
+  return (
+    <div
+      className={cn(
+        "flex items-end gap-2",
+        message.sender === "me" ? "justify-end" : "justify-start",
+        message.isFirstInGroup ? "mt-3" : "mt-0.5"
+      )}
+    >
+      {message.sender !== "me" && (
+        <div className="w-7 shrink-0">
+          {message.showAvatar && otherUser?.avatar_url && (
+            <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
+          )}
+        </div>
+      )}
+      <div>
+        {clipMeta ? (
+          <VibeClipBubble meta={clipMeta} isMine={message.sender === "me"} />
+        ) : (
+          <VideoMessageBubble
+            videoUrl={message.videoUrl}
+            duration={message.videoDuration || 0}
+            isMine={message.sender === "me"}
+          />
+        )}
+        {message.isLastInGroup && (
+          <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+            <MessageStatus
+              status={message.status || "delivered"}
+              time={message.time}
+              isMyMessage={message.sender === "me"}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const Chat = () => {
   const navigate = useNavigate();
@@ -203,6 +254,7 @@ const Chat = () => {
         audioDuration: m.audioDuration,
         videoUrl: m.videoUrl,
         videoDuration: m.videoDuration,
+        structuredPayload: m.structuredPayload ?? undefined,
         status: "delivered" as MessageStatusType,
       };
     });
@@ -771,7 +823,9 @@ const Chat = () => {
                     })()}
                   </div>
                 </div>
-              ) : message.type === "video" || message.type === "vibe_clip" ? (
+              ) : message.type === "vibe_clip" ? (
+                <VibeClipMessageRow key={message.id} message={message} otherUser={otherUser} />
+              ) : message.type === "video" ? (
                 <div
                   key={message.id}
                   className={cn(

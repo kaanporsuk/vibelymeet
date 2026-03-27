@@ -20,6 +20,10 @@ export const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
 /**
  * Canonical structured_payload shape for vibe_clip messages (v2).
  * Stored in `messages.structured_payload` when `message_kind = 'vibe_clip'`.
+ *
+ * Thumbnail reality: Bunny Storage does not generate thumbnails. When
+ * `thumbnail_url` is null, renderers should extract a poster from the
+ * video element's first frame (`poster_source: "first_frame"`).
  */
 export interface VibeClipPayload {
   v: 2;
@@ -32,6 +36,44 @@ export interface VibeClipPayload {
 }
 
 export const VIBE_CLIP_CONTENT_LABEL = "🎬 Vibe Clip";
+
+/** Display-level metadata extracted from a vibe_clip message row. */
+export interface VibeClipDisplayMeta {
+  videoUrl: string;
+  durationSec: number;
+  durationMs: number;
+  durationLabel: string;
+  thumbnailUrl: string | null;
+  processingStatus: "ready";
+}
+
+/**
+ * Extract canonical Vibe Clip display metadata from a message row.
+ * Returns null if the row does not represent a valid vibe_clip.
+ */
+export function extractVibeClipMeta(row: {
+  video_url?: string | null;
+  video_duration_seconds?: number | null;
+  structured_payload?: Record<string, unknown> | null;
+  message_kind?: string | null;
+}): VibeClipDisplayMeta | null {
+  if (row.message_kind !== "vibe_clip" || !row.video_url) return null;
+
+  const sp = row.structured_payload as Partial<VibeClipPayload> | null | undefined;
+  const durationMs = typeof sp?.duration_ms === "number" ? sp.duration_ms : (row.video_duration_seconds ?? 0) * 1000;
+  const durationSec = Math.max(0, Math.round(durationMs / 1000));
+  const mins = Math.floor(durationSec / 60);
+  const secs = durationSec % 60;
+
+  return {
+    videoUrl: row.video_url,
+    durationMs,
+    durationSec,
+    durationLabel: `${mins}:${secs.toString().padStart(2, "0")}`,
+    thumbnailUrl: typeof sp?.thumbnail_url === "string" && sp.thumbnail_url ? sp.thumbnail_url : null,
+    processingStatus: "ready",
+  };
+}
 
 /** Returns image URL when this text should render as a photo bubble. */
 export function parseChatImageMessageContent(content: string): string | null {
