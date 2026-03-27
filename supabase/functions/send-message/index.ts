@@ -6,6 +6,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s.trim(),
+  );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -29,7 +35,12 @@ serve(async (req) => {
     });
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { match_id, content } = await req.json();
+    const body = await req.json();
+    const match_id = body?.match_id as string | undefined;
+    const content = body?.content as string | undefined;
+    const rawClientId = body?.client_request_id as string | undefined;
+    const clientRequestId =
+      typeof rawClientId === "string" && rawClientId.trim().length > 0 ? rawClientId.trim() : "";
 
     if (!match_id || typeof content !== "string" || !content.trim()) {
       return new Response(
@@ -47,7 +58,6 @@ serve(async (req) => {
     }
     const actorId = userRes.user.id;
 
-    // Load match and validate participation server-side
     const { data: match, error: matchError } = await serviceClient
       .from("matches")
       .select("id, profile_id_1, profile_id_2")
@@ -68,13 +78,38 @@ serve(async (req) => {
       );
     }
 
-    // Idempotency: check for a very recent identical message from this actor
-    const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
     const trimmed = content.trim();
 
-    const { data: existing } = await serviceClient
+    const selectCols =
+      "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, structured_payload";
+
+    // Durable idempotency: same client_request_id + match + sender → return existing row
+    if (clientRequestId && isUuid(clientRequestId)) {
+      const { data: existingByClient } = await serviceClient
+        .from("messages")
+        .select(selectCols)
+        .eq("match_id", match_id)
+        .eq("sender_id", actorId)
+        .contains("structured_payload", { client_request_id: clientRequestId })
+        .maybeSingle();
+
+      if (existingByClient) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            idempotent: true,
+            message: existingByClient,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
+    // Short-window idempotency (legacy): identical content within 5s
+    const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
+    const { data: existingRecent } = await serviceClient
       .from("messages")
-      .select("id, match_id, sender_id, content, created_at")
+      .select(selectCols)
       .eq("match_id", match_id)
       .eq("sender_id", actorId)
       .eq("content", trimmed)
@@ -83,23 +118,46 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    let messageRow: any = existing;
+    let messageRow: any = existingRecent;
     let idempotent = false;
 
     if (!messageRow) {
+      const insertRow: Record<string, unknown> = {
+        match_id,
+        sender_id: actorId,
+        content: trimmed,
+      };
+      if (clientRequestId && isUuid(clientRequestId)) {
+        insertRow.structured_payload = { client_request_id: clientRequestId, v: 1 };
+      }
+
       const { data: inserted, error: insertError } = await serviceClient
         .from("messages")
-        .insert({
-          match_id,
-          sender_id: actorId,
-          content: trimmed,
-        })
-        .select(
-          "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds",
-        )
+        .insert(insertRow)
+        .select(selectCols)
         .single();
 
       if (insertError || !inserted) {
+        const code = (insertError as { code?: string })?.code;
+        if (code === "23505" && clientRequestId && isUuid(clientRequestId)) {
+          const { data: afterConflict } = await serviceClient
+            .from("messages")
+            .select(selectCols)
+            .eq("match_id", match_id)
+            .eq("sender_id", actorId)
+            .contains("structured_payload", { client_request_id: clientRequestId })
+            .maybeSingle();
+          if (afterConflict) {
+            return new Response(
+              JSON.stringify({
+                success: true,
+                idempotent: true,
+                message: afterConflict,
+              }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
         console.error("send-message insert error:", insertError);
         return new Response(
           JSON.stringify({ success: false, error: "insert_failed" }),
@@ -112,11 +170,9 @@ serve(async (req) => {
       idempotent = true;
     }
 
-    // Determine recipient
     const recipientId =
       match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
 
-    // Only send notification for non-idempotent inserts
     if (!idempotent) {
       try {
         const { data: senderProfile } = await serviceClient
@@ -135,7 +191,6 @@ serve(async (req) => {
             category: "messages",
             title: senderProfile?.name || "New message",
             body: preview,
-            // Web + native /chat/:id both use the other user's profile_id (sender), not match_id
             data: {
               url: `/chat/${actorId}`,
               match_id,
@@ -164,4 +219,3 @@ serve(async (req) => {
     );
   }
 });
-
