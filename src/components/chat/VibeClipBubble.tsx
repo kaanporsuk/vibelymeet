@@ -16,6 +16,7 @@ import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
 import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
 import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
 import { compactReactionLabel } from "../../../shared/chat/messageReactionModel";
+import { replyPromptForContext } from "../../../shared/chat/vibeClipPrompts";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -27,6 +28,8 @@ interface VibeClipBubbleProps {
   onReactionPick?: (emoji: ReactionEmoji) => void;
   /** Persisted reactions for this clip (both participants in 1:1). */
   reactionPair?: ReactionPair | null;
+  threadMessageCount?: number;
+  sparkMessageId?: string;
 }
 
 export const VibeClipBubble = ({
@@ -37,6 +40,8 @@ export const VibeClipBubble = ({
   onSuggestDate,
   onReactionPick,
   reactionPair,
+  threadMessageCount = 0,
+  sparkMessageId,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -52,6 +57,10 @@ export const VibeClipBubble = ({
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
   const reactionSummary = compactReactionLabel(reactionPair ?? null);
+  const replySpark =
+    hasPlayed && !isMine && (hasPrimary || hasSecondary) && sparkMessageId
+      ? replyPromptForContext(threadMessageCount, sparkMessageId)
+      : null;
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -285,6 +294,11 @@ export const VibeClipBubble = ({
       {/* After-play: primary (reply) + secondary (date / react) — received clips only */}
       {hasPlayed && !isMine && (hasPrimary || hasSecondary) && (
         <div className="border-t border-violet-500/15">
+          {replySpark ? (
+            <p className="text-[10px] leading-snug text-muted-foreground/90 px-2.5 pt-2 pb-0.5">
+              {replySpark}
+            </p>
+          ) : null}
           {hasPrimary && (
             <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2">
               {onReplyWithClip && (

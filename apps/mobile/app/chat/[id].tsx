@@ -1018,6 +1018,8 @@ export default function ChatThreadScreen() {
               meta={clipMeta}
               isMine={isMe}
               reactionPair={pair}
+              threadMessageCount={displayMessages.length}
+              sparkMessageId={item.id}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
               onVoiceReply={isMe ? undefined : () => armVoiceReply()}
               onSuggestDate={isMe ? undefined : () => openDateComposer({ mode: 'new' })}
@@ -1668,6 +1670,7 @@ export default function ChatThreadScreen() {
           void pickVideoFromLibrary();
         }}
         disabled={isSending}
+        promptSeed={data?.matchId ?? otherUserId ?? ''}
       />
 
       {data?.matchId ? (

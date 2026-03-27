@@ -7,6 +7,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting';
 import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
 import { compactReactionLabel } from '../../../../shared/chat/messageReactionModel';
+import { replyPromptForContext } from '../../../../shared/chat/vibeClipPrompts';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -18,6 +19,9 @@ type Props = {
   /** Secondary: opens existing reaction picker for this message. */
   onReact?: () => void;
   reactionPair?: ReactionPair | null;
+  /** For optional reply spark copy (received clips). */
+  threadMessageCount?: number;
+  sparkMessageId?: string;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
@@ -32,6 +36,8 @@ export function VibeClipCard({
   onSuggestDate,
   onReact,
   reactionPair,
+  threadMessageCount = 0,
+  sparkMessageId,
 }: Props) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
@@ -66,6 +72,10 @@ export function VibeClipCard({
   const hasSecondary = !!onSuggestDate || !!onReact;
   const showActions = hasPlayed && !isMine && (hasPrimary || hasSecondary);
   const reactionSummary = compactReactionLabel(reactionPair ?? null);
+  const replySpark =
+    showActions && sparkMessageId
+      ? replyPromptForContext(threadMessageCount, sparkMessageId)
+      : null;
   const cardAspectRatio =
     typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
@@ -118,6 +128,11 @@ export function VibeClipCard({
 
       {showActions && (
         <View style={styles.actionsBlock}>
+          {replySpark ? (
+            <Text style={[styles.sparkLine, { color: theme.textSecondary }]} accessibilityRole="text">
+              {replySpark}
+            </Text>
+          ) : null}
           {hasPrimary ? (
             <View style={styles.primaryRow}>
               {onReplyWithClip && (
@@ -241,6 +256,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     fontVariant: ['tabular-nums'],
+  },
+  sparkLine: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 2,
+    opacity: 0.92,
   },
   actionsBlock: {
     borderTopWidth: StyleSheet.hairlineWidth,

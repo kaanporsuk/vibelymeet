@@ -1,7 +1,7 @@
 /**
  * Branded entry for Vibe Clip capture — replaces plain Alert for record vs library.
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -16,6 +16,7 @@ import {
   VIBE_CLIP_SHEET_SUBTITLE,
   VIBE_CLIP_SHEET_TITLE,
 } from '../../../../shared/chat/vibeClipCaptureCopy';
+import { capturePromptForSeed } from '../../../../shared/chat/vibeClipPrompts';
 
 type Props = {
   visible: boolean;
@@ -23,6 +24,8 @@ type Props = {
   onRecord: () => void;
   onChooseLibrary: () => void;
   disabled?: boolean;
+  /** Stabilizes rotating capture ideas (e.g. match id). */
+  promptSeed?: string;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
@@ -34,8 +37,15 @@ export function VibeClipSendOptionsSheet({
   onRecord,
   onChooseLibrary,
   disabled,
+  promptSeed,
 }: Props) {
   const theme = Colors[useColorScheme()];
+  const [captureSpark, setCaptureSpark] = useState('');
+
+  useEffect(() => {
+    if (!visible) return;
+    setCaptureSpark(capturePromptForSeed(`${promptSeed ?? 'vibe'}|${Date.now()}`));
+  }, [visible, promptSeed]);
 
   return (
     <KeyboardAwareBottomSheetModal
@@ -53,6 +63,11 @@ export function VibeClipSendOptionsSheet({
         </View>
         <Text style={[styles.title, { color: theme.text }]}>{VIBE_CLIP_SHEET_TITLE}</Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>{VIBE_CLIP_SHEET_SUBTITLE}</Text>
+        {captureSpark ? (
+          <Text style={[styles.sparkLine, { color: theme.textSecondary }]} accessibilityRole="text">
+            {captureSpark}
+          </Text>
+        ) : null}
 
         <Pressable
           disabled={disabled}
@@ -138,7 +153,13 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     lineHeight: 20,
+    marginBottom: spacing.sm,
+  },
+  sparkLine: {
+    fontSize: 13,
+    lineHeight: 18,
     marginBottom: spacing.lg,
+    opacity: 0.92,
   },
   primaryBtn: {
     flexDirection: 'row',

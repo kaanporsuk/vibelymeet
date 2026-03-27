@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, SwitchCamera, Film, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -13,13 +13,16 @@ import {
   VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC,
   VIBE_CLIP_WEB_TOAST_UNSUPPORTED,
 } from "../../../shared/chat/vibeClipCaptureCopy";
+import { capturePromptForSeed } from "../../../shared/chat/vibeClipPrompts";
 
 interface VideoMessageRecorderProps {
   onRecordingComplete: (videoBlob: Blob, duration: number) => void;
   onCancel: () => void;
+  /** Rotating capture idea; e.g. match id from chat. */
+  promptSeed?: string;
 }
 
-const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRecorderProps) => {
+const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: VideoMessageRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [duration, setDuration] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
@@ -32,6 +35,13 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const durationRef = useRef(0);
   const mimeTypeRef = useRef("");
+
+  const captureSpark = useMemo(
+    () => capturePromptForSeed(`${promptSeed ?? 'web'}|${Date.now()}`),
+    // New spark each time the recorder opens (component mounts).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   useEffect(() => {
     navigator.mediaDevices
@@ -284,6 +294,9 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
             </div>
             <p className="text-center text-xs text-white/70 max-w-[17rem] leading-relaxed">
               {VIBE_CLIP_RECORDER_IDLE_HINT}
+            </p>
+            <p className="text-center text-[11px] text-white/55 max-w-[18rem] mt-2 leading-snug">
+              {captureSpark}
             </p>
           </div>
         )}
