@@ -81,6 +81,18 @@ import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
 import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
+import {
+  VIBE_CLIP_MAX_DURATION_SEC,
+  VIBE_CLIP_OUTBOX_FAILED,
+  VIBE_CLIP_OUTBOX_QUEUED,
+  VIBE_CLIP_OUTBOX_SENDING,
+  VIBE_CLIP_OUTBOX_WAITING_NET,
+  VIBE_CLIP_PERM_CAMERA_MESSAGE,
+  VIBE_CLIP_PERM_CAMERA_TITLE,
+  VIBE_CLIP_PERM_LIBRARY_MESSAGE,
+  VIBE_CLIP_PERM_LIBRARY_TITLE,
+} from '../../../../shared/chat/vibeClipCaptureCopy';
+import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -147,10 +159,10 @@ function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendSt
 function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, payloadKind?: string): string | null {
   if (!phase) return null;
   const isClip = payloadKind === 'video';
-  if (phase === 'queued') return isClip ? 'Clip queued…' : 'Queued…';
-  if (phase === 'waiting_for_network') return 'Waiting for network…';
-  if (phase === 'sending' || phase === 'awaiting_hydration') return isClip ? 'Sending Vibe Clip…' : 'Sending…';
-  if (phase === 'failed') return isClip ? 'Clip failed to send' : 'Failed to send';
+  if (phase === 'queued') return isClip ? VIBE_CLIP_OUTBOX_QUEUED : 'Queued…';
+  if (phase === 'waiting_for_network') return isClip ? VIBE_CLIP_OUTBOX_WAITING_NET : 'Waiting for network…';
+  if (phase === 'sending' || phase === 'awaiting_hydration') return isClip ? VIBE_CLIP_OUTBOX_SENDING : 'Sending…';
+  if (phase === 'failed') return isClip ? VIBE_CLIP_OUTBOX_FAILED : 'Failed to send';
   return null;
 }
 
@@ -629,13 +641,13 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your media library to send a Vibe Clip.');
+        Alert.alert(VIBE_CLIP_PERM_LIBRARY_TITLE, VIBE_CLIP_PERM_LIBRARY_MESSAGE);
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.7,
-        videoMaxDuration: 120,
+        videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -658,7 +670,7 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not attach video.';
       setVideoError(msg);
-      Alert.alert('Error', msg);
+      Alert.alert('Vibe Clip', msg);
     }
   };
 
@@ -669,12 +681,12 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow camera access to record a Vibe Clip.');
+        Alert.alert(VIBE_CLIP_PERM_CAMERA_TITLE, VIBE_CLIP_PERM_CAMERA_MESSAGE);
         return;
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        videoMaxDuration: 120,
+        videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -697,16 +709,12 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not record video.';
       setVideoError(msg);
-      Alert.alert('Video message', msg);
+      Alert.alert('Vibe Clip', msg);
     }
   };
 
   const openVideoMessageOptions = () => {
-    Alert.alert('Vibe Clip', 'Record a clip or choose one to send.', [
-      { text: 'Record a Vibe Clip', onPress: () => void recordVideoWithCamera() },
-      { text: 'Choose from library', onPress: () => void pickVideoFromLibrary() },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    setShowVibeClipSendSheet(true);
   };
 
   const uploadPhotoUriAndSend = async (uri: string, mimeType?: string | null) => {
@@ -1564,7 +1572,7 @@ export default function ChatThreadScreen() {
             style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
             onPress={() => openVideoMessageOptions()}
             disabled={isSending}
-            accessibilityLabel="Send a Vibe Clip"
+            accessibilityLabel="Vibe Clip — record or choose a clip"
           >
             {sendingVideo ? (
               <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
@@ -1655,6 +1663,20 @@ export default function ChatThreadScreen() {
           !!reactionPickerMessageId &&
           (displayMessages.find((m) => m.id === reactionPickerMessageId)?.sender === 'me')
         }
+      />
+
+      <VibeClipSendOptionsSheet
+        visible={showVibeClipSendSheet}
+        onClose={() => setShowVibeClipSendSheet(false)}
+        onRecord={() => {
+          setShowVibeClipSendSheet(false);
+          void recordVideoWithCamera();
+        }}
+        onChooseLibrary={() => {
+          setShowVibeClipSendSheet(false);
+          void pickVideoFromLibrary();
+        }}
+        disabled={isSending}
       />
 
       {data?.matchId ? (
