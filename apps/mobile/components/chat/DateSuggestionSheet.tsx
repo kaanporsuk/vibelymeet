@@ -34,6 +34,11 @@ import { slotDateBlockToStartsAt } from '@/lib/dateSuggestionTime';
 import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import type { DateSuggestionRevisionRow } from '@/lib/useDateSuggestionData';
+import {
+  CLIP_DATE_COMPOSER_PILL,
+  CLIP_DATE_COMPOSER_SUBCOPY,
+  type DateComposerLaunchSource,
+} from '../../../../shared/dateSuggestions/dateComposerLaunch';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
 
@@ -133,6 +138,8 @@ type Props = {
   draftSuggestionId?: string | null;
   draftFromParent?: { wizard?: Partial<WizardState>; step?: number } | null;
   counterContext?: CounterCtx | null;
+  /** Client-only; does not change persisted suggestion payload. */
+  launchSource?: DateComposerLaunchSource;
   onSuccess?: () => void;
 };
 
@@ -146,6 +153,7 @@ export function DateSuggestionSheet({
   draftSuggestionId,
   draftFromParent,
   counterContext,
+  launchSource = 'default',
   onSuccess,
 }: Props) {
   const theme = Colors[useColorScheme()];
@@ -656,6 +664,20 @@ export function DateSuggestionSheet({
         <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
           {counterContext ? 'Counter proposal' : `Suggest a date with ${partnerName}`}
         </VibelyText>
+        {launchSource === 'vibe_clip' && !counterContext ? (
+          <View
+            style={[
+              styles.clipBridgeBanner,
+              { borderColor: 'rgba(244,63,94,0.28)', backgroundColor: 'rgba(244,63,94,0.07)' },
+            ]}
+          >
+            <View style={styles.clipBridgePill}>
+              <Ionicons name="sparkles" size={12} color="rgba(254,205,211,0.95)" />
+              <Text style={styles.clipBridgePillText}>{CLIP_DATE_COMPOSER_PILL}</Text>
+            </View>
+            <Text style={[styles.clipBridgeSub, { color: theme.textSecondary }]}>{CLIP_DATE_COMPOSER_SUBCOPY}</Text>
+          </View>
+        ) : null}
         {stepContent}
       </KeyboardAwareBottomSheetModal>
       <Modal visible={iosPickOpen} transparent animationType="fade" onRequestClose={() => setIosPickOpen(false)}>
@@ -705,6 +727,35 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   title: { marginBottom: spacing.md },
+  clipBridgeBanner: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
+  },
+  clipBridgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(244,63,94,0.16)',
+  },
+  clipBridgePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    color: 'rgba(254,205,211,0.95)',
+    textTransform: 'uppercase',
+  },
+  clipBridgeSub: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
   stepDots: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.md, alignItems: 'center', gap: 4 },
   stepDot: { fontSize: 11 },
   grid2: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

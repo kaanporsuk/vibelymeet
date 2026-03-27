@@ -50,6 +50,7 @@ import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
+import type { DateComposerLaunchSource } from "../../shared/dateSuggestions/dateComposerLaunch";
 import { matchHasOpenDateSuggestion } from "../../shared/dateSuggestions/openStatus";
 import {
   VIBE_CLIP_CHAT_FILM_BUTTON_TITLE,
@@ -184,6 +185,8 @@ const Chat = () => {
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
   const [showDateComposer, setShowDateComposer] = useState(false);
+  const [dateComposerLaunchSource, setDateComposerLaunchSource] =
+    useState<DateComposerLaunchSource>("default");
   const [composerDraftId, setComposerDraftId] = useState<string | null>(null);
   const [composerDraftPayload, setComposerDraftPayload] = useState<Record<string, unknown> | null>(null);
   const [composerCounter, setComposerCounter] = useState<{
@@ -617,8 +620,10 @@ const Chat = () => {
         suggestionId: string;
         previousRevision: DateSuggestionWithRelations["revisions"][0];
       };
+      launchFrom?: DateComposerLaunchSource;
     }) => {
       if (opts.mode === "counter" && opts.counter) {
+        setDateComposerLaunchSource("default");
         setComposerCounter({
           suggestionId: opts.counter.suggestionId,
           previousRevision: opts.counter.previousRevision,
@@ -626,6 +631,7 @@ const Chat = () => {
         setComposerDraftId(null);
         setComposerDraftPayload(null);
       } else if (opts.mode === "editDraft" && opts.draftId) {
+        setDateComposerLaunchSource("default");
         setComposerDraftId(opts.draftId);
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
@@ -639,6 +645,7 @@ const Chat = () => {
         setComposerCounter(null);
         setComposerDraftId(null);
         setComposerDraftPayload(null);
+        setDateComposerLaunchSource(opts.launchFrom ?? "default");
       }
       setShowDateComposer(true);
     },
@@ -650,6 +657,7 @@ const Chat = () => {
     setComposerCounter(null);
     setComposerDraftId(null);
     setComposerDraftPayload(null);
+    setDateComposerLaunchSource("default");
   }, []);
 
   const onDateSuggestionUpdated = useCallback(() => {
@@ -885,7 +893,9 @@ const Chat = () => {
                   threadMessageCount={displayMessages.length}
                   onReplyWithClip={() => setIsRecordingVideo(true)}
                   onVoiceReply={() => scrollToBottom()}
-                  onSuggestDate={() => handleOpenDateComposer({ mode: "new" })}
+                  onSuggestDate={() =>
+                    handleOpenDateComposer({ mode: "new", launchFrom: "vibe_clip" })
+                  }
                   onReactionPick={(emoji) => handleReaction(message.id, emoji)}
                 />
               ) : message.type === "video" ? (
@@ -1088,6 +1098,7 @@ const Chat = () => {
                   setComposerCounter(null);
                   setComposerDraftId(null);
                   setComposerDraftPayload(null);
+                  setDateComposerLaunchSource("default");
                   setShowDateComposer(true);
                 }}
                 className="hidden xs:flex w-9 h-9 rounded-full bg-rose-500/15 items-center justify-center text-rose-500 hover:bg-rose-500/25 transition-colors"
@@ -1189,6 +1200,7 @@ const Chat = () => {
             void refetchDateSuggestions();
             queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
           }}
+          launchSource={dateComposerLaunchSource}
         />
       )}
 
