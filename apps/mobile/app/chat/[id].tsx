@@ -68,16 +68,9 @@ import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
 import { inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
-import {
-  enqueueChatOutboxImage,
-  enqueueChatOutboxText,
-  enqueueChatOutboxVideo,
-  enqueueChatOutboxVoice,
-  cancelChatOutboxItem,
-  retryChatOutboxItem,
-} from '@/lib/chatOutbox/actions';
-import { useChatOutboxMatch } from '@/lib/chatOutbox/useChatOutbox';
-import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
+import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
+import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
+import { copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -97,7 +90,7 @@ type LocalMediaSendPayload =
   | { kind: 'voice'; uri: string; durationSeconds: number }
   | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string };
 
-type LocalMediaSendState = 'queued' | 'sending' | 'failed';
+type LocalMediaSendState = 'sending' | 'failed' | 'sent';
 
 type LocalMediaMeta = {
   localId: string;
@@ -106,10 +99,13 @@ type LocalMediaMeta = {
   payload: LocalMediaSendPayload;
   errorMessage?: string;
   serverMessageId?: string;
+  /** When row is driven by durable outbox */
+  outboxItemId?: string;
+  outboxPhase?: ChatOutboxQueueState;
 };
 
 type LocalMediaChatMessage = ChatMessage & { localMedia: LocalMediaMeta };
-type LocalTextSendState = 'queued' | 'sending' | 'failed';
+type LocalTextSendState = 'sending' | 'failed' | 'sent';
 
 type LocalTextMeta = {
   localId: string;
@@ -118,6 +114,8 @@ type LocalTextMeta = {
   payload: { text: string };
   errorMessage?: string;
   serverMessageId?: string;
+  outboxItemId?: string;
+  outboxPhase?: ChatOutboxQueueState;
 };
 
 type LocalTextChatMessage = ChatMessage & { localText: LocalTextMeta };
@@ -131,15 +129,101 @@ function isLocalTextMessage(message: ThreadMessage): message is LocalTextChatMes
   return typeof message === 'object' && message !== null && 'localText' in message;
 }
 
-function getLocalCreatedAtMs(message: LocalMediaChatMessage | LocalTextChatMessage): number {
-  return isLocalMediaMessage(message) ? message.localMedia.createdAtMs : message.localText.createdAtMs;
+function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendState | LocalMediaSendState {
+  if (state === 'failed') return 'failed';
+  return 'sending';
 }
 
-function outboxLocalState(item: ChatOutboxItem): 'queued' | 'sending' | 'failed' | null {
-  if (item.state === 'failed') return 'failed';
-  if (item.state === 'sending' || item.state === 'awaiting_hydration') return 'sending';
-  if (item.state === 'queued' || item.state === 'waiting_for_network') return 'queued';
+function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined): string | null {
+  if (!phase) return null;
+  if (phase === 'queued') return 'Queued…';
+  if (phase === 'waiting_for_network') return 'Waiting for network…';
+  if (phase === 'sending' || phase === 'awaiting_hydration') return 'Sending…';
+  if (phase === 'failed') return 'Failed to send';
   return null;
+}
+
+function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
+  const id = `outbox-${item.id}`;
+  const time = new Date(item.createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const ls = mapOutboxToLocalSendState(item.state);
+  const phase = item.state;
+  const baseMeta = {
+    outboxItemId: item.id,
+    outboxPhase: phase,
+    errorMessage: item.lastError,
+    serverMessageId: item.serverMessageId,
+  };
+
+  if (item.payload.kind === 'text') {
+    const localText: LocalTextMeta = {
+      localId: id,
+      createdAtMs: item.createdAtMs,
+      state: ls as LocalTextSendState,
+      payload: { text: item.payload.text },
+      ...baseMeta,
+    };
+    return {
+      id,
+      text: item.payload.text,
+      sender: 'me',
+      time,
+      sortAtMs: item.createdAtMs,
+      status: 'sending',
+      localText,
+    };
+  }
+
+  const p = item.payload;
+  const localMedia: LocalMediaMeta = {
+    localId: id,
+    createdAtMs: item.createdAtMs,
+    state: ls as LocalMediaSendState,
+    payload: p,
+    ...baseMeta,
+  };
+
+  if (p.kind === 'voice') {
+    return {
+      id,
+      text: '🎤 Voice message',
+      sender: 'me',
+      time,
+      sortAtMs: item.createdAtMs,
+      status: 'sending',
+      audio_url: p.uri,
+      audio_duration_seconds: Math.round(p.durationSeconds),
+      localMedia,
+    };
+  }
+  if (p.kind === 'video') {
+    return {
+      id,
+      text: '📹 Video message',
+      sender: 'me',
+      time,
+      sortAtMs: item.createdAtMs,
+      status: 'sending',
+      video_url: p.uri,
+      video_duration_seconds: Math.round(p.durationSeconds),
+      localMedia,
+    };
+  }
+  return {
+    id,
+    text: 'Photo',
+    sender: 'me',
+    time,
+    sortAtMs: item.createdAtMs,
+    status: 'sending',
+    localMedia,
+  };
+}
+
+function threadSortKey(m: ThreadMessage): number {
+  if (isLocalTextMessage(m)) return m.localText.createdAtMs;
+  if (isLocalMediaMessage(m)) return m.localMedia.createdAtMs;
+  return m.sortAtMs ?? 0;
 }
 
 function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
@@ -232,9 +316,9 @@ export default function ChatThreadScreen() {
   const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
   const { data: matches = [] } = useMatches(user?.id);
   const queryClient = useQueryClient();
+  const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(data?.matchId);
-  const outboxItems = useChatOutboxMatch(data?.matchId ?? null);
 
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -269,106 +353,41 @@ export default function ChatThreadScreen() {
   const [videoError, setVideoError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
-  const isSending = sendingPhoto;
 
-  const localOutgoingMessages = useMemo<Array<LocalMediaChatMessage | LocalTextChatMessage>>(() => {
-    if (!user?.id) return [];
-    return outboxItems
-      .map((item) => {
-        const localState = outboxLocalState(item);
-        if (!localState) return null;
-        const time = new Date(item.createdAtMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        if (item.kind === 'text' && item.payload.kind === 'text') {
-          const msg: LocalTextChatMessage = {
-            id: item.id,
-            text: item.payload.text,
-            sender: 'me',
-            time,
-            status: 'sending',
-            localText: {
-              localId: item.id,
-              createdAtMs: item.createdAtMs,
-              state: localState,
-              payload: { text: item.payload.text },
-              errorMessage: item.lastError ?? undefined,
-              serverMessageId: item.serverMessageId ?? undefined,
-            },
-          };
-          return msg;
-        }
-        if (item.kind === 'image' && item.payload.kind === 'image') {
-          const msg: LocalMediaChatMessage = {
-            id: item.id,
-            text: 'Photo',
-            sender: 'me',
-            time,
-            status: 'sending',
-            localMedia: {
-              localId: item.id,
-              createdAtMs: item.createdAtMs,
-              state: localState,
-              payload: { kind: 'image', uri: item.payload.uri, mimeType: item.payload.mimeType },
-              errorMessage: item.lastError ?? undefined,
-              serverMessageId: item.serverMessageId ?? undefined,
-            },
-          };
-          return msg;
-        }
-        if (item.kind === 'voice' && item.payload.kind === 'voice') {
-          const msg: LocalMediaChatMessage = {
-            id: item.id,
-            text: '🎤 Voice message',
-            sender: 'me',
-            time,
-            status: 'sending',
-            audio_url: item.payload.uri,
-            audio_duration_seconds: Math.round(item.payload.durationSeconds),
-            localMedia: {
-              localId: item.id,
-              createdAtMs: item.createdAtMs,
-              state: localState,
-              payload: { kind: 'voice', uri: item.payload.uri, durationSeconds: item.payload.durationSeconds },
-              errorMessage: item.lastError ?? undefined,
-              serverMessageId: item.serverMessageId ?? undefined,
-            },
-          };
-          return msg;
-        }
-        if (item.kind === 'video' && item.payload.kind === 'video') {
-          const msg: LocalMediaChatMessage = {
-            id: item.id,
-            text: '📹 Video message',
-            sender: 'me',
-            time,
-            status: 'sending',
-            video_url: item.payload.uri,
-            video_duration_seconds: Math.round(item.payload.durationSeconds),
-            localMedia: {
-              localId: item.id,
-              createdAtMs: item.createdAtMs,
-              state: localState,
-              payload: {
-                kind: 'video',
-                uri: item.payload.uri,
-                durationSeconds: item.payload.durationSeconds,
-                mimeType: item.payload.mimeType,
-              },
-              errorMessage: item.lastError ?? undefined,
-              serverMessageId: item.serverMessageId ?? undefined,
-            },
-          };
-          return msg;
-        }
-        return null;
-      })
-      .filter((m): m is LocalMediaChatMessage | LocalTextChatMessage => m !== null)
-      .sort((a, b) => getLocalCreatedAtMs(a) - getLocalCreatedAtMs(b));
-  }, [outboxItems, user?.id]);
+  const outboxForMatch = useMemo(() => {
+    if (!data?.matchId) return [];
+    return itemsForMatch(data.matchId);
+  }, [data?.matchId, itemsForMatch]);
 
-  const threadMessages = useMemo<ThreadMessage[]>(
-    () => [...(data?.messages ?? []), ...localOutgoingMessages],
-    [data?.messages, localOutgoingMessages]
+  useEffect(() => {
+    const ids = new Set((data?.messages ?? []).map((m) => m.id));
+    reconcileWithServerIds(ids);
+  }, [data?.messages, reconcileWithServerIds]);
+
+  const outboxThreadMessages = useMemo<ThreadMessage[]>(
+    () => outboxForMatch.map(outboxItemToThreadMessage),
+    [outboxForMatch]
   );
+
+  const threadMessages = useMemo<ThreadMessage[]>(() => {
+    const server = data?.messages ?? [];
+    const merged = [...server, ...outboxThreadMessages];
+    return merged.sort((a, b) => threadSortKey(a) - threadSortKey(b));
+  }, [data?.messages, outboxThreadMessages]);
+
+  const outboxBusy = useMemo(
+    () => outboxForMatch.some((i) => i.state === 'sending'),
+    [outboxForMatch]
+  );
+  const sendingVideo = useMemo(
+    () => outboxForMatch.some((i) => i.state === 'sending' && i.payload.kind === 'video'),
+    [outboxForMatch]
+  );
+  const sendingVoice = useMemo(
+    () => outboxForMatch.some((i) => i.state === 'sending' && i.payload.kind === 'voice'),
+    [outboxForMatch]
+  );
+  const isSending = sendingPhoto || outboxBusy || recording;
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId<ThreadMessage>(threadMessages, {
@@ -491,14 +510,18 @@ export default function ChatThreadScreen() {
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || !data?.matchId || isSending) return;
+    if (!text || !data?.matchId || !user?.id || isSending) return;
+    void enqueue({
+      matchId: data.matchId,
+      otherUserId: otherUserId ?? '',
+      payload: { kind: 'text', text },
+    });
     setInput('');
     setIsTyping(false);
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
     }
-    void enqueueChatOutboxText({ matchId: data.matchId, senderId: user?.id ?? '', text });
   };
 
   const startVoiceRecording = async () => {
@@ -535,11 +558,11 @@ export default function ChatThreadScreen() {
       const recAny = audioRecorder as { currentTime?: number };
       const fromRecorder = typeof recAny.currentTime === 'number' ? recAny.currentTime : 0;
       const durationSec = Math.max(1, Math.round(elapsed > 0.3 ? elapsed : fromRecorder > 0 ? fromRecorder : 1));
-      await enqueueChatOutboxVoice({
+      const stable = await copyUriToChatOutboxCache(uri, extForPayload('voice'));
+      void enqueue({
         matchId: data.matchId,
-        senderId: user.id,
-        uri,
-        durationSeconds: durationSec,
+        otherUserId: otherUserId ?? '',
+        payload: { kind: 'voice', uri: stable, durationSeconds: durationSec },
       });
     } catch (e) {
       Alert.alert('Voice message failed', e instanceof Error ? e.message : 'Please try again.');
@@ -571,12 +594,16 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
-      await enqueueChatOutboxVideo({
+      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? undefined));
+      void enqueue({
         matchId: data.matchId,
-        senderId: user.id,
-        uri: asset.uri,
-        durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
-        mimeType: asset.mimeType ?? 'video/mp4',
+        otherUserId: otherUserId ?? '',
+        payload: {
+          kind: 'video',
+          uri: stable,
+          durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+          mimeType: asset.mimeType ?? undefined,
+        },
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not attach video.';
@@ -602,12 +629,16 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
       const durationSec = asset.duration ?? 0;
-      await enqueueChatOutboxVideo({
+      const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? 'video/mp4'));
+      void enqueue({
         matchId: data.matchId,
-        senderId: user.id,
-        uri: asset.uri,
-        durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
-        mimeType: asset.mimeType ?? 'video/mp4',
+        otherUserId: otherUserId ?? '',
+        payload: {
+          kind: 'video',
+          uri: stable,
+          durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+          mimeType: asset.mimeType ?? 'video/mp4',
+        },
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not record video.';
@@ -628,11 +659,12 @@ export default function ChatThreadScreen() {
     if (!data?.matchId || !user?.id) return;
     try {
       setSendingPhoto(true);
-      await enqueueChatOutboxImage({
+      const ext = extForPayload('image', mimeType ?? undefined);
+      const stable = await copyUriToChatOutboxCache(uri, ext);
+      void enqueue({
         matchId: data.matchId,
-        senderId: user.id,
-        uri,
-        mimeType: mimeType ?? 'image/jpeg',
+        otherUserId: otherUserId ?? '',
+        payload: { kind: 'image', uri: stable, mimeType: mimeType ?? 'image/jpeg' },
       });
     } catch (e) {
       Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
@@ -845,37 +877,38 @@ export default function ChatThreadScreen() {
       videoUrl: item.video_url,
     });
     const localSendState = localMedia?.state ?? localText?.state ?? null;
+    const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
+    const outboxItemId = localMedia?.outboxItemId ?? localText?.outboxItemId;
+    const outboxPrimary =
+      outboxFooterPrimaryLabel(outboxPhase) ??
+      (localSendState === 'sending'
+        ? 'Sending…'
+        : localSendState === 'failed'
+          ? 'Failed to send'
+          : item.time);
+    const outboxSendingLocked =
+      outboxPhase === 'sending' || outboxPhase === 'awaiting_hydration';
     const localSendFooter = isMe && localSendState ? (
       <View style={[styles.localSendRow, localSendState === 'failed' ? styles.localSendRowFailed : null]}>
         <Text style={[styles.localSendText, { color: localSendState === 'failed' ? theme.danger : timeColor }]}>
-          {localSendState === 'queued'
-            ? 'Queued…'
-            : localSendState === 'sending'
-              ? 'Sending…'
-              : localSendState === 'failed'
-                ? 'Failed to send'
-                : item.time}
+          {outboxPrimary}
         </Text>
-        {localSendState === 'failed' ? (
+        {localSendState === 'failed' && outboxItemId ? (
           <View style={styles.localSendActionsRow}>
             <Pressable
-              onPress={() => {
-                retryChatOutboxItem(item.id);
-              }}
-              disabled={false}
+              onPress={() => retry(outboxItemId)}
+              disabled={outboxSendingLocked}
               style={({ pressed }) => [styles.retryActionBtn, pressed ? { opacity: 0.75 } : null]}
             >
               <Text style={[styles.retryActionText, { color: theme.tint }]}>
-                {'Retry'}
+                {outboxSendingLocked ? 'Retrying…' : 'Retry'}
               </Text>
             </Pressable>
             <Pressable
-              onPress={() => cancelChatOutboxItem(item.id)}
+              onPress={() => remove(outboxItemId)}
               style={({ pressed }) => [styles.retryActionBtn, pressed ? { opacity: 0.75 } : null]}
             >
-              <Text style={[styles.retryActionText, { color: theme.textSecondary }]}>
-                {localText ? 'Dismiss' : 'Remove'}
-              </Text>
+              <Text style={[styles.retryActionText, { color: theme.textSecondary }]}>Remove</Text>
             </Pressable>
           </View>
         ) : null}
@@ -1435,7 +1468,11 @@ export default function ChatThreadScreen() {
             disabled={isSending}
             accessibilityLabel="Video message: record or choose from library"
           >
-            <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
+            {sendingVideo ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : (
+              <Ionicons name="videocam-outline" size={20} color={theme.textSecondary} />
+            )}
           </Pressable>
           <TextInput
             style={[
@@ -1460,7 +1497,9 @@ export default function ChatThreadScreen() {
             disabled={isSending && !recording}
             accessibilityLabel="Voice message"
           >
-            {recording ? (
+            {sendingVoice ? (
+              <ActivityIndicator size="small" color={theme.tint} />
+            ) : recording ? (
               <Ionicons name="stop" size={20} color={theme.danger} />
             ) : (
               <Ionicons name="mic-outline" size={20} color={theme.textSecondary} />

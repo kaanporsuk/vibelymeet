@@ -195,6 +195,8 @@ export type ChatMessage = {
   text: string;
   sender: 'me' | 'them';
   time: string;
+  /** Epoch ms from `created_at` — for deterministic merge ordering with local/outbox rows */
+  sortAtMs?: number;
   audio_url?: string | null;
   audio_duration_seconds?: number | null;
   video_url?: string | null;
@@ -268,6 +270,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           text: m.content,
           sender: (m.sender_id === currentUserId ? 'me' : 'them') as 'me' | 'them',
           time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          sortAtMs: new Date(m.created_at).getTime(),
           audio_url: m.audio_url ?? undefined,
           audio_duration_seconds: m.audio_duration_seconds ?? undefined,
           video_url: m.video_url ?? undefined,
@@ -318,17 +321,36 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
   });
 }
 
+export async function invokeSendMessageEdge(params: {
+  matchId: string;
+  content: string;
+  clientRequestId?: string;
+}): Promise<unknown> {
+  const { matchId, content, clientRequestId } = params;
+  const body: Record<string, string> = { match_id: matchId, content: content.trim() };
+  if (clientRequestId?.trim()) {
+    body.client_request_id = clientRequestId.trim();
+  }
+  const { data, error } = await supabase.functions.invoke('send-message', { body });
+  if (error) throw error;
+  const payload = data as { success?: boolean; message?: unknown; error?: string };
+  if (!payload?.success) throw new Error(payload?.error || 'Send failed');
+  return payload.message;
+}
+
 export function useSendMessage() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ matchId, content }: { matchId: string; content: string }) => {
-      const { data, error } = await supabase.functions.invoke('send-message', {
-        body: { match_id: matchId, content: content.trim() },
-      });
-      if (error) throw error;
-      const payload = data as { success?: boolean; message?: unknown };
-      if (!payload?.success) throw new Error((payload as { error?: string })?.error || 'Send failed');
-      return payload.message;
+    mutationFn: async ({
+      matchId,
+      content,
+      clientRequestId,
+    }: {
+      matchId: string;
+      content: string;
+      clientRequestId?: string;
+    }) => {
+      return invokeSendMessageEdge({ matchId, content, clientRequestId });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] });
@@ -458,6 +480,46 @@ export function useTypingBroadcast(
 }
 
 /** Send voice message: upload via upload-voice EF then insert (same as web). */
+export async function insertVoiceMessageRow(params: {
+  matchId: string;
+  currentUserId: string;
+  audioUrl: string;
+  durationSeconds: number;
+  clientRequestId?: string;
+}) {
+  const { matchId, currentUserId, audioUrl, durationSeconds, clientRequestId } = params;
+  const row: Record<string, unknown> = {
+    match_id: matchId,
+    sender_id: currentUserId,
+    content: '🎤 Voice message',
+    audio_url: audioUrl,
+    audio_duration_seconds: Math.round(durationSeconds),
+  };
+  if (clientRequestId?.trim()) {
+    row.structured_payload = { client_request_id: clientRequestId.trim(), v: 1 };
+  }
+  const { data, error } = await supabase
+    .from('messages')
+    .insert(row)
+    .select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds')
+    .single();
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (code === '23505' && clientRequestId?.trim()) {
+      const { data: existing } = await supabase
+        .from('messages')
+        .select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds')
+        .eq('match_id', matchId)
+        .eq('sender_id', currentUserId)
+        .contains('structured_payload', { client_request_id: clientRequestId.trim() })
+        .maybeSingle();
+      if (existing) return existing;
+    }
+    throw error;
+  }
+  return data;
+}
+
 export function useSendVoiceMessage() {
   const qc = useQueryClient();
   return useMutation({
@@ -466,22 +528,22 @@ export function useSendVoiceMessage() {
       audioUri,
       durationSeconds,
       currentUserId,
+      clientRequestId,
     }: {
       matchId: string;
       audioUri: string;
       durationSeconds: number;
       currentUserId: string;
+      clientRequestId?: string;
     }) => {
       const audioUrl = await uploadVoiceMessage(audioUri, matchId);
-      const { data, error } = await supabase.from('messages').insert({
-        match_id: matchId,
-        sender_id: currentUserId,
-        content: '🎤 Voice message',
-        audio_url: audioUrl,
-        audio_duration_seconds: Math.round(durationSeconds),
-      }).select('id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds').single();
-      if (error) throw error;
-      return data;
+      return insertVoiceMessageRow({
+        matchId,
+        currentUserId,
+        audioUrl,
+        durationSeconds,
+        clientRequestId,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] });
@@ -491,6 +553,46 @@ export function useSendVoiceMessage() {
 }
 
 /** Send chat video message: upload via upload-chat-video EF then insert (same as web). */
+export async function insertChatVideoMessageRow(params: {
+  matchId: string;
+  currentUserId: string;
+  videoUrl: string;
+  durationSeconds: number;
+  clientRequestId?: string;
+}) {
+  const { matchId, currentUserId, videoUrl, durationSeconds, clientRequestId } = params;
+  const row: Record<string, unknown> = {
+    match_id: matchId,
+    sender_id: currentUserId,
+    content: '📹 Video message',
+    video_url: videoUrl,
+    video_duration_seconds: Math.round(durationSeconds),
+  };
+  if (clientRequestId?.trim()) {
+    row.structured_payload = { client_request_id: clientRequestId.trim(), v: 1 };
+  }
+  const { data, error } = await supabase
+    .from('messages')
+    .insert(row)
+    .select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds')
+    .single();
+  if (error) {
+    const code = (error as { code?: string }).code;
+    if (code === '23505' && clientRequestId?.trim()) {
+      const { data: existing } = await supabase
+        .from('messages')
+        .select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds')
+        .eq('match_id', matchId)
+        .eq('sender_id', currentUserId)
+        .contains('structured_payload', { client_request_id: clientRequestId.trim() })
+        .maybeSingle();
+      if (existing) return existing;
+    }
+    throw error;
+  }
+  return data;
+}
+
 export function useSendChatVideoMessage() {
   const qc = useQueryClient();
   return useMutation({
@@ -500,23 +602,23 @@ export function useSendChatVideoMessage() {
       durationSeconds,
       currentUserId,
       mimeType,
+      clientRequestId,
     }: {
       matchId: string;
       videoUri: string;
       durationSeconds: number;
       currentUserId: string;
       mimeType?: string;
+      clientRequestId?: string;
     }) => {
       const videoUrl = await uploadChatVideoMessage(videoUri, matchId, mimeType ?? 'video/mp4');
-      const { data, error } = await supabase.from('messages').insert({
-        match_id: matchId,
-        sender_id: currentUserId,
-        content: '📹 Video message',
-        video_url: videoUrl,
-        video_duration_seconds: Math.round(durationSeconds),
-      }).select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds').single();
-      if (error) throw error;
-      return data;
+      return insertChatVideoMessageRow({
+        matchId,
+        currentUserId,
+        videoUrl,
+        durationSeconds,
+        clientRequestId,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] });

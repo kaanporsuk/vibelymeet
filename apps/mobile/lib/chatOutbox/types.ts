@@ -1,6 +1,4 @@
-export type ChatOutboxKind = 'text' | 'image' | 'voice' | 'video';
-
-export type ChatOutboxState =
+export type ChatOutboxQueueState =
   | 'queued'
   | 'waiting_for_network'
   | 'sending'
@@ -13,30 +11,23 @@ export type ChatOutboxPayload =
   | { kind: 'text'; text: string }
   | { kind: 'image'; uri: string; mimeType: string }
   | { kind: 'voice'; uri: string; durationSeconds: number }
-  | { kind: 'video'; uri: string; durationSeconds: number; mimeType: string };
+  | { kind: 'video'; uri: string; durationSeconds: number; mimeType?: string };
 
 export type ChatOutboxItem = {
-  /** Durable id for the queue item (UUID string). */
+  /** UUID — `structured_payload.client_request_id` + durable idempotency key */
   id: string;
   matchId: string;
-  senderId: string;
-  kind: ChatOutboxKind;
-  /** Client idempotency token (UUID string). */
-  clientRequestId: string;
+  otherUserId: string;
+  userId: string;
+  payload: ChatOutboxPayload;
+  state: ChatOutboxQueueState;
   createdAtMs: number;
   updatedAtMs: number;
-  state: ChatOutboxState;
   attemptCount: number;
-  nextRetryAtMs: number | null;
-  lastError: string | null;
-  /** Set after successful insert (or idempotent resolve). */
-  serverMessageId: string | null;
-  payload: ChatOutboxPayload;
+  lastError?: string;
+  nextRetryAtMs?: number;
+  /** Set after server accepts the send */
+  serverMessageId?: string;
+  /** After image upload succeeds (retry skips re-upload) */
+  uploadedPublicUrl?: string;
 };
-
-export type ChatOutboxSnapshot = {
-  userId: string | null;
-  items: ChatOutboxItem[];
-  initialized: boolean;
-};
-

@@ -1,66 +1,32 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
-function safeExtFromMime(mimeType: string): string {
-  const mt = mimeType.toLowerCase();
-  if (mt.includes('png')) return 'png';
-  if (mt.includes('webp')) return 'webp';
-  if (mt.includes('heic') || mt.includes('heif')) return 'heic';
-  if (mt.includes('quicktime')) return 'mov';
-  if (mt.includes('m4v')) return 'm4v';
-  if (mt.includes('mp4')) return 'mp4';
-  if (mt.includes('m4a')) return 'm4a';
-  if (mt.includes('aac')) return 'aac';
-  if (mt.includes('wav')) return 'wav';
-  return '';
-}
-
-function safeExtFromUri(uri: string): string {
-  const pathOnly = uri.split('?')[0].split('#')[0];
-  const last = pathOnly.split('/').pop() ?? '';
-  const dot = last.lastIndexOf('.');
-  if (dot < 0 || dot === last.length - 1) return '';
-  return last.slice(dot + 1).toLowerCase();
-}
-
-export async function copyChatOutboxMediaToCache(params: {
-  queueItemId: string;
-  kind: 'image' | 'voice' | 'video';
-  uri: string;
-  mimeType?: string | null;
-}): Promise<{ cachedUri: string; copied: boolean }> {
-  const cacheRoot = FileSystem.cacheDirectory;
-  if (!cacheRoot) {
-    return { cachedUri: params.uri, copied: false };
-  }
-
-  const ext =
-    (params.mimeType ? safeExtFromMime(params.mimeType) : '') ||
-    safeExtFromUri(params.uri) ||
-    (params.kind === 'voice' ? 'm4a' : params.kind === 'video' ? 'mp4' : 'jpg');
-
-  const dest = `${cacheRoot}chat-outbox-${params.queueItemId}.${ext}`;
-
+/**
+ * Copy picker/recorder URIs into the app cache so queue retries survive process restarts
+ * when the original temp URI is no longer valid.
+ */
+export async function copyUriToChatOutboxCache(uri: string, ext: string): Promise<string> {
+  const trimmed = uri.trim();
+  if (!trimmed) return uri;
+  const root = FileSystem.cacheDirectory;
+  if (!root) return trimmed;
+  const safeExt = ext.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin';
+  const dest = `${root}chat-outbox-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${safeExt}`;
   try {
-    // Fast-path: if already exists, reuse.
-    const info = await FileSystem.getInfoAsync(dest);
-    if (info.exists) return { cachedUri: dest, copied: false };
-
-    await FileSystem.copyAsync({ from: params.uri, to: dest });
-    return { cachedUri: dest, copied: true };
+    await FileSystem.copyAsync({ from: trimmed, to: dest });
+    return dest;
   } catch {
-    // Fallback to original URI (best-effort). This may not survive restarts for some URI schemes.
-    return { cachedUri: params.uri, copied: false };
+    return trimmed;
   }
 }
 
-export async function deleteChatOutboxCachedMedia(uri: string): Promise<void> {
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    if (info.exists) {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    }
-  } catch {
-    // ignore
+export function extForPayload(kind: 'image' | 'voice' | 'video', mime?: string): string {
+  if (kind === 'voice') return 'm4a';
+  if (kind === 'video') {
+    if (mime?.includes('quicktime') || mime?.includes('mov')) return 'mov';
+    return 'mp4';
   }
+  if (mime?.includes('png')) return 'png';
+  if (mime?.includes('webp')) return 'webp';
+  if (mime?.includes('heic') || mime?.includes('heif')) return 'heic';
+  return 'jpg';
 }
-

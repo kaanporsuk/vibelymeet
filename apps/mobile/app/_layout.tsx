@@ -35,7 +35,8 @@ import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
-import { ChatOutboxRunner } from '@/lib/chatOutbox/runner';
+import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
+import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -220,14 +221,15 @@ function RootLayoutNav() {
   const navContent = (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <ChatOutboxProvider>
         <PushRegistration />
         <NotificationRouteTracker />
         <NotificationDeepLinkHandler />
         <NotificationPauseForeground />
         <DeactivatedAccountReactivationPrompt />
         <ActivityHeartbeat />
-        <ChatOutboxRunner />
         <BadgeCountUpdater />
+        <ChatOutboxRunner />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
             {POSTHOG_ENABLED ? (
@@ -241,6 +243,7 @@ function RootLayoutNav() {
           </View>
           <OfflineBanner />
         </View>
+        </ChatOutboxProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
