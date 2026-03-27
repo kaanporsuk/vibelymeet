@@ -45,7 +45,7 @@ import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator"
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useMessageReactions } from "@/hooks/useMessageReactions";
-import { useMessages, useSendMessage, usePublishVibeClip } from "@/hooks/useMessages";
+import { useMessages, useSendMessage, usePublishVibeClip, usePublishVoiceMessage } from "@/hooks/useMessages";
 import { setMessageReaction } from "@/lib/messageReactions";
 import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from "../../shared/chat/messageReactionModel";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
@@ -180,6 +180,7 @@ const Chat = () => {
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
   const { mutate: sendMessage } = useSendMessage();
   const publishVibeClip = usePublishVibeClip();
+  const publishVoiceMessage = usePublishVoiceMessage();
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
@@ -699,15 +700,12 @@ const Chat = () => {
         chatData.matchId
       );
 
-      const { error: msgError } = await supabase.from("messages").insert({
-        match_id: chatData.matchId,
-        sender_id: user.id,
-        content: "🎤 Voice message",
-        audio_url: audioUrl,
-        audio_duration_seconds: Math.round(duration),
+      await publishVoiceMessage.mutateAsync({
+        matchId: chatData.matchId,
+        audioUrl,
+        durationSeconds: duration,
+        clientRequestId: crypto.randomUUID(),
       });
-
-      if (msgError) throw msgError;
     } catch (err) {
       console.error("Voice message error:", err);
       toast.error("Failed to send voice message");

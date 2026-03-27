@@ -1,7 +1,8 @@
 /**
  * Chat media upload: upload-voice and upload-chat-video Edge Functions.
  * Same contract as web (voiceUploadService, chatVideoUploadService).
- * Returns CDN URL to store in messages.audio_url or messages.video_url.
+ * After upload, voice and Vibe Clip rows are persisted only via `send-message`
+ * (`invokePublishVoiceMessage`, `invokePublishVibeClip`), not client `messages.insert`.
  */
 
 import { supabase } from '@/lib/supabase';

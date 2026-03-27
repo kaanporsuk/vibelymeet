@@ -380,13 +380,13 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Rebuild notes:** keep `daily_drop_transition` and this wrapper in sync; notifications are only sent for non-terminal, non-idempotent transitions to avoid duplicate sends on retry/race
 
 ### `send-message` (Stream 2E)
-- **Purpose:** inserts chat messages on behalf of the authenticated user and couples the write with server-owned `"messages"` notifications
+- **Purpose:** inserts chat messages on behalf of the authenticated user and couples the write with server-owned `"messages"` notifications. Supports **text/image** (`content`), **`message_kind: vibe_clip`** (after `upload-chat-video`), and **`message_kind: voice`** (after `upload-voice`); voice and Vibe Clip require UUID `client_request_id` for durable idempotency.
 - **Auth posture:** Class C — `verify_jwt = true`; determines sender from JWT and validates membership in the match
-- **Frontend call sites:** `src/hooks/useMessages.ts` (`useSendMessage`)
+- **Frontend call sites:** `src/hooks/useMessages.ts` (`useSendMessage`, `usePublishVibeClip`, `usePublishVoiceMessage`); native `apps/mobile/lib/chatApi.ts` (`invokeSendMessageEdge`, `invokePublishVibeClip`, `invokePublishVoiceMessage`)
 - **Primary tables touched:** `matches`, `messages`, plus `notification_log` indirectly via `send-notification`
 - **External services:** OneSignal (indirectly via `send-notification`)
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** performs a short-window idempotency check (same sender, match, content within 5s) to avoid duplicate sends on retries
+- **Rebuild notes:** text path keeps short-window idempotency (same sender, match, content within 5s). Voice/Vibe Clip use `structured_payload.client_request_id` + partial unique index. DB must allow `message_kind = 'voice'` (migration `20260330100000_messages_message_kind_voice.sql`). Operative chat-media doc: `docs/chat-video-vibe-clip-architecture.md`.
 
 ### `swipe-actions` (Stream 2E)
 - **Purpose:** wraps the `handle_swipe` RPC and couples core swipe/match outcomes with server-owned notifications

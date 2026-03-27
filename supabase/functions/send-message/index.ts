@@ -44,6 +44,7 @@ serve(async (req) => {
 
     const messageKind = body?.message_kind as string | undefined;
     const isVibeClip = messageKind === "vibe_clip";
+    const isVoice = messageKind === "voice";
 
     if (isVibeClip) {
       const videoUrl = body?.video_url as string | undefined;
@@ -54,6 +55,20 @@ serve(async (req) => {
         typeof videoUrl !== "string" ||
         !videoUrl.trim()
       ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_request" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (!clientRequestId || !isUuid(clientRequestId)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "client_request_id_required" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else if (isVoice) {
+      const audioUrl = body?.audio_url as string | undefined;
+      if (!match_id || !audioUrl || typeof audioUrl !== "string" || !audioUrl.trim()) {
         return new Response(
           JSON.stringify({ success: false, error: "invalid_request" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -213,6 +228,108 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({ success: true, idempotent: false, message: insertedClip }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Voice message canonical publish path ──
+    if (isVoice) {
+      const audioUrl = (body.audio_url as string).trim();
+      const durationRaw = body.audio_duration_seconds;
+      let durationSec = 1;
+      if (typeof durationRaw === "number" && Number.isFinite(durationRaw)) {
+        durationSec = Math.max(1, Math.round(durationRaw));
+      } else if (typeof durationRaw === "string" && durationRaw.trim()) {
+        const n = Number.parseFloat(durationRaw);
+        if (Number.isFinite(n)) durationSec = Math.max(1, Math.round(n));
+      }
+
+      const voicePayload = {
+        v: 1,
+        client_request_id: clientRequestId,
+      };
+
+      const { data: existingVoice } = await serviceClient
+        .from("messages")
+        .select(selectCols)
+        .eq("match_id", match_id)
+        .eq("sender_id", actorId)
+        .contains("structured_payload", { client_request_id: clientRequestId })
+        .maybeSingle();
+
+      if (existingVoice) {
+        return new Response(
+          JSON.stringify({ success: true, idempotent: true, message: existingVoice }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const voiceRow: Record<string, unknown> = {
+        match_id,
+        sender_id: actorId,
+        content: "🎤 Voice message",
+        message_kind: "voice",
+        audio_url: audioUrl,
+        audio_duration_seconds: durationSec,
+        structured_payload: voicePayload,
+      };
+
+      const { data: insertedVoice, error: voiceInsertError } = await serviceClient
+        .from("messages")
+        .insert(voiceRow)
+        .select(selectCols)
+        .single();
+
+      if (voiceInsertError || !insertedVoice) {
+        const code = (voiceInsertError as { code?: string })?.code;
+        if (code === "23505") {
+          const { data: afterConflict } = await serviceClient
+            .from("messages")
+            .select(selectCols)
+            .eq("match_id", match_id)
+            .eq("sender_id", actorId)
+            .contains("structured_payload", { client_request_id: clientRequestId })
+            .maybeSingle();
+          if (afterConflict) {
+            return new Response(
+              JSON.stringify({ success: true, idempotent: true, message: afterConflict }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
+        console.error("send-message voice insert error:", voiceInsertError);
+        return new Response(
+          JSON.stringify({ success: false, error: "insert_failed" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const recipientIdVoice =
+        match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
+
+      try {
+        const { data: senderProfile } = await serviceClient
+          .from("profiles")
+          .select("name")
+          .eq("id", actorId)
+          .maybeSingle();
+
+        await serviceClient.functions.invoke("send-notification", {
+          headers: { Authorization: `Bearer ${serviceRoleKey}` },
+          body: {
+            user_id: recipientIdVoice,
+            category: "messages",
+            title: senderProfile?.name || "New message",
+            body: "🎤 Sent a voice message",
+            data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
+          },
+        });
+      } catch (notifyError) {
+        console.error("send-message voice notification error:", notifyError);
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, idempotent: false, message: insertedVoice }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

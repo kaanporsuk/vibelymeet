@@ -710,8 +710,10 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/hooks/useMessages.ts"
-      ]
+        "src/hooks/useMessages.ts",
+        "apps/mobile/lib/chatApi.ts"
+      ],
+      "notes": "Text, vibe_clip, voice publish paths; see docs/chat-video-vibe-clip-architecture.md"
     },
     {
       "name": "swipe-actions",

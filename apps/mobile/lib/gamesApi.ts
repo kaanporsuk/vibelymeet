@@ -1098,7 +1098,7 @@ export function useSendScavengerChoice() {
 /**
  * TanStack mutation: `mutateAsync` resolves with `SendGameEventResult` (does not throw on
  * server rejections — check `result.ok`). On success only, invalidates the same query roots
- * as `useSendVoiceMessage` (thread + match list preview). Omits `date-suggestions`.
+ * as chat `send-message` flows (thread + match list preview). Omits `date-suggestions`.
  */
 export function useSendGameEvent() {
   const qc = useQueryClient();

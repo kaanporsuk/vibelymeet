@@ -174,3 +174,38 @@ export const usePublishVibeClip = () => {
     },
   });
 };
+
+/** Canonical server-owned publish for voice messages (after upload-voice). */
+export const usePublishVoiceMessage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      matchId: string;
+      audioUrl: string;
+      durationSeconds: number;
+      clientRequestId: string;
+    }) => {
+      const body: Record<string, unknown> = {
+        match_id: params.matchId,
+        message_kind: "voice",
+        audio_url: params.audioUrl,
+        audio_duration_seconds: Math.round(params.durationSeconds),
+        client_request_id: params.clientRequestId,
+      };
+
+      const { data, error } = await supabase.functions.invoke("send-message", { body });
+      if (error) {
+        captureSupabaseError("publish-voice-message", error);
+        throw error;
+      }
+      const payload = data as { success?: boolean; message?: unknown; error?: string } | null;
+      if (!payload?.success) throw new Error(payload?.error || "Voice message publish failed");
+      return payload.message;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+    },
+  });
+};
