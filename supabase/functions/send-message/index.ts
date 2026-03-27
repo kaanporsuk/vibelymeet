@@ -42,7 +42,30 @@ serve(async (req) => {
     const clientRequestId =
       typeof rawClientId === "string" && rawClientId.trim().length > 0 ? rawClientId.trim() : "";
 
-    if (!match_id || typeof content !== "string" || !content.trim()) {
+    const messageKind = body?.message_kind as string | undefined;
+    const isVibeClip = messageKind === "vibe_clip";
+
+    if (isVibeClip) {
+      const videoUrl = body?.video_url as string | undefined;
+      const durationMs = body?.duration_ms as number | undefined;
+      if (
+        !match_id ||
+        !videoUrl ||
+        typeof videoUrl !== "string" ||
+        !videoUrl.trim()
+      ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_request" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (!clientRequestId || !isUuid(clientRequestId)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "client_request_id_required" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } else if (!match_id || typeof content !== "string" || !content.trim()) {
       return new Response(
         JSON.stringify({ success: false, error: "invalid_request" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -78,10 +101,116 @@ serve(async (req) => {
       );
     }
 
-    const trimmed = content.trim();
-
     const selectCols =
-      "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, structured_payload";
+      "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload";
+
+    // ── Vibe Clip canonical publish path ──
+    if (isVibeClip) {
+      const videoUrl = (body.video_url as string).trim();
+      const durationMs = typeof body.duration_ms === "number" ? Math.max(0, Math.round(body.duration_ms)) : 0;
+      const durationSec = Math.max(1, Math.round(durationMs / 1000));
+      const thumbnailUrl = typeof body.thumbnail_url === "string" && body.thumbnail_url.trim()
+        ? body.thumbnail_url.trim()
+        : null;
+
+      const clipPayload = {
+        v: 2,
+        kind: "vibe_clip",
+        client_request_id: clientRequestId,
+        duration_ms: durationMs,
+        thumbnail_url: thumbnailUrl,
+        processing_status: "ready",
+        upload_provider: "bunny",
+      };
+
+      // Idempotency check
+      const { data: existingClip } = await serviceClient
+        .from("messages")
+        .select(selectCols)
+        .eq("match_id", match_id)
+        .eq("sender_id", actorId)
+        .contains("structured_payload", { client_request_id: clientRequestId })
+        .maybeSingle();
+
+      if (existingClip) {
+        return new Response(
+          JSON.stringify({ success: true, idempotent: true, message: existingClip }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const clipRow: Record<string, unknown> = {
+        match_id,
+        sender_id: actorId,
+        content: "\uD83C\uDFAC Vibe Clip",
+        message_kind: "vibe_clip",
+        video_url: videoUrl,
+        video_duration_seconds: durationSec,
+        structured_payload: clipPayload,
+      };
+
+      const { data: insertedClip, error: clipInsertError } = await serviceClient
+        .from("messages")
+        .insert(clipRow)
+        .select(selectCols)
+        .single();
+
+      if (clipInsertError || !insertedClip) {
+        const code = (clipInsertError as { code?: string })?.code;
+        if (code === "23505") {
+          const { data: afterConflict } = await serviceClient
+            .from("messages")
+            .select(selectCols)
+            .eq("match_id", match_id)
+            .eq("sender_id", actorId)
+            .contains("structured_payload", { client_request_id: clientRequestId })
+            .maybeSingle();
+          if (afterConflict) {
+            return new Response(
+              JSON.stringify({ success: true, idempotent: true, message: afterConflict }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
+        }
+        console.error("send-message vibe_clip insert error:", clipInsertError);
+        return new Response(
+          JSON.stringify({ success: false, error: "insert_failed" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const recipientId =
+        match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
+
+      try {
+        const { data: senderProfile } = await serviceClient
+          .from("profiles")
+          .select("name")
+          .eq("id", actorId)
+          .maybeSingle();
+
+        await serviceClient.functions.invoke("send-notification", {
+          headers: { Authorization: `Bearer ${serviceRoleKey}` },
+          body: {
+            user_id: recipientId,
+            category: "messages",
+            title: senderProfile?.name || "New message",
+            body: "\uD83C\uDFAC Sent you a Vibe Clip",
+            data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
+          },
+        });
+      } catch (notifyError) {
+        console.error("send-message vibe_clip notification error:", notifyError);
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, idempotent: false, message: insertedClip }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── Standard text/image message path (unchanged) ──
+    const trimmed = content!.trim();
 
     // Durable idempotency: same client_request_id + match + sender → return existing row
     if (clientRequestId && isUuid(clientRequestId)) {

@@ -202,13 +202,14 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
   if (p.kind === 'video') {
     return {
       id,
-      text: '📹 Video message',
+      text: '🎬 Vibe Clip',
       sender: 'me',
       time,
       sortAtMs: item.createdAtMs,
       status: 'sending',
       video_url: p.uri,
       video_duration_seconds: Math.round(p.durationSeconds),
+      messageKind: 'vibe_clip' as const,
       localMedia,
     };
   }
@@ -889,6 +890,7 @@ export default function ChatThreadScreen() {
       content: item.text,
       audioUrl: item.audio_url,
       videoUrl: item.video_url,
+      messageKind: item.messageKind,
     });
     const localSendState = localMedia?.state ?? localText?.state ?? null;
     const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
@@ -952,7 +954,7 @@ export default function ChatThreadScreen() {
         </View>
       );
     }
-    if (mediaKind === 'video' && item.video_url) {
+    if ((mediaKind === 'video' || mediaKind === 'vibe_clip') && item.video_url) {
       return (
         <View style={styles.mediaContentWrap}>
           <ChatVideoCard
@@ -1053,16 +1055,17 @@ export default function ChatThreadScreen() {
       content: item.text,
       audioUrl: item.audio_url,
       videoUrl: item.video_url,
+      messageKind: item.messageKind,
     });
-    const isMediaBubble = mediaKind === 'video' || mediaKind === 'image';
+    const isMediaBubble = mediaKind === 'video' || mediaKind === 'image' || mediaKind === 'vibe_clip';
     const prevKind = prev
-      ? inferChatMediaRenderKind({ content: prev.text, audioUrl: prev.audio_url, videoUrl: prev.video_url })
+      ? inferChatMediaRenderKind({ content: prev.text, audioUrl: prev.audio_url, videoUrl: prev.video_url, messageKind: prev.messageKind })
       : 'text';
     const nextKind = next
-      ? inferChatMediaRenderKind({ content: next.text, audioUrl: next.audio_url, videoUrl: next.video_url })
+      ? inferChatMediaRenderKind({ content: next.text, audioUrl: next.audio_url, videoUrl: next.video_url, messageKind: next.messageKind })
       : 'text';
-    const prevIsMedia = prevKind === 'video' || prevKind === 'image';
-    const nextIsMedia = nextKind === 'video' || nextKind === 'image';
+    const prevIsMedia = prevKind === 'video' || prevKind === 'image' || prevKind === 'vibe_clip';
+    const nextIsMedia = nextKind === 'video' || nextKind === 'image' || nextKind === 'vibe_clip';
     const bubbleMarginBottom = isLastInGroup
       ? spacing.md
       : isMediaBubble && nextIsMedia

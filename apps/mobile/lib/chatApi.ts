@@ -204,7 +204,7 @@ export type ChatMessage = {
   read_at?: string | null;
   status?: MessageStatusType;
   reaction?: ReactionEmoji | null;
-  messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event' | 'vibe_game_session';
+  messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event' | 'vibe_game_session' | 'vibe_clip';
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
   /** Populated when `messageKind === 'vibe_game_session'` (collapsed thread rows). */
@@ -335,6 +335,29 @@ export async function invokeSendMessageEdge(params: {
   if (error) throw error;
   const payload = data as { success?: boolean; message?: unknown; error?: string };
   if (!payload?.success) throw new Error(payload?.error || 'Send failed');
+  return payload.message;
+}
+
+/** Canonical server-owned publish for Vibe Clip messages. */
+export async function invokePublishVibeClip(params: {
+  matchId: string;
+  videoUrl: string;
+  durationMs: number;
+  clientRequestId: string;
+  thumbnailUrl?: string | null;
+}): Promise<unknown> {
+  const body: Record<string, unknown> = {
+    match_id: params.matchId,
+    message_kind: 'vibe_clip',
+    video_url: params.videoUrl,
+    duration_ms: params.durationMs,
+    client_request_id: params.clientRequestId,
+  };
+  if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
+  const { data, error } = await supabase.functions.invoke('send-message', { body });
+  if (error) throw error;
+  const payload = data as { success?: boolean; message?: unknown; error?: string };
+  if (!payload?.success) throw new Error(payload?.error || 'Vibe Clip publish failed');
   return payload.message;
 }
 
