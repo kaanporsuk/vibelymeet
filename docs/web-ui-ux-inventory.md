@@ -338,7 +338,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 - **Route:** `/chat/:id`
 - **Auth required:** Yes
 
-**Visual:** ChatHeader (back, name, avatar, actions — Video, CalendarDays, Gamepad2); message list (MessageBubble, VoiceMessageBubble, VideoMessageBubble, VideoDateCard, DateProposalTicket, GameBubbleRenderer, TypingIndicator); input bar (textarea, Send, VoiceRecorder, VideoMessageRecorder, DateSuggestionChip, VibeArcadeMenu); IncomingCallOverlay, ActiveCallOverlay; VibeSyncModal. Lucide: Send, Video, CalendarDays, Gamepad2.
+**Visual:** ChatHeader (back, name, avatar, actions — film/Vibe Clip, CalendarDays, Gamepad2); message list (MessageBubble, VoiceMessageBubble, VideoMessageBubble for legacy video, **VibeClipBubble** for `vibe_clip`, DateProposalTicket, GameBubbleRenderer, TypingIndicator); input bar (textarea, Send, VoiceRecorder, VideoMessageRecorder, DateSuggestionChip, VibeArcadeMenu); IncomingCallOverlay, ActiveCallOverlay; VibeSyncModal. Lucide: Send, Film, CalendarDays, Gamepad2.
 
 ---
 
