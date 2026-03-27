@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
   Volume2,
@@ -8,18 +8,36 @@ import {
   AlertCircle,
   Loader2,
   Film,
+  CalendarPlus,
+  Heart,
 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
+import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
 import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
+import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
+import { compactReactionLabel } from "../../../shared/chat/messageReactionModel";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
   isMine: boolean;
   onReplyWithClip?: () => void;
   onVoiceReply?: () => void;
+  /** Secondary: existing date composer entry (gated in parent). */
+  onSuggestDate?: () => void;
+  onReactionPick?: (emoji: ReactionEmoji) => void;
+  /** Persisted reactions for this clip (both participants in 1:1). */
+  reactionPair?: ReactionPair | null;
 }
 
-export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: VibeClipBubbleProps) => {
+export const VibeClipBubble = ({
+  meta,
+  isMine,
+  onReplyWithClip,
+  onVoiceReply,
+  onSuggestDate,
+  onReactionPick,
+  reactionPair,
+}: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -29,6 +47,11 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
   const [hasMetadata, setHasMetadata] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
+  const [showReactBar, setShowReactBar] = useState(false);
+
+  const hasPrimary = !!(onReplyWithClip || onVoiceReply);
+  const hasSecondary = !!(onSuggestDate || onReactionPick);
+  const reactionSummary = compactReactionLabel(reactionPair ?? null);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -45,6 +68,10 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
     setIsReady(false);
     setHasMetadata(false);
     setLoadError(false);
+  }, [meta.videoUrl]);
+
+  useEffect(() => {
+    setShowReactBar(false);
   }, [meta.videoUrl]);
 
   const markReadyIfPossible = useCallback(() => {
@@ -255,30 +282,77 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
         </AspectRatio>
       </div>
 
-      {/* After-play interaction scaffold */}
-      {hasPlayed && !isMine && (onReplyWithClip || onVoiceReply) && (
-        <div className="flex items-center gap-1.5 px-2.5 py-2 border-t border-violet-500/15">
-          {onReplyWithClip && (
-            <button
-              onClick={onReplyWithClip}
-              className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
-            >
-              <Film className="w-3 h-3" />
-              Reply with clip
-            </button>
+      {/* After-play: primary (reply) + secondary (date / react) — received clips only */}
+      {hasPlayed && !isMine && (hasPrimary || hasSecondary) && (
+        <div className="border-t border-violet-500/15">
+          {hasPrimary && (
+            <div className="flex flex-wrap items-center gap-1.5 px-2.5 py-2">
+              {onReplyWithClip && (
+                <button
+                  type="button"
+                  onClick={onReplyWithClip}
+                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
+                >
+                  <Film className="w-3 h-3" />
+                  Reply with clip
+                </button>
+              )}
+              {onVoiceReply && (
+                <button
+                  type="button"
+                  onClick={onVoiceReply}
+                  className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                  Voice reply
+                </button>
+              )}
+            </div>
           )}
-          {onVoiceReply && (
-            <button
-              onClick={onVoiceReply}
-              className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
-            >
-              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" x2="12" y1="19" y2="22" />
-              </svg>
-              Voice reply
-            </button>
+          {hasSecondary && (
+            <div className="relative border-t border-violet-500/10 px-2.5 pb-2 pt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 w-full min-w-0">
+              {onSuggestDate && (
+                <button
+                  type="button"
+                  onClick={onSuggestDate}
+                  className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground/90 transition-colors"
+                >
+                  <CalendarPlus className="w-3 h-3 shrink-0 opacity-80" />
+                  Suggest a date
+                </button>
+              )}
+              {onReactionPick && (
+                <button
+                  type="button"
+                  onClick={() => setShowReactBar(true)}
+                  className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground/90 transition-colors"
+                >
+                  <Heart className="w-3 h-3 shrink-0 opacity-80" />
+                  React
+                </button>
+              )}
+              <AnimatePresence>
+                {showReactBar && onReactionPick ? (
+                  <EmojiBar
+                    position="left"
+                    onClose={() => setShowReactBar(false)}
+                    onSelect={(emoji) => {
+                      onReactionPick(emoji);
+                      setShowReactBar(false);
+                    }}
+                  />
+                ) : null}
+              </AnimatePresence>
+              {reactionSummary ? (
+                <span className="ml-auto text-[11px] leading-none text-muted-foreground tabular-nums shrink-0">
+                  {reactionSummary}
+                </span>
+              ) : null}
+            </div>
           )}
         </div>
       )}

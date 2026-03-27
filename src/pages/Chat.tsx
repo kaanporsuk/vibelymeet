@@ -43,7 +43,10 @@ import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
 import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useMessageReactions } from "@/hooks/useMessageReactions";
 import { useMessages, useSendMessage, usePublishVibeClip } from "@/hooks/useMessages";
+import { setMessageReaction } from "@/lib/messageReactions";
+import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from "../../shared/chat/messageReactionModel";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@/lib/webGamesApi";
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
@@ -70,7 +73,7 @@ interface ChatMessage {
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
-  reaction?: ReactionEmoji;
+  reactionPair?: ReactionPair | null;
   status?: MessageStatusType;
   sendError?: string;
   refId?: string | null;
@@ -80,11 +83,20 @@ interface ChatMessage {
 
 type TextMessage = ChatMessage & { type: "text" };
 
-function VibeClipMessageRow({ message, otherUser, onReplyWithClip, onVoiceReply }: {
+function VibeClipMessageRow({
+  message,
+  otherUser,
+  onReplyWithClip,
+  onVoiceReply,
+  onSuggestDate,
+  onReactionPick,
+}: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
   onReplyWithClip?: () => void;
   onVoiceReply?: () => void;
+  onSuggestDate?: () => void;
+  onReactionPick?: (emoji: ReactionEmoji) => void;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -115,6 +127,9 @@ function VibeClipMessageRow({ message, otherUser, onReplyWithClip, onVoiceReply 
             isMine={isMine}
             onReplyWithClip={isMine ? undefined : onReplyWithClip}
             onVoiceReply={isMine ? undefined : onVoiceReply}
+            onSuggestDate={isMine ? undefined : onSuggestDate}
+            onReactionPick={isMine ? undefined : onReactionPick}
+            reactionPair={message.reactionPair}
           />
         ) : (
           <VideoMessageBubble
@@ -167,7 +182,6 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
-  const [reactionHintShown, setReactionHintShown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const gameStartLockRef = useRef(false);
@@ -179,6 +193,23 @@ const Chat = () => {
   });
 
   useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
+  const { data: reactionRows = [] } = useMessageReactions(chatData?.matchId);
+
+  const partnerUserId = chatData?.otherUser?.id ?? id ?? "";
+
+  const reactionByMessageId = useMemo(() => {
+    const byMsg = new Map<string, MessageReactionRow[]>();
+    for (const r of reactionRows as MessageReactionRow[]) {
+      const arr = byMsg.get(r.message_id) ?? [];
+      arr.push(r);
+      byMsg.set(r.message_id, arr);
+    }
+    const out = new Map<string, ReactionPair>();
+    for (const [mid, rows] of byMsg) {
+      out.set(mid, reactionPairFromRows(rows, currentUserId, partnerUserId));
+    }
+    return out;
+  }, [reactionRows, currentUserId, partnerUserId]);
 
   const otherUser = useMemo(() => {
     if (chatData?.otherUser) {
@@ -224,6 +255,7 @@ const Chat = () => {
 
   const messages: ChatMessage[] = useMemo(() => {
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
+      const pair = reactionByMessageId.get(m.id) ?? { mine: null, partner: null };
       if (m.messageKind === "date_suggestion" || m.messageKind === "date_suggestion_event") {
         return {
           id: m.id,
@@ -234,6 +266,7 @@ const Chat = () => {
           refId: m.refId,
           structuredPayload: m.structuredPayload ?? undefined,
           status: "delivered" as MessageStatusType,
+          reactionPair: pair,
         };
       }
       if (m.messageKind === "vibe_game_session") {
@@ -245,6 +278,7 @@ const Chat = () => {
           type: "vibe-game-session" as const,
           status: "delivered" as MessageStatusType,
           gameSessionView: m.gameSessionView,
+          reactionPair: pair,
         };
       }
       return {
@@ -264,10 +298,11 @@ const Chat = () => {
         videoDuration: m.videoDuration,
         structuredPayload: m.structuredPayload ?? undefined,
         status: "delivered" as MessageStatusType,
+        reactionPair: pair,
       };
     });
     return [...realMsgs, ...localMessages];
-  }, [chatData?.messages, localMessages]);
+  }, [chatData?.messages, localMessages, reactionByMessageId]);
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId(messages, {
@@ -695,19 +730,18 @@ const Chat = () => {
     }
   };
 
-  const handleReaction = useCallback((messageId: string, emoji: ReactionEmoji | null) => {
-    if (!reactionHintShown) {
-      toast.message("Reactions are currently local to this device.");
-      setReactionHintShown(true);
-    }
-    setLocalMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId
-          ? { ...msg, reaction: emoji || undefined }
-          : msg
-      )
-    );
-  }, [reactionHintShown]);
+  const handleReaction = useCallback(
+    async (messageId: string, emoji: ReactionEmoji | null) => {
+      if (!chatData?.matchId) return;
+      try {
+        await setMessageReaction({ matchId: chatData.matchId, messageId, emoji });
+        await queryClient.invalidateQueries({ queryKey: ["message-reactions", chatData.matchId] });
+      } catch {
+        toast.error("Could not update reaction");
+      }
+    },
+    [chatData?.matchId, queryClient],
+  );
 
   const hasText = newMessage.trim().length > 0;
 
@@ -840,6 +874,8 @@ const Chat = () => {
                   otherUser={otherUser}
                   onReplyWithClip={() => setIsRecordingVideo(true)}
                   onVoiceReply={() => scrollToBottom()}
+                  onSuggestDate={() => handleOpenDateComposer({ mode: "new" })}
+                  onReactionPick={(emoji) => handleReaction(message.id, emoji)}
                 />
               ) : message.type === "video" ? (
                 <div

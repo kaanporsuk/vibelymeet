@@ -37,6 +37,10 @@ import {
   type ChatMessage,
   type ReactionEmoji,
 } from '@/lib/chatApi';
+import { useMessageReactions } from '@/lib/useMessageReactions';
+import { setMessageReaction } from '@/lib/messageReactions';
+import { reactionPairFromRows } from '../../../../shared/chat/messageReactionModel';
+import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
@@ -325,6 +329,7 @@ export default function ChatThreadScreen() {
   const queryClient = useQueryClient();
   const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
   useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
+  const { data: reactionRows = [] } = useMessageReactions(data?.matchId);
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(data?.matchId);
 
   const [input, setInput] = useState('');
@@ -337,8 +342,6 @@ export default function ChatThreadScreen() {
     !!data?.matchId && !!user?.id
   );
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
-  const [localReactions, setLocalReactions] = useState<Record<string, ReactionEmoji>>({});
-  const [reactionHintShown, setReactionHintShown] = useState(false);
   const [showDateSheet, setShowDateSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
@@ -406,6 +409,21 @@ export default function ChatThreadScreen() {
       getId: (m) => m.id,
     });
   }, [threadMessages]);
+
+  const reactionByMessageId = useMemo(() => {
+    if (!user?.id || !otherUserId) return new Map<string, ReactionPair>();
+    const byMsg = new Map<string, { message_id: string; profile_id: string; emoji: string }[]>();
+    for (const r of reactionRows) {
+      const arr = byMsg.get(r.message_id) ?? [];
+      arr.push(r);
+      byMsg.set(r.message_id, arr);
+    }
+    const out = new Map<string, ReactionPair>();
+    for (const [mid, rows] of byMsg) {
+      out.set(mid, reactionPairFromRows(rows, user.id, otherUserId));
+    }
+    return out;
+  }, [reactionRows, user?.id, otherUserId]);
 
   const suggestionById = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
@@ -901,7 +919,11 @@ export default function ChatThreadScreen() {
   });
 
   const renderBubbleContent = (item: ThreadMessage, textColor: string, timeColor: string, isMe: boolean) => {
-    const reaction = localReactions[item.id] ?? item.reaction ?? null;
+    const pair = reactionByMessageId.get(item.id) ?? { mine: null, partner: null };
+    const reaction =
+      pair.mine || pair.partner
+        ? [pair.mine, pair.partner].filter((e): e is ReactionEmoji => !!e).join(' ')
+        : null;
     const localMedia = isLocalMediaMessage(item) ? item.localMedia : null;
     const localText = isLocalTextMessage(item) ? item.localText : null;
     const mediaKind = inferChatMediaRenderKind({
@@ -986,8 +1008,18 @@ export default function ChatThreadScreen() {
             <VibeClipCard
               meta={clipMeta}
               isMine={isMe}
+              reactionPair={pair}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
               onVoiceReply={isMe ? undefined : () => armVoiceReply()}
+              onSuggestDate={isMe ? undefined : () => openDateComposer({ mode: 'new' })}
+              onReact={
+                isMe
+                  ? undefined
+                  : () => {
+                      Vibration.vibrate(30);
+                      setReactionPickerMessageId(item.id);
+                    }
+              }
             />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1161,10 +1193,6 @@ export default function ChatThreadScreen() {
       <Pressable
         onLongPress={() => {
           Vibration.vibrate(30);
-          if (!reactionHintShown) {
-            Alert.alert('Reactions', 'Reactions are currently local to this device.');
-            setReactionHintShown(true);
-          }
           setReactionPickerMessageId(item.id);
         }}
         delayLongPress={400}
@@ -1599,10 +1627,18 @@ export default function ChatThreadScreen() {
       <ReactionPicker
         visible={!!reactionPickerMessageId}
         onClose={() => setReactionPickerMessageId(null)}
-        onSelect={(emoji) => {
-          if (reactionPickerMessageId) {
-            setLocalReactions((prev) => ({ ...prev, [reactionPickerMessageId]: emoji }));
+        onSelect={async (emoji) => {
+          if (!reactionPickerMessageId || !data?.matchId) return;
+          try {
+            await setMessageReaction({
+              matchId: data.matchId,
+              messageId: reactionPickerMessageId,
+              emoji,
+            });
             setReactionPickerMessageId(null);
+            await queryClient.invalidateQueries({ queryKey: ['message-reactions', data.matchId] });
+          } catch {
+            Alert.alert('Reaction', 'Could not send reaction. Try again.');
           }
         }}
         anchorRight={

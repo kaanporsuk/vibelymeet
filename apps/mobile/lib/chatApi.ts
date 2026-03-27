@@ -10,8 +10,11 @@ import {
   type NativeHydratedGameSessionView,
 } from '@/lib/chatGameSessions';
 import { toRenderableMessageKind } from '../../../shared/chat/messageRouting';
+import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 
 export type { NativeHydratedGameSessionView };
+export type { ReactionPair };
+export type { ReactionEmoji } from '../../../shared/chat/messageReactionModel';
 
 export type MatchListItem = {
   id: string;
@@ -188,8 +191,6 @@ export function useMatches(userId: string | null | undefined) {
 }
 
 export type MessageStatusType = 'sending' | 'sent' | 'delivered' | 'read';
-export type ReactionEmoji = '❤️' | '🔥' | '🤣' | '😮' | '👎';
-
 export type ChatMessage = {
   id: string;
   text: string;
@@ -203,7 +204,8 @@ export type ChatMessage = {
   video_duration_seconds?: number | null;
   read_at?: string | null;
   status?: MessageStatusType;
-  reaction?: ReactionEmoji | null;
+  /** Filled in UI layer from `message_reactions` + partner id (not a DB column on messages). */
+  reactionPair?: ReactionPair | null;
   messageKind?: 'text' | 'date_suggestion' | 'date_suggestion_event' | 'vibe_game_session' | 'vibe_clip';
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;

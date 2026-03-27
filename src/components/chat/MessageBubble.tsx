@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { EmojiBar, type ReactionEmoji } from "./EmojiBar";
 import { ReactionBadge } from "./ReactionBadge";
+import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
 import { ParticleBurst } from "./ParticleBurst";
 import { MessageStatus, type MessageStatusType } from "./MessageStatus";
 import { useState, useRef, useCallback } from "react";
@@ -12,7 +13,7 @@ interface Message {
   sender: "me" | "them";
   time: string;
   type: "text";
-  reaction?: ReactionEmoji;
+  reactionPair?: ReactionPair | null;
   status?: MessageStatusType;
   sendError?: string;
 }
@@ -51,12 +52,12 @@ export const MessageBubble = ({
   }, []);
 
   const handleDoubleTap = useCallback(() => {
-    if (!message.reaction) {
+    if (!message.reactionPair?.mine) {
       triggerHaptic();
       onReaction?.(message.id, "❤️");
       setShowBurst("❤️");
     }
-  }, [message.id, message.reaction, onReaction, triggerHaptic]);
+  }, [message.id, message.reactionPair?.mine, onReaction, triggerHaptic]);
 
   const handleTouchStart = useCallback(() => {
     const now = Date.now();
@@ -178,14 +179,27 @@ export const MessageBubble = ({
           </div>
         )}
 
-        {/* Reaction badge */}
+        {/* Reaction badges (1:1: yours + theirs) */}
         <AnimatePresence>
-          {message.reaction && (
-            <ReactionBadge
-              emoji={message.reaction}
-              position={isMe ? "right" : "left"}
-              onRemove={handleRemoveReaction}
-            />
+          {(message.reactionPair?.mine || message.reactionPair?.partner) && (
+            <div
+              className={cn(
+                "absolute -bottom-3 flex gap-1 items-center z-[1]",
+                isMe ? "right-0 flex-row-reverse" : "left-0",
+              )}
+            >
+              {message.reactionPair?.partner && (
+                <ReactionBadge emoji={message.reactionPair.partner} position={isMe ? "left" : "right"} inline />
+              )}
+              {message.reactionPair?.mine && (
+                <ReactionBadge
+                  emoji={message.reactionPair.mine}
+                  position={isMe ? "right" : "left"}
+                  onRemove={handleRemoveReaction}
+                  inline
+                />
+              )}
+            </div>
           )}
         </AnimatePresence>
       </div>
@@ -199,17 +213,6 @@ export const MessageBubble = ({
               onClose={handleCloseEmojiBar}
               position={isMe ? "right" : "left"}
             />
-            <motion.p
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
-              className={cn(
-                "absolute bottom-full mb-[-16px] text-[10px] text-muted-foreground z-[101]",
-                isMe ? "right-1" : "left-1"
-              )}
-            >
-              Local only
-            </motion.p>
           </>
         )}
       </AnimatePresence>
@@ -238,7 +241,7 @@ export const MessageBubble = ({
           "flex items-end gap-2 relative",
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
-          message.reaction && "mb-4",
+          (message.reactionPair?.mine || message.reactionPair?.partner) && "mb-4",
           isFirstInGroup ? "mt-3" : "mt-0.5"
         )}
       >
