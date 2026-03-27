@@ -22,7 +22,12 @@ import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import type { DateSuggestionRevisionRow } from "@/hooks/useDateSuggestionData";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import {
+  CLIP_DATE_COMPOSER_PILL,
+  CLIP_DATE_COMPOSER_SUBCOPY,
+  type DateComposerLaunchSource,
+} from "../../../shared/dateSuggestions/dateComposerLaunch";
 
 const STEPS = ["Type", "When", "Place", "Message", "Review"] as const;
 
@@ -99,6 +104,8 @@ type Props = {
     suggestionId: string;
     previousRevision: DateSuggestionRevisionRow;
   } | null;
+  /** Client-only; does not change persisted suggestion payload. */
+  launchSource?: DateComposerLaunchSource;
   onSuccess?: () => void;
 };
 
@@ -112,6 +119,7 @@ export function DateSuggestionComposer({
   draftSuggestionId,
   draftFromParent,
   counterContext,
+  launchSource = "default",
   onSuccess,
 }: Props) {
   const [step, setStep] = useState(0);
@@ -225,6 +233,16 @@ export function DateSuggestionComposer({
             {counterContext ? "Counter proposal" : `Suggest a date with ${partnerName}`}
           </DialogTitle>
         </DialogHeader>
+
+        {launchSource === "vibe_clip" && !counterContext && (
+          <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 mb-3 space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-200/95">
+              <Sparkles className="w-3 h-3 shrink-0" aria-hidden />
+              {CLIP_DATE_COMPOSER_PILL}
+            </div>
+            <p className="text-xs text-muted-foreground leading-snug">{CLIP_DATE_COMPOSER_SUBCOPY}</p>
+          </div>
+        )}
 
         <div className="flex gap-1 text-xs text-muted-foreground mb-2">
           {STEPS.map((s, i) => (
