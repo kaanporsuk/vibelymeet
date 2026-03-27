@@ -41,6 +41,7 @@ import { useMessageReactions } from '@/lib/useMessageReactions';
 import { setMessageReaction } from '@/lib/messageReactions';
 import { reactionPairFromRows } from '../../../../shared/chat/messageReactionModel';
 import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
+import type { DateComposerLaunchSource } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
@@ -355,7 +356,8 @@ export default function ChatThreadScreen() {
   );
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [showDateSheet, setShowDateSheet] = useState(false);
-  const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
+  const [dateComposerLaunchSource, setDateComposerLaunchSource] =
+    useState<DateComposerLaunchSource>('default');
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
   const [showRouletteStart, setShowRouletteStart] = useState(false);
@@ -452,8 +454,10 @@ export default function ChatThreadScreen() {
       draftId?: string;
       draftPayload?: Record<string, unknown> | null;
       counter?: { suggestionId: string; previousRevision: DateSuggestionWithRelations['revisions'][0] };
+      launchFrom?: DateComposerLaunchSource;
     }) => {
       if (opts.mode === 'counter' && opts.counter) {
+        setDateComposerLaunchSource('default');
         setComposerCounter({
           suggestionId: opts.counter.suggestionId,
           previousRevision: opts.counter.previousRevision,
@@ -461,6 +465,7 @@ export default function ChatThreadScreen() {
         setComposerDraftId(null);
         setComposerDraftPayload(null);
       } else if (opts.mode === 'editDraft' && opts.draftId) {
+        setDateComposerLaunchSource('default');
         setComposerDraftId(opts.draftId);
         setComposerDraftPayload(opts.draftPayload ?? null);
         setComposerCounter(null);
@@ -472,6 +477,7 @@ export default function ChatThreadScreen() {
         setComposerCounter(null);
         setComposerDraftId(null);
         setComposerDraftPayload(null);
+        setDateComposerLaunchSource(opts.launchFrom ?? 'default');
       }
       setShowDateSheet(true);
     },
@@ -483,6 +489,7 @@ export default function ChatThreadScreen() {
     setComposerCounter(null);
     setComposerDraftId(null);
     setComposerDraftPayload(null);
+    setDateComposerLaunchSource('default');
   }, []);
 
   const onDateSuggestionUpdated = useCallback(() => {
@@ -1020,7 +1027,9 @@ export default function ChatThreadScreen() {
               reactionPair={pair}
               onReplyWithClip={isMe ? undefined : () => openVideoMessageOptions()}
               onVoiceReply={isMe ? undefined : () => armVoiceReply()}
-              onSuggestDate={isMe ? undefined : () => openDateComposer({ mode: 'new' })}
+              onSuggestDate={
+                isMe ? undefined : () => openDateComposer({ mode: 'new', launchFrom: 'vibe_clip' })
+              }
               onReact={
                 isMe
                   ? undefined
@@ -1690,6 +1699,7 @@ export default function ChatThreadScreen() {
           currentUserId={user.id}
           partnerUserId={otherUserId}
           partnerName={otherName}
+          launchSource={dateComposerLaunchSource}
           draftSuggestionId={composerDraftId}
           draftFromParent={
             composerDraftPayload &&

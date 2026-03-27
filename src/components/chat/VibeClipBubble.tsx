@@ -16,6 +16,7 @@ import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
 import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
 import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
 import { compactReactionLabel } from "../../../shared/chat/messageReactionModel";
+import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateComposerLaunch";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -314,24 +315,29 @@ export const VibeClipBubble = ({
             </div>
           )}
           {hasSecondary && (
-            <div className="relative border-t border-violet-500/10 px-2.5 pb-2 pt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 w-full min-w-0">
+            <div className="relative border-t border-violet-500/10 px-2.5 pb-2 pt-1.5 flex flex-wrap items-end gap-x-3 gap-y-2 w-full min-w-0">
               {onSuggestDate && (
-                <button
-                  type="button"
-                  onClick={onSuggestDate}
-                  className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground/90 transition-colors"
-                >
-                  <CalendarPlus className="w-3 h-3 shrink-0 opacity-80" />
-                  Suggest a date
-                </button>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <button
+                    type="button"
+                    onClick={onSuggestDate}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/35 bg-rose-500/12 px-2.5 py-1.5 text-[10px] font-semibold text-rose-100/95 shadow-sm hover:bg-rose-500/20 transition-colors text-left"
+                  >
+                    <CalendarPlus className="w-3.5 h-3.5 shrink-0 text-rose-300" />
+                    Suggest a date
+                  </button>
+                  <span className="text-[9px] text-muted-foreground/85 leading-tight pl-0.5 max-w-[11rem]">
+                    {CLIP_DATE_ACTION_HINT}
+                  </span>
+                </div>
               )}
               {onReactionPick && (
                 <button
                   type="button"
                   onClick={() => setShowReactBar(true)}
-                  className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground hover:text-foreground/90 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground/90 hover:text-foreground/90 transition-colors pb-0.5"
                 >
-                  <Heart className="w-3 h-3 shrink-0 opacity-80" />
+                  <Heart className="w-3 h-3 shrink-0 opacity-75" />
                   React
                 </button>
               )}

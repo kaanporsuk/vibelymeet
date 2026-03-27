@@ -7,6 +7,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting';
 import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
 import { compactReactionLabel } from '../../../../shared/chat/messageReactionModel';
+import { CLIP_DATE_ACTION_HINT } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -146,14 +147,19 @@ export function VibeClipCard({
           {hasSecondary ? (
             <View style={styles.secondaryRow}>
               {onSuggestDate && (
-                <Pressable
-                  style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.75 }]}
-                  onPress={onSuggestDate}
-                  accessibilityLabel="Suggest a date"
-                >
-                  <Ionicons name="calendar-outline" size={13} color={SECONDARY} />
-                  <Text style={styles.secondaryLabel}>Suggest a date</Text>
-                </Pressable>
+                <View style={styles.dateBridgeCol}>
+                  <Pressable
+                    style={({ pressed }) => [styles.dateBridgeBtn, pressed && { opacity: 0.88 }]}
+                    onPress={onSuggestDate}
+                    accessibilityLabel="Suggest a date"
+                  >
+                    <Ionicons name="calendar-outline" size={14} color="rgba(254,205,211,0.95)" />
+                    <Text style={styles.dateBridgeLabel}>Suggest a date</Text>
+                  </Pressable>
+                  <Text style={styles.dateBridgeHint} accessibilityLabel={CLIP_DATE_ACTION_HINT}>
+                    {CLIP_DATE_ACTION_HINT}
+                  </Text>
+                </View>
               )}
               {onReact && (
                 <Pressable
@@ -274,13 +280,40 @@ const styles = StyleSheet.create({
   secondaryRow: {
     width: '100%',
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     flexWrap: 'wrap',
     gap: 12,
     paddingHorizontal: 10,
     paddingBottom: 8,
     paddingTop: 2,
     justifyContent: 'flex-start',
+  },
+  dateBridgeCol: {
+    maxWidth: '78%',
+    gap: 3,
+  },
+  dateBridgeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(244,63,94,0.38)',
+    backgroundColor: 'rgba(244,63,94,0.12)',
+  },
+  dateBridgeLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(254,226,230,0.96)',
+  },
+  dateBridgeHint: {
+    fontSize: 9,
+    lineHeight: 12,
+    color: 'rgba(255,255,255,0.48)',
+    paddingLeft: 2,
   },
   reactionSummary: {
     marginLeft: 'auto',
