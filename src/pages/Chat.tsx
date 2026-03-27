@@ -901,6 +901,31 @@ const Chat = () => {
           onDismiss={() => setShowDateSuggestion(false)}
         />
 
+        <div className="px-2 pb-1">
+          <div className="max-w-lg mx-auto flex items-center gap-2">
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.98 }}
+              onClick={handleOpenDateComposerFromChip}
+              className="flex-1 min-w-0 h-9 px-3 rounded-full border border-rose-500/35 bg-rose-500/12 text-rose-500 hover:bg-rose-500/20 transition-colors inline-flex items-center justify-center gap-1.5"
+              aria-label="Suggest a Date"
+            >
+              <CalendarPlus className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-medium truncate">Suggest a Date</span>
+            </motion.button>
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowArcade(true)}
+              className="flex-1 min-w-0 h-9 px-3 rounded-full border border-primary/35 bg-primary/12 text-primary hover:bg-primary/20 transition-colors inline-flex items-center justify-center gap-1.5"
+              aria-label="Open Games"
+            >
+              <Gamepad2 className="w-4 h-4 shrink-0" />
+              <span className="text-xs font-medium truncate">Games</span>
+            </motion.button>
+          </div>
+        </div>
+
         {/* Input bar */}
         <div className="glass-card border-t border-border/50 p-2 pb-safe">
           <div className="flex items-end gap-1.5 max-w-lg mx-auto">
