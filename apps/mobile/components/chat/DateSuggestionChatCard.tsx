@@ -192,17 +192,7 @@ export function DateSuggestionChatCard({
           status,
         },
       });
-      const msg = e instanceof Error ? e.message.toLowerCase() : '';
-      const looksNetwork =
-        msg.includes('network') ||
-        msg.includes('fetch') ||
-        msg.includes('timeout') ||
-        msg.includes('offline') ||
-        msg.includes('failed to fetch');
-      Alert.alert(
-        'Date suggestion',
-        looksNetwork ? 'Could not reach the server. Check your connection and try again.' : 'Could not cancel. Try again.'
-      );
+      Alert.alert('Date suggestion', 'We couldn’t cancel that right now. Please try again.');
     } finally {
       cancelInFlightRef.current = false;
       setCancelBusy(false);
