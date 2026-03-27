@@ -5,6 +5,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import type { VibeClipDisplayMeta } from '../../../../shared/chat/messageRouting';
+import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
+import { compactReactionLabel } from '../../../../shared/chat/messageReactionModel';
 
 type Props = {
   meta: VibeClipDisplayMeta;
@@ -15,6 +17,7 @@ type Props = {
   onSuggestDate?: () => void;
   /** Secondary: opens existing reaction picker for this message. */
   onReact?: () => void;
+  reactionPair?: ReactionPair | null;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
@@ -28,6 +31,7 @@ export function VibeClipCard({
   onVoiceReply,
   onSuggestDate,
   onReact,
+  reactionPair,
 }: Props) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
@@ -61,6 +65,7 @@ export function VibeClipCard({
   const hasPrimary = !!onReplyWithClip || !!onVoiceReply;
   const hasSecondary = !!onSuggestDate || !!onReact;
   const showActions = hasPlayed && !isMine && (hasPrimary || hasSecondary);
+  const reactionSummary = compactReactionLabel(reactionPair ?? null);
   const cardAspectRatio =
     typeof meta.aspectRatio === 'number' && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
@@ -160,6 +165,11 @@ export function VibeClipCard({
                   <Text style={styles.secondaryLabel}>React</Text>
                 </Pressable>
               )}
+              {reactionSummary ? (
+                <Text style={styles.reactionSummary} accessibilityLabel={`Reactions ${reactionSummary}`}>
+                  {reactionSummary}
+                </Text>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -262,6 +272,7 @@ const styles = StyleSheet.create({
     color: ACCENT,
   },
   secondaryRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
@@ -269,6 +280,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingBottom: 8,
     paddingTop: 2,
+    justifyContent: 'flex-start',
+  },
+  reactionSummary: {
+    marginLeft: 'auto',
+    fontSize: 13,
+    lineHeight: 16,
   },
   secondaryBtn: {
     flexDirection: 'row',

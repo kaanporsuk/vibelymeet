@@ -14,6 +14,8 @@ import {
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
 import type { VibeClipDisplayMeta } from "../../../shared/chat/messageRouting";
+import type { ReactionPair } from "../../../shared/chat/messageReactionModel";
+import { compactReactionLabel } from "../../../shared/chat/messageReactionModel";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -22,8 +24,9 @@ interface VibeClipBubbleProps {
   onVoiceReply?: () => void;
   /** Secondary: existing date composer entry (gated in parent). */
   onSuggestDate?: () => void;
-  /** Secondary: reuse same reaction set as text bubbles (local state in Chat). */
   onReactionPick?: (emoji: ReactionEmoji) => void;
+  /** Persisted reactions for this clip (both participants in 1:1). */
+  reactionPair?: ReactionPair | null;
 }
 
 export const VibeClipBubble = ({
@@ -33,6 +36,7 @@ export const VibeClipBubble = ({
   onVoiceReply,
   onSuggestDate,
   onReactionPick,
+  reactionPair,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -47,6 +51,7 @@ export const VibeClipBubble = ({
 
   const hasPrimary = !!(onReplyWithClip || onVoiceReply);
   const hasSecondary = !!(onSuggestDate || onReactionPick);
+  const reactionSummary = compactReactionLabel(reactionPair ?? null);
 
   const isIosSafari = useMemo(() => {
     if (typeof navigator === "undefined") return false;
@@ -309,7 +314,7 @@ export const VibeClipBubble = ({
             </div>
           )}
           {hasSecondary && (
-            <div className="relative border-t border-violet-500/10 px-2.5 pb-2 pt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1">
+            <div className="relative border-t border-violet-500/10 px-2.5 pb-2 pt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 w-full min-w-0">
               {onSuggestDate && (
                 <button
                   type="button"
@@ -342,6 +347,11 @@ export const VibeClipBubble = ({
                   />
                 ) : null}
               </AnimatePresence>
+              {reactionSummary ? (
+                <span className="ml-auto text-[11px] leading-none text-muted-foreground tabular-nums shrink-0">
+                  {reactionSummary}
+                </span>
+              ) : null}
             </div>
           )}
         </div>
