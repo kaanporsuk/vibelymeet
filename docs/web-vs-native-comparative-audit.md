@@ -318,7 +318,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | chat/ParticleBurst | — | MISSING |
 | chat/ReactionBadge | — | MISSING |
 | chat/TypingIndicator | — | MISSING |
-| chat/VideoDateCard | — | MISSING |
+| chat/VideoDateCard | **Removed / never in tree** — use date suggestion cards + Vibe Clip UI | Native: `VibeClipCard`, `DateSuggestionSheet` |
 | chat/VideoMessageBubble | VideoView in bubble | PARTIAL |
 | chat/VideoMessageRecorder | — | PARTIAL (image picker for video) |
 | chat/VoiceMessageBubble | Inline VoiceMessageBubble | EXISTS |
