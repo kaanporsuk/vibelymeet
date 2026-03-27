@@ -182,8 +182,8 @@
 
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
-| Hooks | useRealtimeMessages, useMessages, useSendMessage, useMatchCall, useUserProfile; DateProposal from useSchedule | useMessages, useSendMessage, useRealtimeMessages, useSendVoiceMessage, useSendChatVideoMessage, useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch | Native: no useMatchCall (no incoming/active call overlay) |
-| Components | MessageBubble, TypingIndicator, VideoDateCard, DateSuggestionChip, ChatHeader, VoiceRecorder, VideoMessageRecorder, VoiceMessageBubble, VideoMessageBubble, VibeSyncModal, DateProposalTicket, VibeArcadeMenu, GameBubbleRenderer, TwoTruthsCreator, WouldRatherCreator, etc., IncomingCallOverlay, ActiveCallOverlay | Inline VoiceMessageBubble, VideoView for chat video, MatchActionsSheet, ReportFlowModal, GlassHeaderBar | Native: no TypingIndicator, no VideoDateCard, no DateSuggestionChip, no VibeSyncModal, no DateProposalTicket, no VibeArcadeMenu / game creators, no IncomingCallOverlay, no ActiveCallOverlay |
+| Hooks | useRealtimeMessages, useMessages, useSendMessage, useMatchCall, useUserProfile; DateProposal from useSchedule | useMessages, useSendMessage, useRealtimeMessages, useSendVoiceMessage, useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch | Native: no useMatchCall (no incoming/active call overlay). Vibe Clip send uses outbox + `invokePublishVibeClip` (not a separate hook). |
+| Components | MessageBubble, TypingIndicator, DateSuggestionChip, ChatHeader, VoiceRecorder, VideoMessageRecorder, VoiceMessageBubble, VideoMessageBubble (legacy video), **VibeClipBubble**, VibeSyncModal, DateProposalTicket, VibeArcadeMenu, GameBubbleRenderer, TwoTruthsCreator, WouldRatherCreator, etc., IncomingCallOverlay, ActiveCallOverlay | VoiceMessageBubble, **VibeClipCard**, VideoView for legacy video, MatchActionsSheet, ReportFlowModal, GlassHeaderBar | Native: no TypingIndicator, no DateSuggestionChip, no VibeSyncModal, no DateProposalTicket, no VibeArcadeMenu / game creators, no IncomingCallOverlay, no ActiveCallOverlay |
 | Interactions | Send text/voice/video, date proposals, open VibeSync, open arcade games, accept/decline call, reaction | Send text/voice/video (image picker), match actions, report | Native: no in-chat video call UI; no date proposal/scheduling UI; no arcade; no call overlays |
 | Data | Realtime messages, call state (useMatchCall) | Realtime messages | Native: no call state subscription |
 
@@ -318,7 +318,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | chat/ParticleBurst | — | MISSING |
 | chat/ReactionBadge | — | MISSING |
 | chat/TypingIndicator | — | MISSING |
-| chat/VideoDateCard | — | MISSING |
+| chat/VideoDateCard | **Removed / never in tree** — use date suggestion cards + Vibe Clip UI | Native: `VibeClipCard`, `DateSuggestionSheet` |
 | chat/VideoMessageBubble | VideoView in bubble | PARTIAL |
 | chat/VideoMessageRecorder | — | PARTIAL (image picker for video) |
 | chat/VoiceMessageBubble | Inline VoiceMessageBubble | EXISTS |

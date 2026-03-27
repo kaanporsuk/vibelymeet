@@ -3,7 +3,7 @@ import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
-import { uploadVoiceMessage, uploadChatVideoMessage } from '@/lib/chatMediaUpload';
+import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import {
   collapseVibeGameMessageRows,
   type ChatGameSessionMessageRow,
@@ -570,81 +570,6 @@ export function useSendVoiceMessage() {
         matchId,
         currentUserId,
         audioUrl,
-        durationSeconds,
-        clientRequestId,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
-    },
-  });
-}
-
-/** Send chat video message: upload via upload-chat-video EF then insert (same as web). */
-export async function insertChatVideoMessageRow(params: {
-  matchId: string;
-  currentUserId: string;
-  videoUrl: string;
-  durationSeconds: number;
-  clientRequestId?: string;
-}) {
-  const { matchId, currentUserId, videoUrl, durationSeconds, clientRequestId } = params;
-  const row: Record<string, unknown> = {
-    match_id: matchId,
-    sender_id: currentUserId,
-    content: '📹 Video message',
-    video_url: videoUrl,
-    video_duration_seconds: Math.round(durationSeconds),
-  };
-  if (clientRequestId?.trim()) {
-    row.structured_payload = { client_request_id: clientRequestId.trim(), v: 1 };
-  }
-  const { data, error } = await supabase
-    .from('messages')
-    .insert(row)
-    .select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds')
-    .single();
-  if (error) {
-    const code = (error as { code?: string }).code;
-    if (code === '23505' && clientRequestId?.trim()) {
-      const { data: existing } = await supabase
-        .from('messages')
-        .select('id, match_id, sender_id, content, created_at, video_url, video_duration_seconds')
-        .eq('match_id', matchId)
-        .eq('sender_id', currentUserId)
-        .contains('structured_payload', { client_request_id: clientRequestId.trim() })
-        .maybeSingle();
-      if (existing) return existing;
-    }
-    throw error;
-  }
-  return data;
-}
-
-export function useSendChatVideoMessage() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      matchId,
-      videoUri,
-      durationSeconds,
-      currentUserId,
-      mimeType,
-      clientRequestId,
-    }: {
-      matchId: string;
-      videoUri: string;
-      durationSeconds: number;
-      currentUserId: string;
-      mimeType?: string;
-      clientRequestId?: string;
-    }) => {
-      const uploaded = await uploadChatVideoMessage(videoUri, matchId, mimeType ?? 'video/mp4');
-      return insertChatVideoMessageRow({
-        matchId,
-        currentUserId,
-        videoUrl: uploaded.videoUrl,
         durationSeconds,
         clientRequestId,
       });
