@@ -52,6 +52,7 @@ import { formatSendGameEventError, newVibeGameSessionId, sendGameEvent } from "@
 import { dedupeLatestByRefId } from "../../shared/chat/refDedupe";
 import { matchHasOpenDateSuggestion } from "../../shared/dateSuggestions/openStatus";
 import {
+  VIBE_CLIP_CHAT_FILM_BUTTON_TITLE,
   VIBE_CLIP_TOAST_SEND_FAIL,
   VIBE_CLIP_TOAST_SENT,
   VIBE_CLIP_TOAST_UPLOAD_FAIL,
@@ -1055,7 +1056,7 @@ const Chat = () => {
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setIsRecordingVideo(true)}
                 className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20"
-                title="Vibe Clip — record a short front-camera video (up to 59s)"
+                title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
               >
                 <Film className="w-4 h-4" />
               </motion.button>

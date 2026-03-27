@@ -4,8 +4,10 @@ import { X, SwitchCamera, Film, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
+  VIBE_CLIP_MAX_DURATION_SEC,
   VIBE_CLIP_RECORDER_IDLE_HINT,
   VIBE_CLIP_RECORDER_RECORDING_REMAINING,
+  VIBE_CLIP_RECORDER_SOFT_FRAMING,
   VIBE_CLIP_RECORDER_TAGLINE,
   VIBE_CLIP_WEB_TOAST_CAMERA_DENIED,
   VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC,
@@ -16,8 +18,6 @@ interface VideoMessageRecorderProps {
   onRecordingComplete: (videoBlob: Blob, duration: number) => void;
   onCancel: () => void;
 }
-
-const MAX_DURATION = 59;
 
 const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
@@ -293,7 +293,7 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
         <div className="flex flex-col items-center gap-3 pb-safe p-6">
           {isRecording && (
             <p className="text-white/80 text-xs font-medium">
-              {VIBE_CLIP_RECORDER_RECORDING_REMAINING(MAX_DURATION - duration)}
+              {VIBE_CLIP_RECORDER_RECORDING_REMAINING(VIBE_CLIP_MAX_DURATION_SEC - duration)}
             </p>
           )}
 
@@ -321,8 +321,8 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel }: VideoMessageRec
           </motion.button>
 
           {!isRecording && (
-            <p className="text-white/55 text-[11px] text-center max-w-xs">
-              Front camera first — flip if you want to show your world
+            <p className="text-white/55 text-[11px] text-center max-w-xs leading-relaxed">
+              {VIBE_CLIP_RECORDER_SOFT_FRAMING}
             </p>
           )}
         </div>

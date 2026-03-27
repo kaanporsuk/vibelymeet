@@ -81,6 +81,7 @@ import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/type
 import { copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
 import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
+  VIBE_CLIP_MAX_DURATION_SEC,
   VIBE_CLIP_OUTBOX_FAILED,
   VIBE_CLIP_OUTBOX_QUEUED,
   VIBE_CLIP_OUTBOX_SENDING,
@@ -639,7 +640,7 @@ export default function ChatThreadScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.7,
-        videoMaxDuration: 120,
+        videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
@@ -678,7 +679,7 @@ export default function ChatThreadScreen() {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-        videoMaxDuration: 120,
+        videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];

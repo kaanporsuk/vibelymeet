@@ -3,6 +3,12 @@
  * Transport and publish paths are unchanged — copy only.
  */
 
+/** Hard product cap for Vibe Clip length (seconds). */
+export const VIBE_CLIP_MAX_DURATION_SEC = 30;
+
+/** Web chat composer — film control `title` (accessibility + hover). */
+export const VIBE_CLIP_CHAT_FILM_BUTTON_TITLE = `Vibe Clip — record a short front-camera video (up to ${VIBE_CLIP_MAX_DURATION_SEC}s)`;
+
 export const VIBE_CLIP_SHEET_TITLE = "Send a Vibe Clip";
 
 export const VIBE_CLIP_SHEET_SUBTITLE =
@@ -33,7 +39,11 @@ export const VIBE_CLIP_PERM_LIBRARY_MESSAGE =
 export const VIBE_CLIP_RECORDER_TAGLINE = "Quick vibe check";
 
 export const VIBE_CLIP_RECORDER_IDLE_HINT =
-  "Tap when you’re ready — up to 59s · front camera by default";
+  "Tap when you’re ready — up to 30s · front camera by default";
+
+/** Soft product guidance (not a limit). */
+export const VIBE_CLIP_RECORDER_SOFT_FRAMING =
+  "8–20s usually feels natural — front camera first, flip to show your world.";
 
 export const VIBE_CLIP_RECORDER_RECORDING_REMAINING = (sec: number) =>
   `${sec}s left`;
