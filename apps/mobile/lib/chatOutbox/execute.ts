@@ -74,14 +74,31 @@ export async function executeOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else {
-      const videoUrl =
-        item.uploadedMediaUrl ?? (await uploadChatVideoMessage(payload.uri, matchId, payload.mimeType ?? 'video/mp4'));
-      uploadedMediaUrl = videoUrl;
+      const uploaded =
+        item.uploadedMediaUrl
+          ? {
+              videoUrl: item.uploadedMediaUrl,
+              thumbnailUrl: item.uploadedPublicUrl ?? null,
+              aspectRatio:
+                typeof payload.aspectRatio === 'number' && Number.isFinite(payload.aspectRatio) && payload.aspectRatio > 0
+                  ? payload.aspectRatio
+                  : null,
+            }
+          : await uploadChatVideoMessage(
+              payload.uri,
+              matchId,
+              payload.mimeType ?? 'video/mp4',
+              typeof payload.aspectRatio === 'number' ? payload.aspectRatio : null,
+            );
+      uploadedMediaUrl = uploaded.videoUrl;
+      uploadedPublicUrl = uploaded.thumbnailUrl ?? undefined;
       const row = await invokePublishVibeClip({
         matchId,
-        videoUrl,
+        videoUrl: uploaded.videoUrl,
         durationMs: Math.round(payload.durationSeconds * 1000),
         clientRequestId,
+        thumbnailUrl: uploaded.thumbnailUrl,
+        aspectRatio: uploaded.aspectRatio,
       });
       serverMessageId = getServerMessageId(row);
     }

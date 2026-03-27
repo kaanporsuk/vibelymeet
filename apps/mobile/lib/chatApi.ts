@@ -345,6 +345,7 @@ export async function invokePublishVibeClip(params: {
   durationMs: number;
   clientRequestId: string;
   thumbnailUrl?: string | null;
+  aspectRatio?: number | null;
 }): Promise<unknown> {
   const body: Record<string, unknown> = {
     match_id: params.matchId,
@@ -354,6 +355,9 @@ export async function invokePublishVibeClip(params: {
     client_request_id: params.clientRequestId,
   };
   if (params.thumbnailUrl) body.thumbnail_url = params.thumbnailUrl;
+  if (typeof params.aspectRatio === 'number' && Number.isFinite(params.aspectRatio) && params.aspectRatio > 0) {
+    body.aspect_ratio = params.aspectRatio;
+  }
   const { data, error } = await supabase.functions.invoke('send-message', { body });
   if (error) throw error;
   const payload = data as { success?: boolean; message?: unknown; error?: string };
@@ -634,11 +638,11 @@ export function useSendChatVideoMessage() {
       mimeType?: string;
       clientRequestId?: string;
     }) => {
-      const videoUrl = await uploadChatVideoMessage(videoUri, matchId, mimeType ?? 'video/mp4');
+      const uploaded = await uploadChatVideoMessage(videoUri, matchId, mimeType ?? 'video/mp4');
       return insertChatVideoMessageRow({
         matchId,
         currentUserId,
-        videoUrl,
+        videoUrl: uploaded.videoUrl,
         durationSeconds,
         clientRequestId,
       });

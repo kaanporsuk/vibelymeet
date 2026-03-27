@@ -112,6 +112,12 @@ serve(async (req) => {
       const thumbnailUrl = typeof body.thumbnail_url === "string" && body.thumbnail_url.trim()
         ? body.thumbnail_url.trim()
         : null;
+      const aspectRatioRaw = body.aspect_ratio;
+      const aspectRatio =
+        typeof aspectRatioRaw === "number" && Number.isFinite(aspectRatioRaw) && aspectRatioRaw > 0
+          ? aspectRatioRaw
+          : null;
+      const posterSource = thumbnailUrl ? "uploaded_thumbnail" : "first_frame";
 
       const clipPayload = {
         v: 2,
@@ -119,6 +125,8 @@ serve(async (req) => {
         client_request_id: clientRequestId,
         duration_ms: durationMs,
         thumbnail_url: thumbnailUrl,
+        poster_source: posterSource,
+        aspect_ratio: aspectRatio,
         processing_status: "ready",
         upload_provider: "bunny",
       };

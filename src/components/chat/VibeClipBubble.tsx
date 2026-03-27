@@ -116,6 +116,10 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
   }, []);
 
   const progress = meta.durationSec > 0 ? (currentTime / meta.durationSec) * 100 : 0;
+  const clipAspectRatio =
+    typeof meta.aspectRatio === "number" && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
+      ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
+      : 9 / 16;
 
   if (loadError) {
     return (
@@ -158,7 +162,7 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
 
       {/* Video surface */}
       <div className="cursor-pointer" onClick={togglePlay}>
-        <AspectRatio ratio={9 / 16}>
+        <AspectRatio ratio={clipAspectRatio}>
           {!isReady && (
             <div className="absolute inset-0 bg-black">
               <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-white/0 to-white/10" />
@@ -188,6 +192,7 @@ export const VibeClipBubble = ({ meta, isMine, onReplyWithClip, onVoiceReply }: 
           <video
             ref={videoRef}
             src={meta.videoUrl}
+            poster={meta.thumbnailUrl ?? undefined}
             playsInline
             muted={isMuted}
             preload="metadata"
