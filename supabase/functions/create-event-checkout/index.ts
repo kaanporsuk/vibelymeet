@@ -72,17 +72,34 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (eventData?.visibility === 'premium' || eventData?.visibility === 'vip') {
-      const { data: isPremium, error: premErr } = await supabase
-        .rpc('check_premium_status', { p_user_id: user.id })
-      if (premErr) {
+      const { data: userTier, error: tierErr } = await supabase
+        .rpc('get_user_tier', { p_user_id: user.id })
+
+      if (tierErr) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Could not verify premium status' }),
+          JSON.stringify({ success: false, error: 'Could not verify subscription tier' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
-      if (!isPremium) {
+
+      const effectiveTier = (userTier as string) || 'free'
+      const eventVisibility = eventData.visibility as string
+
+      const ACCESS_MAP: Record<string, string[]> = {
+        free: ['free'],
+        premium: ['free', 'premium'],
+        vip: ['free', 'premium', 'vip'],
+      }
+
+      const accessibleTiers = ACCESS_MAP[effectiveTier] || ACCESS_MAP.free
+
+      if (!accessibleTiers.includes(eventVisibility)) {
+        const requiredLabel = eventVisibility === 'vip' ? 'VIP' : 'Premium'
         return new Response(
-          JSON.stringify({ success: false, error: 'This event requires a Vibely Premium subscription' }),
+          JSON.stringify({
+            success: false,
+            error: `This event requires a ${requiredLabel} subscription`,
+          }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }

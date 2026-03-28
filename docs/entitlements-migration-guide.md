@@ -1,6 +1,11 @@
 # Entitlements migration guide (tier capabilities)
 
-This document lists **current** premium/subscription gates and the **target** pattern once `useEntitlements` (merged `tiers.ts` + `tier_config_overrides`) is wired everywhere. It also records **Step 1 migration verification** and a **deployment checklist**.
+This document lists **current** premium/subscription gates and the **target** pattern once tier **`useEntitlements`** (from `@/hooks/useEntitlements`, merged `tiers.ts` + `tier_config_overrides`) is wired everywhere. It also records **Step 1 migration verification** and a **deployment checklist**.
+
+**Naming — do not confuse hooks**
+
+- **Tier capabilities:** `useEntitlements()` from `@/hooks/useEntitlements` (web) or `apps/mobile/hooks/useEntitlements.ts` (`@/hooks/useEntitlements` on native). Subscribes to `profiles.subscription_tier` and `tier_config_overrides`.
+- **Pause / resume account:** `useAccountStatus()` from `@/contexts/AuthContext` — `{ pauseAccount, resumeAccount, isAdmin }`. This replaced the old Auth-context name `useEntitlements` to avoid clashing with the tier hook.
 
 ---
 
@@ -62,20 +67,23 @@ Until that hook exists in this branch, use **`useSubscription().isPremium`** (St
 
 ---
 
-## Server-side: still boolean / subscription-oriented
+## Server-side: tier, RPCs, and webhooks
 
-These should eventually align with `subscription_tier`, `check_premium_status`, or tier-capability checks:
+| Area | File / object | Mechanism |
+|------|----------------|-----------|
+| Paid event checkout | `supabase/functions/create-event-checkout/index.ts` | **`get_user_tier`** RPC + inline **ACCESS_MAP** (mirrors `TIERS[*].access.accessibleEventTiers`): `free` → only `free` events; `premium` → `free` + `premium`; **`vip`** → `free` + `premium` + **`vip`**. **Premium users cannot register for VIP-only events** (not `check_premium_status`, which is boolean “has premium access”). |
+| Premium geocode gate | `supabase/functions/forward-geocode/index.ts` | **`check_premium_status`** RPC + admin role via `user_roles`. |
+| Account deletion cleanup | `supabase/functions/delete-account/index.ts` | Stripe cancel scoped to **`provider = 'stripe'`**; sets `is_premium: false` and `subscription_tier: 'free'` when cancel succeeds. |
+| Stripe webhook | `supabase/functions/stripe-webhook/index.ts` | Subscriptions upsert (`provider: 'stripe'`); credit packs with **`stripe_credit_checkout_grants`** idempotency; `subscription_tier` on checkout / delete. |
+| RevenueCat webhook | `supabase/functions/revenuecat-webhook/index.ts` | `subscriptions` upsert (`provider: 'revenuecat'`); `subscription_tier` on active / cancel / expire. |
 
-| Area | File / object | Current mechanism |
-|------|----------------|-------------------|
-| Paid event checkout | `supabase/functions/create-event-checkout/index.ts` | `subscriptions.status` → `isPremium` for premium-only events |
-| Premium geocode gate | `supabase/functions/forward-geocode/index.ts` | `subscriptions` active/trialing + admin role (no `profiles.is_premium` / `premium_until`) |
-| Account deletion cleanup | `supabase/functions/delete-account/index.ts` | Sets `is_premium: false` |
-| Stripe webhook | `supabase/functions/stripe-webhook/index.ts` | Subscriptions upsert; credit packs (optional: `stripe_credit_checkout_grants` idempotency not wired in snippet reviewed) |
-| RevenueCat webhook | `supabase/functions/revenuecat-webhook/index.ts` | `subscriptions` upsert |
-| RPC | `get_visible_events` | After migration **20260331120000**, uses `v_sub_active`, `v_is_admin`, **`v_profile_premium`** |
-| RPC | `check_premium_status` | Two-`EXISTS` pattern after **20260331120000** |
-| RPC | `get_user_tier` | Added in **20260331130000** |
+UI and other server paths should align with `subscription_tier`, `get_user_tier`, `check_premium_status`, or capability flags from `tiers.ts` where appropriate.
+
+| RPC | Notes |
+|-----|--------|
+| `get_visible_events` | After migration **20260331120000**, uses `v_sub_active`, `v_is_admin`, **`v_profile_premium`**. |
+| `check_premium_status` | Two-`EXISTS` pattern after **20260331120000**. |
+| `get_user_tier` | Added in **20260331130000**; used by **`create-event-checkout`** for premium vs VIP ticket gates. |
 
 ---
 
@@ -127,5 +135,5 @@ Paste and run after merging; adjust project id if needed.
 
 ## Afterword
 
-- **Do not** migrate UI gates in this doc until `src/hooks/useEntitlements.ts` and `apps/mobile/hooks/useEntitlements.ts` exist and import merged config from `supabase/functions/_shared/tiers.ts` (`@shared/tiers`).
+- **Hooks shipped:** `src/hooks/useEntitlements.ts` and `apps/mobile/hooks/useEntitlements.ts` import merged config from `supabase/functions/_shared/tiers.ts` (`@shared/tiers`). Remaining work is migrating each UI gate row above from `useSubscription` / `usePremium` to capability flags as listed.
 - **VIP vs Premium copy** on marketing pages must match `TIERS` (Premium does **not** include VIP events unless overridden in DB).
