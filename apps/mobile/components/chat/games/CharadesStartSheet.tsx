@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, TextInput, ScrollView } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { CHARADES_EMOJI_PICKER } from '@/lib/charadesEmojiPicker';
 import { formatSendGameEventError, newVibeGameSessionId, useStartCharadesGame } from '@/lib/gamesApi';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
   visible: boolean;
@@ -17,7 +17,6 @@ type Props = {
 
 export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: Props) {
   const theme = Colors[useColorScheme()];
-  const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartCharadesGame();
   const [answer, setAnswer] = useState('');
   const [selectedEmojis, setSelectedEmojis] = useState<string[]>([]);
@@ -40,6 +39,11 @@ export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: P
       if (prev.length >= 5) return prev;
       return [...prev, emoji];
     });
+  };
+
+  const handleRequestClose = () => {
+    if (isPending) return;
+    onClose();
   };
 
   const handleSend = async () => {
@@ -78,101 +82,19 @@ export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: P
   const canSend = answer.trim().length > 0 && selectedEmojis.length > 0 && !isPending;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending ? undefined : onClose}>
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={isPending ? undefined : onClose} accessibilityLabel="Dismiss" />
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-              paddingBottom: Math.max(insets.bottom, spacing.lg),
-            },
-          ]}
-        >
-          <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Charades</Text>
-            <Pressable
-              onPress={onClose}
-              disabled={isPending}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
-            </Pressable>
-          </View>
-          <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
-            Send an emoji clue. {partnerName} guesses the title.
-          </Text>
-
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Title (hidden until guessed)</Text>
-            <TextInput
-              value={answer}
-              onChangeText={(t) => {
-                setAnswer(t);
-                if (error) setError(null);
-              }}
-              placeholder="Movie, song, or show..."
-              placeholderTextColor={theme.textSecondary}
-              editable={!isPending}
-              maxLength={500}
-              style={[
-                styles.answerInput,
-                {
-                  color: theme.text,
-                  borderColor: theme.border,
-                  backgroundColor: theme.surfaceSubtle,
-                },
-              ]}
-            />
-
-            <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Selected emojis (up to 5)</Text>
-            <View style={[styles.selectedBox, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-              {selectedEmojis.length ? (
-                selectedEmojis.map((emoji, idx) => (
-                  <Pressable key={`${emoji}-${idx}`} onPress={() => toggleEmoji(emoji)} hitSlop={8}>
-                    <Text style={styles.selectedEmoji}>{emoji}</Text>
-                  </Pressable>
-                ))
-              ) : (
-                <Text style={[styles.selectedPlaceholder, { color: theme.textSecondary }]}>
-                  Tap emojis below to build your clue
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.emojiGrid}>
-              {CHARADES_EMOJI_PICKER.map((emoji) => {
-                const selected = selectedEmojis.includes(emoji);
-                return (
-                  <Pressable
-                    key={emoji}
-                    onPress={() => toggleEmoji(emoji)}
-                    style={[
-                      styles.emojiCell,
-                      {
-                        borderColor: selected ? theme.neonViolet : theme.border,
-                        backgroundColor: selected ? 'rgba(139,92,246,0.18)' : theme.surfaceSubtle,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.emojiCellText}>{emoji}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {error ? (
-              <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
-                <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
-                <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={handleRequestClose}
+      animationType="slide"
+      backdropColor="rgba(0,0,0,0.55)"
+      maxHeightRatio={0.9}
+      scrollable={false}
+      sheetStyle={{
+        borderWidth: StyleSheet.hairlineWidth,
+        paddingTop: spacing.md,
+      }}
+      footer={
+        <View style={styles.footerWrap}>
           <Pressable
             onPress={() => void handleSend()}
             disabled={!canSend}
@@ -191,24 +113,99 @@ export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: P
             )}
           </Pressable>
         </View>
+      }
+    >
+      <View style={styles.sheetHeader}>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Charades</Text>
+        <Pressable
+          onPress={onClose}
+          disabled={isPending}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
+        </Pressable>
       </View>
-    </Modal>
+      <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
+        Send an emoji clue. {partnerName} guesses the title.
+      </Text>
+
+      <ScrollView
+        style={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Title (hidden until guessed)</Text>
+        <TextInput
+          value={answer}
+          onChangeText={(t) => {
+            setAnswer(t);
+            if (error) setError(null);
+          }}
+          placeholder="Movie, song, or show..."
+          placeholderTextColor={theme.textSecondary}
+          editable={!isPending}
+          maxLength={500}
+          style={[
+            styles.answerInput,
+            {
+              color: theme.text,
+              borderColor: theme.border,
+              backgroundColor: theme.surfaceSubtle,
+            },
+          ]}
+        />
+
+        <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Selected emojis (up to 5)</Text>
+        <View style={[styles.selectedBox, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+          {selectedEmojis.length ? (
+            selectedEmojis.map((emoji, idx) => (
+              <Pressable key={`${emoji}-${idx}`} onPress={() => toggleEmoji(emoji)} hitSlop={8}>
+                <Text style={styles.selectedEmoji}>{emoji}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={[styles.selectedPlaceholder, { color: theme.textSecondary }]}>
+              Tap emojis below to build your clue
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.emojiGrid}>
+          {CHARADES_EMOJI_PICKER.map((emoji) => {
+            const selected = selectedEmojis.includes(emoji);
+            return (
+              <Pressable
+                key={emoji}
+                onPress={() => toggleEmoji(emoji)}
+                style={[
+                  styles.emojiCell,
+                  {
+                    borderColor: selected ? theme.neonViolet : theme.border,
+                    backgroundColor: selected ? 'rgba(139,92,246,0.18)' : theme.surfaceSubtle,
+                  },
+                ]}
+              >
+                <Text style={styles.emojiCellText}>{emoji}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {error ? (
+          <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
+            <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
+            <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 0 },
-  sheet: {
-    zIndex: 1,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    maxHeight: '90%',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sheetTitle: { fontSize: 20, fontWeight: '700' },
   sheetSubtitle: { fontSize: 13, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 18 },
@@ -266,9 +263,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   errorText: { flex: 1, fontSize: 14, lineHeight: 20 },
-  sendBtn: {
+  footerWrap: {
     marginTop: spacing.md,
     marginBottom: spacing.sm,
+  },
+  sendBtn: {
     paddingVertical: 14,
     borderRadius: radius.button,
     alignItems: 'center',
