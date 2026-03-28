@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { requestPushPermissionsAfterPrompt, VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
 
+const DISMISS_BEFORE_OS_PERMISSION_MS = 200;
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -31,6 +33,11 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   const { width } = useWindowDimensions();
   const cardWidth = Math.min(width - 40, 380);
   const pulse = useRef(new Animated.Value(0.55)).current;
+  const [enableBusy, setEnableBusy] = useState(false);
+
+  useEffect(() => {
+    if (!visible) setEnableBusy(false);
+  }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
@@ -51,15 +58,22 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   };
 
   const handleEnable = async () => {
-    if (!userId) {
-      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+    if (enableBusy) return;
+    setEnableBusy(true);
+    try {
+      if (!userId) {
+        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+        onClose();
+        onCompleted?.();
+        return;
+      }
       onClose();
+      await new Promise<void>((resolve) => setTimeout(resolve, DISMISS_BEFORE_OS_PERMISSION_MS));
+      await requestPushPermissionsAfterPrompt(userId);
       onCompleted?.();
-      return;
+    } finally {
+      setEnableBusy(false);
     }
-    await requestPushPermissionsAfterPrompt(userId);
-    onClose();
-    onCompleted?.();
   };
 
   const cardBorder = withAlpha(theme.tint, 0.38);
@@ -88,7 +102,11 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
             Get notified when someone matches with you, messages you, or when your event and date activity needs your
             attention. You stay in control in Settings.
           </Text>
-          <Pressable onPress={handleEnable} style={({ pressed }) => [styles.primaryWrap, pressed && { opacity: 0.92 }]}>
+          <Pressable
+            onPress={() => void handleEnable()}
+            disabled={enableBusy}
+            style={({ pressed }) => [styles.primaryWrap, pressed && { opacity: 0.92 }]}
+          >
             <LinearGradient
               colors={[theme.tint, theme.accent]}
               start={{ x: 0, y: 0 }}
