@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -22,7 +22,6 @@ import {
   Phone,
   Play,
   Plus,
-  ShieldCheck,
   CheckCircle2,
   MessageCircle,
   Heart,
@@ -35,20 +34,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
 import { BottomNav } from "@/components/BottomNav";
-import { PhotoGallery } from "@/components/PhotoGallery";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import PhotoManageDrawer from "@/components/photos/PhotoManageDrawer";
 import { PhotoManager } from "@/components/PhotoManager";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
-import { VibeTag } from "@/components/VibeTag";
 import { ProfilePrompt, PromptSelector } from "@/components/ProfilePrompt";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector } from "@/components/HeightSelector";
-import { ProfilePreview } from "@/components/ProfilePreview";
-import ProfileWizard from "@/components/wizard/ProfileWizard";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
+import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
+import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScoreIncompleteActions";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { useLogout } from "@/hooks/useLogout";
@@ -57,7 +54,6 @@ import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import {
   Drawer,
   DrawerClose,
@@ -163,43 +159,8 @@ type DrawerType =
   | "tagline"
   | null;
 
-// ────────────────────────────────────────────────────────────────────
-// Smart Nudge (same logic as native)
-// ────────────────────────────────────────────────────────────────────
-
-type SmartNudge = {
-  icon: typeof Video;
-  title: string;
-  subtitle: string;
-  action: "video" | "photos" | "prompts" | "schedule" | "verify-phone" | "preview";
-};
-
-function getSmartNudge(profile: UserProfile, phoneVerified: boolean): SmartNudge {
-  const videoStatus = (profile.bunnyVideoStatus ?? "").toLowerCase().trim();
-  const hasUid = !!profile.bunnyVideoUid;
-  const isProcessing = hasUid && (videoStatus === "uploading" || videoStatus === "processing");
-  const isFailed = hasUid && videoStatus === "failed";
-  const isReady = hasUid && videoStatus === "ready";
-  const photoCount = profile.photos.length;
-  const promptCount = profile.prompts.filter((p) => p.question?.trim() && p.answer?.trim()).length;
-
-  if (!hasUid || (!isProcessing && !isFailed && !isReady)) {
-    return { icon: Video, title: "Add a Vibe Video", subtitle: "Profiles with video get 3x more conversations", action: "video" };
-  }
-  if (isFailed) {
-    return { icon: Video, title: "Re-record your Vibe Video", subtitle: "Your last video failed to process — try again", action: "video" };
-  }
-  if (photoCount < 3) {
-    return { icon: Camera, title: "Add more photos", subtitle: "Profiles with 4+ photos get 2x more vibes", action: "photos" };
-  }
-  if (promptCount < 2) {
-    return { icon: MessageCircle, title: "Add conversation starters", subtitle: "Great prompts spark better connections", action: "prompts" };
-  }
-  if (!phoneVerified) {
-    return { icon: ShieldCheck, title: "Verify your phone", subtitle: "Verified profiles get 3x more matches", action: "verify-phone" };
-  }
-  return { icon: CheckCircle2, title: "You're all set!", subtitle: "Preview how others see you", action: "preview" };
-}
+const MAX_ABOUT_ME_LENGTH = 140;
+const MAX_PHOTOS = 6;
 
 // ────────────────────────────────────────────────────────────────────
 // Quick Actions config
@@ -228,51 +189,42 @@ const PROMPT_EMOJIS: Record<string, string> = {
 
 const TIME_BLOCKS: TimeBlock[] = ["morning", "afternoon", "evening", "night"];
 
-// ────────────────────────────────────────────────────────────────────
-// SVG Vibe Score Ring (web version)
-// ────────────────────────────────────────────────────────────────────
-
-function vibeScoreRingColor(score: number): string {
-  if (score >= 90) return "#E84393";
-  if (score >= 75) return "#F97316";
-  if (score >= 60) return "#8B5CF6";
-  if (score >= 45) return "#06B6D4";
-  return "#64748B";
-}
-
-function VibeScoreRing({ size, score }: { size: number; score: number }) {
-  const stroke = size <= 48 ? 4 : size <= 64 ? 5 : 6;
+/** Native-sized score ring (~48px) with violet→pink progress stroke */
+function VibeScoreHeroCircle({ score }: { score: number }) {
+  const uid = useId().replace(/:/g, "");
+  const size = 48;
+  const stroke = 3;
   const r = (size - stroke) / 2;
   const c = size / 2;
   const circumference = 2 * Math.PI * r;
-  const progress = Math.min(100, Math.max(0, score)) / 100;
-  const offset = circumference * (1 - progress);
+  const clamped = Math.min(100, Math.max(0, score));
+  const offset = circumference * (1 - clamped / 100);
+  const gradId = `vibeScoreHeroGrad-${uid}`;
 
   return (
-    <div className="relative flex items-center justify-center shrink-0" style={{ width: size, height: size }}>
+    <div className="relative flex h-12 w-12 shrink-0 items-center justify-center" aria-hidden>
       <svg width={size} height={size} className="absolute inset-0">
-        <circle cx={c} cy={c} r={r} stroke="rgba(255,255,255,0.1)" strokeWidth={stroke} fill="none" />
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#8B5CF6" />
+            <stop offset="100%" stopColor="#E84393" />
+          </linearGradient>
+        </defs>
+        <circle cx={c} cy={c} r={r} fill="#1a1a2e" stroke="rgba(255,255,255,0.1)" strokeWidth={stroke} />
         <circle
           cx={c}
           cy={c}
           r={r}
-          stroke={vibeScoreRingColor(score)}
-          strokeWidth={stroke}
           fill="none"
+          stroke={`url(#${gradId})`}
+          strokeWidth={stroke}
           strokeDasharray={`${circumference} ${circumference}`}
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${c} ${c})`}
         />
       </svg>
-      <span
-        className={cn(
-          "font-bold text-white",
-          size <= 48 ? "text-xs" : size <= 64 ? "text-xl" : "text-sm",
-        )}
-      >
-        {score}
-      </span>
+      <span className="relative text-lg font-bold text-white">{Math.round(clamped)}</span>
     </div>
   );
 }
@@ -376,8 +328,7 @@ const ProfileStudio = () => {
   const [editPhotoFiles, setEditPhotoFiles] = useState<(File | null)[]>([]);
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [promptEditorMode, setPromptEditorMode] = useState<"add" | "edit">("edit");
-  const [showPreview, setShowPreview] = useState(false);
-  const [showWizard, setShowWizard] = useState(false);
+  const [showVibeScoreDrawer, setShowVibeScoreDrawer] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
   const [showVibePlayer, setShowVibePlayer] = useState(false);
   const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
@@ -392,6 +343,7 @@ const ProfileStudio = () => {
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<"none" | "pending" | "approved" | "rejected" | "expired">("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
 
@@ -418,9 +370,12 @@ const ProfileStudio = () => {
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) setPhoneVerified(true);
+          let nextEmailVerified = !!phoneData?.email_verified;
           if (phoneData && !phoneData.email_verified && user.email) {
             await supabase.from("profiles").update({ email_verified: true, verified_email: user.email }).eq("id", user.id);
+            nextEmailVerified = true;
           }
+          setEmailVerified(nextEmailVerified);
           if (phoneData?.photo_verified) {
             if (phoneData.photo_verification_expires_at && new Date(phoneData.photo_verification_expires_at) < new Date()) {
               setPhotoVerificationStatus("expired");
@@ -499,7 +454,25 @@ const ProfileStudio = () => {
   // ── Derived data ──────────────────────────────────────────────
 
   const vibeScore = profile.vibeScore ?? 0;
-  const smartNudge = useMemo(() => getSmartNudge(profile, phoneVerified), [profile, phoneVerified]);
+
+  const vibeScoreProfileSnapshot = useMemo(
+    (): VibeScoreProfileSnapshot => ({
+      photos: profile.photos,
+      bunnyVideoUid: profile.bunnyVideoUid,
+      prompts: profile.prompts,
+      aboutMe: profile.aboutMe,
+      tagline: profile.tagline,
+      lookingFor: profile.lookingFor,
+      job: profile.job,
+      heightCm: profile.heightCm,
+      lifestyle: profile.lifestyle,
+      phoneVerified,
+      emailVerified,
+      photoVerified: profile.photoVerified,
+      name: profile.name,
+    }),
+    [profile, phoneVerified, emailVerified],
+  );
   const hasVibeVideo = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready");
   const isVibeVideoProcessing = !!(profile.bunnyVideoUid && (profile.bunnyVideoStatus === "uploading" || profile.bunnyVideoStatus === "processing"));
   const isVibeVideoFailed = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "failed");
@@ -579,7 +552,7 @@ const ProfileStudio = () => {
           updates.locationData = editForm.locationData;
           break;
         case "bio":
-          updates.aboutMe = editForm.aboutMe;
+          updates.aboutMe = (editForm.aboutMe ?? "").trim().slice(0, MAX_ABOUT_ME_LENGTH) || null;
           break;
         case "vibes":
           updates.vibes = editForm.vibes;
@@ -620,6 +593,11 @@ const ProfileStudio = () => {
   };
 
   const openDrawer = (type: DrawerType) => {
+    if (type === "tagline") {
+      setEditForm({ ...profile });
+      setActiveDrawer("tagline");
+      return;
+    }
     if (type === "prompt") {
       const next = { ...profile };
       if (!next.prompts || next.prompts.length === 0) {
@@ -698,27 +676,84 @@ const ProfileStudio = () => {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const handleNudgeAction = () => {
-    switch (smartNudge.action) {
-      case "video":
-        setShowVibeStudio(true);
-        break;
+  const handleVibeScoreAction = (action: VibeScoreActionId) => {
+    switch (action) {
       case "photos":
-        openDrawer("photos");
+        setShowPhotoDrawer(true);
+        break;
+      case "vibe_video":
+        if (profile.bunnyVideoUid?.trim()) setActiveDrawer("vibe-video");
+        else setShowVibeStudio(true);
         break;
       case "prompts":
         scrollToSection("prompts");
         break;
-      case "schedule":
-        navigate("/schedule");
+      case "about_me":
+        setEditForm({ ...profile });
+        setActiveDrawer("bio");
+        scrollToSection("about");
         break;
-      case "verify-phone":
+      case "tagline":
+        setEditForm({ ...profile });
+        setActiveDrawer("tagline");
+        scrollToSection("hero");
+        break;
+      case "looking_for":
+        scrollToSection("lookingFor");
+        break;
+      case "job":
+      case "height":
+        setEditForm({ ...profile });
+        setActiveDrawer("basics");
+        scrollToSection("details");
+        break;
+      case "lifestyle":
+        setEditForm({ ...profile });
+        setActiveDrawer("lifestyle");
+        scrollToSection("details");
+        break;
+      case "phone":
+        setShowPhoneVerification(true);
         scrollToSection("verification");
         break;
-      case "preview":
-        navigate("/profile/preview");
+      case "email":
+        toast.success("Your email is already verified ✓");
+        scrollToSection("verification");
+        break;
+      case "photo_verify":
+        scrollToSection("verification");
+        if (profile.photos.length === 0) {
+          toast.error("Please add a profile photo first");
+          return;
+        }
+        setShowPhotoVerification(true);
+        break;
+      case "name":
+        setEditForm({ ...profile });
+        setActiveDrawer("basics");
+        scrollToSection("hero");
+        break;
+      default:
         break;
     }
+  };
+
+  const openHeroVideoFab = () => {
+    if (profile.bunnyVideoUid?.trim()) setActiveDrawer("vibe-video");
+    else setShowVibeStudio(true);
+  };
+
+  const appendPhotoFileAndOpenDrawer = (file: File) => {
+    if (profile.photos.length >= MAX_PHOTOS) {
+      toast.error(`You can have up to ${MAX_PHOTOS} photos.`);
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    const nextPhotos = [...profile.photos, blobUrl];
+    const nextFiles: (File | null)[] = profile.photos.map(() => null).concat([file]);
+    setEditForm({ ...profile, photos: nextPhotos });
+    setEditPhotoFiles(nextFiles);
+    setActiveDrawer("photos");
   };
 
   const handleInviteFriends = async () => {
@@ -779,7 +814,7 @@ const ProfileStudio = () => {
             </button>
           </div>
           <div className="flex justify-center -mt-[50px] md:-mt-14 relative z-10 pointer-events-none">
-            <div className="pointer-events-auto">
+            <div className="pointer-events-auto relative">
               {mainPhoto ? (
                 <img
                   src={resolvePhotoUrl(mainPhoto)}
@@ -791,9 +826,30 @@ const ProfileStudio = () => {
                   <Camera className="w-9 h-9 md:w-10 md:h-10 text-gray-500" />
                 </div>
               )}
+              <button
+                type="button"
+                onClick={openHeroVideoFab}
+                className="absolute -bottom-1 -left-1 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/55 shadow-lg ring-2 ring-background backdrop-blur-sm"
+                aria-label="Vibe video"
+              >
+                <Video className="h-[18px] w-[18px] text-white" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPhotoDrawer(true)}
+                className="absolute -bottom-1 -right-1 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-r from-violet-600 to-pink-500 shadow-lg ring-2 ring-background"
+                aria-label="Add or manage photos"
+              >
+                <Camera className="h-[18px] w-[18px] text-white" />
+              </button>
             </div>
           </div>
-          <div className="text-center px-4 pt-2 md:pt-3 pb-1">
+          <div
+            ref={(el) => {
+              sectionRefs.current.hero = el;
+            }}
+            className="text-center px-4 pt-2 md:pt-3 pb-1"
+          >
             <div className="flex items-center justify-center gap-1.5 flex-wrap">
               <h1 className="text-[22px] md:text-2xl font-display font-bold text-white">
                 {profile.name}
@@ -805,9 +861,14 @@ const ProfileStudio = () => {
                 </span>
               )}
             </div>
-            <p className="text-[13px] md:text-sm text-violet-300/90 italic mt-1 line-clamp-2">
-              {profile.tagline?.trim() ? `“${profile.tagline.trim()}”` : "Add a tagline"}
-            </p>
+            <button
+              type="button"
+              onClick={() => openDrawer("tagline")}
+              className="mt-1 flex w-full items-center justify-center gap-1.5 text-[13px] md:text-sm text-violet-300/90 italic line-clamp-2 hover:opacity-90"
+            >
+              <span>{profile.tagline?.trim() ? `“${profile.tagline.trim()}”` : "Add a tagline"}</span>
+              <Pencil className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+            </button>
             <p className="text-xs md:text-[13px] text-gray-400 mt-1 flex items-center justify-center gap-1">
               <MapPin className="w-3 h-3 shrink-0" />
               <span className="truncate">{profile.location || "Location not set"}</span>
@@ -815,35 +876,38 @@ const ProfileStudio = () => {
           </div>
         </div>
 
-        {/* Vibe Score — ring + title row; horizontal action buttons (backend scores only) */}
-        <div className="mt-3 md:mt-4 rounded-2xl border border-white/10 bg-white/5 p-3.5 md:p-5">
-          <div className="flex flex-row items-center gap-3 md:gap-4">
-            <VibeScoreRing size={64} score={vibeScore} />
-            <div className="flex-1 min-w-0 flex flex-col">
-              <p className="text-[15px] md:text-base font-display font-bold text-white">Vibe Score</p>
-              <p className="text-xs md:text-sm text-gray-400 mt-0.5">
-                {profile.vibeScoreLabel ?? "New"}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-row gap-2 mt-3 items-stretch">
-            <button
-              type="button"
-              onClick={() => navigate("/profile/preview")}
-              className="flex-1 min-h-[44px] min-w-0 flex items-center justify-center gap-2 py-2.5 px-2 rounded-[10px] border border-violet-500/40 text-violet-400 text-sm font-semibold hover:bg-violet-500/10 transition-colors bg-transparent"
-            >
-              <Eye className="w-4 h-4 shrink-0" />
-              <span className="truncate">Preview</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleNudgeAction}
-              className="flex-[1.3] min-h-[44px] min-w-0 flex items-center justify-center gap-2 py-2.5 px-2 rounded-[10px] bg-gradient-to-r from-violet-500 to-pink-500 text-white text-sm font-bold hover:opacity-90 transition-opacity"
-            >
-              <Sparkles className="w-4 h-4 shrink-0" />
-              <span className="truncate">{vibeScore >= 100 ? "All set!" : "Complete Profile"}</span>
-            </button>
-          </div>
+        {/* Preview | Vibe Score circle | Complete Profile (native row) */}
+        <div className="mt-3 md:mt-4 flex flex-row items-center justify-between gap-2 px-0.5">
+          <button
+            type="button"
+            onClick={() => navigate("/profile/preview")}
+            className="flex min-h-[44px] min-w-0 flex-1 shrink items-center justify-center gap-1.5 rounded-[10px] border border-violet-500/40 bg-transparent py-2.5 px-2 text-sm font-semibold text-violet-400 hover:bg-violet-500/10"
+          >
+            <Eye className="h-4 w-4 shrink-0" />
+            <span className="truncate">Preview</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowVibeScoreDrawer(true)}
+            className="shrink-0 rounded-full p-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            aria-label="Vibe Score details"
+          >
+            <VibeScoreHeroCircle score={vibeScore} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowVibeScoreDrawer(true)}
+            className="flex min-h-[44px] min-w-0 flex-1 shrink items-center justify-center gap-1 rounded-[10px] bg-gradient-to-r from-violet-500 to-pink-500 px-2 py-2.5 text-sm font-bold text-white hover:opacity-90"
+          >
+            {vibeScore >= 90 ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                <span className="truncate">Iconic</span>
+              </>
+            ) : (
+              <span className="truncate px-0.5">Complete Profile</span>
+            )}
+          </button>
         </div>
 
         {/* My Vibe Schedule — summary row */}
@@ -882,32 +946,13 @@ const ProfileStudio = () => {
           ))}
         </div>
 
-        {/* ═══ Section 2: Smart Nudge Card ═══ */}
-        <motion.button
-          onClick={handleNudgeAction}
-          className="w-full mb-3 md:mb-6 relative overflow-hidden rounded-2xl bg-white/5 backdrop-blur border border-white/10 text-left"
-          whileTap={{ scale: 0.98 }}
-        >
-          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-violet-500 to-pink-500" />
-          <div className="flex items-center gap-3 md:gap-4 p-3 md:p-4 pl-[15px] md:pl-5">
-            <div className="w-9 h-9 md:w-11 md:h-11 rounded-xl bg-violet-500/15 flex items-center justify-center shrink-0">
-              <smartNudge.icon className="w-[18px] h-[18px] md:w-5 md:h-5 text-violet-400" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm md:text-[15px] font-semibold text-white">{smartNudge.title}</p>
-              <p className="text-xs md:text-sm text-gray-400 mt-0.5">{smartNudge.subtitle}</p>
-            </div>
-            <ChevronRight className="w-4 h-4 md:w-5 md:h-5 text-gray-500 shrink-0" />
-          </div>
-        </motion.button>
-
-        {/* ═══ Section 3: Quick Actions — compact pills ═══ */}
+        {/* ═══ Quick Actions — compact pills ═══ */}
         <div className="flex gap-2 px-4 py-2 overflow-x-auto scrollbar-hide -mx-1 md:mx-0 mt-1 md:mt-0 mb-2 md:mb-3">
           {QUICK_ACTIONS.map((action) => (
             <button
               key={action.key}
               type="button"
-              onClick={() => (action.scrollTo === "schedule" ? navigate("/schedule") : scrollToSection(action.scrollTo))}
+              onClick={() => scrollToSection(action.scrollTo)}
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/[0.06] border border-white/[0.08] text-sm text-gray-300 hover:bg-white/[0.1] transition whitespace-nowrap shrink-0"
             >
               <action.icon className="w-4 h-4 shrink-0" style={{ color: action.color }} />
@@ -918,9 +963,20 @@ const ProfileStudio = () => {
 
         {/* ═══ Section 4: Vibe Video Module ═══ */}
         <div ref={(el) => { sectionRefs.current["video"] = el; }} className="mb-6">
-          <div className="flex items-center gap-2 mb-3">
-            <Video className="w-4 h-4 text-primary" />
-            <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Video className="h-[18px] w-[18px] text-primary" />
+              <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
+            </div>
+            {profile.bunnyVideoUid?.trim() ? (
+              <button
+                type="button"
+                onClick={() => openDrawer("vibe-video")}
+                className="flex shrink-0 items-center gap-0.5 text-sm font-medium text-violet-400 hover:text-violet-300"
+              >
+                Manage <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
 
           {isVibeVideoProcessing ? (
@@ -951,19 +1007,10 @@ const ProfileStudio = () => {
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
 
               {/* Live badge */}
-              <div className="absolute top-3 left-3 flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-1.5">
+                <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
                 <span className="text-[9px] font-semibold tracking-widest text-green-500">LIVE</span>
               </div>
-
-              {/* Manage pill */}
-              <button
-                onClick={() => openDrawer("vibe-video")}
-                className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-medium text-white"
-                style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
-              >
-                Manage
-              </button>
 
               {/* Play button */}
               <button
@@ -1031,7 +1078,16 @@ const ProfileStudio = () => {
                   key={`photo-slot-${index}`}
                   onClick={url
                     ? () => { setSelectedPhotoIndex(index); setShowPhotoViewer(true); }
-                    : () => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.onchange = (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (file) { openDrawer("photos"); } }; input.click(); }
+                    : () => {
+                        const input = document.createElement("input");
+                        input.type = "file";
+                        input.accept = "image/*";
+                        input.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) appendPhotoFileAndOpenDrawer(file);
+                        };
+                        input.click();
+                      }
                   }
                   className={cn(
                     "relative rounded-2xl overflow-hidden flex items-center justify-center w-full h-full transition-all",
@@ -1177,7 +1233,7 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 8: About Me ═══ */}
-        <div className="mb-6">
+        <div ref={(el) => { sectionRefs.current.about = el; }} className="mb-6">
           <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-display font-semibold text-white">About Me</h3>
@@ -1188,7 +1244,7 @@ const ProfileStudio = () => {
             <p className={cn("text-sm leading-relaxed", profile.aboutMe ? "text-gray-400" : "text-gray-600")}>
               {profile.aboutMe || "Tell potential matches about yourself..."}
             </p>
-            <p className="text-[11px] text-gray-600 text-right mt-2">{(profile.aboutMe ?? "").length}/500</p>
+            <p className="text-[11px] text-gray-600 text-right mt-2">{(profile.aboutMe ?? "").length}/{MAX_ABOUT_ME_LENGTH}</p>
             {(profile.aboutMe ?? "").length > 0 && (profile.aboutMe ?? "").length < 50 && (
               <p className="text-xs italic text-gray-400 mt-2">
                 Tip: Specific beats generic. Tell people what makes you interesting!
@@ -1234,7 +1290,7 @@ const ProfileStudio = () => {
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <CalendarDays className="w-4 h-4 text-primary" />
-                <h3 className="text-base font-display font-semibold text-white">Open slots</h3>
+                <h3 className="text-base font-display font-semibold text-white">Vibe Schedule</h3>
               </div>
               <button onClick={() => navigate("/schedule")} className="text-primary text-sm font-medium flex items-center gap-1">
                 Edit <ChevronRight className="w-3 h-3" />
@@ -1287,7 +1343,7 @@ const ProfileStudio = () => {
         </div>
 
         {/* ═══ Section 11: Details (Basics + Lifestyle) ═══ */}
-        <div className="mb-6">
+        <div ref={(el) => { sectionRefs.current.details = el; }} className="mb-6">
           <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-display font-semibold text-white">Details</h3>
@@ -1458,12 +1514,12 @@ const ProfileStudio = () => {
           <div className="px-4 pb-4">
             <Textarea
               value={editForm.aboutMe || ""}
-              onChange={(e) => setEditForm({ ...editForm, aboutMe: e.target.value.slice(0, 500) })}
+              onChange={(e) => setEditForm({ ...editForm, aboutMe: e.target.value.slice(0, MAX_ABOUT_ME_LENGTH) })}
               placeholder="Write something that makes them want to know more..."
               className="min-h-32 glass-card border-border resize-none"
-              maxLength={500}
+              maxLength={MAX_ABOUT_ME_LENGTH}
             />
-            <p className="text-xs text-muted-foreground text-right mt-2">{(editForm.aboutMe || "").length}/500</p>
+            <p className="text-xs text-muted-foreground text-right mt-2">{(editForm.aboutMe || "").length}/{MAX_ABOUT_ME_LENGTH}</p>
           </div>
           <DrawerFooter>
             <Button variant="gradient" onClick={() => handleSave("bio")} disabled={isSaving}>
@@ -1684,33 +1740,43 @@ const ProfileStudio = () => {
         </DrawerContent>
       </Drawer>
 
-      {/* Profile Preview */}
-      <AnimatePresence>
-        {showPreview && (
-          <ProfilePreview
-            profile={{
-              name: profile.name,
-              age: profile.age || 0,
-              job: profile.job || "",
-              heightCm: profile.heightCm || 0,
-              location: profile.location || "",
-              aboutMe: profile.aboutMe || "",
-              photos: profile.photos,
-              vibes: profile.vibes,
-              prompts: profile.prompts.map((p) => ({ question: p.question, answer: p.answer })),
-              relationshipIntent: profile.lookingFor || "",
-              verified: profile.verified,
-              photoVerified: profile.photoVerified,
-              lifestyle: profile.lifestyle,
-              bunnyVideoUid: profile.bunnyVideoUid || undefined,
-              bunnyVideoStatus: profile.bunnyVideoStatus || undefined,
-            }}
-            onClose={() => setShowPreview(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Tagline */}
+      <Drawer open={activeDrawer === "tagline"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+        <DrawerContent className="max-h-[85vh]">
+          <DrawerHeader>
+            <DrawerTitle className="font-display">Your Tagline</DrawerTitle>
+            <DrawerDescription>A short slogan that captures who you are or what you&apos;re about.</DrawerDescription>
+          </DrawerHeader>
+          <div className="px-4 pb-4">
+            <Input
+              value={editForm.tagline || ""}
+              onChange={(e) => setEditForm({ ...editForm, tagline: e.target.value.slice(0, 30) })}
+              placeholder="e.g., Living my best life ✨"
+              className="glass-card border-border"
+              maxLength={30}
+            />
+            <p className="text-xs text-muted-foreground text-right mt-2">{(editForm.tagline || "").length}/30</p>
+          </div>
+          <DrawerFooter>
+            <Button variant="gradient" onClick={() => handleSave("tagline")} disabled={isSaving}>
+              {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save Tagline
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="ghost">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
-      <ProfileWizard isOpen={showWizard} onClose={() => setShowWizard(false)} onComplete={() => setShowWizard(false)} onOpenVibeStudio={() => setShowVibeStudio(true)} />
+      <VibeScoreDrawer
+        open={showVibeScoreDrawer}
+        onOpenChange={setShowVibeScoreDrawer}
+        profile={vibeScoreProfileSnapshot}
+        score={vibeScore}
+        vibeScoreLabel={profile.vibeScoreLabel}
+        onAction={handleVibeScoreAction}
+      />
 
       <VibeStudioModal
         open={showVibeStudio}
