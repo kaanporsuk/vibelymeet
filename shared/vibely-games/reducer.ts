@@ -117,7 +117,7 @@ export function foldVibeGameSession(
       }
       case "two_truths_guess": {
         if (!isTwoTruthsSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: TwoTruthsSnapshot = snapshot;
         const gi = (ev.payload as { guess_index: number }).guess_index as 0 | 1 | 2;
         snapshot = {
           game_type: "2truths",
@@ -131,7 +131,7 @@ export function foldVibeGameSession(
       }
       case "would_rather_vote": {
         if (!isWouldRatherSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: WouldRatherSnapshot = snapshot;
         const rv = (ev.payload as { receiver_vote: "A" | "B" }).receiver_vote;
         snapshot = {
           game_type: "would_rather",
@@ -146,7 +146,7 @@ export function foldVibeGameSession(
       }
       case "charades_guess": {
         if (!isCharadesSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: CharadesSnapshot = snapshot;
         const guess = String((ev.payload as { guess: string }).guess);
         const nextGuesses: string[] = [...s.guesses, guess];
         const hit = charadesGuessMatches(s.answer, guess);
@@ -162,7 +162,7 @@ export function foldVibeGameSession(
       }
       case "scavenger_photo": {
         if (!isScavengerSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: ScavengerSnapshot = snapshot;
         const url = String((ev.payload as { receiver_photo_url: string }).receiver_photo_url);
         snapshot = {
           game_type: "scavenger",
@@ -176,7 +176,7 @@ export function foldVibeGameSession(
       }
       case "roulette_answer": {
         if (!isRouletteSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: RouletteSnapshot = snapshot;
         snapshot = {
           game_type: "roulette",
           status: "complete",
@@ -189,7 +189,7 @@ export function foldVibeGameSession(
       }
       case "intuition_result": {
         if (!isIntuitionSnapshot(snapshot)) break;
-        const s = snapshot;
+        const s: IntuitionSnapshot = snapshot;
         snapshot = {
           game_type: "intuition",
           status: "complete",
@@ -204,22 +204,22 @@ export function foldVibeGameSession(
         const st = snapshot.status;
         if (st === "complete") break;
         if (isTwoTruthsSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: TwoTruthsSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         } else if (isWouldRatherSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: WouldRatherSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         } else if (isCharadesSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: CharadesSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         } else if (isScavengerSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: ScavengerSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         } else if (isRouletteSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: RouletteSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         } else if (isIntuitionSnapshot(snapshot)) {
-          const s = snapshot;
+          const s: IntuitionSnapshot = snapshot;
           snapshot = { ...s, status: "complete" };
         }
         break;
