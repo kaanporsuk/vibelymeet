@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, TextInput } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, TextInput, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomRouletteQuestion } from '@/lib/roulettePrompts';
 import { formatSendGameEventError, newVibeGameSessionId, useStartRouletteGame } from '@/lib/gamesApi';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
   visible: boolean;
@@ -17,7 +17,6 @@ type Props = {
 
 export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: Props) {
   const theme = Colors[useColorScheme()];
-  const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartRouletteGame();
   const [question, setQuestion] = useState<string>(() => randomRouletteQuestion());
   const [answer, setAnswer] = useState('');
@@ -36,6 +35,11 @@ export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: P
     if (isPending) return;
     setQuestion(randomRouletteQuestion());
     setError(null);
+  };
+
+  const handleRequestClose = () => {
+    if (isPending) return;
+    onClose();
   };
 
   const handleSend = async () => {
@@ -74,84 +78,19 @@ export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: P
   const canSend = answer.trim().length > 0 && !isPending;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending ? undefined : onClose}>
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={isPending ? undefined : onClose} accessibilityLabel="Dismiss" />
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-              paddingBottom: Math.max(insets.bottom, spacing.lg),
-            },
-          ]}
-        >
-          <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Roulette</Text>
-            <Pressable
-              onPress={onClose}
-              disabled={isPending}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
-            </Pressable>
-          </View>
-          <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
-            Answer a deep question. {partnerName} answers to unlock both responses.
-          </Text>
-
-          <View style={[styles.questionCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-            <Text style={[styles.questionLabel, { color: theme.textSecondary }]}>Question</Text>
-            <Text style={[styles.questionText, { color: theme.text }]}>“{question}”</Text>
-          </View>
-
-          <Pressable
-            onPress={shuffleQuestion}
-            disabled={isPending}
-            style={({ pressed }) => [
-              styles.shuffleBtn,
-              {
-                borderColor: theme.border,
-                opacity: isPending ? 0.45 : pressed ? 0.85 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="refresh-outline" size={18} color={theme.neonCyan} />
-            <Text style={[styles.shuffleLabel, { color: theme.text }]}>Different question</Text>
-          </Pressable>
-
-          <Text style={[styles.answerLabel, { color: theme.textSecondary }]}>Your answer (hidden until reply)</Text>
-          <TextInput
-            value={answer}
-            onChangeText={(t) => {
-              setAnswer(t);
-              if (error) setError(null);
-            }}
-            placeholder="Type your answer..."
-            placeholderTextColor={theme.textSecondary}
-            editable={!isPending}
-            multiline
-            maxLength={500}
-            style={[
-              styles.answerInput,
-              {
-                color: theme.text,
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceSubtle,
-              },
-            ]}
-          />
-
-          {error ? (
-            <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
-              <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
-              <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
-            </View>
-          ) : null}
-
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={handleRequestClose}
+      animationType="slide"
+      backdropColor="rgba(0,0,0,0.55)"
+      maxHeightRatio={0.9}
+      scrollable={false}
+      sheetStyle={{
+        borderWidth: StyleSheet.hairlineWidth,
+        paddingTop: spacing.md,
+      }}
+      footer={
+        <View style={styles.footerWrap}>
           <Pressable
             onPress={() => void handleSend()}
             disabled={!canSend}
@@ -170,23 +109,83 @@ export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: P
             )}
           </Pressable>
         </View>
+      }
+    >
+      <View style={styles.sheetHeader}>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Roulette</Text>
+        <Pressable
+          onPress={onClose}
+          disabled={isPending}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
+        </Pressable>
       </View>
-    </Modal>
+      <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
+        Answer a deep question. {partnerName} answers to unlock both responses.
+      </Text>
+
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.questionCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+          <Text style={[styles.questionLabel, { color: theme.textSecondary }]}>Question</Text>
+          <Text style={[styles.questionText, { color: theme.text }]}>“{question}”</Text>
+        </View>
+
+        <Pressable
+          onPress={shuffleQuestion}
+          disabled={isPending}
+          style={({ pressed }) => [
+            styles.shuffleBtn,
+            {
+              borderColor: theme.border,
+              opacity: isPending ? 0.45 : pressed ? 0.85 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="refresh-outline" size={18} color={theme.neonCyan} />
+          <Text style={[styles.shuffleLabel, { color: theme.text }]}>Different question</Text>
+        </Pressable>
+
+        <Text style={[styles.answerLabel, { color: theme.textSecondary }]}>Your answer (hidden until reply)</Text>
+        <TextInput
+          value={answer}
+          onChangeText={(t) => {
+            setAnswer(t);
+            if (error) setError(null);
+          }}
+          placeholder="Type your answer..."
+          placeholderTextColor={theme.textSecondary}
+          editable={!isPending}
+          multiline
+          maxLength={500}
+          style={[
+            styles.answerInput,
+            {
+              color: theme.text,
+              borderColor: theme.border,
+              backgroundColor: theme.surfaceSubtle,
+            },
+          ]}
+        />
+
+        {error ? (
+          <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
+            <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
+            <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 0 },
-  sheet: {
-    zIndex: 1,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sheetTitle: { fontSize: 20, fontWeight: '700' },
   sheetSubtitle: { fontSize: 13, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 18 },
@@ -232,8 +231,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   errorText: { flex: 1, fontSize: 14, lineHeight: 20 },
-  sendBtn: {
+  footerWrap: {
     marginTop: spacing.md,
+  },
+  sendBtn: {
     paddingVertical: 14,
     borderRadius: radius.button,
     alignItems: 'center',

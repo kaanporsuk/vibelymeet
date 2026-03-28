@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, ScrollView, TextInput } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, ScrollView, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { formatSendGameEventError, newVibeGameSessionId, useStartTwoTruthsGame } from '@/lib/gamesApi';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
   visible: boolean;
@@ -16,7 +16,6 @@ type Props = {
 
 export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: Props) {
   const theme = Colors[useColorScheme()];
-  const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartTwoTruthsGame();
   const [statements, setStatements] = useState<[string, string, string]>(['', '', '']);
   const [lieIndex, setLieIndex] = useState<0 | 1 | 2>(2);
@@ -38,6 +37,11 @@ export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: 
       return next;
     });
     setError(null);
+  };
+
+  const handleRequestClose = () => {
+    if (isPending) return;
+    onClose();
   };
 
   const handleSend = async () => {
@@ -76,87 +80,19 @@ export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: 
   const canSend = statements.every((s) => s.trim().length > 0) && !isPending;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending ? undefined : onClose}>
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.backdrop} onPress={isPending ? undefined : onClose} accessibilityLabel="Dismiss" />
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.border,
-              paddingBottom: Math.max(insets.bottom, spacing.lg),
-            },
-          ]}
-        >
-          <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Two Truths</Text>
-            <Pressable
-              onPress={onClose}
-              disabled={isPending}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
-            </Pressable>
-          </View>
-          <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
-            Write 2 truths and 1 lie. {partnerName} will guess which one is fake.
-          </Text>
-
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            {[0, 1, 2].map((n) => {
-              const idx = n as 0 | 1 | 2;
-              return (
-                <View key={idx} style={[styles.statementCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-                  <View style={styles.statementRow}>
-                    <Text style={[styles.statementLabel, { color: theme.textSecondary }]}>Statement {idx + 1}</Text>
-                    <Pressable
-                      onPress={() => !isPending && setLieIndex(idx)}
-                      disabled={isPending}
-                      style={[
-                        styles.lieChip,
-                        {
-                          borderColor: lieIndex === idx ? theme.neonPink : theme.border,
-                          backgroundColor: lieIndex === idx ? 'rgba(236,72,153,0.12)' : theme.muted,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.lieChipText, { color: theme.text }]}>
-                        {lieIndex === idx ? 'Lie' : 'Mark lie'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                  <TextInput
-                    value={statements[idx]}
-                    onChangeText={(t) => updateStatement(idx, t)}
-                    placeholder={`Write statement ${idx + 1}...`}
-                    placeholderTextColor={theme.textSecondary}
-                    editable={!isPending}
-                    maxLength={200}
-                    multiline
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.text,
-                        borderColor: lieIndex === idx ? theme.neonPink : theme.border,
-                        backgroundColor: theme.surface,
-                      },
-                    ]}
-                  />
-                </View>
-              );
-            })}
-
-            {error ? (
-              <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
-                <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
-                <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      onRequestClose={handleRequestClose}
+      animationType="slide"
+      backdropColor="rgba(0,0,0,0.55)"
+      maxHeightRatio={0.9}
+      scrollable={false}
+      sheetStyle={{
+        borderWidth: StyleSheet.hairlineWidth,
+        paddingTop: spacing.md,
+      }}
+      footer={
+        <View style={styles.footerWrap}>
           <Pressable
             onPress={() => void handleSend()}
             disabled={!canSend}
@@ -175,28 +111,85 @@ export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: 
             )}
           </Pressable>
         </View>
+      }
+    >
+      <View style={styles.sheetHeader}>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Two Truths</Text>
+        <Pressable
+          onPress={onClose}
+          disabled={isPending}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={26} color={isPending ? theme.textSecondary : theme.text} />
+        </Pressable>
       </View>
-    </Modal>
+      <Text style={[styles.sheetSubtitle, { color: theme.textSecondary }]}>
+        Write 2 truths and 1 lie. {partnerName} will guess which one is fake.
+      </Text>
+
+      <ScrollView
+        style={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
+        {[0, 1, 2].map((n) => {
+          const idx = n as 0 | 1 | 2;
+          return (
+            <View key={idx} style={[styles.statementCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+              <View style={styles.statementRow}>
+                <Text style={[styles.statementLabel, { color: theme.textSecondary }]}>Statement {idx + 1}</Text>
+                <Pressable
+                  onPress={() => !isPending && setLieIndex(idx)}
+                  disabled={isPending}
+                  style={[
+                    styles.lieChip,
+                    {
+                      borderColor: lieIndex === idx ? theme.neonPink : theme.border,
+                      backgroundColor: lieIndex === idx ? 'rgba(236,72,153,0.12)' : theme.muted,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.lieChipText, { color: theme.text }]}>
+                    {lieIndex === idx ? 'Lie' : 'Mark lie'}
+                  </Text>
+                </Pressable>
+              </View>
+              <TextInput
+                value={statements[idx]}
+                onChangeText={(t) => updateStatement(idx, t)}
+                placeholder={`Write statement ${idx + 1}...`}
+                placeholderTextColor={theme.textSecondary}
+                editable={!isPending}
+                maxLength={200}
+                multiline
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text,
+                    borderColor: lieIndex === idx ? theme.neonPink : theme.border,
+                    backgroundColor: theme.surface,
+                  },
+                ]}
+              />
+            </View>
+          );
+        })}
+
+        {error ? (
+          <View style={[styles.errorBox, { borderColor: theme.dangerSoft }]}>
+            <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
+            <Text style={[styles.errorText, { color: theme.text }]}>{error}</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalRoot: { flex: 1, justifyContent: 'flex-end' },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    zIndex: 0,
-  },
-  sheet: {
-    zIndex: 1,
-    borderTopLeftRadius: radius['2xl'],
-    borderTopRightRadius: radius['2xl'],
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: 0,
-    maxHeight: '90%',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sheetTitle: { fontSize: 20, fontWeight: '700' },
   sheetSubtitle: {
@@ -241,8 +234,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   errorText: { flex: 1, fontSize: 14, lineHeight: 20 },
-  sendBtn: {
+  footerWrap: {
     marginTop: spacing.sm,
+  },
+  sendBtn: {
     paddingVertical: 14,
     borderRadius: radius.button,
     alignItems: 'center',
