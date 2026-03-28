@@ -21,7 +21,7 @@ import {
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
-import { ChatHeader } from "@/components/chat/ChatHeader";
+import { ChatHeader, type ChatHeaderActivityLine } from "@/components/chat/ChatHeader";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
@@ -52,6 +52,7 @@ import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
 import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useTypingBroadcast } from "@/hooks/useTypingBroadcast";
 import { useMessageReactions } from "@/hooks/useMessageReactions";
 import { useMessages, useSendMessage, usePublishVibeClip, usePublishVoiceMessage } from "@/hooks/useMessages";
 import { setMessageReaction } from "@/lib/messageReactions";
@@ -195,7 +196,7 @@ const Chat = () => {
 
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [localTyping, setLocalTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
@@ -217,6 +218,7 @@ const Chat = () => {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || "",
@@ -224,6 +226,12 @@ const Chat = () => {
   });
 
   useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
+  const { partnerTyping } = useTypingBroadcast(
+    chatData?.matchId ?? null,
+    currentUserId || null,
+    localTyping,
+    !!(chatData?.matchId && currentUserId),
+  );
   const { data: reactionRows = [] } = useMessageReactions(chatData?.matchId);
 
   const partnerUserId = chatData?.otherUser?.id ?? id ?? "";
@@ -261,13 +269,6 @@ const Chat = () => {
           : [],
         vibes: [] as string[],
         isOnline: diffMinutes <= 5,
-        lastSeen: diffMinutes <= 5
-          ? undefined
-          : diffMinutes <= 60
-            ? "Recently active"
-            : lastSeenAt
-              ? `Active ${Math.round(diffMinutes / 60)}h ago`
-              : undefined,
         photoVerified: ou.photo_verified || false,
         subscription_tier: ou.subscription_tier ?? null,
       };
@@ -280,11 +281,30 @@ const Chat = () => {
       photos: [] as string[],
       vibes: [] as string[],
       isOnline: false,
-      lastSeen: undefined as string | undefined,
       photoVerified: false,
       subscription_tier: null,
     };
   }, [chatData?.otherUser, id]);
+
+  const headerActivity = useMemo((): ChatHeaderActivityLine | null => {
+    const raw = chatData?.otherUser?.last_seen_at;
+    if (raw == null || String(raw).trim() === "") return null;
+    const lastSeenAtMs = new Date(raw).getTime();
+    if (Number.isNaN(lastSeenAtMs)) return null;
+    const diffMin = (Date.now() - lastSeenAtMs) / 60000;
+    if (diffMin <= 5) return { text: "Active now", variant: "online" };
+    if (diffMin <= 30) return { text: "Active recently", variant: "muted" };
+    if (diffMin <= 24 * 60) return { text: "Active today", variant: "muted" };
+    if (diffMin <= 7 * 24 * 60) return { text: "Active this week", variant: "muted" };
+    return null;
+  }, [chatData?.otherUser?.last_seen_at]);
+
+  useEffect(
+    () => () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    },
+    [],
+  );
 
   const messages: ChatMessage[] = useMemo(() => {
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
@@ -715,8 +735,23 @@ const Chat = () => {
       return;
     }
     setNewMessage("");
+    setLocalTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
     setShowDateSuggestion(false);
     sendTextMessage();
+  };
+
+  const handleComposerChange = (text: string) => {
+    setNewMessage(text);
+    const hasDraft = !!text.trim();
+    setLocalTyping(hasDraft);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (hasDraft) {
+      typingTimeoutRef.current = setTimeout(() => setLocalTyping(false), 3000);
+    }
   };
 
   const handleOpenDateComposerFromChip = () => {
@@ -731,6 +766,11 @@ const Chat = () => {
     setComposerDraftPayload(null);
     setShowDateComposer(true);
     setNewMessage("");
+    setLocalTyping(false);
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
     setShowDateSuggestion(false);
   };
 
@@ -917,7 +957,8 @@ const Chat = () => {
 
       <ChatHeader
         user={otherUser}
-        isTyping={isTyping}
+        partnerTyping={partnerTyping}
+        headerActivity={headerActivity}
         matchId={chatData?.matchId || undefined}
         onBack={() => navigate("/matches")}
         onVideoCall={(type) => {
@@ -1186,7 +1227,7 @@ const Chat = () => {
             )}
 
             <AnimatePresence>
-              {isTyping && (
+              {partnerTyping && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1338,7 +1379,7 @@ const Chat = () => {
                 ref={inputRef}
                 placeholder="Type a message..."
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={(e) => handleComposerChange(e.target.value)}
                 onKeyPress={handleKeyPress}
                 rows={1}
                 className="w-full text-sm px-3.5 py-2.5 rounded-2xl glass-card border border-border/50 bg-secondary/30 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all max-h-32"
