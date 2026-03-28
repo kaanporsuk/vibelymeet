@@ -55,6 +55,9 @@ export const VIBE_CLIP_OUTBOX_WAITING_NET = "Waiting for a connection…";
 
 export const VIBE_CLIP_OUTBOX_SENDING = "Sending your clip…";
 
+/** After upload + publish succeeded; thread is waiting for the message row to appear in sync. */
+export const VIBE_CLIP_OUTBOX_FINISHING = "Finishing up…";
+
 export const VIBE_CLIP_OUTBOX_FAILED = "Couldn’t send — tap retry";
 
 /** Web / app toasts (publish path) */

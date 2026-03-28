@@ -5,6 +5,8 @@
  * (`invokePublishVoiceMessage`, `invokePublishVibeClip`), not client `messages.insert`.
  */
 
+import * as FileSystem from 'expo-file-system/legacy';
+import { generateChatVibeClipThumbnailFile } from '@/lib/chatVibeClipThumbnail';
 import { supabase } from '@/lib/supabase';
 import { getImageUrl } from '@/lib/imageUrl';
 
@@ -63,6 +65,13 @@ export async function uploadChatVideoMessage(
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
   }
 
+  let tempThumbUri: string | null = null;
+  try {
+    tempThumbUri = await generateChatVibeClipThumbnailFile(videoUri);
+  } catch {
+    tempThumbUri = null;
+  }
+
   const formData = new FormData();
   formData.append('match_id', matchId);
   if (typeof aspectRatio === 'number' && Number.isFinite(aspectRatio) && aspectRatio > 0) {
@@ -77,12 +86,29 @@ export async function uploadChatVideoMessage(
       name: `chat-video.${ext}`,
     } as unknown as Blob
   );
+  if (tempThumbUri) {
+    formData.append(
+      'thumbnail',
+      {
+        uri: tempThumbUri,
+        type: 'image/jpeg',
+        name: 'chat-video-thumb.jpg',
+      } as unknown as Blob
+    );
+  }
 
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-chat-video`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${session.access_token}` },
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/upload-chat-video`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: formData,
+    });
+  } finally {
+    if (tempThumbUri) {
+      void FileSystem.deleteAsync(tempThumbUri, { idempotent: true }).catch(() => {});
+    }
+  }
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
