@@ -95,7 +95,7 @@ function dateEventKindLabel(kind: string): string | null {
 function datePreviewText(dbKind: ChatDbMessageKind, structured: unknown, content: string): string {
   if (dbKind === "date_suggestion") {
     const sp = asRecord(structured);
-    if (sp?.event === "counter") return "Date counter";
+    if (sp?.event === "counter") return "Date update";
     return "Date suggestion";
   }
   if (dbKind === "date_suggestion_event") {

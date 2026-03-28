@@ -226,7 +226,7 @@ serve(async (req) => {
             user_id: recipientId,
             category: "messages",
             title: senderProfile?.name || "New message",
-            body: "Vibe Clip",
+            body: "\uD83C\uDFAC Sent you a Vibe Clip",
             data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
           },
         });
@@ -328,7 +328,7 @@ serve(async (req) => {
             user_id: recipientIdVoice,
             category: "messages",
             title: senderProfile?.name || "New message",
-            body: "Voice message",
+            body: "🎤 Sent a voice message",
             data: { url: `/chat/${actorId}`, match_id, sender_id: actorId },
           },
         });
