@@ -209,6 +209,28 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,provider' })
 
+        if (subscription.status === 'active' || subscription.status === 'trialing') {
+          const price = subscription.items.data[0]?.price as { lookup_key?: string | null } | undefined
+          const tierPlanHint = (subscription.metadata?.plan || price?.lookup_key || 'premium') as string
+          const tier = tierPlanHint.toLowerCase().includes('vip') ? 'vip' : 'premium'
+          await supabase
+            .from('profiles')
+            .update({ subscription_tier: tier })
+            .eq('id', userId)
+        } else {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('premium_until')
+            .eq('id', userId)
+            .maybeSingle()
+          const adminActive = profileRow?.premium_until &&
+            new Date(profileRow.premium_until) > new Date()
+          await supabase
+            .from('profiles')
+            .update({ subscription_tier: adminActive ? 'premium' : 'free' })
+            .eq('id', userId)
+        }
+
         break
       }
 

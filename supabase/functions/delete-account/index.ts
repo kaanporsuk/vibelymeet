@@ -59,8 +59,6 @@ serve(async (req) => {
       // No body or invalid JSON — that's fine
     }
 
-    console.log(`Starting soft account deletion for user: ${userId}`);
-
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
@@ -112,7 +110,6 @@ serve(async (req) => {
           );
           const cancelBody = await cancelRes.text();
           if (cancelRes.ok) {
-            console.log("Stripe subscription cancelled successfully");
             // Update local subscription status
             await supabaseAdmin
               .from("subscriptions")
@@ -138,8 +135,6 @@ serve(async (req) => {
     if (signOutError) {
       console.error("Error signing out user:", signOutError.message);
     }
-
-    console.log(`Soft deletion request created for user: ${userId}`);
 
     return new Response(
       JSON.stringify({ success: true, message: "Account scheduled for deletion" }),
