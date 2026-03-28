@@ -9,7 +9,12 @@ import {
   compatibilityPercent,
   type MatchScoreInput,
 } from "@/utils/matchSortScore";
-import { getConversationListPreviewText } from "../../shared/chat/conversationListPreview";
+import type { ConversationPreview } from "../../shared/chat/conversationListPreview";
+import {
+  conversationPreviewSearchText,
+  getConversationPreview,
+  getEmptyConversationPreview,
+} from "../../shared/chat/conversationListPreview";
 
 /** Latest message row shape from matches list query (one row per match). */
 type MatchLatestMessageRow = {
@@ -21,6 +26,7 @@ type MatchLatestMessageRow = {
   message_kind: string | null;
   audio_url: string | null;
   video_url: string | null;
+  structured_payload: unknown;
 };
 
 export interface Match {
@@ -28,7 +34,9 @@ export interface Match {
   name: string;
   age: number;
   image: string;
-  lastMessage: string | null;
+  conversationPreview: ConversationPreview;
+  /** Substring search for “matched on message” (includes `you` when preview prefix is You). */
+  messageSearchHaystack: string;
   time: string;
   unread: boolean;
   vibes: string[];
@@ -151,7 +159,7 @@ export const useMatches = () => {
           supabase
             .from("messages")
             .select(
-              "match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url"
+              "match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url, structured_payload"
             )
             .in(
               "match_id",
@@ -239,19 +247,27 @@ export const useMatches = () => {
         const rawPrompts = (profile as any)?.prompts;
         const parsedPrompts = Array.isArray(rawPrompts) ? rawPrompts : [];
 
+        const conversationPreview = lastMsg
+          ? getConversationPreview(
+              {
+                content: lastMsg.content,
+                message_kind: lastMsg.message_kind,
+                audio_url: lastMsg.audio_url,
+                video_url: lastMsg.video_url,
+                sender_id: lastMsg.sender_id,
+                structured_payload: lastMsg.structured_payload,
+              },
+              userId,
+            )
+          : getEmptyConversationPreview();
+
         return {
           id: otherProfileId,
           name: profile?.name || "Unknown",
           age: profile?.age || 0,
           image,
-          lastMessage: lastMsg
-            ? getConversationListPreviewText({
-                content: lastMsg.content,
-                message_kind: lastMsg.message_kind,
-                audio_url: lastMsg.audio_url,
-                video_url: lastMsg.video_url,
-              })
-            : null,
+          conversationPreview,
+          messageSearchHaystack: conversationPreviewSearchText(conversationPreview),
           time: lastMsg
             ? formatDistanceToNow(new Date(lastMsg.created_at), {
                 addSuffix: false,

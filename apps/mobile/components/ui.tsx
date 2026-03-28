@@ -21,6 +21,7 @@ import { border, button, layout, radius, spacing, typography, shadows } from '@/
 import { useColorScheme } from './useColorScheme';
 import { GradientSurface } from './GradientSurface';
 import { LinearGradient } from 'expo-linear-gradient';
+import type { ConversationPreview } from '../../../shared/chat/conversationListPreview';
 
 /** Reusable input styles for forms (profile edit, search, etc.) — web parity */
 export const inputStyles = {
@@ -804,7 +805,7 @@ export type MatchListRowProps = {
   /** Optional; when provided show "Name, age" (web parity). */
   age?: number | null;
   time: string;
-  lastMessage: string | null;
+  conversationPreview: ConversationPreview;
   unread: boolean;
   isNew: boolean;
   /** Shown under the name row when conversation search is active (e.g. "Matched on vibe"). */
@@ -818,7 +819,7 @@ export function MatchListRow({
   name,
   age,
   time,
-  lastMessage,
+  conversationPreview,
   unread,
   isNew,
   searchMatchHint,
@@ -827,6 +828,21 @@ export function MatchListRow({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const nameAge = age != null && age > 0 ? `${name}, ${age}` : name;
+  const p = conversationPreview;
+  const previewMuted = theme.textSecondary;
+  const previewPlainColor = unread ? theme.text : previewMuted;
+  const previewTextStyle = {
+    color:
+      p.presentation === 'empty_state'
+        ? theme.tint
+        : p.presentation === 'plain'
+          ? previewPlainColor
+          : previewMuted,
+    fontStyle: (p.presentation === 'label' || p.presentation === 'empty_state' ? 'italic' : 'normal') as
+      | 'italic'
+      | 'normal',
+    fontWeight: unread && p.presentation === 'plain' ? ('600' as const) : ('400' as const),
+  };
   return (
     <View style={[styles.matchListRow, { borderBottomColor: theme.border }, style]}>
       <View style={[styles.matchListAvatarWrap, unread && { borderWidth: 2, borderColor: theme.tint }]}>
@@ -851,12 +867,18 @@ export function MatchListRow({
         <Text
           style={[
             styles.matchListPreview,
-            { color: theme.textSecondary },
-            unread && { color: theme.text, fontWeight: '600' },
+            p.prefix === 'You' ? { color: previewMuted } : previewTextStyle,
           ]}
           numberOfLines={1}
         >
-          {lastMessage || 'New match'}
+          {p.prefix === 'You' ? (
+            <>
+              <Text style={{ color: previewMuted, fontStyle: 'normal', fontWeight: '400' }}>You: </Text>
+              <Text style={previewTextStyle}>{p.text}</Text>
+            </>
+          ) : (
+            p.text
+          )}
         </Text>
       </View>
     </View>

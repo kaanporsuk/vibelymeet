@@ -8,13 +8,15 @@ import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhoneVerifiedBadge } from "@/components/PhoneVerifiedBadge";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { toast } from "sonner";
+import type { ConversationPreview } from "../../shared/chat/conversationListPreview";
+import { ConversationListPreviewLabel } from "./ConversationListPreviewLabel";
 
 interface SwipeableMatchCardProps {
   id: string;
   name: string;
   age: number;
   image: string;
-  lastMessage: string | null;
+  conversationPreview: ConversationPreview;
   time: string;
   unread: boolean;
   vibes: string[];
@@ -32,7 +34,7 @@ export const SwipeableMatchCard = ({
   name,
   age,
   image,
-  lastMessage,
+  conversationPreview,
   time,
   unread,
   vibes,
@@ -171,14 +173,9 @@ export const SwipeableMatchCard = ({
             <span className="text-xs text-muted-foreground shrink-0">{time}</span>
           </div>
 
-          {/* Last message */}
-          <p
-            className={cn(
-              "text-sm truncate mb-1.5",
-              unread ? "text-foreground font-medium" : "text-muted-foreground"
-            )}
-          >
-            {lastMessage}
+          {/* Last message preview */}
+          <p className="text-sm mb-1.5 min-w-0">
+            <ConversationListPreviewLabel preview={conversationPreview} unread={unread} />
           </p>
 
           {/* Vibe tags */}

@@ -7,6 +7,8 @@ export type SearchableMatch = {
   location?: string | null;
   eventName?: string | null;
   lastMessage?: string | null;
+  /** When set, used for “matched on message” instead of `lastMessage` (structured preview search tokens). */
+  messageSearchHaystack?: string | null;
 };
 
 type IntentHaystackBuilder = (lookingFor: string) => string;
@@ -27,7 +29,8 @@ export function getMatchSearchHitKind(
   if (normalizeSearchText(buildIntentHaystack(match.looking_for ?? "")).includes(q)) return "intent";
   if (normalizeSearchText(match.location).includes(q)) return "location";
   if (normalizeSearchText(match.eventName).includes(q)) return "event";
-  if (normalizeSearchText(match.lastMessage).includes(q)) return "message";
+  const messageHaystack = normalizeSearchText(match.messageSearchHaystack ?? match.lastMessage);
+  if (messageHaystack.includes(q)) return "message";
   return null;
 }
 

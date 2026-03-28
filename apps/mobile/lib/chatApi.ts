@@ -10,7 +10,12 @@ import {
   type NativeHydratedGameSessionView,
 } from '@/lib/chatGameSessions';
 import { toRenderableMessageKind } from '../../../shared/chat/messageRouting';
-import { getConversationListPreviewText } from '../../../shared/chat/conversationListPreview';
+import type { ConversationPreview } from '../../../shared/chat/conversationListPreview';
+import {
+  conversationPreviewSearchText,
+  getConversationPreview,
+  getEmptyConversationPreview,
+} from '../../../shared/chat/conversationListPreview';
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 
 export type { NativeHydratedGameSessionView };
@@ -22,7 +27,9 @@ export type MatchListItem = {
   name: string;
   age: number;
   image: string;
-  lastMessage: string | null;
+  conversationPreview: ConversationPreview;
+  /** For client search (“matched on message”); includes `you` when preview uses You prefix. */
+  messageSearchHaystack: string;
   time: string;
   unread: boolean;
   /** True if matched within last 24h (web parity for "new" pill) */
@@ -92,7 +99,7 @@ export function useMatches(userId: string | null | undefined) {
         supabase
           .from('messages')
           .select(
-            'match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url'
+            'match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url, structured_payload'
           )
           .in('match_id', matches.map((m) => m.id))
           .order('created_at', { ascending: false }),
@@ -119,6 +126,7 @@ export function useMatches(userId: string | null | undefined) {
         message_kind: string | null;
         audio_url: string | null;
         video_url: string | null;
+        structured_payload: unknown;
       };
       const lastMessages = (messagesRes.data || []).reduce<Record<string, MatchLatestRow>>((acc, msg) => {
         const row = msg as MatchLatestRow;
@@ -179,19 +187,27 @@ export function useMatches(userId: string | null | undefined) {
         const bestMatchScore = bestMatchSortKey(scoreInput);
         const compatPct = compatibilityPercent(scoreInput);
 
+        const conversationPreview = lastMsg
+          ? getConversationPreview(
+              {
+                content: lastMsg.content,
+                message_kind: lastMsg.message_kind,
+                audio_url: lastMsg.audio_url,
+                video_url: lastMsg.video_url,
+                sender_id: lastMsg.sender_id,
+                structured_payload: lastMsg.structured_payload,
+              },
+              userId,
+            )
+          : getEmptyConversationPreview();
+
         return {
           id: otherId,
           name: (profile as { name?: string })?.name || 'Unknown',
           age: (profile as { age?: number })?.age ?? 0,
           image: avatarUrl(photo, 'avatar'),
-          lastMessage: lastMsg
-            ? getConversationListPreviewText({
-                content: lastMsg.content,
-                message_kind: lastMsg.message_kind,
-                audio_url: lastMsg.audio_url,
-                video_url: lastMsg.video_url,
-              })
-            : null,
+          conversationPreview,
+          messageSearchHaystack: conversationPreviewSearchText(conversationPreview),
           time: lastMsg ? formatTime(lastMsg.created_at) : 'new',
           unread: lastMsg ? !lastMsg.read_at && lastMsg.sender_id !== userId : false,
           isNew,
