@@ -10,6 +10,7 @@ import { VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
 import { trackEvent } from '@/lib/analytics';
+import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
 
 type Step = 'intro' | 'requesting' | 'success' | 'denied';
 
@@ -116,19 +117,14 @@ export function NotificationPermissionFlow({
             </View>
           )}
           {step === 'denied' && (
-            <>
-              <View style={[styles.iconWrap, { backgroundColor: withAlpha(theme.danger, 0.15) }]}>
-                <Ionicons name="notifications-off" size={40} color={theme.danger} />
-              </View>
-              <Text style={[styles.title, { color: theme.text }]}>Notifications Blocked</Text>
-              <Text style={[styles.sub, { color: theme.textSecondary }]}>
-                You can enable them later in your device settings.
-              </Text>
-              <View style={styles.actions}>
-                <VibelyButton label="Open Settings" onPress={() => { openSettings(); handleClose(); }} variant="primary" style={styles.actionBtn} />
-                <VibelyButton label="Got it" onPress={handleClose} variant="ghost" style={styles.actionBtn} />
-              </View>
-            </>
+            <NotificationDeniedRecoverySurface
+              compact
+              onOpenSettings={() => {
+                openSettings();
+                handleClose();
+              }}
+              onDismiss={handleClose}
+            />
           )}
         </Pressable>
       </Pressable>

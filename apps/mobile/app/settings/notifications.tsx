@@ -11,7 +11,6 @@ import {
   StyleSheet,
   Alert,
   Switch,
-  Linking,
   Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -40,6 +39,7 @@ import {
 } from '@/lib/notificationPause';
 import { applyMasterPushEnabled } from '@/lib/pushMasterSwitch';
 import { PauseNotificationsModal } from '@/components/settings/PauseNotificationsModal';
+import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
 import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { getCalendars } from 'expo-localization';
@@ -240,7 +240,7 @@ export default function NotificationsSettingsScreen() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
-  const { isGranted: oneSignalGranted, requestPermission, refresh } = usePushPermission();
+  const { isGranted: oneSignalGranted, requestPermission, refresh, openSettings } = usePushPermission();
 
   const [expoPerm, setExpoPerm] = useState<PermissionStatus | null>(null);
   const [pauseModalVisible, setPauseModalVisible] = useState(false);
@@ -425,19 +425,9 @@ export default function NotificationsSettingsScreen() {
   const renderStatusCard = () => {
     if (osDenied) {
       return (
-        <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.border, 0.4), borderColor: theme.glassBorder }]}>
-          <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.mutedForeground, 0.12) }]}>
-            <Ionicons name={'bell-off-outline' as any} size={28} color={theme.mutedForeground} />
-          </View>
-          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.danger }}>Not allowed by device</Text>
-          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
-            Allow notifications in your device settings to receive alerts.
-          </Text>
-          <Pressable onPress={() => Linking.openSettings()} style={styles.openSettingsBtn}>
-            <Text style={{ color: theme.tint, fontWeight: '600', fontSize: 14 }}>Open Settings</Text>
-          </Pressable>
-        </View>
+        <NotificationDeniedRecoverySurface
+          onOpenSettings={openSettings}
+        />
       );
     }
 
@@ -838,11 +828,6 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  openSettingsBtn: {
-    marginTop: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
   },
   row: {
     flexDirection: 'row',
