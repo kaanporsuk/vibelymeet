@@ -70,6 +70,7 @@ import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib
 import { useQueryClient } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
 import { useIsOffline } from '@/lib/useNetworkStatus';
+import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
@@ -86,7 +87,6 @@ import {
   VIBE_CLIP_OUTBOX_FAILED,
   VIBE_CLIP_OUTBOX_QUEUED,
   VIBE_CLIP_OUTBOX_SENDING,
-  VIBE_CLIP_OUTBOX_WAITING_NET,
   VIBE_CLIP_PERM_CAMERA_MESSAGE,
   VIBE_CLIP_PERM_CAMERA_TITLE,
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
@@ -162,7 +162,11 @@ function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, paylo
   if (!phase) return null;
   const isClip = payloadKind === 'video';
   if (phase === 'queued') return isClip ? VIBE_CLIP_OUTBOX_QUEUED : 'Queued…';
-  if (phase === 'waiting_for_network') return isClip ? VIBE_CLIP_OUTBOX_WAITING_NET : 'Waiting for network…';
+  if (phase === 'waiting_for_network') {
+    return isClip
+      ? "You're offline — your Vibe Clip will send when you reconnect."
+      : "You're offline — this will send when you reconnect.";
+  }
   if (phase === 'sending' || phase === 'awaiting_hydration') return isClip ? VIBE_CLIP_OUTBOX_SENDING : 'Sending…';
   if (phase === 'failed') return isClip ? VIBE_CLIP_OUTBOX_FAILED : 'Failed to send';
   return null;
@@ -607,8 +611,19 @@ export default function ChatThreadScreen() {
       audioRecorder.record();
       setRecording(true);
     } catch (e) {
-      setVoiceError(e instanceof Error ? e.message : 'Could not start recording');
-      Alert.alert('Recording', 'Microphone access is needed for voice messages.');
+      const isPerm =
+        e instanceof Error &&
+        (e.message.toLowerCase().includes('permission') || e.message.toLowerCase().includes('denied'));
+      if (isPerm) {
+        setVoiceError(null);
+        Alert.alert('Recording', 'Microphone access is needed for voice messages.');
+        return;
+      }
+      const msg = chatFriendlyErrorFromUnknown(e);
+      setVoiceError(msg);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        Alert.alert('Recording', msg);
+      }
     }
   };
 
@@ -637,7 +652,10 @@ export default function ChatThreadScreen() {
         payload: { kind: 'voice', uri: stable, durationSeconds: durationSec },
       });
     } catch (e) {
-      Alert.alert('Voice message failed', e instanceof Error ? e.message : 'Please try again.');
+      const msg = chatFriendlyErrorFromUnknown(e);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        Alert.alert('Voice message failed', msg);
+      }
     }
   };
 
@@ -706,9 +724,13 @@ export default function ChatThreadScreen() {
         is_sender: true,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not attach video.';
-      setVideoError(msg);
-      Alert.alert('Vibe Clip', msg);
+      const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        setVideoError(msg);
+        Alert.alert('Vibe Clip', msg);
+      } else {
+        setVideoError(null);
+      }
     }
   };
 
@@ -763,9 +785,13 @@ export default function ChatThreadScreen() {
         is_sender: true,
       });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not record video.';
-      setVideoError(msg);
-      Alert.alert('Vibe Clip', msg);
+      const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        setVideoError(msg);
+        Alert.alert('Vibe Clip', msg);
+      } else {
+        setVideoError(null);
+      }
     }
   };
 
@@ -785,7 +811,10 @@ export default function ChatThreadScreen() {
         payload: { kind: 'image', uri: stable, mimeType: mimeType ?? 'image/jpeg' },
       });
     } catch (e) {
-      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+      const msg = chatFriendlyErrorFromUnknown(e);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        Alert.alert('Photo', msg);
+      }
     } finally {
       setSendingPhoto(false);
     }
@@ -806,7 +835,10 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
     } catch (e) {
-      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+      const msg = chatFriendlyErrorFromUnknown(e);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        Alert.alert('Photo', msg);
+      }
     }
   };
 
@@ -822,7 +854,10 @@ export default function ChatThreadScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       await uploadPhotoUriAndSend(result.assets[0].uri, result.assets[0].mimeType ?? null);
     } catch (e) {
-      Alert.alert('Photo', e instanceof Error ? e.message : 'Could not send photo.');
+      const msg = chatFriendlyErrorFromUnknown(e);
+      if (!(isOffline && isLikelyNetworkFailure(e))) {
+        Alert.alert('Photo', msg);
+      }
     }
   };
 
@@ -989,6 +1024,10 @@ export default function ChatThreadScreen() {
     partnerTyping,
     lastSeenAtMs: lastSeenAt,
   });
+
+  const composerMediaError = voiceError || videoError;
+  const suppressComposerMediaError =
+    !!composerMediaError && isOffline && isLikelyNetworkFailure({ message: composerMediaError });
 
   const renderBubbleContent = (item: ThreadMessage, textColor: string, timeColor: string, isMe: boolean) => {
     const pair = reactionByMessageId.get(item.id) ?? { mine: null, partner: null };
@@ -1606,7 +1645,7 @@ export default function ChatThreadScreen() {
         </View>
         <View
           style={[
-            styles.composerDock,
+            styles.composerDockCol,
             {
               borderTopColor: 'rgba(255,255,255,0.06)',
               backgroundColor: 'hsl(240, 10%, 8%)',
@@ -1614,90 +1653,103 @@ export default function ChatThreadScreen() {
             },
           ]}
         >
-          <Pressable
-            style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
-            onPress={() => openPhotoOptions()}
-            disabled={isSending}
-            accessibilityLabel="Photo"
-          >
-            {sendingPhoto ? (
-              <ActivityIndicator size="small" color={theme.tint} />
-            ) : (
-              <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
-            )}
-          </Pressable>
-          <Pressable
-            style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
-            onPress={() => openVideoMessageOptions()}
-            disabled={isSending}
-            accessibilityLabel="Vibe Clip — record or choose a clip"
-          >
-            {sendingVideo ? (
-              <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
-            ) : (
-              <Ionicons name="film-outline" size={20} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
-            )}
-          </Pressable>
-          <TextInput
-            style={[
-              styles.inputDock,
-              {
-                borderColor: 'rgba(255,255,255,0.08)',
-                color: theme.text,
-                backgroundColor: theme.surface,
-              },
-            ]}
-            placeholder="Message…"
-            placeholderTextColor={theme.textSecondary}
-            value={input}
-            onChangeText={handleInputChange}
-            multiline
-            maxLength={2000}
-            editable={!isSending}
-          />
-          <Pressable
-            style={[
-              styles.composerIconBtn,
-              {
-                backgroundColor: recording
-                  ? theme.dangerSoft
-                  : voiceReplyHint
-                    ? 'rgba(139,92,246,0.18)'
-                    : theme.muted,
-              },
-              voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
-            ]}
-            onPress={handleVoicePress}
-            disabled={isSending && !recording}
-            accessibilityLabel="Voice message"
-          >
-            {sendingVoice ? (
-              <ActivityIndicator size="small" color={theme.tint} />
-            ) : recording ? (
-              <Ionicons name="stop" size={20} color={theme.danger} />
-            ) : (
-              <Ionicons name="mic-outline" size={20} color={voiceReplyHint ? 'rgba(139,92,246,1)' : theme.textSecondary} />
-            )}
-          </Pressable>
-          <Pressable
-            style={[
-              styles.sendFab,
-              { backgroundColor: theme.tint },
-              (!input.trim() || isSending) && styles.sendBtnDisabled,
-            ]}
-            onPress={handleSend}
-            disabled={!input.trim() || isSending}
-            accessibilityLabel="Send message"
-          >
-            <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
-          </Pressable>
+          {recording ? (
+            <View style={styles.recordingHintRow}>
+              <View
+                style={[
+                  styles.recordingHintPill,
+                  { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' },
+                ]}
+              >
+                <Text style={[styles.recordingHintPillText, { color: theme.textSecondary }]}>
+                  Recording… Tap mic to send
+                </Text>
+              </View>
+            </View>
+          ) : null}
+          <View style={styles.composerDockRow}>
+            <Pressable
+              style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
+              onPress={() => openPhotoOptions()}
+              disabled={isSending}
+              accessibilityLabel="Photo"
+            >
+              {sendingPhoto ? (
+                <ActivityIndicator size="small" color={theme.tint} />
+              ) : (
+                <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
+              )}
+            </Pressable>
+            <Pressable
+              style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
+              onPress={() => openVideoMessageOptions()}
+              disabled={isSending}
+              accessibilityLabel="Vibe Clip — record or choose a clip"
+            >
+              {sendingVideo ? (
+                <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
+              ) : (
+                <Ionicons name="film-outline" size={20} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
+              )}
+            </Pressable>
+            <TextInput
+              style={[
+                styles.inputDock,
+                {
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  color: theme.text,
+                  backgroundColor: theme.surface,
+                },
+              ]}
+              placeholder="Message…"
+              placeholderTextColor={theme.textSecondary}
+              value={input}
+              onChangeText={handleInputChange}
+              multiline
+              maxLength={2000}
+              editable={!isSending}
+            />
+            <Pressable
+              style={[
+                styles.composerIconBtn,
+                {
+                  backgroundColor: recording
+                    ? theme.dangerSoft
+                    : voiceReplyHint
+                      ? 'rgba(139,92,246,0.18)'
+                      : theme.muted,
+                },
+                voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
+              ]}
+              onPress={handleVoicePress}
+              disabled={isSending && !recording}
+              accessibilityLabel="Voice message"
+            >
+              {sendingVoice ? (
+                <ActivityIndicator size="small" color={theme.tint} />
+              ) : recording ? (
+                <Ionicons name="stop" size={20} color={theme.danger} />
+              ) : (
+                <Ionicons name="mic-outline" size={20} color={voiceReplyHint ? 'rgba(139,92,246,1)' : theme.textSecondary} />
+              )}
+            </Pressable>
+            <Pressable
+              style={[
+                styles.sendFab,
+                { backgroundColor: theme.tint },
+                (!input.trim() || isSending) && styles.sendBtnDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!input.trim() || isSending}
+              accessibilityLabel="Send message"
+            >
+              <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
+            </Pressable>
+          </View>
+          {composerMediaError && !suppressComposerMediaError ? (
+            <Text style={[styles.voiceError, { color: theme.danger }]}>{composerMediaError}</Text>
+          ) : null}
         </View>
-        {(voiceError || videoError) ? (
-          <Text style={[styles.voiceError, { color: theme.danger }]}>{voiceError ?? videoError}</Text>
-        ) : null}
-        {recording ? (
-          <Text style={[styles.recordingHint, { color: theme.textSecondary }]}>Recording… Tap mic to send</Text>
-        ) : null}
       </KeyboardAvoidingView>
 
       <ReactionPicker
@@ -1980,13 +2032,31 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   contextChipLabel: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
-  composerDock: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+  composerDockCol: {
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm,
-    gap: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  composerDockRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  recordingHintRow: {
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  recordingHintPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: '100%',
+  },
+  recordingHintPillText: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   composerIconBtn: {
     width: 38,
@@ -2053,6 +2123,5 @@ const styles = StyleSheet.create({
     minWidth: MEDIA_CARD_MIN_WIDTH,
   },
   chatImage: { width: '100%', aspectRatio: 1, backgroundColor: 'rgba(0,0,0,0.2)' },
-  voiceError: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
-  recordingHint: { fontSize: 12, marginTop: 4, marginHorizontal: layout.containerPadding },
+  voiceError: { fontSize: 12, marginTop: spacing.sm, alignSelf: 'center', textAlign: 'center', paddingHorizontal: spacing.md },
 });

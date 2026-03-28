@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { loadOutboxItems, saveOutboxItems } from '@/lib/chatOutbox/store';
 import { newOutboxClientRequestId } from '@/lib/chatOutbox/id';
 import { executeOutboxItem, nextBackoffMs, OutboxExecuteError } from '@/lib/chatOutbox/execute';
+import { isLikelyNetworkFailure, outboxFailureUserMessage } from '@/lib/networkErrorMessage';
 import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
@@ -318,12 +319,16 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
             });
           }
         } catch (e) {
-          const msg = e instanceof Error ? e.message : 'Send failed';
+          const rawMsg = e instanceof Error ? e.message : 'Send failed';
           const backoff = nextBackoffMs(attemptCount);
           const uploadedPublicUrl =
             e instanceof OutboxExecuteError ? e.uploadedPublicUrl : undefined;
           const uploadedMediaUrl =
             e instanceof OutboxExecuteError ? e.uploadedMediaUrl : undefined;
+          const offlineNow = connectivityService.getState() === 'offline';
+          const likelyNet = isLikelyNetworkFailure(e);
+          const treatAsOfflineWait = offlineNow || likelyNet;
+          const isClip = next.payload.kind === 'video';
           setItems((prev) =>
             prev.map((it) =>
               it.id === next.id
@@ -331,17 +336,18 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                     ...it,
                     uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
                     uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
-                    state: 'failed' as const,
-                    lastError: msg,
-                    nextRetryAtMs: Date.now() + backoff,
+                    state: treatAsOfflineWait ? ('waiting_for_network' as const) : ('failed' as const),
+                    lastError: treatAsOfflineWait ? undefined : outboxFailureUserMessage(rawMsg, isClip),
+                    nextRetryAtMs: treatAsOfflineWait ? undefined : Date.now() + backoff,
+                    attemptCount: treatAsOfflineWait ? next.attemptCount : attemptCount,
                     updatedAtMs: Date.now(),
                   }
                 : it
             )
           );
-          if (next.payload.kind === 'video') {
+          if (isClip && !treatAsOfflineWait) {
             trackVibeClipEvent('clip_send_failed', {
-              failure_class: classifySendFailureMessage(msg),
+              failure_class: classifySendFailureMessage(rawMsg),
             });
           }
         } finally {
