@@ -87,6 +87,7 @@ import {
   VIBE_CLIP_OUTBOX_FAILED,
   VIBE_CLIP_OUTBOX_QUEUED,
   VIBE_CLIP_OUTBOX_SENDING,
+  VIBE_CLIP_OUTBOX_FINISHING,
   VIBE_CLIP_PERM_CAMERA_MESSAGE,
   VIBE_CLIP_PERM_CAMERA_TITLE,
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
@@ -167,7 +168,8 @@ function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, paylo
       ? "You're offline — your Vibe Clip will send when you reconnect."
       : "You're offline — this will send when you reconnect.";
   }
-  if (phase === 'sending' || phase === 'awaiting_hydration') return isClip ? VIBE_CLIP_OUTBOX_SENDING : 'Sending…';
+  if (phase === 'sending') return isClip ? VIBE_CLIP_OUTBOX_SENDING : 'Sending…';
+  if (phase === 'awaiting_hydration') return isClip ? VIBE_CLIP_OUTBOX_FINISHING : 'Finishing up…';
   if (phase === 'failed') return isClip ? VIBE_CLIP_OUTBOX_FAILED : 'Failed to send';
   return null;
 }

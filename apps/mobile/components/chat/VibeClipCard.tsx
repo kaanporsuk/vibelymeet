@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
@@ -52,6 +52,11 @@ export function VibeClipCard({
   const player = useVideoPlayer(meta.videoUrl, (p) => {
     p.loop = false;
   });
+
+  useEffect(() => {
+    setIsReady(false);
+    setHasError(false);
+  }, [meta.videoUrl]);
 
   useEffect(() => {
     const sub = player.addListener('statusChange', (payload) => {
@@ -153,8 +158,12 @@ export function VibeClipCard({
         <VideoView style={styles.video} player={player} nativeControls contentFit="cover" />
 
         {!isReady && (
-          <View style={styles.fallback}>
-            <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
+          <View style={styles.loadingOverlay} pointerEvents="none">
+            <View style={styles.loadingInner}>
+              <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
+              <Text style={styles.loadingLabel}>Loading clip…</Text>
+              <Text style={styles.loadingHint}>Tap the video for controls when ready</Text>
+            </View>
           </View>
         )}
 
@@ -297,17 +306,35 @@ const styles = StyleSheet.create({
   },
   videoWrap: {
     width: '100%',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(22,22,30,0.22)',
   },
   video: {
     width: '100%',
     height: '100%',
   },
-  fallback: {
+  loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(12,12,18,0.35)',
+    backgroundColor: 'rgba(14,14,22,0.28)',
+  },
+  loadingInner: {
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  loadingLabel: {
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  loadingHint: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+    maxWidth: 200,
   },
   durationBadge: {
     position: 'absolute',
