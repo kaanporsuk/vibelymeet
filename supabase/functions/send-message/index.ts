@@ -12,6 +12,14 @@ function isUuid(s: string): boolean {
   );
 }
 
+/** Match `shared/chat/messageRouting` `CHAT_IMAGE_MESSAGE_PREFIX` — avoid leaking transport form in push body. */
+const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
+
+function notificationPreviewFromTextContent(trimmed: string): string {
+  if (trimmed.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)) return "Photo";
+  return trimmed.length > 80 ? trimmed.slice(0, 80) + "…" : trimmed;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -435,8 +443,7 @@ serve(async (req) => {
           .eq("id", actorId)
           .maybeSingle();
 
-        const preview =
-          trimmed.length > 80 ? trimmed.slice(0, 80) + "…" : trimmed;
+        const preview = notificationPreviewFromTextContent(trimmed);
 
         await serviceClient.functions.invoke("send-notification", {
           headers: { Authorization: `Bearer ${serviceRoleKey}` },

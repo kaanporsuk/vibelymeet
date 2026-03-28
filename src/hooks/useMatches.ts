@@ -9,6 +9,19 @@ import {
   compatibilityPercent,
   type MatchScoreInput,
 } from "@/utils/matchSortScore";
+import { getConversationListPreviewText } from "../../shared/chat/conversationListPreview";
+
+/** Latest message row shape from matches list query (one row per match). */
+type MatchLatestMessageRow = {
+  match_id: string;
+  content: string | null;
+  created_at: string;
+  read_at: string | null;
+  sender_id: string;
+  message_kind: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+};
 
 export interface Match {
   id: string;
@@ -137,7 +150,9 @@ export const useMatches = () => {
             .in("profile_id", profileIdsForFetch),
           supabase
             .from("messages")
-            .select("match_id, content, created_at, read_at, sender_id")
+            .select(
+              "match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url"
+            )
             .in(
               "match_id",
               matches.map((m) => m.id)
@@ -156,10 +171,11 @@ export const useMatches = () => {
       const lastMessages = messagesResult.data || [];
       const events = eventsResult.data || [];
 
-      const messagesByMatch: Record<string, any> = {};
+      const messagesByMatch: Record<string, MatchLatestMessageRow> = {};
       lastMessages.forEach((msg) => {
-        if (!messagesByMatch[msg.match_id]) {
-          messagesByMatch[msg.match_id] = msg;
+        const row = msg as MatchLatestMessageRow;
+        if (!messagesByMatch[row.match_id]) {
+          messagesByMatch[row.match_id] = row;
         }
       });
 
@@ -228,7 +244,14 @@ export const useMatches = () => {
           name: profile?.name || "Unknown",
           age: profile?.age || 0,
           image,
-          lastMessage: lastMsg?.content || null,
+          lastMessage: lastMsg
+            ? getConversationListPreviewText({
+                content: lastMsg.content,
+                message_kind: lastMsg.message_kind,
+                audio_url: lastMsg.audio_url,
+                video_url: lastMsg.video_url,
+              })
+            : null,
           time: lastMsg
             ? formatDistanceToNow(new Date(lastMsg.created_at), {
                 addSuffix: false,

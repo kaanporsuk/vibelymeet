@@ -10,6 +10,7 @@ import {
   type NativeHydratedGameSessionView,
 } from '@/lib/chatGameSessions';
 import { toRenderableMessageKind } from '../../../shared/chat/messageRouting';
+import { getConversationListPreviewText } from '../../../shared/chat/conversationListPreview';
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 
 export type { NativeHydratedGameSessionView };
@@ -90,7 +91,9 @@ export function useMatches(userId: string | null | undefined) {
         supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
         supabase
           .from('messages')
-          .select('match_id, content, created_at, read_at, sender_id')
+          .select(
+            'match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url'
+          )
           .in('match_id', matches.map((m) => m.id))
           .order('created_at', { ascending: false }),
         eventIds.length > 0
@@ -107,8 +110,19 @@ export function useMatches(userId: string | null | undefined) {
         profile_id: string;
         vibe_tags: { label: string } | { label: string }[] | null;
       }[];
-      const lastMessages = (messagesRes.data || []).reduce<Record<string, { match_id: string; content: string; created_at: string; read_at: string | null; sender_id: string }>>((acc, msg) => {
-        if (!acc[msg.match_id]) acc[msg.match_id] = msg;
+      type MatchLatestRow = {
+        match_id: string;
+        content: string | null;
+        created_at: string;
+        read_at: string | null;
+        sender_id: string;
+        message_kind: string | null;
+        audio_url: string | null;
+        video_url: string | null;
+      };
+      const lastMessages = (messagesRes.data || []).reduce<Record<string, MatchLatestRow>>((acc, msg) => {
+        const row = msg as MatchLatestRow;
+        if (!acc[row.match_id]) acc[row.match_id] = row;
         return acc;
       }, {});
 
@@ -170,7 +184,14 @@ export function useMatches(userId: string | null | undefined) {
           name: (profile as { name?: string })?.name || 'Unknown',
           age: (profile as { age?: number })?.age ?? 0,
           image: avatarUrl(photo, 'avatar'),
-          lastMessage: lastMsg?.content ?? null,
+          lastMessage: lastMsg
+            ? getConversationListPreviewText({
+                content: lastMsg.content,
+                message_kind: lastMsg.message_kind,
+                audio_url: lastMsg.audio_url,
+                video_url: lastMsg.video_url,
+              })
+            : null,
           time: lastMsg ? formatTime(lastMsg.created_at) : 'new',
           unread: lastMsg ? !lastMsg.read_at && lastMsg.sender_id !== userId : false,
           isNew,
