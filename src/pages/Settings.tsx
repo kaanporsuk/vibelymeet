@@ -37,6 +37,7 @@ import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
+import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
 
 const Settings = () => {
@@ -46,6 +47,13 @@ const Settings = () => {
   const { credits } = useCredits();
   const { isPremium, tierLabel } = useEntitlements();
   const { premiumUntil } = usePremium();
+  const { subscription } = useSubscription();
+  const renewalDate =
+    subscription?.current_period_end
+      ? format(new Date(subscription.current_period_end), "MMM d, yyyy")
+      : premiumUntil
+        ? format(premiumUntil, "MMM d, yyyy")
+        : null;
 
   const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -100,9 +108,11 @@ const Settings = () => {
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
                 <p className="text-xs text-muted-foreground">
-                  {isPremium && premiumUntil
-                    ? `${tierLabel} · Expires ${format(premiumUntil, "MMM d, yyyy")}`
-                    : `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`}
+                  {!isPremium
+                    ? `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`
+                    : renewalDate
+                      ? `${tierLabel} · Renews ${renewalDate}`
+                      : tierLabel}
                 </p>
               </div>
             </div>

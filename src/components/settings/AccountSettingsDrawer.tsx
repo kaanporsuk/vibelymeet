@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
+import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
 
 interface AccountSettingsDrawerProps {
@@ -79,6 +80,13 @@ export const AccountSettingsDrawer = ({
   const { user } = useUserProfile();
   const { isPremium, tierLabel } = useEntitlements();
   const { premiumUntil } = usePremium();
+  const { subscription } = useSubscription();
+  const renewalDate =
+    subscription?.current_period_end
+      ? format(new Date(subscription.current_period_end), "MMM d, yyyy")
+      : premiumUntil
+        ? format(premiumUntil, "MMM d, yyyy")
+        : null;
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   
@@ -460,9 +468,11 @@ export const AccountSettingsDrawer = ({
               <div>
                 <p className="text-sm font-medium text-foreground">Current plan</p>
                 <p className="text-xs text-muted-foreground">
-                  {isPremium && premiumUntil
-                    ? `${tierLabel} · Renews ${format(premiumUntil, "MMM d, yyyy")}`
-                    : "Free tier — upgrade anytime"}
+                  {!isPremium
+                    ? "Free tier — upgrade anytime"
+                    : renewalDate
+                      ? `${tierLabel} · Renews ${renewalDate}`
+                      : tierLabel}
                 </p>
               </div>
             </div>
