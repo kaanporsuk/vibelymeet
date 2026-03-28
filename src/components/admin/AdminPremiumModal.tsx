@@ -69,6 +69,7 @@ const AdminPremiumModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [grantTier, setGrantTier] = useState<"premium" | "vip">("premium");
 
   const { data: history } = useQuery({
     queryKey: ["premium-history", userId],
@@ -114,6 +115,7 @@ const AdminPremiumModal = ({
         .from("profiles")
         .update({
           is_premium: true,
+          subscription_tier: grantTier,
           premium_until: targetDate.toISOString(),
           premium_granted_by: user!.id,
           premium_granted_at: new Date().toISOString(),
@@ -185,7 +187,11 @@ const AdminPremiumModal = ({
 
       const { error: updateErr } = await supabase
         .from("profiles")
-        .update({ is_premium: false, premium_until: null })
+        .update({
+          is_premium: false,
+          subscription_tier: "free",
+          premium_until: null,
+        })
         .eq("id", userId);
       if (updateErr) throw updateErr;
 
@@ -262,6 +268,37 @@ const AdminPremiumModal = ({
         ) : (
           <div className="p-3 rounded-xl bg-secondary/50 border border-border">
             <Badge variant="outline" className="text-muted-foreground">Free Account</Badge>
+          </div>
+        )}
+
+        {/* Tier (new grants only) */}
+        {!currentIsPremium && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-foreground">Subscription tier</h4>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGrantTier("premium")}
+                className={`flex-1 px-3 py-2 rounded-full text-xs font-medium border transition-colors ${
+                  grantTier === "premium"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-secondary/50 text-foreground border-border hover:border-primary/50"
+                }`}
+              >
+                Premium
+              </button>
+              <button
+                type="button"
+                onClick={() => setGrantTier("vip")}
+                className={`flex-1 px-3 py-2 rounded-full text-xs font-medium border transition-colors ${
+                  grantTier === "vip"
+                    ? "bg-amber-500/90 text-amber-950 border-amber-500"
+                    : "bg-secondary/50 text-foreground border-border hover:border-amber-500/50"
+                }`}
+              >
+                VIP
+              </button>
+            </div>
           </div>
         )}
 

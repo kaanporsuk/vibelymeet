@@ -9,6 +9,7 @@ import { GlassHeaderBar, Card, LoadingState, ErrorState, VibelyButton } from '@/
 import { spacing, radius, typography, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { getLanguageLabel } from '@/lib/eventLanguages';
 import {
   useEventDetails,
@@ -41,6 +42,7 @@ export default function EventDetailScreen() {
   const theme = Colors[colorScheme];
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { canAccessPremiumEvents, canAccessVipEvents } = useEntitlements();
   const { data: event, isLoading, error } = useEventDetails(id ?? undefined);
   const { data: isRegistered, refetch: refetchRegistration } = useIsRegisteredForEvent(id ?? undefined, user?.id);
   const { registerForEvent, unregisterFromEvent, isRegistering, isUnregistering } = useRegisterForEvent();
@@ -126,6 +128,29 @@ export default function EventDetailScreen() {
 
   const handleRegister = useCallback(async () => {
     if (!event) return;
+    const vis = (event as EventDetailsRow).visibility;
+    if (vis === 'premium' && !canAccessPremiumEvents) {
+      Alert.alert(
+        'Premium only',
+        'This event is for Premium members. Upgrade to unlock access.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'View Premium', onPress: () => router.push('/premium') },
+        ]
+      );
+      return;
+    }
+    if (vis === 'vip' && !canAccessVipEvents) {
+      Alert.alert(
+        'VIP only',
+        'This event is for VIP members. Upgrade to unlock access.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'View Premium', onPress: () => router.push('/premium') },
+        ]
+      );
+      return;
+    }
     const ok = await registerForEvent(event.id);
     if (ok) {
       trackEvent('event_registered', {
@@ -136,7 +161,7 @@ export default function EventDetailScreen() {
     } else {
       Alert.alert("Couldn't register", 'Check your connection and try again.');
     }
-  }, [event, ev?.is_free, registerForEvent]);
+  }, [event, ev?.is_free, registerForEvent, canAccessPremiumEvents, canAccessVipEvents]);
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;

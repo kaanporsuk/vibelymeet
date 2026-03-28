@@ -16,10 +16,11 @@ import {
   UserMinus,
   MessageSquare,
   LifeBuoy,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -36,6 +37,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'users' as const, label: 'Users', icon: Users },
     { id: 'events' as const, label: 'Events', icon: Calendar },
+    { id: 'tier-config' as const, label: 'Tier Config', icon: Layers },
     { id: 'event-analytics' as const, label: 'Event Analytics', icon: BarChart3 },
     { id: 'engagement' as const, label: 'Engagement', icon: TrendingUp },
     { id: 'campaigns' as const, label: 'Push Campaigns', icon: Bell },

@@ -3071,6 +3071,7 @@ export type Database = {
         Returns: Json
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
+      register_for_event: { Args: { p_event_id: string }; Returns: Json }
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
         Returns: undefined

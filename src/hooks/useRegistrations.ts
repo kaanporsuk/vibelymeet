@@ -29,14 +29,12 @@ export const useRegisterForEvent = () => {
   const registerForEvent = async (eventId: string): Promise<boolean> => {
     if (!user?.id) return false;
 
-    const { error } = await supabase
-      .from("event_registrations")
-      .insert({
-        event_id: eventId,
-        profile_id: user.id,
-      });
-
-    return !error;
+    const { data, error } = await supabase.rpc("register_for_event", {
+      p_event_id: eventId,
+    });
+    if (error) return false;
+    const result = data as { success?: boolean; error?: string } | null;
+    return result?.success === true;
   };
 
   const unregisterFromEvent = async (eventId: string): Promise<boolean> => {

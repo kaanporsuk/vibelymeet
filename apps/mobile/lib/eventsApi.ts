@@ -435,10 +435,14 @@ export function useRegisterForEvent() {
     mutationFn: async (eventId: string) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { error } = await supabase
-        .from('event_registrations')
-        .insert({ event_id: eventId, profile_id: user.id });
+      const { data, error } = await supabase.rpc('register_for_event', {
+        p_event_id: eventId,
+      });
       if (error) throw error;
+      const result = data as { success?: boolean; error?: string } | null;
+      if (!result?.success) {
+        throw new Error(result?.error ?? 'Registration failed');
+      }
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });

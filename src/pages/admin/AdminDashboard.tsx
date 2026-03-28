@@ -29,9 +29,10 @@ import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
 import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
 import SupportInbox from "@/components/admin/SupportInbox";
 import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
+import AdminTierConfigPanel from "@/components/admin/AdminTierConfigPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -128,6 +129,7 @@ const AdminDashboard = () => {
                 {activePanel === 'deletions' && 'Account Deletions'}
                 {activePanel === 'feedback' && 'Legacy feedback'}
                 {activePanel === 'support' && 'Support inbox'}
+                {activePanel === 'tier-config' && 'Tier configuration'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -143,6 +145,7 @@ const AdminDashboard = () => {
                 {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
                 {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
                 {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
+                {activePanel === 'tier-config' && 'Live overrides for subscription tier capabilities (merged with code defaults)'}
               </p>
               </div>
             </div>
@@ -208,6 +211,7 @@ const AdminDashboard = () => {
           {activePanel === 'deletions' && <AdminDeletionsPanel />}
           {activePanel === 'feedback' && <AdminFeedbackPanel />}
           {activePanel === 'support' && <SupportInbox />}
+          {activePanel === 'tier-config' && <AdminTierConfigPanel />}
         </main>
       </div>
 
