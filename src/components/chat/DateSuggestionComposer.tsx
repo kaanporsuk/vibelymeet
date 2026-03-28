@@ -7,6 +7,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   DATE_TYPE_OPTIONS,
@@ -33,8 +34,11 @@ import { threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 
 const STEPS = ["Type", "When", "Place", "Message", "Review"] as const;
 
+const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
+
 export type WizardState = {
   dateTypeKey: DateTypeKey;
+  customDateTypeText: string;
   timeChoiceKey: TimeChoiceKey;
   placeModeKey: PlaceModeKey;
   venueText: string;
@@ -49,6 +53,7 @@ export type WizardState = {
 
 const defaultWizard = (): WizardState => ({
   dateTypeKey: "coffee",
+  customDateTypeText: "",
   timeChoiceKey: "tomorrow",
   placeModeKey: "decide_together",
   venueText: "",
@@ -60,6 +65,11 @@ const defaultWizard = (): WizardState => ({
   pickSlotDate: null,
   pickTimeBlock: null,
 });
+
+function resolveDateTypeValue(w: Pick<WizardState, "dateTypeKey" | "customDateTypeText">): string {
+  if (w.dateTypeKey !== "custom") return w.dateTypeKey;
+  return w.customDateTypeText.trim();
+}
 
 function buildRevision(w: WizardState) {
   const share = w.timeChoiceKey === "share_schedule";
@@ -78,7 +88,7 @@ function buildRevision(w: WizardState) {
   }
 
   return {
-    date_type_key: w.dateTypeKey,
+    date_type_key: resolveDateTypeValue(w),
     time_choice_key: w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
     venue_text: w.placeModeKey === "custom_venue" ? (w.venueText.trim() || null) : null,
@@ -145,8 +155,11 @@ export function DateSuggestionComposer({
     if (!open) return;
     if (counterContext) {
       const r = counterContext.previousRevision;
+      const incomingType = (r.date_type_key ?? "").trim();
+      const hasKnownType = incomingType.length > 0 && DATE_TYPE_KEYS.has(incomingType);
       setW({
-        dateTypeKey: (r.date_type_key as DateTypeKey) || "coffee",
+        dateTypeKey: (hasKnownType ? incomingType : "custom") as DateTypeKey,
+        customDateTypeText: hasKnownType ? "" : incomingType,
         timeChoiceKey: (r.time_choice_key as TimeChoiceKey) || "tomorrow",
         placeModeKey: (r.place_mode_key as PlaceModeKey) || "decide_together",
         venueText: r.venue_text || "",
@@ -163,7 +176,20 @@ export function DateSuggestionComposer({
       return;
     }
     if (draftFromParent?.wizard) {
-      setW((prev) => ({ ...defaultWizard(), ...draftFromParent.wizard }));
+      setW(() => {
+        const next = { ...defaultWizard(), ...draftFromParent.wizard };
+        const incomingType = typeof next.dateTypeKey === "string" ? next.dateTypeKey.trim() : "";
+        const incomingCustom =
+          typeof next.customDateTypeText === "string" ? next.customDateTypeText : "";
+        if (!incomingType) return { ...next, dateTypeKey: "coffee", customDateTypeText: "" };
+        if (DATE_TYPE_KEYS.has(incomingType))
+          return { ...next, dateTypeKey: incomingType as DateTypeKey };
+        return {
+          ...next,
+          dateTypeKey: "custom",
+          customDateTypeText: incomingCustom || incomingType,
+        };
+      });
       if (typeof draftFromParent.step === "number") {
         setStep(Math.min(4, Math.max(0, draftFromParent.step)));
       }
@@ -227,6 +253,7 @@ export function DateSuggestionComposer({
   };
 
   const canNext = () => {
+    if (step === 0 && w.dateTypeKey === "custom" && !w.customDateTypeText.trim()) return false;
     if (step === 1 && w.timeChoiceKey === "pick_a_time" && !w.pickStartIso) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
       return false;
@@ -269,22 +296,44 @@ export function DateSuggestionComposer({
         </div>
 
         {step === 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            {DATE_TYPE_OPTIONS.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                onClick={() => setW((p) => ({ ...p, dateTypeKey: o.key }))}
-                className={cn(
-                  "rounded-xl border px-3 py-2.5 text-left text-sm transition-colors",
-                  w.dateTypeKey === o.key
-                    ? "border-primary bg-primary/10 text-foreground"
-                    : "border-border/60 hover:bg-muted/50",
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {DATE_TYPE_OPTIONS.map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  onClick={() =>
+                    setW((p) => ({
+                      ...p,
+                      dateTypeKey: o.key,
+                      customDateTypeText: o.key === "custom" ? p.customDateTypeText : "",
+                      variantIndex: 0,
+                    }))
+                  }
+                  className={cn(
+                    "rounded-xl border px-3 py-2.5 text-left text-sm transition-colors",
+                    w.dateTypeKey === o.key
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border/60 hover:bg-muted/50",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {w.dateTypeKey === "custom" ? (
+              <div className="space-y-1.5 w-full">
+                <Input
+                  placeholder="What do you have in mind?"
+                  value={w.customDateTypeText}
+                  onChange={(e) => setW((p) => ({ ...p, customDateTypeText: e.target.value }))}
+                  className="rounded-lg text-sm h-auto min-h-10 py-2.5"
+                />
+                {!w.customDateTypeText.trim() ? (
+                  <p className="text-xs text-muted-foreground">Add a custom type to continue.</p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -434,7 +483,9 @@ export function DateSuggestionComposer({
           <div className="space-y-2 text-sm rounded-xl border border-border/60 p-3 bg-muted/20">
             <p>
               <span className="text-muted-foreground">Type:</span>{" "}
-              {DATE_TYPE_OPTIONS.find((x) => x.key === w.dateTypeKey)?.label}
+              {w.dateTypeKey === "custom"
+                ? w.customDateTypeText.trim() || "Custom"
+                : DATE_TYPE_OPTIONS.find((x) => x.key === w.dateTypeKey)?.label}
             </p>
             <p>
               <span className="text-muted-foreground">When:</span>{" "}
