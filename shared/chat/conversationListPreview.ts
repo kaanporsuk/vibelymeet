@@ -15,6 +15,9 @@ import {
 
 const PREVIEW_MAX_LEN = 80;
 
+/** http(s) substrings removed from plain-text previews (keep in sync with send-message push sanitization). */
+const HTTP_URL_IN_TEXT_RE = /https?:\/\/[^\s]+/gi;
+
 export type ConversationPreviewKind =
   | "empty"
   | "text"
@@ -24,7 +27,6 @@ export type ConversationPreviewKind =
   | "vibe_clip"
   | "date"
   | "game"
-  | "call"
   | "unknown";
 
 export type ConversationPreview = {
@@ -70,13 +72,27 @@ function isTransportOrBareUrlLine(s: string): boolean {
   return false;
 }
 
+/**
+ * Removes http(s) URL runs from user text; collapses whitespace.
+ * Exported so push preview can mirror behavior (Deno duplicate — keep regex aligned).
+ */
+export function stripEmbeddedHttpUrlsForPreview(text: string): string {
+  return text.replace(HTTP_URL_IN_TEXT_RE, " ").replace(/\s+/g, " ").trim();
+}
+
+/** True if anything worth showing remains after URL stripping (letters/digits in any script). */
+export function plainPreviewTextHasSubstance(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 function gamePreviewText(structured: unknown, content: string): string {
   const env = parseVibeGameEnvelopeFromStructuredPayload(structured);
   if (env?.game_type && GAME_TYPE_LABEL[env.game_type]) {
     return GAME_TYPE_LABEL[env.game_type]!;
   }
-  const t = content.trim();
-  if (t.length > 0 && !isTransportOrBareUrlLine(t)) {
+  const stripped = stripEmbeddedHttpUrlsForPreview(content);
+  const t = stripped.trim();
+  if (t.length > 0 && plainPreviewTextHasSubstance(t) && !isTransportOrBareUrlLine(content.trim())) {
     return truncatePreview(t);
   }
   return "Game";
@@ -105,8 +121,9 @@ function datePreviewText(dbKind: ChatDbMessageKind, structured: unknown, content
       const fixed = dateEventKindLabel(k);
       if (fixed) return fixed;
     }
-    const t = content.trim();
-    if (t.length > 0 && !isTransportOrBareUrlLine(t)) {
+    const stripped = stripEmbeddedHttpUrlsForPreview(content);
+    const t = stripped.trim();
+    if (t.length > 0 && plainPreviewTextHasSubstance(t) && !isTransportOrBareUrlLine(content.trim())) {
       return truncatePreview(t);
     }
     return "Date update";
@@ -142,6 +159,25 @@ export function getConversationPreview(
   const videoUrl =
     typeof row.video_url === "string" && row.video_url.trim() ? row.video_url.trim() : null;
 
+  const dbKind = normalizeChatDbMessageKind(kind);
+
+  if (dbKind === "date_suggestion" || dbKind === "date_suggestion_event") {
+    return {
+      prefix,
+      text: datePreviewText(dbKind, row.structured_payload, raw),
+      kind: "date",
+      presentation: "label",
+    };
+  }
+  if (dbKind === "vibe_game" || dbKind === "vibe_game_session") {
+    return {
+      prefix,
+      text: gamePreviewText(row.structured_payload, raw),
+      kind: "game",
+      presentation: "label",
+    };
+  }
+
   const mediaKind = inferChatMediaRenderKind({
     content: trimmed,
     audioUrl,
@@ -160,24 +196,6 @@ export function getConversationPreview(
   }
   if (mediaKind === "video") {
     return { prefix, text: "Video", kind: "video", presentation: "label" };
-  }
-
-  const dbKind = normalizeChatDbMessageKind(kind);
-  if (dbKind === "date_suggestion" || dbKind === "date_suggestion_event") {
-    return {
-      prefix,
-      text: datePreviewText(dbKind, row.structured_payload, raw),
-      kind: "date",
-      presentation: "label",
-    };
-  }
-  if (dbKind === "vibe_game" || dbKind === "vibe_game_session") {
-    return {
-      prefix,
-      text: gamePreviewText(row.structured_payload, raw),
-      kind: "game",
-      presentation: "label",
-    };
   }
 
   if (parseChatImageMessageContent(trimmed)) {
@@ -202,9 +220,14 @@ export function getConversationPreview(
     return { prefix, text: "Message", kind: "unknown", presentation: "label" };
   }
 
+  const sansUrls = stripEmbeddedHttpUrlsForPreview(trimmed);
+  if (!sansUrls || !plainPreviewTextHasSubstance(sansUrls)) {
+    return { prefix, text: "Message", kind: "unknown", presentation: "label" };
+  }
+
   return {
     prefix,
-    text: truncatePreview(trimmed),
+    text: truncatePreview(sansUrls),
     kind: "text",
     presentation: "plain",
   };
