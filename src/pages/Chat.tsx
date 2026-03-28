@@ -259,6 +259,7 @@ const Chat = () => {
               ? `Active ${Math.round(diffMinutes / 60)}h ago`
               : undefined,
         photoVerified: ou.photo_verified || false,
+        subscription_tier: ou.subscription_tier ?? null,
       };
     }
     return {
@@ -271,6 +272,7 @@ const Chat = () => {
       isOnline: false,
       lastSeen: undefined as string | undefined,
       photoVerified: false,
+      subscription_tier: null,
     };
   }, [chatData?.otherUser, id]);
 

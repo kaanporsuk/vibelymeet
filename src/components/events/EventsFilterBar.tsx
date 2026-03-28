@@ -30,7 +30,7 @@ interface EventsFilterBarProps {
   upcomingOnly: boolean;
   onUpcomingOnlyChange: (val: boolean) => void;
   extraFilterCount: number;
-  isPremium: boolean;
+  canCityBrowse: boolean;
   onPremiumUpgrade: () => void;
 }
 
@@ -68,7 +68,7 @@ export const EventsFilterBar = ({
   upcomingOnly,
   onUpcomingOnlyChange,
   extraFilterCount,
-  isPremium,
+  canCityBrowse,
   onPremiumUpgrade,
 }: EventsFilterBarProps) => {
   const [isVisible, setIsVisible] = useState(true);
@@ -381,12 +381,12 @@ export const EventsFilterBar = ({
                     >
                       <Globe className="w-3.5 h-3.5" />
                       Choose a city
-                      {!isPremium && <Lock className="w-3 h-3 opacity-60" />}
+                      {!canCityBrowse && <Lock className="w-3 h-3 opacity-60" />}
                     </button>
                   </div>
 
                   {/* City mode: upsell for free users */}
-                  {locationMode === 'city' && !isPremium && (
+                  {locationMode === 'city' && !canCityBrowse && (
                     <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 to-accent/10 p-4 mb-3">
                       <div className="flex items-start gap-3">
                         <span className="text-xl">💎</span>
@@ -408,7 +408,7 @@ export const EventsFilterBar = ({
                   )}
 
                   {/* City mode: search (premium users) */}
-                  {locationMode === 'city' && isPremium && (
+                  {locationMode === 'city' && canCityBrowse && (
                     <div className="mb-3">
                       {selectedCity ? (
                         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border/50">

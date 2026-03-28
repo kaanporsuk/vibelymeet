@@ -36,7 +36,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useEvents, useNextRegisteredEvent } from '@/lib/eventsApi';
 import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvents';
-import { useBackendSubscription } from '@/lib/subscriptionApi';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl, getImageUrl } from '@/lib/imageUrl';
 import { useActiveSession } from '@/lib/useActiveSession';
@@ -123,13 +123,13 @@ export default function DashboardScreen() {
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
-  const { isPremium } = useBackendSubscription(user?.id);
+  const { canCityBrowse } = useEntitlements();
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(
     user?.id ?? null,
-    isPremium ?? false,
+    canCityBrowse,
   );
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
-  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, isPremium);
+  const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, canCityBrowse);
   const { data: proposals = [] } = useDateProposals(user?.id);
   const { nextReminder, imminentReminders } = useDateReminders(proposals);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);

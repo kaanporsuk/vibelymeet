@@ -114,7 +114,7 @@ export type DiscoverEventsParams = {
   distanceKm: number;
   deviceCoords: { lat: number; lng: number } | null;
   /** When false, city browse coordinates are not sent (server also enforces subscription). */
-  isPremium: boolean;
+  canCityBrowse: boolean;
 };
 
 /**
@@ -122,7 +122,6 @@ export type DiscoverEventsParams = {
  */
 export async function fetchVisibleEventsList(
   userId: string,
-  _legacyIsPremium: boolean,
   discover?: DiscoverEventsParams,
 ): Promise<EventListItem[]> {
   const { data: profile, error: profileError } = await supabase
@@ -136,7 +135,7 @@ export async function fetchVisibleEventsList(
   const loc = profile?.location_data as { lat?: number; lng?: number } | null;
 
   const d = discover;
-  const mode = !d?.isPremium ? 'nearby' : (d.locationMode ?? 'nearby');
+  const mode = !d?.canCityBrowse ? 'nearby' : (d.locationMode ?? 'nearby');
   const deviceLat = d?.deviceCoords?.lat ?? null;
   const deviceLng = d?.deviceCoords?.lng ?? null;
   const p_user_lat = (deviceLat ?? loc?.lat) ?? undefined;
@@ -144,19 +143,19 @@ export async function fetchVisibleEventsList(
 
   let p_browse_lat: number | null = null;
   let p_browse_lng: number | null = null;
-  if (mode === 'city' && d?.isPremium && d.selectedCity) {
+  if (mode === 'city' && d?.canCityBrowse && d.selectedCity) {
     p_browse_lat = d.selectedCity.lat;
     p_browse_lng = d.selectedCity.lng;
   }
 
   const hasRefPoint =
-    (mode === 'city' && !!d?.selectedCity && !!d?.isPremium) ||
+    (mode === 'city' && !!d?.selectedCity && !!d?.canCityBrowse) ||
     (mode === 'nearby' && p_user_lat != null && p_user_lng != null);
 
   const filterKm = d?.distanceKm ?? 50;
   const p_filter_radius_km =
     hasRefPoint && filterKm > 0
-      ? mode === 'city' && (!d?.selectedCity || !d?.isPremium)
+      ? mode === 'city' && (!d?.selectedCity || !d?.canCityBrowse)
         ? null
         : filterKm
       : null;
@@ -188,7 +187,7 @@ export function useDiscoverEvents(
     queryKey: [
       'events-discover',
       userId,
-      params.isPremium,
+      params.canCityBrowse,
       params.locationMode,
       params.selectedCity?.lat,
       params.selectedCity?.lng,
@@ -196,19 +195,19 @@ export function useDiscoverEvents(
       params.deviceCoords?.lat,
       params.deviceCoords?.lng,
     ],
-    queryFn: () => fetchVisibleEventsList(userId!, false, params),
+    queryFn: () => fetchVisibleEventsList(userId!, params),
     enabled: !!userId,
   });
 }
 
 /** Dashboard / simple callers: nearby list via RPC (profile location + default radius). */
-export function useEvents(userId: string | null | undefined, isPremium: boolean) {
+export function useEvents(userId: string | null | undefined, canCityBrowse: boolean) {
   return useDiscoverEvents(userId, {
     locationMode: 'nearby',
     selectedCity: null,
     distanceKm: 50,
     deviceCoords: null,
-    isPremium: !!isPremium,
+    canCityBrowse: !!canCityBrowse,
   });
 }
 
@@ -334,9 +333,9 @@ export type NextRegisteredEventResult = {
 };
 
 /** Next event for dashboard — web parity: user's next registered event (or first visible upcoming if none). */
-export function useNextRegisteredEvent(userId: string | null | undefined, isPremium: boolean) {
+export function useNextRegisteredEvent(userId: string | null | undefined, canCityBrowse: boolean) {
   return useQuery({
-    queryKey: ['next-registered-event', userId, isPremium],
+    queryKey: ['next-registered-event', userId, canCityBrowse],
     enabled: !!userId,
     queryFn: async (): Promise<NextRegisteredEventResult> => {
       if (!userId) return { event: null, isRegistered: false };
@@ -350,7 +349,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, isPrem
       if (regError) throw regError;
       const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean);
       if (eventIds.length === 0) {
-        const first = await fetchFirstUpcomingVisibleEvent(userId, isPremium);
+        const first = await fetchFirstUpcomingVisibleEvent(userId, canCityBrowse);
         return { event: first, isRegistered: false };
       }
 
@@ -386,7 +385,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, isPrem
           isRegistered: true,
         };
       }
-      const first = await fetchFirstUpcomingVisibleEvent(userId, isPremium);
+      const first = await fetchFirstUpcomingVisibleEvent(userId, canCityBrowse);
       return { event: first, isRegistered: false };
     },
   });
@@ -414,8 +413,14 @@ function rowToEventListItem(
   };
 }
 
-async function fetchFirstUpcomingVisibleEvent(userId: string, isPremium: boolean): Promise<EventListItem | null> {
-  const list = await fetchVisibleEventsList(userId, isPremium);
+async function fetchFirstUpcomingVisibleEvent(userId: string, canCityBrowse: boolean): Promise<EventListItem | null> {
+  const list = await fetchVisibleEventsList(userId, {
+    locationMode: 'nearby',
+    selectedCity: null,
+    distanceKm: 50,
+    deviceCoords: null,
+    canCityBrowse,
+  });
   const now = new Date();
   for (const item of list) {
     const end = new Date(item.eventDate.getTime() + item.duration_minutes * 60 * 1000);

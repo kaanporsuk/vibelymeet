@@ -28,6 +28,7 @@ type ChatOtherUser = {
   photos: unknown;
   last_seen_at: string | null;
   photo_verified: boolean | null;
+  subscription_tier: string | null;
 } | null;
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
@@ -59,7 +60,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       const { data: otherUser } = await supabase
         .from("profiles")
-        .select("id, name, age, avatar_url, photos, last_seen_at, photo_verified")
+        .select("id, name, age, avatar_url, photos, last_seen_at, photo_verified, subscription_tier")
         .eq("id", otherUserId)
         .maybeSingle();
 

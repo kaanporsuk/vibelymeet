@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Crown } from "lucide-react";
+import { Crown, Star } from "lucide-react";
+import { getUserBadge } from "@/hooks/useEntitlements";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -54,7 +55,7 @@ interface ChatUser {
   isOnline: boolean;
   lastSeen?: string;
   photoVerified?: boolean;
-  is_premium?: boolean;
+  subscription_tier?: string | null;
 }
 
 interface ChatHeaderProps {
@@ -87,6 +88,7 @@ export const ChatHeader = ({
   const { muteMatch, unmuteMatch, isMatchMuted, getMuteExpiry } = useMuteMatch();
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
+  const partnerTierBadge = getUserBadge(user.subscription_tier);
 
   const getStatusText = () => {
     if (isTyping) return null;
@@ -217,8 +219,11 @@ export const ChatHeader = ({
                     <h2 className="font-semibold text-foreground truncate">
                       {user.name}, {user.age}
                     </h2>
-                    {user.is_premium && (
-                      <Crown className="w-3.5 h-3.5 text-primary shrink-0" />
+                    {partnerTierBadge === "premium" && (
+                      <Crown className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden />
+                    )}
+                    {partnerTierBadge === "vip" && (
+                      <Star className="w-3.5 h-3.5 text-amber-500 shrink-0 fill-amber-500" aria-hidden />
                     )}
                     {user.photoVerified && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-neon-cyan/20 text-neon-cyan font-medium">

@@ -20,6 +20,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import Constants from 'expo-constants';
 
@@ -54,6 +55,7 @@ export default function SettingsScreen() {
   const theme = Colors[colorScheme];
   const { user } = useAuth();
   const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
+  const { tierLabel } = useEntitlements();
   const { data: credits } = useCredits(user?.id);
 
   const handleManageSubscription = async () => {
@@ -97,7 +99,7 @@ export default function SettingsScreen() {
                     <Ionicons name="sparkles" size={20} color={theme.tint} />
                   </View>
                   <View style={styles.premiumCardText}>
-                    <Text style={[styles.premiumBadge, { color: theme.tint }]}>✦ Vibely Premium</Text>
+                    <Text style={[styles.premiumBadge, { color: theme.tint }]}>✦ Vibely {tierLabel}</Text>
                     {currentPeriodEnd ? (
                       <Text style={[styles.premiumRenew, { color: theme.textSecondary }]}>
                         Renews {formatDate(currentPeriodEnd)}
@@ -123,7 +125,7 @@ export default function SettingsScreen() {
               title="Video Date Credits"
               subtitle={
                 isPremium && currentPeriodEnd
-                  ? `Premium · Expires ${formatDate(currentPeriodEnd)}`
+                  ? `${tierLabel} · Expires ${formatDate(currentPeriodEnd)}`
                   : credits
                     ? `${credits.extra_time_credits ?? 0} Extra Time · ${credits.extended_vibe_credits ?? 0} Extended Vibe`
                     : 'Extra Time · Extended Vibe'

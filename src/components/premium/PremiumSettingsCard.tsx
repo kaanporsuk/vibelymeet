@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Crown, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSubscription } from "@/hooks/useSubscription";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -10,6 +11,7 @@ import { toast } from "sonner";
 export const PremiumSettingsCard = () => {
   const navigate = useNavigate();
   const { isPremium, subscription, isLoading } = useSubscription();
+  const { tierLabel } = useEntitlements();
   const [isLoadingPortal, setIsLoadingPortal] = useState(false);
 
   if (isLoading) return null;
@@ -36,7 +38,7 @@ export const PremiumSettingsCard = () => {
           </div>
           <div>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-xs font-semibold">
-              ✦ Vibely Premium
+              ✦ Vibely {tierLabel}
             </span>
             {subscription.current_period_end && (
               <p className="text-xs text-muted-foreground mt-1">

@@ -4,6 +4,7 @@ import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PremiumBadge } from "@/components/premium/PremiumBadge";
+import { getUserBadge } from "@/hooks/useEntitlements";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -13,17 +14,16 @@ interface LobbyProfileCardProps {
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
-  const [profileIsPremium, setProfileIsPremium] = useState(false);
+  const [profileBadge, setProfileBadge] = useState<"premium" | "vip" | null>(null);
 
-  // Fetch premium status for this profile
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("is_premium")
+        .select("subscription_tier")
         .eq("id", profile.profile_id)
         .maybeSingle();
-      setProfileIsPremium(!!data?.is_premium);
+      setProfileBadge(getUserBadge(data?.subscription_tier as string | null | undefined));
     })();
   }, [profile.profile_id]);
 
@@ -82,9 +82,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       )}
 
       {/* Premium badge */}
-      {profileIsPremium && (
+      {profileBadge && (
         <div className="absolute top-4 right-4 z-10">
-          <PremiumBadge />
+          <PremiumBadge variant={profileBadge} />
         </div>
       )}
 

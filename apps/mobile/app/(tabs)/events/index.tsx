@@ -35,7 +35,7 @@ import {
   type EventAttendee,
   type DiscoverEventsParams,
 } from '@/lib/eventsApi';
-import { useBackendSubscription } from '@/lib/subscriptionApi';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -630,7 +630,7 @@ export default function EventsListScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { isPremium } = useBackendSubscription(user?.id);
+  const { canCityBrowse } = useEntitlements();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
@@ -674,21 +674,21 @@ export default function EventsListScreen() {
   }, [userCoords]);
 
   useEffect(() => {
-    if (!isPremium) {
+    if (!canCityBrowse) {
       setFilters((prev) => {
         if (prev.locationMode === 'nearby' && prev.selectedCity == null) return prev;
         return { ...prev, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
       });
     }
-  }, [isPremium]);
+  }, [canCityBrowse]);
 
   const discoverParams = useMemo((): DiscoverEventsParams => ({
-    locationMode: !isPremium ? 'nearby' : filters.locationMode,
-    selectedCity: isPremium && filters.locationMode === 'city' ? filters.selectedCity : null,
+    locationMode: !canCityBrowse ? 'nearby' : filters.locationMode,
+    selectedCity: canCityBrowse && filters.locationMode === 'city' ? filters.selectedCity : null,
     distanceKm: filters.distanceKm,
     deviceCoords: userCoords,
-    isPremium: !!isPremium,
-  }), [isPremium, filters.locationMode, filters.selectedCity, filters.distanceKm, userCoords]);
+    canCityBrowse: !!canCityBrowse,
+  }), [canCityBrowse, filters.locationMode, filters.selectedCity, filters.distanceKm, userCoords]);
 
   const { data: events = [], isLoading, error, refetch, isRefetching } = useDiscoverEvents(
     user?.id ?? null,
@@ -908,7 +908,7 @@ export default function EventsListScreen() {
         onClose={() => setShowFilterSheet(false)}
         filters={filters}
         onApply={setFilters}
-        isPremium={isPremium}
+        canCityBrowse={canCityBrowse}
         onPremiumUpgrade={() => router.push('/premium')}
       />
 
