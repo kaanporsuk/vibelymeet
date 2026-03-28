@@ -1385,11 +1385,13 @@ export default function ChatThreadScreen() {
                   {otherName}
                   {otherAge > 0 ? `, ${otherAge}` : ''}
                 </Text>
-                {activityLine ? (
-                  <Text style={[styles.headerSubtitle, { color: activityColor }]} numberOfLines={1}>
-                    {activityLine.text}
-                  </Text>
-                ) : null}
+                <View style={styles.headerSubtitleSlot}>
+                  {activityLine ? (
+                    <Text style={[styles.headerSubtitle, { color: activityColor }]} numberOfLines={1}>
+                      {activityLine.text}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
             </Pressable>
             <View style={styles.headerRightRow}>
@@ -1926,6 +1928,8 @@ const styles = StyleSheet.create({
   headerAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
   headerAvatarLetter: { fontSize: 16, fontWeight: '600' },
   headerTextWrap: { flex: 1, minWidth: 0 },
+  /** Fixed min height so header does not jump when subtitle is null (web `min-h-4` parity). */
+  headerSubtitleSlot: { minHeight: 17, justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600' },
   headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
