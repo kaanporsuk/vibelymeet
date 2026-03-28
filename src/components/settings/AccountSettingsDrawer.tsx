@@ -37,6 +37,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { format } from "date-fns";
 
@@ -76,7 +77,8 @@ export const AccountSettingsDrawer = ({
 }: AccountSettingsDrawerProps) => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
-  const { isPremium, premiumUntil } = usePremium();
+  const { isPremium, tierLabel } = useEntitlements();
+  const { premiumUntil } = usePremium();
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   
@@ -459,7 +461,7 @@ export const AccountSettingsDrawer = ({
                 <p className="text-sm font-medium text-foreground">Current plan</p>
                 <p className="text-xs text-muted-foreground">
                   {isPremium && premiumUntil
-                    ? `Renews ${format(premiumUntil, "MMM d, yyyy")}`
+                    ? `${tierLabel} · Renews ${format(premiumUntil, "MMM d, yyyy")}`
                     : "Free tier — upgrade anytime"}
                 </p>
               </div>
@@ -471,7 +473,7 @@ export const AccountSettingsDrawer = ({
                   isPremium ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground",
                 )}
               >
-                {isPremium ? "Premium" : "Free"}
+                {isPremium ? tierLabel : "Free"}
               </span>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </div>

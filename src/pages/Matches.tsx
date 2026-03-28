@@ -41,7 +41,7 @@ import { toast } from "sonner";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useSubscription } from "@/hooks/useSubscription";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { WhoLikedYouGate } from "@/components/premium/WhoLikedYouGate";
 import { formatConversationCount } from "@/utils/matchSortScore";
 import {
@@ -66,7 +66,7 @@ const Matches = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
   const { data: matches = [], isLoading, refetch } = useMatches();
-  const { isPremium } = useSubscription();
+  const { canSeeLikedYou } = useEntitlements();
   const [phoneVerifiedForEmpty, setPhoneVerifiedForEmpty] = useState(true);
 
   // Check phone verification status for empty state nudge
@@ -456,7 +456,7 @@ const Matches = () => {
               ) : matches.length > 0 ? (
                 <>
                   {/* Who Liked You Gate (free users) or New Vibes Rail (premium) — hidden while searching (native parity) */}
-                  {showNewVibesRail && isPremium ? (
+                  {showNewVibesRail && canSeeLikedYou ? (
                     <NewVibesRail
                       vibes={newVibes}
                       onVibeClick={(id) => {
@@ -469,7 +469,7 @@ const Matches = () => {
                         if (match) setViewProfileMatch(match);
                       }}
                     />
-                  ) : showNewVibesRail && !isPremium && newVibes.length > 0 ? (
+                  ) : showNewVibesRail && !canSeeLikedYou && newVibes.length > 0 ? (
                     <WhoLikedYouGate count={newVibes.length} />
                   ) : null}
 

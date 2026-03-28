@@ -3,6 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEffect, useState, useRef } from "react";
 import { trackEvent } from "@/lib/analytics";
 
+/**
+ * Profile `is_premium` / `premium_until` (incl. admin grants). Prefer `useEntitlements()` for feature gates;
+ * keep this hook when you need `premium_until` for copy or analytics, not for tier capabilities.
+ */
 export const usePremium = () => {
   const [userId, setUserId] = useState<string | null>(null);
 

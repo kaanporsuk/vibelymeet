@@ -51,7 +51,7 @@ import { UnmatchConfirmationSheet } from '@/components/match/UnmatchConfirmation
 import { SwipeableMatchConversationRow } from '@/components/matches/SwipeableMatchConversationRow';
 import { DropsTabContent } from '@/components/matches/DropsTabContent';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
-import { useBackendSubscription } from '@/lib/subscriptionApi';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { getMatchSearchHitKind } from '@/lib/matchSearchHaystack';
@@ -103,7 +103,7 @@ export default function MatchesListScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
-  const { isPremium } = useBackendSubscription(user?.id);
+  const { canSeeLikedYou } = useEntitlements();
   const { data: matches = [], isLoading, isRefetching, error, refetch } = useMatches(user?.id);
   const [activeTab, setActiveTab] = useState<'conversations' | 'drops'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
@@ -817,9 +817,9 @@ export default function MatchesListScreen() {
           ListHeaderComponent={
             <RNView onTouchStart={dismissOpenConversationSwipe}>
             <>
-              {showNewVibesRail && newVibes.length > 0 && !isPremium ? (
+              {showNewVibesRail && newVibes.length > 0 && !canSeeLikedYou ? (
                 <WhoLikedYouGate count={newVibes.length} />
-              ) : showNewVibesRail && newVibes.length > 0 && isPremium ? (
+              ) : showNewVibesRail && newVibes.length > 0 && canSeeLikedYou ? (
                 <Card variant="glass" style={styles.newVibesCard}>
                   <RNView style={styles.newVibesHeader}>
                     <RNView style={[styles.newVibesIconWrap, { backgroundColor: theme.tint }]}>

@@ -267,15 +267,15 @@ const initialProfile: UserProfile = {
   vibeScoreLabel: "New",
 };
 
-import { usePremium } from "@/hooks/usePremium";
-import { Crown } from "lucide-react";
+import { useEntitlements } from "@/hooks/useEntitlements";
+import { Crown, Star } from "lucide-react";
 
 type DrawerType = "photos" | "vibes" | "basics" | "bio" | "prompt" | "intent" | "lifestyle" | "verification" | "vibe-video" | "tagline" | null;
 
 const Profile = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
-  const { isPremium, premiumUntil } = usePremium();
+  const { hasBadge, badgeType } = useEntitlements();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
@@ -673,9 +673,20 @@ const Profile = () => {
             <h1 className="text-2xl font-display font-bold text-foreground">
               {profile.name}, {profile.age}
             </h1>
-            {isPremium && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[10px] font-semibold">
-                <Crown className="w-3 h-3" /> Premium
+            {hasBadge && (
+              <span
+                className={
+                  badgeType === "vip"
+                    ? "inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 text-amber-950 text-[10px] font-semibold"
+                    : "inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[10px] font-semibold"
+                }
+              >
+                {badgeType === "vip" ? (
+                  <Star className="w-3 h-3 fill-current" />
+                ) : (
+                  <Crown className="w-3 h-3" />
+                )}{" "}
+                {badgeType === "vip" ? "VIP" : "Premium"}
               </span>
             )}
             {profile.zodiac && (

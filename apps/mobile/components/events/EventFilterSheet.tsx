@@ -70,12 +70,12 @@ interface EventFilterSheetProps {
   onClose: () => void;
   filters: EventFilters;
   onApply: (filters: EventFilters) => void;
-  isPremium: boolean;
+  canCityBrowse: boolean;
   onPremiumUpgrade: () => void;
 }
 
 export default function EventFilterSheet({
-  visible, onClose, filters, onApply, isPremium, onPremiumUpgrade,
+  visible, onClose, filters, onApply, canCityBrowse, onPremiumUpgrade,
 }: EventFilterSheetProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -91,14 +91,14 @@ export default function EventFilterSheet({
   useEffect(() => {
     if (visible) {
       let f = filters;
-      if (f.locationMode === 'city' && !isPremium) {
+      if (f.locationMode === 'city' && !canCityBrowse) {
         f = { ...f, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
       }
       setDraft(f);
       setCityQuery('');
       setCityResults([]);
     }
-  }, [visible, filters, isPremium]);
+  }, [visible, filters, canCityBrowse]);
 
   useEffect(() => {
     (async () => {
@@ -332,7 +332,7 @@ export default function EventFilterSheet({
                 <Text style={[s.modePillText, { color: draft.locationMode === 'city' ? '#fff' : theme.textSecondary }]}>
                   Choose a city
                 </Text>
-                {!isPremium && (
+                {!canCityBrowse && (
                   <Ionicons name="lock-closed" size={11} color={draft.locationMode === 'city' ? '#fff' : theme.textSecondary} style={{ marginLeft: 2 }} />
                 )}
               </Pressable>
@@ -354,7 +354,7 @@ export default function EventFilterSheet({
             )}
 
             {/* City mode: upsell for free users */}
-            {draft.locationMode === 'city' && !isPremium && (
+            {draft.locationMode === 'city' && !canCityBrowse && (
               <View style={[s.upsellCard, { borderColor: 'rgba(139,92,246,0.25)' }]}>
                 <Text style={s.upsellEmoji}>💎</Text>
                 <View style={s.upsellContent}>
@@ -371,7 +371,7 @@ export default function EventFilterSheet({
             )}
 
             {/* City mode: search (premium users) */}
-            {draft.locationMode === 'city' && isPremium && (
+            {draft.locationMode === 'city' && canCityBrowse && (
               <>
                 {draft.selectedCity ? (
                   <View style={[s.selectedCityRow, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>

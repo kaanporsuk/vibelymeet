@@ -3,7 +3,7 @@ import type { UseVisibleEventsOptions } from "@/hooks/useVisibleEvents";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
-import { useSubscription } from "@/hooks/useSubscription";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import type { SelectedCity } from "@/components/events/EventsFilterBar";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -167,7 +167,7 @@ const ScopeLabel = ({ scope, city, country, distanceKm }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const Events = () => {
   const { user } = useUserProfile();
-  const { isPremium } = useSubscription();
+  const { canCityBrowse } = useEntitlements();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
@@ -180,18 +180,18 @@ const Events = () => {
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!isPremium) {
+    if (!canCityBrowse) {
       if (locationMode !== "nearby" || selectedCity) {
         setLocationMode("nearby");
         setSelectedCity(null);
         setDistanceKm(50);
       }
     }
-  }, [isPremium, locationMode, selectedCity]);
+  }, [canCityBrowse, locationMode, selectedCity]);
 
   const visibleOpts = useMemo((): UseVisibleEventsOptions => {
-    const mode: "nearby" | "city" = !isPremium ? "nearby" : locationMode;
-    const city = mode === "city" && isPremium ? selectedCity : null;
+    const mode: "nearby" | "city" = !canCityBrowse ? "nearby" : locationMode;
+    const city = mode === "city" && canCityBrowse ? selectedCity : null;
     const filterRadiusKm =
       distanceKm > 0 && (mode === "city" ? !!city : true) ? distanceKm : null;
     return {
@@ -201,7 +201,7 @@ const Events = () => {
       selectedCity: city,
       filterRadiusKm,
     };
-  }, [isPremium, locationMode, selectedCity, distanceKm, userCoords]);
+  }, [canCityBrowse, locationMode, selectedCity, distanceKm, userCoords]);
 
   const { data: events = [], isLoading } = useVisibleEvents(visibleOpts);
 
@@ -371,7 +371,7 @@ const Events = () => {
         distanceKm={distanceKm} onDistanceChange={setDistanceKm}
         upcomingOnly={upcomingOnly} onUpcomingOnlyChange={setUpcomingOnly}
         extraFilterCount={extraFilterCount}
-        isPremium={isPremium}
+        canCityBrowse={canCityBrowse}
         onPremiumUpgrade={() => navigate('/premium')}
       />
 
@@ -448,7 +448,7 @@ const Events = () => {
             )}
 
             {/* Empty local state with premium nudge */}
-            {nearYou.length === 0 && globalEvents.length === 0 && liveEvents.length === 0 && !isLoading && (
+            {nearYou.length === 0 && globalEvents.length === 0 && liveEvents.length === 0 && !isLoading && !canCityBrowse && (
               <div className="px-4 text-center py-8">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/50 flex items-center justify-center">
                   <Calendar className="w-8 h-8 text-muted-foreground" />

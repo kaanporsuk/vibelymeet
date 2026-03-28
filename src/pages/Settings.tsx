@@ -35,6 +35,7 @@ import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
 import { useCredits } from "@/hooks/useCredits";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { format } from "date-fns";
 
@@ -43,7 +44,8 @@ const Settings = () => {
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { credits } = useCredits();
-  const { isPremium, premiumUntil } = usePremium();
+  const { isPremium, tierLabel } = useEntitlements();
+  const { premiumUntil } = usePremium();
 
   const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -99,7 +101,7 @@ const Settings = () => {
                 <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
                 <p className="text-xs text-muted-foreground">
                   {isPremium && premiumUntil
-                    ? `Premium · Expires ${format(premiumUntil, "MMM d, yyyy")}`
+                    ? `${tierLabel} · Expires ${format(premiumUntil, "MMM d, yyyy")}`
                     : `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`}
                 </p>
               </div>

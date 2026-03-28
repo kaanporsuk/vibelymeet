@@ -48,6 +48,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 /** Profile verification section — parity with web `VerificationSteps` + spec teal / violet–pink gradient */
 const VERIFICATION_TEAL = '#0D9488';
@@ -168,6 +169,7 @@ export default function ProfileScreen() {
   const photoMainSize = photoCellSize * 2 + photoGridGap;
   const photoMainHeight = photoMainSize * (5 / 4); // web aspect-[4/5] for main tile
   const { user, signOut, refreshOnboarding, onboardingComplete } = useAuth();
+  const { isPremium: entitlementsPremium, hasBadge, badgeType } = useEntitlements();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -201,21 +203,16 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     if (!profile) return;
-    const isPremium = !!(
-      profile.is_premium &&
-      profile.premium_until &&
-      new Date(profile.premium_until) > new Date()
-    );
     setUserProperties({
       name: profile.name ?? '',
       age: profile.age ?? 0,
       gender: profile.gender ?? '',
       location: profile.location ?? '',
       has_photos: (profile.photos?.length ?? 0) > 0,
-      is_premium: isPremium,
+      is_premium: entitlementsPremium,
       is_verified: !!(profile.phone_verified || profile.photo_verified),
     });
-  }, [profile]);
+  }, [profile, entitlementsPremium]);
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [galleryCurrentIndex, setGalleryCurrentIndex] = useState(0);
@@ -251,10 +248,10 @@ export default function ProfileScreen() {
       userId: user.id,
       onboardingComplete: onboardingComplete === true,
       hasPhotos: (profile.photos?.length ?? 0) > 0,
-      isPremium: profile.is_premium === true,
+      isPremium: entitlementsPremium,
       city: profile.location ?? '',
     });
-  }, [user?.id, profile, onboardingComplete]);
+  }, [user?.id, profile, onboardingComplete, entitlementsPremium]);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
@@ -624,12 +621,6 @@ export default function ProfileScreen() {
     const localDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
     return getZodiacEmoji(getZodiacSign(localDate));
   })();
-  const isPremiumActive = !!(
-    profile?.is_premium &&
-    profile?.premium_until &&
-    new Date(profile.premium_until) > new Date()
-  );
-
   return (
     <>
     <ScrollView
@@ -738,15 +729,17 @@ export default function ProfileScreen() {
             {profile?.name ?? 'Your name'}
             {profile?.age != null ? `, ${profile.age}` : ''}
           </Text>
-          {isPremiumActive ? (
+          {hasBadge ? (
             <LinearGradient
-              colors={['#8B5CF6', '#E84393']}
+              colors={badgeType === 'vip' ? ['#F59E0B', '#EAB308'] : ['#8B5CF6', '#E84393']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.premiumPill}
             >
-              <Ionicons name="diamond" size={11} color="#fff" />
-              <Text style={styles.premiumPillText}>Premium</Text>
+              <Ionicons name={badgeType === 'vip' ? 'star' : 'diamond'} size={11} color={badgeType === 'vip' ? '#1c1917' : '#fff'} />
+              <Text style={badgeType === 'vip' ? [styles.premiumPillText, { color: '#1c1917' }] : styles.premiumPillText}>
+                {badgeType === 'vip' ? 'VIP' : 'Premium'}
+              </Text>
             </LinearGradient>
           ) : null}
           {zodiacEmoji ? (

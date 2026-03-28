@@ -49,7 +49,7 @@ import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScor
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { useLogout } from "@/hooks/useLogout";
-import { usePremium } from "@/hooks/usePremium";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -73,7 +73,7 @@ import {
   type ProfileData,
   type GeoLocation,
 } from "@/services/profileService";
-import { Crown } from "lucide-react";
+import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
 
 // ────────────────────────────────────────────────────────────────────
@@ -321,7 +321,7 @@ const FullscreenVibePlayer = ({
 const ProfileStudio = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
-  const { isPremium } = usePremium();
+  const { hasBadge, badgeType } = useEntitlements();
   const [profile, setProfile] = useState<UserProfile>(initialProfile);
   const [activeDrawer, setActiveDrawer] = useState<DrawerType>(null);
   const [editForm, setEditForm] = useState<UserProfile>(initialProfile);
@@ -855,9 +855,20 @@ const ProfileStudio = () => {
                 {profile.name}
                 {profile.age != null ? `, ${profile.age}` : ""}
               </h1>
-              {isPremium && (
-                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[9px] font-semibold">
-                  <Crown className="w-2.5 h-2.5" /> PRO
+              {hasBadge && (
+                <span
+                  className={
+                    badgeType === "vip"
+                      ? "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 text-amber-950 text-[9px] font-semibold"
+                      : "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[9px] font-semibold"
+                  }
+                >
+                  {badgeType === "vip" ? (
+                    <Star className="w-2.5 h-2.5 fill-current" />
+                  ) : (
+                    <Crown className="w-2.5 h-2.5" />
+                  )}{" "}
+                  {badgeType === "vip" ? "VIP" : "PRO"}
                 </span>
               )}
             </div>

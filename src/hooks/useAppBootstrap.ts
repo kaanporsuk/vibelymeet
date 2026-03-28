@@ -66,6 +66,7 @@ export const useAppBootstrap = () => {
       location: user.location ?? undefined,
       has_photos: user.hasPhotos,
       is_premium: user.isPremium,
+      subscription_tier: user.subscriptionTier ?? undefined,
       is_verified: user.isVerified,
     });
   }, [user]);
