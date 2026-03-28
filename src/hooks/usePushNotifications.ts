@@ -4,6 +4,7 @@ import {
   getOneSignalWebClientSnapshot,
   isSubscribed,
   waitForOneSignalInitResult,
+  type OneSignalWebBootstrap,
 } from '@/lib/onesignal';
 
 const SCHEDULED_NOTIFICATIONS_KEY = 'vibely_scheduled_notifications';

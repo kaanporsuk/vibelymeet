@@ -1,5 +1,6 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { getCreditPack } from '../_shared/creditPacks.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -9,27 +10,6 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
-
-const CREDIT_PACKS = {
-  extra_time_3: {
-    name: '3× Extra Time',
-    description: 'Extend your video date by +2 min, 3 times',
-    price: 2.99,
-    grants: { extra_time_credits: 3, extended_vibe_credits: 0 },
-  },
-  extended_vibe_3: {
-    name: '3× Extended Vibe',
-    description: 'Extend your video date by +5 min, 3 times',
-    price: 4.99,
-    grants: { extra_time_credits: 0, extended_vibe_credits: 3 },
-  },
-  bundle_3_3: {
-    name: 'Vibe Bundle',
-    description: '3× Extra Time (+2 min) + 3× Extended Vibe (+5 min)',
-    price: 5.99,
-    grants: { extra_time_credits: 3, extended_vibe_credits: 3 },
-  },
-}
 
 Deno.serve(async (req) => {
   const corsHeaders = {
@@ -63,7 +43,7 @@ Deno.serve(async (req) => {
 
     const { packId } = await req.json()
 
-    const pack = CREDIT_PACKS[packId as keyof typeof CREDIT_PACKS]
+    const pack = getCreditPack(packId)
     if (!pack) {
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid pack ID' }),
@@ -99,7 +79,7 @@ Deno.serve(async (req) => {
             name: `Vibely ${pack.name}`,
             description: pack.description,
           },
-          unit_amount: Math.round(pack.price * 100),
+          unit_amount: Math.round(pack.priceEur * 100),
         },
         quantity: 1,
       }],

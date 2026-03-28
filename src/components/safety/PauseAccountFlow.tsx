@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Moon, Clock, Infinity, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useEntitlements, useUserProfile } from "@/contexts/AuthContext";
+import { useAccountStatus, useUserProfile } from "@/contexts/AuthContext";
 
 interface PauseAccountFlowProps {
   onBack: () => void;
@@ -33,7 +33,7 @@ const pauseOptions = [
 ];
 
 const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
-  const { pauseAccount } = useEntitlements();
+  const { pauseAccount } = useAccountStatus();
   const { user } = useUserProfile();
   const [selectedDuration, setSelectedDuration] = useState<PauseDuration | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);

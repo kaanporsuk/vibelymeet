@@ -354,53 +354,6 @@ export type Database = {
           },
         ]
       }
-      date_proposals: {
-        Row: {
-          activity: string
-          created_at: string
-          id: string
-          match_id: string
-          proposed_date: string
-          proposer_id: string
-          recipient_id: string
-          responded_at: string | null
-          status: string
-          time_block: string
-        }
-        Insert: {
-          activity: string
-          created_at?: string
-          id?: string
-          match_id: string
-          proposed_date: string
-          proposer_id: string
-          recipient_id: string
-          responded_at?: string | null
-          status?: string
-          time_block: string
-        }
-        Update: {
-          activity?: string
-          created_at?: string
-          id?: string
-          match_id?: string
-          proposed_date?: string
-          proposer_id?: string
-          recipient_id?: string
-          responded_at?: string | null
-          status?: string
-          time_block?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "date_proposals_match_id_fkey"
-            columns: ["match_id"]
-            isOneToOne: false
-            referencedRelation: "matches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       date_plan_participants: {
         Row: {
           calendar_issued_at: string
@@ -426,7 +379,22 @@ export type Database = {
           id?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_plan_participants_date_plan_id_fkey"
+            columns: ["date_plan_id"]
+            isOneToOne: false
+            referencedRelation: "date_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_participants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       date_plans: {
         Row: {
@@ -477,7 +445,83 @@ export type Database = {
           status?: string
           venue_label?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_plans_completion_confirmed_by_fkey"
+            columns: ["completion_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plans_completion_initiated_by_fkey"
+            columns: ["completion_initiated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plans_date_suggestion_id_fkey"
+            columns: ["date_suggestion_id"]
+            isOneToOne: true
+            referencedRelation: "date_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plans_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      date_proposals: {
+        Row: {
+          activity: string
+          created_at: string
+          id: string
+          match_id: string
+          proposed_date: string
+          proposer_id: string
+          recipient_id: string
+          responded_at: string | null
+          status: string
+          time_block: string
+        }
+        Insert: {
+          activity: string
+          created_at?: string
+          id?: string
+          match_id: string
+          proposed_date: string
+          proposer_id: string
+          recipient_id: string
+          responded_at?: string | null
+          status?: string
+          time_block: string
+        }
+        Update: {
+          activity?: string
+          created_at?: string
+          id?: string
+          match_id?: string
+          proposed_date?: string
+          proposer_id?: string
+          recipient_id?: string
+          responded_at?: string | null
+          status?: string
+          time_block?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "date_proposals_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       date_suggestion_revisions: {
         Row: {
@@ -531,13 +575,28 @@ export type Database = {
           time_choice_key?: string
           venue_text?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_suggestion_revisions_date_suggestion_id_fkey"
+            columns: ["date_suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestion_revisions_proposed_by_fkey"
+            columns: ["proposed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       date_suggestion_transition_log: {
         Row: {
           action: string
           actor_id: string | null
-          created_at: string | null
+          created_at: string
           date_suggestion_id: string | null
           error_code: string | null
           from_status: string | null
@@ -549,7 +608,7 @@ export type Database = {
         Insert: {
           action: string
           actor_id?: string | null
-          created_at?: string | null
+          created_at?: string
           date_suggestion_id?: string | null
           error_code?: string | null
           from_status?: string | null
@@ -561,7 +620,7 @@ export type Database = {
         Update: {
           action?: string
           actor_id?: string | null
-          created_at?: string | null
+          created_at?: string
           date_suggestion_id?: string | null
           error_code?: string | null
           from_status?: string | null
@@ -570,7 +629,22 @@ export type Database = {
           success?: boolean
           to_status?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_suggestion_transition_log_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestion_transition_log_date_suggestion_id_fkey"
+            columns: ["date_suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       date_suggestions: {
         Row: {
@@ -578,8 +652,8 @@ export type Database = {
           current_revision_id: string | null
           date_plan_id: string | null
           draft_payload: Json | null
-          expiring_soon_sent_at: string | null
           expires_at: string | null
+          expiring_soon_sent_at: string | null
           id: string
           match_id: string
           proposer_id: string
@@ -593,8 +667,8 @@ export type Database = {
           current_revision_id?: string | null
           date_plan_id?: string | null
           draft_payload?: Json | null
-          expiring_soon_sent_at?: string | null
           expires_at?: string | null
+          expiring_soon_sent_at?: string | null
           id?: string
           match_id: string
           proposer_id: string
@@ -608,8 +682,8 @@ export type Database = {
           current_revision_id?: string | null
           date_plan_id?: string | null
           draft_payload?: Json | null
-          expiring_soon_sent_at?: string | null
           expires_at?: string | null
+          expiring_soon_sent_at?: string | null
           id?: string
           match_id?: string
           proposer_id?: string
@@ -618,40 +692,43 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
-      }
-      schedule_share_grants: {
-        Row: {
-          created_at: string
-          expires_at: string
-          id: string
-          match_id: string
-          source_date_suggestion_id: string
-          source_revision_id: string | null
-          subject_user_id: string
-          viewer_user_id: string
-        }
-        Insert: {
-          created_at?: string
-          expires_at: string
-          id?: string
-          match_id: string
-          source_date_suggestion_id: string
-          source_revision_id?: string | null
-          subject_user_id: string
-          viewer_user_id: string
-        }
-        Update: {
-          created_at?: string
-          expires_at?: string
-          id?: string
-          match_id?: string
-          source_date_suggestion_id?: string
-          source_revision_id?: string | null
-          subject_user_id?: string
-          viewer_user_id?: string
-        }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "date_suggestions_current_revision_fkey"
+            columns: ["current_revision_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestion_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestions_date_plan_fkey"
+            columns: ["date_plan_id"]
+            isOneToOne: false
+            referencedRelation: "date_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestions_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestions_proposer_id_fkey"
+            columns: ["proposer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_suggestions_recipient_id_fkey"
+            columns: ["recipient_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       email_drip_log: {
         Row: {
@@ -941,6 +1018,7 @@ export type Database = {
           is_free: boolean | null
           is_location_specific: boolean | null
           is_recurring: boolean | null
+          language: string | null
           latitude: number | null
           location_address: string | null
           location_name: string | null
@@ -982,6 +1060,7 @@ export type Database = {
           is_free?: boolean | null
           is_location_specific?: boolean | null
           is_recurring?: boolean | null
+          language?: string | null
           latitude?: number | null
           location_address?: string | null
           location_name?: string | null
@@ -1023,6 +1102,7 @@ export type Database = {
           is_free?: boolean | null
           is_location_specific?: boolean | null
           is_recurring?: boolean | null
+          language?: string | null
           latitude?: number | null
           location_address?: string | null
           location_name?: string | null
@@ -1280,6 +1360,58 @@ export type Database = {
           },
         ]
       }
+      message_reactions: {
+        Row: {
+          created_at: string
+          emoji: string
+          id: string
+          match_id: string
+          message_id: string
+          profile_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          emoji: string
+          id?: string
+          match_id: string
+          message_id: string
+          profile_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          emoji?: string
+          id?: string
+          match_id?: string
+          message_id?: string
+          profile_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_reactions_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_reactions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_reactions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           audio_duration_seconds: number | null
@@ -1335,60 +1467,15 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "messages_ref_id_fkey"
+            columns: ["ref_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "messages_sender_id_fkey"
             columns: ["sender_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      message_reactions: {
-        Row: {
-          created_at: string
-          emoji: string
-          id: string
-          match_id: string
-          message_id: string
-          profile_id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          emoji: string
-          id?: string
-          match_id: string
-          message_id: string
-          profile_id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          emoji?: string
-          id?: string
-          match_id?: string
-          message_id?: string
-          profile_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "message_reactions_match_id_fkey"
-            columns: ["match_id"]
-            isOneToOne: false
-            referencedRelation: "matches"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "message_reactions_message_id_fkey"
-            columns: ["message_id"]
-            isOneToOne: false
-            referencedRelation: "messages"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "message_reactions_profile_id_fkey"
-            columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1667,7 +1754,7 @@ export type Database = {
       profiles: {
         Row: {
           about_me: string | null
-          account_paused: boolean | null
+          account_paused: boolean
           account_paused_until: string | null
           activity_status_visibility: string | null
           age: number
@@ -1720,6 +1807,7 @@ export type Database = {
           referred_by: string | null
           show_distance: boolean
           show_online_status: boolean
+          subscription_tier: string
           suspension_reason: string | null
           tagline: string | null
           total_conversations: number | null
@@ -1727,11 +1815,13 @@ export type Database = {
           updated_at: string
           verified_email: string | null
           vibe_caption: string | null
+          vibe_score: number
+          vibe_score_label: string
           vibe_video_status: string | null
         }
         Insert: {
           about_me?: string | null
-          account_paused?: boolean | null
+          account_paused?: boolean
           account_paused_until?: string | null
           activity_status_visibility?: string | null
           age: number
@@ -1784,6 +1874,7 @@ export type Database = {
           referred_by?: string | null
           show_distance?: boolean
           show_online_status?: boolean
+          subscription_tier?: string
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
@@ -1791,11 +1882,13 @@ export type Database = {
           updated_at?: string
           verified_email?: string | null
           vibe_caption?: string | null
+          vibe_score?: number
+          vibe_score_label?: string
           vibe_video_status?: string | null
         }
         Update: {
           about_me?: string | null
-          account_paused?: boolean | null
+          account_paused?: boolean
           account_paused_until?: string | null
           activity_status_visibility?: string | null
           age?: number
@@ -1848,6 +1941,7 @@ export type Database = {
           referred_by?: string | null
           show_distance?: boolean
           show_online_status?: boolean
+          subscription_tier?: string
           suspension_reason?: string | null
           tagline?: string | null
           total_conversations?: number | null
@@ -1855,6 +1949,8 @@ export type Database = {
           updated_at?: string
           verified_email?: string | null
           vibe_caption?: string | null
+          vibe_score?: number
+          vibe_score_label?: string
           vibe_video_status?: string | null
         }
         Relationships: []
@@ -1983,6 +2079,104 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      schedule_share_grants: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          match_id: string
+          source_date_suggestion_id: string
+          source_revision_id: string | null
+          subject_user_id: string
+          viewer_user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          match_id: string
+          source_date_suggestion_id: string
+          source_revision_id?: string | null
+          subject_user_id: string
+          viewer_user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          match_id?: string
+          source_date_suggestion_id?: string
+          source_revision_id?: string | null
+          subject_user_id?: string
+          viewer_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "schedule_share_grants_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_share_grants_source_date_suggestion_id_fkey"
+            columns: ["source_date_suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_share_grants_source_revision_id_fkey"
+            columns: ["source_revision_id"]
+            isOneToOne: false
+            referencedRelation: "date_suggestion_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_share_grants_subject_user_id_fkey"
+            columns: ["subject_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "schedule_share_grants_viewer_user_id_fkey"
+            columns: ["viewer_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_credit_checkout_grants: {
+        Row: {
+          checkout_session_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          checkout_session_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          checkout_session_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_credit_checkout_grants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       subscriptions: {
         Row: {
@@ -2175,6 +2369,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      tier_config_audit: {
+        Row: {
+          action: string
+          admin_id: string | null
+          capability_key: string
+          created_at: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+          tier_id: string
+        }
+        Insert: {
+          action: string
+          admin_id?: string | null
+          capability_key: string
+          created_at?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          tier_id: string
+        }
+        Update: {
+          action?: string
+          admin_id?: string | null
+          capability_key?: string
+          created_at?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          tier_id?: string
+        }
+        Relationships: []
+      }
+      tier_config_overrides: {
+        Row: {
+          capability_key: string
+          created_at: string
+          id: string
+          tier_id: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          capability_key: string
+          created_at?: string
+          id?: string
+          tier_id: string
+          updated_at?: string
+          updated_by?: string | null
+          value: Json
+        }
+        Update: {
+          capability_key?: string
+          created_at?: string
+          id?: string
+          tier_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
       }
       user_credits: {
         Row: {
@@ -2582,6 +2839,55 @@ export type Database = {
       }
     }
     Functions: {
+      _date_suggestion_compute_agreed: {
+        Args: {
+          new_block: string
+          new_date_type: string
+          new_ends: string
+          new_optional: string
+          new_place_mode: string
+          new_share: boolean
+          new_starts: string
+          new_time_choice: string
+          new_venue: string
+          prev_row: Database["public"]["Tables"]["date_suggestion_revisions"]["Row"]
+        }
+        Returns: Json
+      }
+      _date_suggestion_core_hash: {
+        Args: {
+          r: Database["public"]["Tables"]["date_suggestion_revisions"]["Row"]
+        }
+        Returns: Json
+      }
+      _date_suggestion_log: {
+        Args: {
+          p_action: string
+          p_actor: string
+          p_err: string
+          p_from: string
+          p_ok: boolean
+          p_payload: Json
+          p_suggestion_id: string
+          p_to: string
+        }
+        Returns: undefined
+      }
+      _date_suggestion_partner_first_name: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
+      _date_suggestion_upsert_share_grant: {
+        Args: {
+          p_match_id: string
+          p_revision_id: string
+          p_subject: string
+          p_suggestion_id: string
+          p_viewer: string
+        }
+        Returns: undefined
+      }
+      calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
       can_view_profile_photo: {
         Args: { photo_owner_id: string }
         Returns: boolean
@@ -2603,11 +2909,12 @@ export type Database = {
         Args: { p_action: string; p_drop_id: string; p_text?: string }
         Returns: Json
       }
-      daily_drops_generation_ran_today: {
-        Args: Record<PropertyKey, never>
-        Returns: boolean
-      }
+      daily_drops_generation_ran_today: { Args: never; Returns: boolean }
       date_suggestion_apply: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: Json
+      }
+      date_suggestion_apply_v2: {
         Args: { p_action: string; p_payload: Json }
         Returns: Json
       }
@@ -2634,9 +2941,9 @@ export type Database = {
       get_event_deck: {
         Args: { p_event_id: string; p_limit?: number; p_user_id: string }
         Returns: {
+          about_me: string
           age: number
           avatar_url: string
-          bio: string
           gender: string
           has_met_before: boolean
           has_super_vibed: boolean
@@ -2670,14 +2977,15 @@ export type Database = {
           verified_email: string
         }[]
       }
-      get_user_subscription_status: {
-        Args: { p_user_id: string }
-        Returns: string
-      }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }
         Returns: Json
       }
+      get_user_subscription_status: {
+        Args: { p_user_id: string }
+        Returns: string
+      }
+      get_user_tier: { Args: { p_user_id: string }; Returns: string }
       get_visible_events: {
         Args: {
           p_browse_lat?: number
@@ -2701,6 +3009,7 @@ export type Database = {
           id: string
           is_recurring: boolean
           is_registered: boolean
+          language: string
           latitude: number
           longitude: number
           max_attendees: number
@@ -2753,11 +3062,24 @@ export type Database = {
         Args: { p_match_id: string }
         Returns: undefined
       }
+      mark_support_reply_read: {
+        Args: { p_reply_id: string }
+        Returns: undefined
+      }
       ready_gate_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      refresh_my_vibe_score: { Args: never; Returns: Json }
+      reset_tier_config_override: {
+        Args: { p_capability_key: string; p_tier_id: string }
+        Returns: undefined
+      }
       send_event_reminders: { Args: never; Returns: undefined }
+      set_tier_config_override: {
+        Args: { p_capability_key: string; p_tier_id: string; p_value: Json }
+        Returns: undefined
+      }
       update_participant_status: {
         Args: { p_event_id: string; p_status: string; p_user_id: string }
         Returns: undefined

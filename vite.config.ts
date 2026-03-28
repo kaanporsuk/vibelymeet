@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "@shared": path.resolve(__dirname, "./supabase/functions/_shared"),
     },
     // Ensure single React instance (avoids "dispatcher is null" / invalid hook / useAuth context loss).
     // @vitejs/plugin-react-swc does not dedupe automatically; duplicate React breaks context and hooks.

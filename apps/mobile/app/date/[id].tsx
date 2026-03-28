@@ -18,6 +18,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
 import Daily, { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
@@ -651,13 +652,14 @@ export default function VideoDateScreen() {
         </View>
       )}
 
-      {phase === 'date' && (credits.extraTime > 0 || credits.extendedVibe > 0) && (
+      {phase === 'date' && (
         <View style={styles.keepTheVibeWrap}>
           <KeepTheVibe
             extraTimeCredits={credits.extraTime}
             extendedVibeCredits={credits.extendedVibe}
             onExtend={handleExtend}
             isExtending={isExtending}
+            onGetCredits={() => router.push('/settings/credits')}
           />
         </View>
       )}

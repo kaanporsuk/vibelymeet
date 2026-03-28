@@ -6,10 +6,10 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { format } from 'date-fns';
 
 const features = [
-  'Unlimited swipes & matches',
-  'See who liked you',
-  'Priority in event lobbies',
-  'Exclusive premium-only events',
+  'See who vibed you',
+  'Browse events in any city',
+  'Access Premium-tier events',
+  'Premium badge on your profile',
 ];
 
 const Premium = () => {

@@ -44,6 +44,8 @@ function dispatchInitSettled() {
   }
 }
 
+export type OneSignalWebBootstrap = 'unsupported_host' | 'pending' | 'ready' | 'init_failed';
+
 export type OneSignalWebClientSnapshot = {
   /** Host/protocol allowlisted in code for OneSignal.init (not the same as SDK init success). */
   originAllowed: boolean;

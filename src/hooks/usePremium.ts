@@ -12,18 +12,6 @@ export const usePremium = () => {
     });
   }, []);
 
-  // Auto-expire check on mount
-  useQuery({
-    queryKey: ["premium-check", userId],
-    queryFn: async () => {
-      if (!userId) return null;
-      const { data } = await supabase.rpc("check_premium_status", { p_user_id: userId });
-      return data;
-    },
-    enabled: !!userId,
-    staleTime: Infinity,
-  });
-
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["premium-status", userId],
     queryFn: async () => {
