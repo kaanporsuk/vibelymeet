@@ -13,6 +13,7 @@ type Props = {
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<boolean>;
   isExtending?: boolean;
+  onGetCredits?: () => void;
 };
 
 export function KeepTheVibe({
@@ -20,6 +21,7 @@ export function KeepTheVibe({
   extendedVibeCredits,
   onExtend,
   isExtending = false,
+  onGetCredits,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -33,7 +35,21 @@ export function KeepTheVibe({
   if (!hasCredits) {
     return (
       <View style={styles.wrap}>
-        <Text style={[styles.hint, { color: theme.mutedForeground }]}>Get credits for +time</Text>
+        {onGetCredits ? (
+          <Pressable
+            onPress={onGetCredits}
+            style={({ pressed }) => [
+              styles.getCreditsPill,
+              { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get credits</Text>
+            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>+2 / +5 min</Text>
+          </Pressable>
+        ) : (
+          <Text style={[styles.hint, { color: theme.mutedForeground }]}>Get credits for +time</Text>
+        )}
       </View>
     );
   }
@@ -100,6 +116,22 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     gap: spacing.xs,
+  },
+  getCreditsPill: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    gap: 2,
+  },
+  getCreditsTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  getCreditsSub: {
+    fontSize: 11,
   },
   pillIcon: {
     fontSize: 12,

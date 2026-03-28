@@ -94,6 +94,7 @@ serve(async (req) => {
         .from("subscriptions")
         .select("stripe_subscription_id, stripe_customer_id, status")
         .eq("user_id", userId)
+        .eq("provider", "stripe")
         .maybeSingle();
 
       if (subscription?.stripe_subscription_id && ["active", "trialing"].includes(subscription.status)) {
@@ -119,7 +120,7 @@ serve(async (req) => {
               .eq("user_id", userId);
             await supabaseAdmin
               .from("profiles")
-              .update({ is_premium: false })
+              .update({ is_premium: false, subscription_tier: "free" })
               .eq("id", userId);
           } else {
             console.error("Failed to cancel Stripe subscription:", cancelBody);

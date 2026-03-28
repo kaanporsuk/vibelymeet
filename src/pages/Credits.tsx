@@ -10,40 +10,37 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
+import { CREDIT_PACK_IDS, CREDIT_PACKS, formatPackPriceEur } from "@shared/creditPacks";
 
-const PACKS = [
-  {
-    id: "extra_time_3",
-    name: "3× Extra Time",
-    description: "Extend your date by +2 min, 3 times",
-    price: "€2.99",
-    icon: Clock,
-    iconColor: "text-primary",
-    bgColor: "bg-primary/20",
-    highlight: false,
-  },
-  {
-    id: "extended_vibe_3",
-    name: "3× Extended Vibe",
-    description: "Extend your date by +5 min, 3 times",
-    price: "€4.99",
-    icon: Sparkles,
-    iconColor: "text-accent",
-    bgColor: "bg-accent/20",
-    highlight: false,
-  },
-  {
-    id: "bundle_3_3",
-    name: "Vibe Bundle",
-    description: "3× Extra Time + 3× Extended Vibe",
-    price: "€5.99",
-    originalPrice: "€7.98",
+const PACK_ICONS: Record<
+  (typeof CREDIT_PACK_IDS)[number],
+  { icon: typeof Clock; iconColor: string; bgColor: string; highlight: boolean }
+> = {
+  extra_time_3: { icon: Clock, iconColor: "text-primary", bgColor: "bg-primary/20", highlight: false },
+  extended_vibe_3: { icon: Sparkles, iconColor: "text-accent", bgColor: "bg-accent/20", highlight: false },
+  bundle_3_3: {
     icon: Zap,
     iconColor: "text-primary",
     bgColor: "bg-gradient-to-br from-primary/20 to-accent/20",
     highlight: true,
   },
-];
+};
+
+const PACKS = CREDIT_PACK_IDS.map((id) => {
+  const def = CREDIT_PACKS[id];
+  const meta = PACK_ICONS[id];
+  return {
+    id,
+    name: def.name,
+    description: def.description,
+    price: formatPackPriceEur(def.priceEur),
+    originalPrice: def.compareAtEur != null ? formatPackPriceEur(def.compareAtEur) : undefined,
+    icon: meta.icon,
+    iconColor: meta.iconColor,
+    bgColor: meta.bgColor,
+    highlight: meta.highlight,
+  };
+});
 
 const Credits = () => {
   const navigate = useNavigate();

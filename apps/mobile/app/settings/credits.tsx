@@ -16,12 +16,16 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { getCreditsCheckoutUrl, type CreditPackId } from '@/lib/creditsCheckout';
 import { trackEvent } from '@/lib/analytics';
+import { CREDIT_PACK_IDS, CREDIT_PACKS, formatPackPriceEur } from '@shared/creditPacks';
 
-const PACKS: { id: CreditPackId; name: string; description: string; price: string }[] = [
-  { id: 'extra_time_3', name: '3× Extra Time', description: '+2 min, 3 times', price: '€2.99' },
-  { id: 'extended_vibe_3', name: '3× Extended Vibe', description: '+5 min, 3 times', price: '€4.99' },
-  { id: 'bundle_3_3', name: 'Vibe Bundle', description: '3× Extra Time + 3× Extended Vibe', price: '€5.99' },
-];
+const PACKS: { id: CreditPackId; name: string; description: string; price: string }[] = CREDIT_PACK_IDS.map(
+  (id) => ({
+    id,
+    name: CREDIT_PACKS[id].name,
+    description: CREDIT_PACKS[id].description,
+    price: formatPackPriceEur(CREDIT_PACKS[id].priceEur),
+  })
+);
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({

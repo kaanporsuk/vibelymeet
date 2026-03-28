@@ -19,6 +19,9 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@shared/*": [
+        "./supabase/functions/_shared/*"
       ]
     },
     "skipLibCheck": true,
@@ -27,6 +30,8 @@
     "useDefineForClassFields": true
   },
   "include": [
-    "src"
+    "src",
+    "supabase/functions/_shared/tiers.ts",
+    "supabase/functions/_shared/creditPacks.ts"
   ]
 }

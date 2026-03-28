@@ -12,6 +12,7 @@ interface User {
   location: string | null;
   hasPhotos: boolean;
   isPremium: boolean;
+  subscriptionTier: string | null;
   isVerified: boolean;
   isPaused: boolean;
   pauseUntil: Date | null;
@@ -53,6 +54,7 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
     location: (profileData?.location as string) ?? null,
     hasPhotos: (((profileData?.photos as string[] | null) ?? []).length || 0) > 0,
     isPremium: (profileData?.is_premium as boolean) || false,
+    subscriptionTier: (profileData?.subscription_tier as string) ?? null,
     isVerified: (profileData?.photo_verified as boolean) || false,
     isPaused: (profileData?.is_paused as boolean) || false,
     pauseUntil: profileData?.paused_until ? new Date(profileData.paused_until as string) : null,
@@ -107,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: profile } = await supabase
       .from("profiles")
       .select(
-        "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, photo_verified, is_paused, paused_at, paused_until, pause_reason"
+        "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason"
       )
       .eq("id", userId)
       .maybeSingle();
@@ -262,10 +264,10 @@ export function useUserProfile() {
   return ctx;
 }
 
-export function useEntitlements() {
+export function useAccountStatus() {
   const ctx = useContext(EntitlementsContext);
   if (!ctx) {
-    throw new Error("useEntitlements must be used within an AuthProvider");
+    throw new Error("useAccountStatus must be used within an AuthProvider");
   }
   return ctx;
 }

@@ -72,15 +72,14 @@ Deno.serve(async (req) => {
       .maybeSingle()
 
     if (eventData?.visibility === 'premium' || eventData?.visibility === 'vip') {
-      // Check if user has an active subscription
-      const { data: subStatus } = await supabase
-        .from('subscriptions')
-        .select('status')
-        .eq('user_id', user.id)
-        .maybeSingle()
-
-      const isPremium = subStatus?.status === 'active' || subStatus?.status === 'trialing'
-
+      const { data: isPremium, error: premErr } = await supabase
+        .rpc('check_premium_status', { p_user_id: user.id })
+      if (premErr) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Could not verify premium status' }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
       if (!isPremium) {
         return new Response(
           JSON.stringify({ success: false, error: 'This event requires a Vibely Premium subscription' }),
@@ -94,6 +93,7 @@ Deno.serve(async (req) => {
       .from('subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
+      .eq('provider', 'stripe')
       .maybeSingle()
 
     let customerId = subData?.stripe_customer_id

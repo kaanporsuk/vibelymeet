@@ -10,26 +10,26 @@ const corsHeaders = {
 const RATE_LIMIT_REQUESTS = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
-/** Canonical with web/native useSubscription: active or trialing in subscriptions, or admin. */
 async function canUsePremiumGeocode(
   supabaseAdmin: ReturnType<typeof createClient>,
   userId: string,
 ): Promise<boolean> {
-  const { data: adminRow } = await supabaseAdmin
+  const { data: adminRows } = await supabaseAdmin
     .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (adminRow) return true;
-
-  const { data: subRows } = await supabaseAdmin
-    .from("subscriptions")
     .select("id")
     .eq("user_id", userId)
-    .in("status", ["active", "trialing"])
+    .eq("role", "admin")
     .limit(1);
-  return (subRows?.length ?? 0) > 0;
+  if ((adminRows?.length ?? 0) > 0) return true;
+
+  const { data: premium, error } = await supabaseAdmin.rpc("check_premium_status", {
+    p_user_id: userId,
+  });
+  if (error) {
+    console.error("check_premium_status (forward-geocode):", error);
+    return false;
+  }
+  return !!premium;
 }
 
 type NominatimItem = {

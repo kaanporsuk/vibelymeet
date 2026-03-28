@@ -67,7 +67,6 @@ Deno.serve(async (req) => {
 
     // TEST and TRANSFER may have no app_user_id per RevenueCat docs; acknowledge and skip DB write
     if ((eventType === 'TEST' || eventType === 'TRANSFER') && !appUserId) {
-      console.log(`RevenueCat webhook ${eventType} (no app_user_id): acknowledged`)
       return new Response(
         JSON.stringify({ success: true, received: true }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -116,6 +115,12 @@ Deno.serve(async (req) => {
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
+        const productId = event.product_id || ''
+        const tier = productId.toLowerCase().includes('vip') ? 'vip' : 'premium'
+        await supabase
+          .from('profiles')
+          .update({ subscription_tier: tier })
+          .eq('id', appUserId)
         break
       }
 
@@ -138,6 +143,16 @@ Deno.serve(async (req) => {
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('premium_until')
+          .eq('id', appUserId)
+          .maybeSingle()
+        const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
+        await supabase
+          .from('profiles')
+          .update({ subscription_tier: adminActive ? 'premium' : 'free' })
+          .eq('id', appUserId)
         break
       }
 
@@ -158,7 +173,7 @@ Deno.serve(async (req) => {
         break
 
       default:
-        console.log(`RevenueCat webhook unhandled type: ${eventType}`)
+        break
     }
 
     return new Response(

@@ -77,6 +77,23 @@ Deno.serve(async (req) => {
           const extendedVibe = parseInt(session.metadata?.extended_vibe_credits || '0')
 
           if (creditUserId) {
+            const { error: idemErr } = await supabase
+              .from('stripe_credit_checkout_grants')
+              .insert({
+                checkout_session_id: session.id,
+                user_id: creditUserId,
+              })
+
+            if (idemErr?.code === '23505') {
+              break
+            }
+            if (idemErr) {
+              console.error('stripe_credit_checkout_grants insert error:', idemErr)
+              break
+            }
+
+            let grantError: { message: string } | null = null
+
             const { data: existing } = await supabase
               .from('user_credits')
               .select('extra_time_credits, extended_vibe_credits')
@@ -89,7 +106,7 @@ Deno.serve(async (req) => {
             const newExtended = prevExtended + extendedVibe
 
             if (existing) {
-              await supabase
+              const { error: upErr } = await supabase
                 .from('user_credits')
                 .update({
                   extra_time_credits: newExtra,
@@ -97,22 +114,27 @@ Deno.serve(async (req) => {
                   updated_at: new Date().toISOString(),
                 })
                 .eq('user_id', creditUserId)
+              if (upErr) grantError = upErr
             } else {
-              await supabase
+              const { error: insErr } = await supabase
                 .from('user_credits')
                 .insert({
                   user_id: creditUserId,
                   extra_time_credits: extraTime,
                   extended_vibe_credits: extendedVibe,
                 })
+              if (insErr) grantError = insErr
             }
 
-            // Log the purchase to credit_adjustments (note: webhook has no admin_id)
-            // We use a placeholder system ID or skip admin_id since this is a purchase
-            // The credit_adjustments table requires admin_id, so we log separately
-            console.log(`Credits granted: user=${creditUserId}, pack=${packId}, extra_time=+${extraTime}, extended_vibe=+${extendedVibe}`)
+            if (grantError) {
+              console.error('Credit grant failed:', grantError)
+              await supabase
+                .from('stripe_credit_checkout_grants')
+                .delete()
+                .eq('checkout_session_id', session.id)
+              break
+            }
 
-            // Send purchase confirmation notification
             try {
               const notifResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification`, {
                 method: 'POST',
@@ -154,6 +176,13 @@ Deno.serve(async (req) => {
           current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,provider' })
+
+        const planMeta = (plan || 'premium') as string
+        const tier = planMeta.toLowerCase().includes('vip') ? 'vip' : 'premium'
+        await supabase
+          .from('profiles')
+          .update({ subscription_tier: tier })
+          .eq('id', userId)
 
         break
       }
@@ -197,6 +226,17 @@ Deno.serve(async (req) => {
           .eq('user_id', userId)
           .eq('provider', 'stripe')
 
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('premium_until')
+          .eq('id', userId)
+          .maybeSingle()
+        const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
+        await supabase
+          .from('profiles')
+          .update({ subscription_tier: adminActive ? 'premium' : 'free' })
+          .eq('id', userId)
+
         break
       }
 
@@ -223,7 +263,7 @@ Deno.serve(async (req) => {
       }
 
       default:
-        console.log(`Unhandled event type: ${event.type}`)
+        break
     }
 
     return new Response(
