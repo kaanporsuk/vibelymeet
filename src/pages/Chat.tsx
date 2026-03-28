@@ -7,9 +7,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
+import { uploadImageToBunny } from "@/services/imageUploadService";
+import { getImageUrl } from "@/utils/imageUrl";
 import {
   Send,
   Film,
+  Camera,
+  Loader2,
   CalendarDays,
   CalendarPlus,
   Gamepad2,
@@ -24,7 +28,11 @@ import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble } from "@/components/chat/VibeClipBubble";
 import { MessageStatus } from "@/components/chat/MessageStatus";
-import { inferChatMediaRenderKind, parseChatImageMessageContent } from "@/lib/chatMessageContent";
+import {
+  formatChatImageMessageContent,
+  inferChatMediaRenderKind,
+  parseChatImageMessageContent,
+} from "@/lib/chatMessageContent";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -191,6 +199,7 @@ const Chat = () => {
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const [sendingPhoto, setSendingPhoto] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
   const [showDateComposer, setShowDateComposer] = useState(false);
   const [dateComposerLaunchSource, setDateComposerLaunchSource] =
@@ -205,6 +214,7 @@ const Chat = () => {
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
 
@@ -629,6 +639,75 @@ const Chat = () => {
     [chatData?.matchId, newMessage, sendMessage]
   );
 
+  const handlePhotoFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please choose an image file");
+        return;
+      }
+      if (!chatData?.matchId || !user?.id) {
+        toast.error("Cannot send photo right now");
+        return;
+      }
+      if (!navigator.onLine) {
+        toast.error("You're offline — try again when connected");
+        return;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error("Sign in required");
+        return;
+      }
+
+      const tempId = `temp-img-${Date.now()}`;
+      setSendingPhoto(true);
+      try {
+        const path = await uploadImageToBunny(file, session.access_token);
+        const publicUrl = getImageUrl(path, { quality: 88 });
+        const content = formatChatImageMessageContent(publicUrl);
+        const tempMsg: ChatMessage = {
+          id: tempId,
+          text: content,
+          sender: "me",
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          type: "image",
+          status: "sending",
+        };
+        setLocalMessages((prev) => [...prev, tempMsg]);
+        sendMessage(
+          { matchId: chatData.matchId, content },
+          {
+            onSuccess: () => {
+              setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+            },
+            onError: () => {
+              setLocalMessages((prev) =>
+                prev.map((m) =>
+                  m.id === tempId
+                    ? { ...m, status: "sent" as MessageStatusType, sendError: "Failed to send. Tap retry." }
+                    : m
+                )
+              );
+              toast.error("Failed to send photo");
+            },
+            onSettled: () => {
+              setSendingPhoto(false);
+            },
+          }
+        );
+      } catch (err) {
+        console.error("Photo upload error:", err);
+        toast.error(err instanceof Error ? err.message : "Photo upload failed");
+        setSendingPhoto(false);
+      }
+    },
+    [chatData?.matchId, user?.id, sendMessage]
+  );
+
   const handleSend = () => {
     if (!newMessage.trim()) return;
     if (!navigator.onLine) {
@@ -830,6 +909,7 @@ const Chat = () => {
   );
 
   const hasText = newMessage.trim().length > 0;
+  const composerMediaLocked = sendingPhoto || isRecordingVideo;
 
   return (
     <div className="h-[100dvh] bg-background flex flex-col relative overflow-hidden">
@@ -1023,12 +1103,36 @@ const Chat = () => {
                       loading="lazy"
                     />
                     {message.isLastInGroup && (
-                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
-                        <MessageStatus
-                          status={message.status || "delivered"}
-                          time={message.time}
-                          isMyMessage={message.sender === "me"}
-                        />
+                      <div
+                        className={cn(
+                          "mt-1 flex flex-col gap-1",
+                          message.sender === "me" ? "items-end" : "items-start"
+                        )}
+                      >
+                        {message.sender === "me" && message.sendError ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const failed = localMessages.find((m) => m.id === message.id);
+                                if (!failed) return;
+                                sendTextMessage({ tempId: failed.id, text: failed.text });
+                              }}
+                              className="text-[10px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                            >
+                              {message.sendError}
+                            </button>
+                            <span className="text-[10px] text-muted-foreground">
+                              {message.time} · failed
+                            </span>
+                          </>
+                        ) : (
+                          <MessageStatus
+                            status={message.status || "delivered"}
+                            time={message.time}
+                            isMyMessage={message.sender === "me"}
+                          />
+                        )}
                       </div>
                     )}
                   </div>
@@ -1132,12 +1236,49 @@ const Chat = () => {
 
         {/* Input bar */}
         <div className="glass-card border-t border-border/50 p-2 pb-safe">
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            aria-hidden
+            tabIndex={-1}
+            onChange={handlePhotoFileChange}
+          />
           <div className="flex items-end gap-1.5 max-w-lg mx-auto">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
-                whileTap={{ scale: 0.9 }}
+                type="button"
+                whileTap={{ scale: composerMediaLocked ? 1 : 0.9 }}
+                disabled={composerMediaLocked || !chatData?.matchId}
                 onClick={() => {
+                  if (composerMediaLocked || !chatData?.matchId) return;
+                  if (!navigator.onLine) {
+                    toast.error("You're offline — try again when connected");
+                    return;
+                  }
+                  photoInputRef.current?.click();
+                }}
+                className={cn(
+                  "w-9 h-9 rounded-full flex items-center justify-center transition-colors ring-1",
+                  "bg-secondary/40 text-muted-foreground hover:bg-secondary/60 ring-border/50",
+                  "disabled:opacity-45 disabled:pointer-events-none"
+                )}
+                aria-label="Add photo"
+                title="Add photo"
+              >
+                {sendingPhoto ? (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                ) : (
+                  <Camera className="w-4 h-4" aria-hidden />
+                )}
+              </motion.button>
+              <motion.button
+                whileTap={{ scale: composerMediaLocked ? 1 : 0.9 }}
+                disabled={composerMediaLocked}
+                onClick={() => {
+                  if (composerMediaLocked) return;
                   trackVibeClipEvent("clip_entry_opened", {
                     thread_bucket: threadBucketFromCount(displayMessages.length),
                     is_sender: true,
@@ -1145,7 +1286,7 @@ const Chat = () => {
                   });
                   setIsRecordingVideo(true);
                 }}
-                className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20"
+                className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20 disabled:opacity-45 disabled:pointer-events-none"
                 title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
               >
                 <Film className="w-4 h-4" />
