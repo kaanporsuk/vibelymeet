@@ -491,7 +491,7 @@ Matches tab → Daily Drop → states per SECTION 2 → opener/reply → Start C
 Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAccount` (backend governs grace — UI copy says permanent; align with `DeletionRecoveryBanner` if 30-day grace exists server-side).
 
 ### 4.12 Pause/resume
-**Profile** → open **Safety Hub** → Pause account flow (`PauseAccountFlow`): choose **24 Hours**, **1 Week**, or **Indefinite** → confirm → success “Taking a Vibe Break” (profile hidden from guest list; matches kept) → Got it. Resume is via `useEntitlements` / auth context (not re-documented here — see `PauseAccountFlow` + `AuthContext`).
+**Profile** → open **Safety Hub** → Pause account flow (`PauseAccountFlow`): choose **24 Hours**, **1 Week**, or **Indefinite** → confirm → success “Taking a Vibe Break” (profile hidden from guest list; matches kept) → Got it. Resume is via `useAccountStatus` / auth context (not re-documented here — see `PauseAccountFlow` + `AuthContext`).
 
 ### 4.13 Phone verification
 `PhoneVerificationNudge` / `PhoneVerification` / `AccountSettingsDrawer` embedded flow — OTP via Supabase patterns in component.

@@ -71,18 +71,20 @@ All previous `const { user } = useAuth()` call sites in **shared/core** have bee
 - Hooks: `useDailyDrop`, `useReengagementNotifications`, `useVisibleEvents`, `useEvents` (`useNextRegisteredEvent`), `useEventDetails`, `useEventStatus`, `useCredits`, `useEventReminders`, `useNotificationPreferences`, `useBlockUser`, `useMatches`, `useSubscription`, `useActivityHeartbeat`, `useMatchQueue`, `useMysteryMatch`, `useMatchCall`, `useEventDeck`, `useDeletionRecovery`, `useMuteMatch`, `useRegistrations`
 - Components/pages that only needed profile data: `Dashboard`, `Events`, `EventLobby`, `Matches`, `Credits`, `Chat`, `ReadyGate`, `ReadyGateOverlay`, `MiniProfileModal`, `MatchSuccessModal`, `PauseAccountFlow`, `PushPermissionPrompt`, `NotificationManager`, `AccountSettingsDrawer`, `FeedbackDrawer`, `AdminGrantCreditsModal`, `AdminEventsPanel`, `ReportWizard`, `ProfileWizard`, `PostDateSurvey`, `EventDetails`
 
-### 3. Entitlements ownership
+### 3. Account status ownership (pause / resume / admin flags)
 
-Entitlement state now lives in a separate context exposed via:
+Account-level entitlement state (not subscription tier capabilities) lives in a separate context exposed via:
 
-- `useEntitlements()` → `{ isAdmin, pauseAccount, resumeAccount }`
+- `useAccountStatus()` → `{ isAdmin, pauseAccount, resumeAccount }`
 
 Responsibilities:
 
 - `isAdmin`: hydrated via the existing `user_roles` query (`checkAdminRole`)
 - Pause state: `pauseAccount` / `resumeAccount` still operate on the `User` shape, but are separated from the session API
 
-Call sites that previously used `pauseAccount` from `useAuth` now use `useEntitlements()`:
+**Tier capabilities** (swipe limits, event tier access, etc.) use **`useEntitlements()`** from **`@/hooks/useEntitlements`** (see `docs/entitlements-migration-guide.md`) — do not confuse with `useAccountStatus`.
+
+Call sites that previously used `pauseAccount` from `useAuth` now use `useAccountStatus()`:
 
 - `components/safety/PauseAccountFlow.tsx`
 
@@ -122,8 +124,8 @@ This keeps `AuthProvider` purely about **data** and moves all provider-specific 
   - Use `useUserProfile()` for:
     - `user` and `refreshProfile()`
 
-- **For entitlements / account state**
-  - Use `useEntitlements()` for:
+- **For account state (pause / resume / admin flags)**
+  - Use `useAccountStatus()` for:
     - `isAdmin`, `pauseAccount`, `resumeAccount`
 
 - **For global bootstrap side effects**
