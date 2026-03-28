@@ -53,14 +53,18 @@ interface ChatUser {
   vibes: string[];
   photos?: string[];
   isOnline: boolean;
-  lastSeen?: string;
   photoVerified?: boolean;
   subscription_tier?: string | null;
 }
 
+export type ChatHeaderActivityLine = { text: string; variant: "online" | "muted" };
+
 interface ChatHeaderProps {
   user: ChatUser;
-  isTyping: boolean;
+  /** Partner is typing (realtime broadcast); overrides activity line. */
+  partnerTyping: boolean;
+  /** Fuzzy recency line from `last_seen_at`; null = no subtitle (unknown or stale). */
+  headerActivity: ChatHeaderActivityLine | null;
   matchId?: string;
   onBack: () => void;
   onVideoCall: (type: "voice" | "video") => void;
@@ -69,7 +73,8 @@ interface ChatHeaderProps {
 
 export const ChatHeader = ({
   user,
-  isTyping,
+  partnerTyping,
+  headerActivity,
   matchId,
   onBack,
   onVideoCall,
@@ -89,13 +94,6 @@ export const ChatHeader = ({
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
   const partnerTierBadge = getUserBadge(user.subscription_tier);
-
-  const getStatusText = () => {
-    if (isTyping) return null;
-    if (user.isOnline) return "Online now";
-    if (user.lastSeen) return `Last seen ${user.lastSeen}`;
-    return "Offline";
-  };
 
   const handleViewProfile = () => {
     setShowProfileDrawer(true);
@@ -231,9 +229,9 @@ export const ChatHeader = ({
                       </span>
                     )}
                   </div>
-                  <div className="h-4 overflow-hidden">
+                  <div className="min-h-4 h-4 overflow-hidden flex items-center">
                     <AnimatePresence mode="wait">
-                      {isTyping ? (
+                      {partnerTyping ? (
                         <motion.div
                           key="vibing"
                           initial={{ opacity: 0, y: 10 }}
@@ -243,13 +241,13 @@ export const ChatHeader = ({
                           className="flex items-center gap-1"
                         >
                           <span className="text-xs font-medium bg-gradient-to-r from-neon-violet to-neon-pink bg-clip-text text-transparent">
-                            Vibing...
+                            Vibing…
                           </span>
                           <motion.div className="flex gap-0.5">
                             {[0, 1, 2].map((i) => (
                               <motion.span
                                 key={i}
-                                className="w-1 h-1 rounded-full bg-neon-violet"
+                                className="w-1 h-1 rounded-full bg-primary"
                                 animate={{
                                   y: [0, -3, 0],
                                   opacity: [0.5, 1, 0.5],
@@ -263,20 +261,30 @@ export const ChatHeader = ({
                             ))}
                           </motion.div>
                         </motion.div>
-                      ) : (
+                      ) : headerActivity ? (
                         <motion.p
-                          key="status"
+                          key={`line-${headerActivity.text}`}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: -10 }}
                           transition={{ duration: 0.2 }}
                           className={cn(
-                            "text-xs",
-                            user.isOnline ? "text-green-500" : "text-muted-foreground"
+                            "text-xs truncate w-full",
+                            headerActivity.variant === "online" ? "text-green-500" : "text-muted-foreground"
                           )}
                         >
-                          {getStatusText()}
+                          {headerActivity.text}
                         </motion.p>
+                      ) : (
+                        <motion.span
+                          key="empty"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 0 }}
+                          className="text-xs text-transparent select-none pointer-events-none"
+                          aria-hidden
+                        >
+                          ·
+                        </motion.span>
                       )}
                     </AnimatePresence>
                   </div>
