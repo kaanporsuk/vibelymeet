@@ -95,17 +95,6 @@ export function useDateReminders(upcomingDates: DateProposal[]) {
     return () => clearInterval(interval);
   }, [upcomingDates]);
 
-  // Request notification permission
-  const requestNotificationPermission = useCallback(async () => {
-    if (!('Notification' in window)) return false;
-    
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    
-    const result = await Notification.requestPermission();
-    return result === 'granted';
-  }, []);
-
   // Send notification
   const sendNotification = useCallback((reminder: DateReminder, type: 'upcoming' | 'starting') => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -161,7 +150,6 @@ export function useDateReminders(upcomingDates: DateProposal[]) {
     nextReminder,
     imminentReminders,
     soonReminders,
-    requestNotificationPermission,
     sendNotification,
   };
 }

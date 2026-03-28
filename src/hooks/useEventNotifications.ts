@@ -14,17 +14,6 @@ export function useEventNotifications() {
     }
   }, [isSupported]);
 
-  const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!isSupported) return false;
-    try {
-      const result = await Notification.requestPermission();
-      setPermission(result);
-      return result === 'granted';
-    } catch {
-      return false;
-    }
-  }, [isSupported]);
-
   const isTabHidden = useCallback(() => {
     return typeof document !== 'undefined' && document.hidden;
   }, []);
@@ -111,7 +100,6 @@ export function useEventNotifications() {
     isSupported,
     permission,
     isGranted: permission === 'granted',
-    requestPermission,
     notifyMatch,
     notifyReadyGateWaiting,
     notifyQueuedMatchReady,

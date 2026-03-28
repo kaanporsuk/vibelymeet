@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/react";
 import { createRoot } from "react-dom/client";
 import { initOneSignal } from "./lib/onesignal";
+import { isOneSignalWebOriginAllowed } from "./lib/oneSignalWebOrigin";
+import { vibelyOsLog } from "./lib/onesignalWebDiagnostics";
 import posthog from 'posthog-js';
 import App from "./App.tsx";
 import "./index.css";
@@ -16,7 +18,10 @@ const POSTHOG_HOST =
 
 Sentry.init({
   dsn: SENTRY_DSN,
-  environment: window.location.hostname === "vibelymeet.com" ? "production" : "development",
+  environment:
+    window.location.hostname === "vibelymeet.com" || window.location.hostname === "www.vibelymeet.com"
+      ? "production"
+      : "development",
   integrations: [
     Sentry.browserTracingIntegration(),
     Sentry.replayIntegration({
@@ -58,16 +63,21 @@ posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
   },
 });
 
-// Only init OneSignal on production origin to avoid "Can only be used on: https://vibelymeet.com" crash.
+// Init OneSignal only on allowlisted hosts (see `src/lib/oneSignalWebOrigin.ts`) to avoid dashboard domain errors.
 const origin = typeof window !== "undefined" ? window.location.origin : "";
-if (origin === "https://vibelymeet.com" || origin.startsWith("http://localhost")) {
+const oneSignalInitAllowed = typeof window !== "undefined" && isOneSignalWebOriginAllowed();
+vibelyOsLog("main:boot", { origin, oneSignalInitAllowed });
+if (oneSignalInitAllowed) {
   try {
     initOneSignal();
   } catch (e) {
+    vibelyOsLog("main:initOneSignal threw", { error: String(e) });
     if (typeof Sentry?.captureMessage === "function") {
       Sentry.captureMessage("OneSignal init skipped or failed", { level: "warning", extra: { error: String(e) } });
     }
   }
+} else {
+  vibelyOsLog("main:initOneSignal skipped (host not allowlisted)", { origin });
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

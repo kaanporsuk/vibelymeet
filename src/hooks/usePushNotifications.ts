@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useServiceWorker } from './useServiceWorker';
-import { isSubscribed } from '@/lib/onesignal';
+import {
+  getOneSignalWebClientSnapshot,
+  isSubscribed,
+  waitForOneSignalInitResult,
+} from '@/lib/onesignal';
 
-const NOTIFICATION_PERMISSION_KEY = 'vibely_notification_permission';
 const SCHEDULED_NOTIFICATIONS_KEY = 'vibely_scheduled_notifications';
 
 interface ScheduledNotification {
@@ -14,10 +17,18 @@ interface ScheduledNotification {
   data?: Record<string, unknown>;
 }
 
+function computeOneSignalBootstrap(): OneSignalWebBootstrap {
+  const s = getOneSignalWebClientSnapshot();
+  if (!s.originAllowed || !s.initEnqueued) return 'unsupported_host';
+  if (!s.initResolved) return 'pending';
+  return s.sdkUsable ? 'ready' : 'init_failed';
+}
+
 export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(false);
   const [isOneSignalSubscribed, setIsOneSignalSubscribed] = useState(false);
+  const [oneSignalBootstrap, setOneSignalBootstrap] = useState<OneSignalWebBootstrap>(computeOneSignalBootstrap);
   const { 
     isReady: swReady, 
     scheduleDateReminder: swScheduleDateReminder,
@@ -42,6 +53,25 @@ export function usePushNotifications() {
     void refreshSubscriptionState();
   }, [refreshSubscriptionState]);
 
+  const refreshBootstrap = useCallback(() => {
+    setOneSignalBootstrap(computeOneSignalBootstrap());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const onInitSettled = () => {
+      if (!cancelled) refreshBootstrap();
+    };
+    window.addEventListener('vibely-onesignal-init-settled', onInitSettled);
+    void waitForOneSignalInitResult().finally(() => {
+      if (!cancelled) refreshBootstrap();
+    });
+    return () => {
+      cancelled = true;
+      window.removeEventListener('vibely-onesignal-init-settled', onInitSettled);
+    };
+  }, [refreshBootstrap]);
+
   useEffect(() => {
     const onFocus = () => {
       void refreshSubscriptionState();
@@ -57,28 +87,6 @@ export function usePushNotifications() {
     window.addEventListener('vibely-onesignal-subscription-changed', onSubscriptionChanged);
     return () => window.removeEventListener('vibely-onesignal-subscription-changed', onSubscriptionChanged);
   }, [refreshSubscriptionState]);
-
-  /**
-   * Browser-only permission (does not subscribe to OneSignal / server push).
-   * Prefer `requestWebPushPermissionAndSync` for flows that need backend delivery.
-   */
-  const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!isSupported) {
-      console.warn('Push notifications not supported on this platform');
-      return false;
-    }
-    
-    try {
-      const result = await Notification.requestPermission();
-      console.log('Notification permission result:', result);
-      setPermission(result);
-      localStorage.setItem(NOTIFICATION_PERMISSION_KEY, result);
-      return result === 'granted';
-    } catch (error) {
-      console.error('Failed to request notification permission:', error);
-      return false;
-    }
-  }, [isSupported]);
 
   // Send immediate notification (uses service worker if available)
   const sendNotification = useCallback((title: string, options?: NotificationOptions): Notification | null => {
@@ -202,6 +210,8 @@ export function usePushNotifications() {
 
   /** Server push ready: browser allowed notifications AND OneSignal subscription active. */
   const isGranted = permission === 'granted' && isOneSignalSubscribed;
+  /** True when OneSignal.init completed successfully on this page (not “user denied”). */
+  const isOneSignalSdkReady = oneSignalBootstrap === 'ready';
 
   return {
     isSupported,
@@ -211,9 +221,11 @@ export function usePushNotifications() {
     isBrowserPermissionGranted: permission === 'granted',
     isDenied: permission === 'denied',
     isOneSignalSubscribed,
+    /** Init / host state: use so “not subscribed” is not confused with “SDK never ran”. */
+    oneSignalBootstrap,
+    isOneSignalSdkReady,
     hasServiceWorker: swReady,
     refreshSubscriptionState,
-    requestPermission,
     sendNotification,
     scheduleNotification,
     cancelScheduledNotification,

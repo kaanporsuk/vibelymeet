@@ -1,4 +1,6 @@
 // Service Worker for Vibely Push Notifications
+// See docs/web-push-service-workers.md — OneSignal also registers a root-scoped worker; check DevTools
+// “Service Workers” if server push or this script’s postMessage handlers misbehave.
 // Note: Production web push uses OneSignal (see public/OneSignalSDK.sw.js). Quiet hours and message
 // bundling (collapse_id) are enforced in supabase/functions/send-notification before OneSignal sends.
 // This file handles legacy SCHEDULE_NOTIFICATION / SHOW_NOTIFICATION helpers and generic push fallbacks.
