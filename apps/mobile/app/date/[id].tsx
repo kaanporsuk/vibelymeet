@@ -185,10 +185,20 @@ export default function VideoDateScreen() {
     requestAnimationFrame(tick);
   }, [isConnected, phase]);
 
-  useEffect(() => {
+  const refreshCredits = useCallback(() => {
     if (!user?.id) return;
-    fetchUserCredits(user.id).then(setCredits);
+    void fetchUserCredits(user.id).then(setCredits);
   }, [user?.id]);
+
+  useEffect(() => {
+    refreshCredits();
+  }, [refreshCredits]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshCredits();
+    }, [refreshCredits])
+  );
 
   useEffect(() => {
     if (!sessionId || !isConnected || phase !== 'handshake') return;
