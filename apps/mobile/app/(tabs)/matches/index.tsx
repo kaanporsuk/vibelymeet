@@ -407,7 +407,7 @@ export default function MatchesListScreen() {
           name={m.name}
           age={m.age}
           time={m.time}
-          lastMessage={m.lastMessage}
+          conversationPreview={m.conversationPreview}
           unread={m.unread}
           isNew={m.isNew}
           searchMatchHint={m.searchMatchHint}

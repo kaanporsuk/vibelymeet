@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { Match } from "@/hooks/useMatches";
+import { ConversationListPreviewLabel } from "@/components/ConversationListPreviewLabel";
 
 interface ArchivedMatchesSectionProps {
   archivedMatches: Match[];
@@ -71,8 +72,11 @@ export const ArchivedMatchesSection = ({ archivedMatches }: ArchivedMatchesSecti
                     <p className="font-medium text-foreground truncate">
                       {match.name}, {match.age}
                     </p>
-                    <p className="text-sm text-muted-foreground truncate">
-                      {match.lastMessage || "No messages yet"}
+                    <p className="text-sm text-muted-foreground min-w-0">
+                      <ConversationListPreviewLabel
+                        preview={match.conversationPreview}
+                        unread={false}
+                      />
                     </p>
                   </div>
                   <Button

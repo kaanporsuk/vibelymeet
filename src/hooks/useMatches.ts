@@ -9,13 +9,34 @@ import {
   compatibilityPercent,
   type MatchScoreInput,
 } from "@/utils/matchSortScore";
+import type { ConversationPreview } from "../../shared/chat/conversationListPreview";
+import {
+  conversationPreviewSearchText,
+  getConversationPreview,
+  getEmptyConversationPreview,
+} from "../../shared/chat/conversationListPreview";
+
+/** Latest message row shape from matches list query (one row per match). */
+type MatchLatestMessageRow = {
+  match_id: string;
+  content: string | null;
+  created_at: string;
+  read_at: string | null;
+  sender_id: string;
+  message_kind: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+  structured_payload: unknown;
+};
 
 export interface Match {
   id: string;
   name: string;
   age: number;
   image: string;
-  lastMessage: string | null;
+  conversationPreview: ConversationPreview;
+  /** Substring search for “matched on message” (includes `you` when preview prefix is You). */
+  messageSearchHaystack: string;
   time: string;
   unread: boolean;
   vibes: string[];
@@ -137,7 +158,9 @@ export const useMatches = () => {
             .in("profile_id", profileIdsForFetch),
           supabase
             .from("messages")
-            .select("match_id, content, created_at, read_at, sender_id")
+            .select(
+              "match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url, structured_payload"
+            )
             .in(
               "match_id",
               matches.map((m) => m.id)
@@ -156,10 +179,11 @@ export const useMatches = () => {
       const lastMessages = messagesResult.data || [];
       const events = eventsResult.data || [];
 
-      const messagesByMatch: Record<string, any> = {};
+      const messagesByMatch: Record<string, MatchLatestMessageRow> = {};
       lastMessages.forEach((msg) => {
-        if (!messagesByMatch[msg.match_id]) {
-          messagesByMatch[msg.match_id] = msg;
+        const row = msg as MatchLatestMessageRow;
+        if (!messagesByMatch[row.match_id]) {
+          messagesByMatch[row.match_id] = row;
         }
       });
 
@@ -223,12 +247,27 @@ export const useMatches = () => {
         const rawPrompts = (profile as any)?.prompts;
         const parsedPrompts = Array.isArray(rawPrompts) ? rawPrompts : [];
 
+        const conversationPreview = lastMsg
+          ? getConversationPreview(
+              {
+                content: lastMsg.content,
+                message_kind: lastMsg.message_kind,
+                audio_url: lastMsg.audio_url,
+                video_url: lastMsg.video_url,
+                sender_id: lastMsg.sender_id,
+                structured_payload: lastMsg.structured_payload,
+              },
+              userId,
+            )
+          : getEmptyConversationPreview();
+
         return {
           id: otherProfileId,
           name: profile?.name || "Unknown",
           age: profile?.age || 0,
           image,
-          lastMessage: lastMsg?.content || null,
+          conversationPreview,
+          messageSearchHaystack: conversationPreviewSearchText(conversationPreview),
           time: lastMsg
             ? formatDistanceToNow(new Date(lastMsg.created_at), {
                 addSuffix: false,
