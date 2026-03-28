@@ -10,34 +10,18 @@ import {
   DrawerDescription,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { isSubscribed } from "@/lib/onesignal";
+import { isSubscribed, waitForOneSignalInitResult } from "@/lib/onesignal";
+import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { sendNotification } from "@/lib/notifications";
+import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { vibelyOneSignalDebugEnabled, vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 
 const PROMPTED_KEY = "vibely_push_prompted";
 const RE_PROMPT_DAYS = 7;
-
-/** Page SDK attaches `window.OneSignal` after load; avoid clicking before it exists. */
-async function waitForOneSignalOnWindow(timeoutMs = 12000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (window.OneSignal?.Notifications) return true;
-    await new Promise((r) => setTimeout(r, 150));
-  }
-  return false;
-}
-
-async function resolvePlayerIdWithRetries(): Promise<string | null> {
-  for (let i = 0; i < 8; i++) {
-    const id = window.OneSignal?.User?.PushSubscription?.id;
-    if (id) return id;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return null;
-}
 
 export function PushPermissionPrompt() {
   const { user } = useUserProfile();
@@ -48,20 +32,33 @@ export function PushPermissionPrompt() {
     if (!("Notification" in window)) return;
 
     const checkEligibility = async () => {
-      // Fully set up for server push (OneSignal + browser)
+      if (!isOneSignalWebOriginAllowed()) {
+        vibelyOsLog("PushPermissionPrompt:skip ineligible host", { origin: window.location.origin });
+        return;
+      }
+
+      const { sdkUsable } = await waitForOneSignalInitResult();
+      if (!sdkUsable) {
+        if (import.meta.env.DEV || vibelyOneSignalDebugEnabled()) {
+          console.warn(
+            "[PushPermissionPrompt] OneSignal did not initialize on this page (wrong host, HTTPS, or dashboard site URL). Soft prompt suppressed."
+          );
+        }
+        vibelyOsLog("PushPermissionPrompt:skip init not usable", { origin: window.location.origin });
+        return;
+      }
+
       const subscribed = await isSubscribed();
       if (Notification.permission === "granted" && subscribed) return;
 
       if (Notification.permission === "denied") return;
 
-      // Check localStorage prompt timing
       const prompted = localStorage.getItem(PROMPTED_KEY);
       if (prompted) {
         const ts = parseInt(prompted, 10);
         if (Date.now() - ts < RE_PROMPT_DAYS * 86400000) return;
       }
 
-      // Check if user has a match or event registration (engagement signal)
       const [{ count: matchCount }, { count: regCount }] = await Promise.all([
         supabase
           .from("matches")
@@ -75,64 +72,47 @@ export function PushPermissionPrompt() {
 
       if ((matchCount || 0) === 0 && (regCount || 0) === 0) return;
 
-      // Show after 5 second delay
       setTimeout(() => setOpen(true), 5000);
     };
 
-    checkEligibility();
+    void checkEligibility();
   }, [user?.id]);
 
   const handleEnable = async () => {
+    if (!user?.id) return;
     try {
       localStorage.setItem(PROMPTED_KEY, Date.now().toString());
+      vibelyOsLog("PushPermissionPrompt:handleEnable", { origin: window.location.origin });
 
-      const ready = await waitForOneSignalOnWindow();
-      if (!ready || !window.OneSignal) {
-        console.warn("[Push] OneSignal not loaded");
+      const { sdkUsable } = await waitForOneSignalInitResult();
+      if (!sdkUsable) {
+        toast.error("Push isn’t available on this page. Try the main site over HTTPS.");
         return;
       }
 
-      await window.OneSignal.Notifications.requestPermission();
+      const ok = await requestWebPushPermissionAndSync(user.id);
+      vibelyOsLog("PushPermissionPrompt:requestWebPushPermissionAndSync", { ok });
 
-      const osPerm = window.OneSignal.Notifications.permission;
-      const isGranted =
-        osPerm === true ||
-        osPerm === "granted" ||
-        (typeof Notification !== "undefined" && Notification.permission === "granted");
-
-      if (isGranted && user?.id) {
-        const playerId = await resolvePlayerIdWithRetries();
-        if (playerId) {
-          const { error } = await supabase.from("notification_preferences").upsert(
-            {
-              user_id: user.id,
-              onesignal_player_id: playerId,
-              onesignal_subscribed: true,
-              push_enabled: true,
-            },
-            { onConflict: "user_id" }
-          );
-          if (error) {
-            console.error("[Push] notification_preferences upsert failed:", error);
-          } else {
-            window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
-            trackEvent("push_permission_granted");
-            toast.success("Notifications enabled! 🔔");
-            sendNotification({
-              user_id: user.id,
-              category: "safety_alerts",
-              title: "Notifications are on! 🔔",
-              body: "You can customize what you receive anytime in Settings → Notifications",
-              data: { url: "/settings" },
-              bypass_preferences: true,
-            });
-          }
-        } else {
-          console.warn("[Push] Permission granted but no player id yet");
-        }
+      if (ok) {
+        window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+        trackEvent("push_permission_granted");
+        toast.success("Notifications enabled! 🔔");
+        sendNotification({
+          user_id: user.id,
+          category: "safety_alerts",
+          title: "Notifications are on! 🔔",
+          body: "You can customize what you receive anytime in Settings → Notifications",
+          data: { url: "/settings" },
+          bypass_preferences: true,
+        });
+      } else if (Notification.permission === "denied") {
+        toast.message("Notifications are blocked in your browser. You can enable them in site settings.");
+      } else {
+        toast.error("Couldn’t finish enabling notifications. Try again from Settings → Notifications.");
       }
     } catch (err) {
       console.error("[Push] Permission error:", err);
+      toast.error("Something went wrong enabling notifications.");
     } finally {
       setOpen(false);
     }
