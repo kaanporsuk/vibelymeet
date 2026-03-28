@@ -7,20 +7,16 @@ import {
   StyleSheet,
   Animated,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { requestPushPermissionsAfterPrompt, VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
-
-const FEATURES: { icon: keyof typeof Ionicons.glyphMap; text: string }[] = [
-  { icon: 'heart-outline', text: 'New matches and mutual vibes' },
-  { icon: 'videocam-outline', text: 'Video date invitations' },
-  { icon: 'calendar-outline', text: 'Event reminders and Daily Drop' },
-];
 
 type Props = {
   visible: boolean;
@@ -33,15 +29,15 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { width } = useWindowDimensions();
-  const cardWidth = Math.min(width - 48, 400);
-  const pulse = useRef(new Animated.Value(0.6)).current;
+  const cardWidth = Math.min(width - 40, 380);
+  const pulse = useRef(new Animated.Value(0.55)).current;
 
   useEffect(() => {
     if (!visible) return;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1200, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.6, duration: 1200, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.55, duration: 1400, useNativeDriver: true }),
       ])
     );
     loop.start();
@@ -66,10 +62,14 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
     onCompleted?.();
   };
 
+  const cardBorder = withAlpha(theme.tint, 0.38);
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleNotNow}>
-      <View style={[styles.overlay, { backgroundColor: withAlpha(theme.background, 0.95) }]}>
-        <View style={[styles.card, { width: cardWidth, backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <View style={styles.root}>
+        <BlurView intensity={Platform.OS === 'ios' ? 88 : 72} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.dim} pointerEvents="none" />
+        <View style={[styles.card, { width: cardWidth, borderColor: cardBorder, backgroundColor: theme.glassSurface }]}>
           <View style={styles.iconWrap}>
             <Animated.View
               style={[
@@ -77,35 +77,28 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
                 {
                   opacity: pulse,
                   shadowColor: theme.tint,
-                  backgroundColor: withAlpha(theme.tint, 0.2),
+                  backgroundColor: withAlpha(theme.tint, 0.22),
                 },
               ]}
             />
-            <Ionicons name="notifications" size={64} color={theme.tint} />
+            <Ionicons name="notifications" size={34} color={theme.tint} />
           </View>
-          <Text style={[styles.title, { color: theme.text }]}>Stay in the loop</Text>
-          <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
-            Get notified when someone vibes you back,{'\n'}your video date is ready, and new events drop.
+          <Text style={[styles.title, { color: theme.text }]}>Never miss a vibe</Text>
+          <Text style={[styles.body, { color: theme.mutedForeground }]}>
+            Get notified when someone matches with you, messages you, or when your event and date activity needs your
+            attention. You stay in control in Settings.
           </Text>
-          <View style={styles.features}>
-            {FEATURES.map((f) => (
-              <View key={f.text} style={styles.featureRow}>
-                <Ionicons name={f.icon} size={18} color={theme.tint} />
-                <Text style={[styles.featureText, { color: theme.text }]}>{f.text}</Text>
-              </View>
-            ))}
-          </View>
-          <Pressable onPress={handleEnable} style={({ pressed }) => [pressed && { opacity: 0.92 }]}>
+          <Pressable onPress={handleEnable} style={({ pressed }) => [styles.primaryWrap, pressed && { opacity: 0.92 }]}>
             <LinearGradient
               colors={[theme.tint, theme.accent]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.primaryBtn}
             >
-              <Text style={styles.primaryBtnText}>Enable Notifications</Text>
+              <Text style={styles.primaryBtnText}>Turn On Notifications</Text>
             </LinearGradient>
           </Pressable>
-          <Pressable onPress={handleNotNow} style={styles.secondaryBtn}>
+          <Pressable onPress={handleNotNow} hitSlop={12} style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.65 }]}>
             <Text style={[styles.secondaryText, { color: theme.mutedForeground }]}>Not now</Text>
           </Pressable>
         </View>
@@ -115,65 +108,86 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
 }
 
 const styles = StyleSheet.create({
-  overlay: {
+  root: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+  },
+  dim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.52)',
   },
   card: {
-    borderRadius: 24,
-    padding: 32,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    paddingTop: 20,
+    paddingBottom: 18,
+    borderWidth: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 16 },
+        shadowOpacity: 0.45,
+        shadowRadius: 28,
+      },
+      android: {
+        elevation: 18,
+      },
+    }),
   },
   iconWrap: {
     alignSelf: 'center',
-    width: 100,
-    height: 100,
+    width: 56,
+    height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 14,
   },
   glow: {
     position: 'absolute',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowOpacity: 0.85,
+    shadowRadius: 18,
+    elevation: 10,
   },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     textAlign: 'center',
+    letterSpacing: -0.3,
   },
-  subtitle: {
-    fontSize: 15,
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 22,
-  },
-  features: {
-    marginTop: 20,
-    marginBottom: 24,
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginVertical: 6,
-  },
-  featureText: {
+  body: {
     fontSize: 14,
-    flex: 1,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 20,
+  },
+  primaryWrap: {
+    marginTop: 20,
+    borderRadius: 14,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: 'hsl(263, 70%, 50%)',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.35,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   primaryBtn: {
-    height: 52,
-    borderRadius: 16,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   primaryBtnText: {
     fontSize: 16,
@@ -181,12 +195,13 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   secondaryBtn: {
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 2,
   },
   secondaryText: {
     fontSize: 14,
+    fontWeight: '500',
     textAlign: 'center',
   },
 });

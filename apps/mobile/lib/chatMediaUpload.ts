@@ -7,7 +7,6 @@
 
 import { supabase } from '@/lib/supabase';
 import { getImageUrl } from '@/lib/imageUrl';
-import * as VideoThumbnails from 'expo-video-thumbnails';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
@@ -78,19 +77,6 @@ export async function uploadChatVideoMessage(
       name: `chat-video.${ext}`,
     } as unknown as Blob
   );
-  try {
-    const thumb = await VideoThumbnails.getThumbnailAsync(videoUri, { time: 500, quality: 0.75 });
-    formData.append(
-      'thumbnail',
-      {
-        uri: thumb.uri,
-        type: 'image/jpeg',
-        name: 'chat-video-thumb.jpg',
-      } as unknown as Blob
-    );
-  } catch {
-    // Best-effort only; first-frame fallback remains canonical for old/null thumb rows.
-  }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-chat-video`, {
     method: 'POST',
