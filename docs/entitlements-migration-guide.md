@@ -63,7 +63,7 @@ Until that hook exists in this branch, use **`useSubscription().isPremium`** (St
 |--------|----------|---------|--------|----------|
 | Event visibility labels | `src/components/admin/AdminEventFormModal.tsx` (~L668) | Admin UI labels | No change (admin) | LOW |
 | Bootstrap payload | `src/hooks/useAppBootstrap.ts` (~L68) | `is_premium` on user object | Add `subscription_tier` / capability snapshot if clients need it | LOW |
-| Stub | `src/utils/isPremiumFeature.ts` | Stub | Replace with registry keys or remove | LOW |
+| ~~isPremiumFeature.ts~~ | ~~`src/utils/isPremiumFeature.ts`~~ | Deleted — was an unused stub | N/A | N/A |
 
 ---
 
