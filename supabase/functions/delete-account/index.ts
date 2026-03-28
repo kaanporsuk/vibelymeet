@@ -117,7 +117,8 @@ serve(async (req) => {
             await supabaseAdmin
               .from("subscriptions")
               .update({ status: "canceled" })
-              .eq("user_id", userId);
+              .eq("user_id", userId)
+              .eq("provider", "stripe");
             await supabaseAdmin
               .from("profiles")
               .update({ is_premium: false, subscription_tier: "free" })
