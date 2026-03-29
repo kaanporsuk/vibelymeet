@@ -17,6 +17,7 @@ import {
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import type { DateCardThreadUi } from '../../../../shared/chat/threadPresentation';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -66,6 +67,7 @@ type Props = {
   partnerUserId: string;
   onOpenComposer: (opts: OpenComposerOpts) => void;
   onUpdated: () => void;
+  threadUi?: DateCardThreadUi;
 };
 
 export function DateSuggestionChatCard({
@@ -75,6 +77,7 @@ export function DateSuggestionChatCard({
   partnerUserId: _partnerUserId,
   onOpenComposer,
   onUpdated,
+  threadUi = 'normal',
 }: Props) {
   const theme = Colors[useColorScheme()];
   const queryClient = useQueryClient();
@@ -322,6 +325,24 @@ export function DateSuggestionChatCard({
       current != null
         ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
         : '';
+    if (threadUi === 'quiet_stale') {
+      return (
+        <>
+          <View
+            style={[
+              styles.quietRow,
+              { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.02)' },
+            ]}
+          >
+            <Text style={[styles.quietText, { color: theme.textSecondary }]} numberOfLines={2}>
+              <Text style={{ fontWeight: '600' }}>{STATUS_LABEL[status] ?? status}</Text>
+              {summary ? <Text style={{ opacity: 0.75 }}>{` · ${summary}`}</Text> : null}
+            </Text>
+          </View>
+          {dialogEl}
+        </>
+      );
+    }
     return (
       <>
         <View style={[styles.compactCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
@@ -348,6 +369,29 @@ export function DateSuggestionChatCard({
   }
 
   if (status === 'completed') {
+    if (threadUi === 'quiet_completed') {
+      const when =
+        current != null
+          ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+          : '';
+      return (
+        <>
+          <View
+            style={[
+              styles.quietRow,
+              { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.02)' },
+            ]}
+          >
+            <Ionicons name="checkmark-circle" size={14} color="rgba(34,197,94,0.65)" style={{ marginRight: 6 }} />
+            <Text style={[styles.quietText, { color: theme.textSecondary, flex: 1 }]} numberOfLines={2}>
+              Date marked complete
+              {when ? <Text style={{ opacity: 0.7 }}>{` · ${when}`}</Text> : null}
+            </Text>
+          </View>
+          {dialogEl}
+        </>
+      );
+    }
     return (
       <>
         <View
@@ -428,7 +472,7 @@ export function DateSuggestionChatCard({
       <View style={styles.headerRow}>
         <View style={styles.headerTitleWrap}>
           <Ionicons name="calendar-outline" size={14} color={theme.tint} />
-          <Text style={[styles.kicker, { color: theme.textSecondary }]}>DATE SUGGESTION</Text>
+          <Text style={[styles.kicker, { color: theme.textSecondary }]}>Date idea</Text>
         </View>
         {status === 'accepted' ? (
           <View style={[styles.headerAccent, { backgroundColor: 'rgba(236,72,153,0.16)' }]}>
@@ -582,11 +626,21 @@ function AgreedChip() {
 }
 
 const styles = StyleSheet.create({
+  quietRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    maxWidth: '100%',
+  },
+  quietText: { fontSize: 11, lineHeight: 15, flex: 1 },
   compactCard: {
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 10,
+    paddingVertical: 8,
     maxWidth: '100%',
   },
   compactTopRow: {
@@ -597,27 +651,27 @@ const styles = StyleSheet.create({
   },
   compactStatus: { fontSize: 12, fontWeight: '700' },
   compactDoneLabel: { fontSize: 12, flex: 1, fontWeight: '600' },
-  compactSummary: { fontSize: 11, marginTop: 6, lineHeight: 15 },
+  compactSummary: { fontSize: 11, marginTop: 4, lineHeight: 15 },
   compactLinkBtn: { paddingVertical: 4, paddingHorizontal: 4 },
-  compactLinkText: { fontSize: 11, fontWeight: '700' },
+  compactLinkText: { fontSize: 10, fontWeight: '700' },
   card: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.sm + 2,
+    padding: spacing.sm,
     maxWidth: '100%',
   },
-  celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm },
-  celebrationTitle: { fontSize: 15, fontWeight: '700' },
+  celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs + 2 },
+  celebrationTitle: { fontSize: 14, fontWeight: '700' },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
     flexWrap: 'wrap',
-    rowGap: 6,
-    marginBottom: spacing.sm,
+    rowGap: 4,
+    marginBottom: spacing.xs + 2,
   },
   headerTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 },
-  kicker: { fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  kicker: { fontSize: 10, fontWeight: '600', letterSpacing: 0.2 },
   headerAccent: {
     borderRadius: 999,
     paddingHorizontal: 8,
@@ -643,7 +697,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   lineRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
-  lineLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
+  lineLabel: { fontSize: 11, fontWeight: '600', letterSpacing: 0.1 },
   lineValue: { fontSize: 14, lineHeight: 20, flexShrink: 1, width: '100%' },
   scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   scheduleText: { fontSize: 12, color: '#22d3ee', flex: 1, fontWeight: '500', lineHeight: 17 },

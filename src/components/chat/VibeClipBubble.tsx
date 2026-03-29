@@ -20,6 +20,7 @@ import { replyPromptForContext } from "../../../shared/chat/vibeClipPrompts";
 import { CLIP_DATE_ACTION_HINT } from "../../../shared/dateSuggestions/dateComposerLaunch";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
+import { cn } from "@/lib/utils";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -37,6 +38,8 @@ interface VibeClipBubbleProps {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this clip URL. */
   immersiveActive?: boolean;
+  /** Older clips in the thread sit visually quieter than the latest. */
+  threadVisualRecede?: boolean;
 }
 
 export const VibeClipBubble = ({
@@ -51,6 +54,7 @@ export const VibeClipBubble = ({
   sparkMessageId,
   onRequestImmersive,
   immersiveActive,
+  threadVisualRecede = false,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -205,6 +209,7 @@ export const VibeClipBubble = ({
   }, [isMine, meta.durationSec, meta.thumbnailUrl, threadMessageCount]);
 
   const progress = meta.durationSec > 0 ? (currentTime / meta.durationSec) * 100 : 0;
+  const isBuffering = isReady && isLoading && isPlaying;
   const clipAspectRatio =
     typeof meta.aspectRatio === "number" && Number.isFinite(meta.aspectRatio) && meta.aspectRatio > 0
       ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
@@ -212,10 +217,11 @@ export const VibeClipBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-[min(13rem,85vw)] max-w-[208px] rounded-xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-6 px-3 gap-2">
-        <AlertCircle className="w-6 h-6 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground text-center">Clip unavailable</span>
+      <div className="w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40">
+        <AlertCircle className="w-7 h-7 text-violet-400/90" />
+        <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
         <button
+          type="button"
           onClick={() => {
             setLoadError(false);
             setIsLoading(true);
@@ -224,9 +230,9 @@ export const VibeClipBubble = ({
             setCurrentTime(0);
             videoRef.current?.load();
           }}
-          className="text-xs text-primary hover:underline"
+          className="text-[11px] font-semibold text-violet-400 hover:text-violet-300 underline-offset-2 hover:underline"
         >
-          Retry
+          Try again
         </button>
       </div>
     );
@@ -234,18 +240,19 @@ export const VibeClipBubble = ({
 
   return (
     <div
-      className={[
-        "w-[min(13rem,85vw)] max-w-[208px] rounded-xl overflow-hidden relative group",
+      className={cn(
+        "w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden relative group transition-opacity duration-200",
         isMine
           ? "ring-1 ring-violet-500/35 bg-violet-500/[0.04]"
           : "ring-1 ring-white/[0.08] bg-white/[0.025]",
-      ].join(" ")}
+        threadVisualRecede && "opacity-[0.9] ring-violet-500/20 saturate-[0.92]",
+      )}
     >
       {/* Branded header — compact in-thread */}
-      <div className="flex items-center gap-1 px-2 pt-1.5 pb-1">
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-1.5 py-[1px]">
+      <div className="flex items-center gap-1 px-1.5 pt-1 pb-0.5">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-1.5 py-px">
           <Film className="w-2.5 h-2.5 text-violet-400/95" />
-          <span className="text-[9px] font-bold text-violet-400/95 tracking-wide">Clip</span>
+          <span className="text-[9px] font-semibold text-violet-400/95 tracking-wide">Clip</span>
         </span>
       </div>
 
@@ -278,9 +285,9 @@ export const VibeClipBubble = ({
                 }}
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur-sm">
-                  <Loader2 className="h-4 w-4 animate-spin text-white/80" />
-                  <span className="text-xs text-white/80">Loading clip</span>
+                <div className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-black/55 px-3.5 py-2 backdrop-blur-md shadow-[0_0_28px_rgba(139,92,246,0.15)]">
+                  <Loader2 className="h-4 w-4 animate-spin text-violet-300/95" />
+                  <span className="text-[11px] font-medium text-white/88 tracking-tight">Preparing clip…</span>
                 </div>
               </div>
               <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
@@ -318,36 +325,55 @@ export const VibeClipBubble = ({
           />
 
           {/* Play overlay */}
+          {isBuffering ? (
+            <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black/30">
+              <div className="flex items-center gap-2 rounded-full border border-violet-400/20 bg-black/50 px-3 py-1.5 backdrop-blur-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-300/90" />
+                <span className="text-[10px] font-medium text-white/85">Buffering…</span>
+              </div>
+            </div>
+          ) : null}
+
           {!isPlaying && isReady && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="absolute inset-0 flex items-center justify-center bg-black/30"
+              className="absolute inset-0 flex items-center justify-center bg-black/38"
             >
-              <div className="w-12 h-12 rounded-full bg-violet-500/30 backdrop-blur-sm flex items-center justify-center ring-1 ring-violet-400/40">
-                <Play className="w-6 h-6 text-white ml-0.5" fill="white" />
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500/40 to-violet-600/20 backdrop-blur-md flex items-center justify-center ring-1 ring-violet-300/35 shadow-lg shadow-violet-500/20">
+                <Play className="w-5 h-5 text-white ml-0.5 drop-shadow-md" fill="white" />
               </div>
             </motion.div>
           )}
 
           {/* Bottom controls */}
-          <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-            <div className="w-full h-1 rounded-full bg-white/30 mb-2">
+          <div className="absolute bottom-0 inset-x-0 px-2 pt-2 pb-1.5 bg-gradient-to-t from-black/70 via-black/35 to-transparent">
+            <div className="w-full h-1 rounded-full bg-white/12 overflow-hidden mb-1.5 ring-1 ring-violet-400/10">
               <div
-                className="h-full rounded-full bg-violet-400 transition-all"
+                className="h-full rounded-full bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400 transition-[width] duration-150 ease-out shadow-[0_0_10px_rgba(167,139,250,0.4)]"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-white/80 font-mono">
-                {isPlaying ? formatDuration(Math.round(currentTime)) : meta.durationLabel}
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[9px] text-white/82 font-mono tabular-nums font-medium">
+                {isPlaying && meta.durationSec > 0
+                  ? `${formatDuration(Math.round(currentTime))} · ${formatDuration(meta.durationSec)}`
+                  : meta.durationLabel}
               </span>
-              <div className="flex items-center gap-1.5">
-                <button type="button" onClick={toggleMute} className="text-white/80 hover:text-white">
-                  {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
                 </button>
-                <button type="button" onClick={handleFullscreen} className="text-white/80 hover:text-white">
-                  <Maximize className="w-3.5 h-3.5" />
+                <button
+                  type="button"
+                  onClick={handleFullscreen}
+                  className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  <Maximize className="w-3 h-3" />
                 </button>
               </div>
             </div>

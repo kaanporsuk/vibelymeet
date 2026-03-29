@@ -65,6 +65,8 @@ interface ChatHeaderProps {
   partnerTyping: boolean;
   /** Fuzzy recency line from `last_seen_at`; null = no subtitle (unknown or stale). */
   headerActivity: ChatHeaderActivityLine | null;
+  /** Grounded thread anchor when no typing/activity (e.g. first message month). */
+  threadAnchorLabel?: string | null;
   matchId?: string;
   onBack: () => void;
   onVideoCall: (type: "voice" | "video") => void;
@@ -75,6 +77,7 @@ export const ChatHeader = ({
   user,
   partnerTyping,
   headerActivity,
+  threadAnchorLabel,
   matchId,
   onBack,
   onVideoCall,
@@ -188,7 +191,7 @@ export const ChatHeader = ({
                     size="sm"
                     rounded="full"
                     loading="eager"
-                    className="ring-2 ring-primary/30"
+                    className="ring-2 ring-primary/35 shadow-md !w-12 !h-12"
                   />
                   {/* Verified badge */}
                   {user.photoVerified && (
@@ -212,9 +215,9 @@ export const ChatHeader = ({
                     )}
                   </AnimatePresence>
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 pl-0.5 border-l border-border/25">
                   <div className="flex items-center gap-1 flex-wrap">
-                    <h2 className="font-semibold text-[15px] leading-tight text-foreground truncate">
+                    <h2 className="font-display font-semibold text-base leading-tight text-foreground truncate tracking-tight">
                       {user.name}, {user.age}
                     </h2>
                     {partnerTierBadge === "premium" && (
@@ -229,7 +232,7 @@ export const ChatHeader = ({
                       </span>
                     )}
                   </div>
-                  <div className="min-h-[14px] h-[14px] overflow-hidden flex items-center">
+                  <div className="min-h-[14px] overflow-hidden flex items-center">
                     <AnimatePresence mode="wait">
                       {partnerTyping ? (
                         <motion.div
@@ -269,22 +272,32 @@ export const ChatHeader = ({
                           exit={{ opacity: 0, y: -10 }}
                           transition={{ duration: 0.2 }}
                           className={cn(
-                            "text-xs truncate w-full",
+                            "text-[11px] truncate w-full",
                             headerActivity.variant === "online" ? "text-green-500" : "text-muted-foreground"
                           )}
                         >
                           {headerActivity.text}
                         </motion.p>
-                      ) : (
-                        <motion.span
-                          key="empty"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 0 }}
-                          className="text-xs text-transparent select-none pointer-events-none"
-                          aria-hidden
+                      ) : threadAnchorLabel ? (
+                        <motion.p
+                          key={`anchor-${threadAnchorLabel}`}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          transition={{ duration: 0.2 }}
+                          className="text-[11px] text-muted-foreground/85 truncate w-full"
                         >
-                          ·
-                        </motion.span>
+                          {threadAnchorLabel}
+                        </motion.p>
+                      ) : (
+                        <motion.p
+                          key="private"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="text-[11px] text-muted-foreground/70 truncate w-full"
+                        >
+                          Private chat
+                        </motion.p>
                       )}
                     </AnimatePresence>
                   </div>
@@ -295,27 +308,36 @@ export const ChatHeader = ({
             onVideoCall={handleVideoCall}
           />
 
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl"
-              onClick={handleVoiceCall}
-            >
-              <Phone className="w-5 h-5 text-muted-foreground" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl"
-              onClick={handleVideoCall}
-            >
-              <Video className="w-5 h-5 text-muted-foreground" />
-            </Button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <div className="flex items-center rounded-xl bg-secondary/50 border border-border/35 p-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
+                onClick={handleVoiceCall}
+                aria-label="Voice call"
+              >
+                <Phone className="w-[18px] h-[18px]" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
+                onClick={handleVideoCall}
+                aria-label="Video call"
+              >
+                <Video className="w-[18px] h-[18px]" />
+              </Button>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-xl">
-                  <MoreVertical className="w-5 h-5 text-muted-foreground" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-xl h-9 w-9 text-foreground/75 hover:text-foreground"
+                  aria-label="Chat menu"
+                >
+                  <MoreVertical className="w-5 h-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">

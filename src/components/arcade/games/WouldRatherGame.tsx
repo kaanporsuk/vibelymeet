@@ -71,7 +71,7 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
         "border backdrop-blur-sm",
         isExpired && "opacity-50",
         isExpired
@@ -82,9 +82,9 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
       )}
     >
       {/* Header */}
-      <div className={cn("border-b border-amber-500/20", compact ? "px-2.5 py-2" : "p-3")}>
-        <div className="flex items-center gap-2">
-          <span className={compact ? "text-lg" : "text-2xl"}>⚡</span>
+      <div className={cn("border-b border-amber-500/20", compact ? "px-2 py-1.5" : "px-2.5 py-2")}>
+        <div className="flex items-center gap-1.5">
+          <span className={compact ? "text-base" : "text-xl"}>⚡</span>
           <div className="min-w-0">
             <h4 className="font-semibold text-sm text-foreground leading-tight">Would You Rather?</h4>
             <p className="text-[11px] text-muted-foreground leading-snug">{headerSub}</p>
@@ -102,7 +102,7 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
           disabled={!!myVote || isExpired}
           className={cn(
             "flex-1 text-center transition-all duration-300 border-r border-amber-500/20",
-            compact ? "px-2 py-2.5" : "p-4",
+            compact ? "px-1.5 py-2" : "px-3 py-3",
             getOptionState("A") === "voting" && "hover:bg-amber-500/10",
             getOptionState("A") === "selected" && "bg-amber-500/20",
             getOptionState("A") === "match" && "bg-amber-500/30",
@@ -110,7 +110,14 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
             getOptionState("A") === "receiver" && "bg-neon-cyan/20"
           )}
         >
-          <p className={cn("text-sm font-medium text-foreground", compact ? "mb-1" : "mb-2")}>{payload.data.optionA}</p>
+          <p
+            className={cn(
+              "font-medium text-foreground leading-snug",
+              compact ? "text-xs line-clamp-3 mb-0.5" : "text-sm mb-2",
+            )}
+          >
+            {payload.data.optionA}
+          </p>
           <AnimatePresence>
             {!isExpired &&
               bothVoted &&
@@ -157,7 +164,7 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
           disabled={!!myVote || isExpired}
           className={cn(
             "flex-1 text-center transition-all duration-300",
-            compact ? "px-2 py-2.5" : "p-4",
+            compact ? "px-1.5 py-2" : "px-3 py-3",
             getOptionState("B") === "voting" && "hover:bg-amber-500/10",
             getOptionState("B") === "selected" && "bg-amber-500/20",
             getOptionState("B") === "match" && "bg-amber-500/30",
@@ -165,7 +172,14 @@ export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: Wo
             getOptionState("B") === "receiver" && "bg-neon-cyan/20"
           )}
         >
-          <p className={cn("text-sm font-medium text-foreground", compact ? "mb-1" : "mb-2")}>{payload.data.optionB}</p>
+          <p
+            className={cn(
+              "font-medium text-foreground leading-snug",
+              compact ? "text-xs line-clamp-3 mb-0.5" : "text-sm mb-2",
+            )}
+          >
+            {payload.data.optionB}
+          </p>
           <AnimatePresence>
             {!isExpired &&
               bothVoted &&

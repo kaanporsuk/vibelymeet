@@ -30,13 +30,16 @@ type Props = {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this URL. */
   immersiveActive?: boolean;
+  threadVisualRecede?: boolean;
 };
+
+type VibeClipCardInnerProps = Props & { onRemountPlayer: () => void };
 
 const ACCENT = 'rgba(139,92,246,1)';
 const ACCENT_DIM = 'rgba(139,92,246,0.55)';
 const SECONDARY = 'rgba(255,255,255,0.55)';
 
-export function VibeClipCard({
+function VibeClipCardInner({
   meta,
   isMine,
   onReplyWithClip,
@@ -48,7 +51,9 @@ export function VibeClipCard({
   sparkMessageId,
   onRequestImmersive,
   immersiveActive,
-}: Props) {
+  threadVisualRecede = false,
+  onRemountPlayer,
+}: VibeClipCardInnerProps) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -136,11 +141,26 @@ export function VibeClipCard({
 
   if (hasError) {
     return (
-      <View style={[styles.outer, styles.errorOuter, { borderColor: theme.glassBorder }]}>
-        <Ionicons name="videocam-off-outline" size={28} color={theme.textSecondary} />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>
-          Couldn't load clip
+      <View
+        style={[
+          styles.outer,
+          styles.errorOuter,
+          { borderColor: 'rgba(139,92,246,0.35)', backgroundColor: 'rgba(17,17,24,0.92)' },
+        ]}
+      >
+        <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 }}>
+          {"Couldn't load clip"}
         </Text>
+        <Pressable
+          onPress={onRemountPlayer}
+          style={({ pressed }) => [
+            styles.clipRetryBtn,
+            pressed && { opacity: 0.88 },
+          ]}
+        >
+          <Text style={styles.clipRetryLabel}>Try again</Text>
+        </Pressable>
       </View>
     );
   }
@@ -152,6 +172,7 @@ export function VibeClipCard({
         {
           borderColor: isMine ? ACCENT_DIM : 'rgba(255,255,255,0.14)',
           backgroundColor: isMine ? 'rgba(139,92,246,0.06)' : 'rgba(255,255,255,0.04)',
+          opacity: threadVisualRecede ? 0.9 : 1,
         },
       ]}
     >
@@ -171,7 +192,15 @@ export function VibeClipCard({
         {onRequestImmersive ? (
           <Pressable
             onPress={onRequestImmersive}
-            style={({ pressed }) => [styles.expandBtn, pressed && { opacity: 0.88 }]}
+            style={({ pressed }) => [
+              styles.expandBtn,
+              {
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: 'rgba(255,255,255,0.18)',
+                backgroundColor: 'rgba(0,0,0,0.48)',
+              },
+              pressed && { opacity: 0.88 },
+            ]}
             accessibilityLabel="Open clip full screen"
             hitSlop={6}
           >
@@ -291,10 +320,21 @@ export function VibeClipCard({
   );
 }
 
+export function VibeClipCard(props: Props) {
+  const [retryNonce, setRetryNonce] = useState(0);
+  return (
+    <VibeClipCardInner
+      key={`${props.meta.videoUrl}-${retryNonce}`}
+      {...props}
+      onRemountPlayer={() => setRetryNonce((n) => n + 1)}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   outer: {
     width: '100%',
-    borderRadius: 14,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -304,9 +344,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    paddingHorizontal: 8,
-    paddingTop: 6,
-    paddingBottom: 4,
+    paddingHorizontal: 6,
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   brandPill: {
     flexDirection: 'row',
@@ -352,7 +392,26 @@ const styles = StyleSheet.create({
   loadingInner: {
     alignItems: 'center',
     paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(139,92,246,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.52)',
+  },
+  clipRetryBtn: {
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(139,92,246,0.4)',
+    backgroundColor: 'rgba(139,92,246,0.12)',
+  },
+  clipRetryLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(216,180,254,0.95)',
   },
   loadingLabel: {
     color: 'rgba(255,255,255,0.92)',
@@ -369,24 +428,24 @@ const styles = StyleSheet.create({
   },
   durationBadge: {
     position: 'absolute',
-    bottom: 10,
-    right: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    bottom: 8,
+    right: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
     backgroundColor: 'rgba(17,17,24,0.78)',
   },
   durationText: {
     color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
     fontVariant: ['tabular-nums'],
   },
   sparkLine: {
-    fontSize: 12,
-    lineHeight: 16,
-    paddingHorizontal: 10,
-    paddingTop: 8,
+    fontSize: 11,
+    lineHeight: 15,
+    paddingHorizontal: 8,
+    paddingTop: 6,
     paddingBottom: 2,
     opacity: 0.92,
   },
@@ -398,17 +457,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 4,
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 3,
   },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 999,
     backgroundColor: 'rgba(139,92,246,0.10)',
     borderWidth: StyleSheet.hairlineWidth,
@@ -424,9 +483,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     flexWrap: 'wrap',
-    gap: 12,
-    paddingHorizontal: 10,
-    paddingBottom: 8,
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
     paddingTop: 2,
     justifyContent: 'flex-start',
   },

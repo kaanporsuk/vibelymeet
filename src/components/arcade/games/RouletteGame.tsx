@@ -46,16 +46,16 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
         "bg-gradient-to-br from-cyan-500/20 to-teal-600/20",
         "border border-cyan-500/30 backdrop-blur-sm",
         isExpired && "opacity-50"
       )}
     >
       {/* Header */}
-      <div className={cn("border-b border-cyan-500/20", compact ? "px-2.5 py-2" : "p-3")}>
-        <div className="flex items-center gap-2">
-          <span className={compact ? "text-lg" : "text-2xl"}>🎡</span>
+      <div className={cn("border-b border-cyan-500/20", compact ? "px-2 py-1.5" : "px-2.5 py-2")}>
+        <div className="flex items-center gap-1.5">
+          <span className={compact ? "text-base" : "text-xl"}>🎡</span>
           <div className="min-w-0">
             <h4 className="font-semibold text-sm text-foreground leading-tight">Vibe Roulette</h4>
             <p className="text-[11px] text-muted-foreground leading-snug">{headerSub}</p>
@@ -64,20 +64,20 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
       </div>
 
       {/* Question */}
-      <div className={cn("border-b border-cyan-500/20", compact ? "px-2.5 py-2" : "p-4")}>
-        <p className="text-sm font-medium text-foreground text-center italic leading-snug">
+      <div className={cn("border-b border-cyan-500/20", compact ? "px-2 py-1.5" : "px-2.5 py-2.5")}>
+        <p className="text-xs font-medium text-foreground text-center italic leading-snug">
           "{payload.data.question}"
         </p>
       </div>
 
       {/* Answers */}
-      <div className={cn(compact ? "p-2.5 space-y-2" : "p-3 space-y-3")}>
+      <div className={cn(compact ? "p-2 space-y-1.5" : "p-2.5 space-y-2")}>
         {/* Sender's Answer */}
         <div className="relative">
           <div
             className={cn(
-              "rounded-xl border",
-              compact ? "p-2" : "p-3",
+              "rounded-lg border",
+              compact ? "py-1.5 px-2" : "p-2",
               isUnlocked
                 ? "bg-neon-violet/10 border-neon-violet/30"
                 : "bg-secondary/50 border-border/50"
@@ -110,7 +110,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
           {isExpired ? (
             <p className="text-sm text-muted-foreground text-center px-2 py-2">This challenge expired</p>
           ) : isUnlocked && hasSubmitted ? (
-            <div className={cn("rounded-xl bg-neon-cyan/10 border border-neon-cyan/30", compact ? "p-2" : "p-3")}>
+            <div className={cn("rounded-lg bg-neon-cyan/10 border border-neon-cyan/30", compact ? "py-1.5 px-2" : "p-2")}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-neon-cyan font-medium">
                   {isOwn ? "Their answer" : "Your answer"}
@@ -125,10 +125,10 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
               </motion.p>
             </div>
           ) : hasSubmitted ? (
-            <div className={cn("rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-center", compact ? "p-2" : "p-3")}>
-              <Eye className="w-5 h-5 text-cyan-400 mx-auto mb-1" />
-              <p className="text-xs text-cyan-400">Your answer submitted!</p>
-              <p className="text-xs text-muted-foreground mt-1">Waiting for reveal...</p>
+            <div className={cn("rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-center", compact ? "py-1.5 px-2" : "p-2")}>
+              <Eye className="w-4 h-4 text-cyan-400 mx-auto mb-0.5" />
+              <p className="text-[11px] text-cyan-400 font-medium">Submitted</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">Waiting for reveal</p>
             </div>
           ) : !isOwn ? (
             <div className="space-y-2">
@@ -138,20 +138,20 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
                 placeholder="Answer to reveal..."
                 rows={2}
                 maxLength={500}
-                className="w-full px-3 py-2 rounded-xl text-sm bg-secondary/50 border border-border/50 focus:outline-none focus:border-cyan-500/50 resize-none placeholder:text-muted-foreground"
+                className="w-full px-2.5 py-1.5 rounded-lg text-xs bg-secondary/50 border border-border/50 focus:outline-none focus:border-cyan-500/50 resize-none placeholder:text-muted-foreground"
               />
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={!answerDraft.trim()}
-                className="w-full py-2 rounded-xl bg-cyan-500/30 hover:bg-cyan-500/40 text-cyan-400 text-sm font-medium transition-colors disabled:opacity-50"
+                className="w-full py-1.5 rounded-lg bg-cyan-500/30 hover:bg-cyan-500/40 text-cyan-400 text-xs font-medium transition-colors disabled:opacity-50"
               >
                 <Lock className="w-4 h-4 inline mr-2" />
                 Answer to Unlock
               </button>
             </div>
           ) : (
-            <div className={cn("rounded-xl bg-secondary/30 border border-border/30 text-center", compact ? "p-2" : "p-3")}>
+            <div className={cn("rounded-lg bg-secondary/30 border border-border/30 text-center", compact ? "py-1.5 px-2" : "p-2")}>
               <p className="text-xs text-muted-foreground">Waiting for their answer...</p>
             </div>
           )}

@@ -13,6 +13,7 @@ import {
   Image,
   Vibration,
   Dimensions,
+  type DimensionValue,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
@@ -26,7 +27,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
-import { LoadingState, ErrorState } from '@/components/ui';
+import { ErrorState } from '@/components/ui';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -88,6 +89,11 @@ import {
   type ChatThreadPhotoItem,
 } from '@/components/chat/ChatThreadMediaViewer';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
+import { format } from 'date-fns';
+import {
+  buildThreadPresentationRows,
+  type ThreadPresentationRow,
+} from '../../../../shared/chat/threadPresentation';
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
@@ -111,13 +117,44 @@ const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymee
 /** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;
 
+function ChatThreadSkeletonNative({ theme }: { theme: (typeof Colors)['light'] }) {
+  const rows: { align: 'flex-start' | 'flex-end'; w: DimensionValue }[] = [
+    { align: 'flex-start', w: '72%' },
+    { align: 'flex-end', w: '56%' },
+    { align: 'flex-start', w: '68%' },
+    { align: 'flex-end', w: '50%' },
+    { align: 'flex-start', w: '78%' },
+  ];
+  return (
+    <View style={styles.skeletonWrap} accessibilityLabel="Loading messages">
+      {rows.map((row, i) => (
+        <View
+          key={i}
+          style={[styles.skeletonRow, { justifyContent: row.align }]}
+        >
+          <View
+            style={[
+              styles.skeletonBar,
+              {
+                width: row.w,
+                backgroundColor: theme.muted,
+                opacity: 0.55,
+              },
+            ]}
+          />
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** Message list + chrome background (slightly lifted from pure black). */
 const CHAT_CANVAS_BG = 'hsl(240, 10%, 6%)';
 const MEDIA_CARD_SIZE = Math.max(
-  172,
-  Math.min(206, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.95))
+  158,
+  Math.min(192, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.92))
 );
-const MEDIA_CARD_MIN_WIDTH = 164;
+const MEDIA_CARD_MIN_WIDTH = 150;
 
 type LocalMediaSendPayload =
   | { kind: 'image'; uri: string; mimeType: string }
@@ -154,6 +191,47 @@ type LocalTextMeta = {
 
 type LocalTextChatMessage = ChatMessage & { localText: LocalTextMeta };
 type ThreadMessage = ChatMessage | LocalMediaChatMessage | LocalTextChatMessage;
+
+type ChatListRow = ThreadPresentationRow<ThreadMessage>;
+
+function bubbleMediaNeighbors(
+  rows: ChatListRow[],
+  at: number,
+): { prev: ThreadMessage | null; next: ThreadMessage | null } {
+  const isTimeline = (m: ThreadMessage) =>
+    m.messageKind === 'date_suggestion' ||
+    m.messageKind === 'date_suggestion_event' ||
+    m.messageKind === 'vibe_game_session';
+  let prev: ThreadMessage | null = null;
+  for (let i = at - 1; i >= 0; i--) {
+    const r = rows[i]!;
+    if (r.type !== 'message') {
+      prev = null;
+      break;
+    }
+    if (isTimeline(r.message)) {
+      prev = null;
+      break;
+    }
+    prev = r.message;
+    break;
+  }
+  let next: ThreadMessage | null = null;
+  for (let i = at + 1; i < rows.length; i++) {
+    const r = rows[i]!;
+    if (r.type !== 'message') {
+      next = null;
+      break;
+    }
+    if (isTimeline(r.message)) {
+      next = null;
+      break;
+    }
+    next = r.message;
+    break;
+  }
+  return { prev, next };
+}
 
 function isLocalMediaMessage(message: ThreadMessage): message is LocalMediaChatMessage {
   return typeof message === 'object' && message !== null && 'localMedia' in message;
@@ -288,21 +366,32 @@ function ChatImageCard({
   );
 }
 
-function ChatVideoCard({
-  uri,
-  durationSec,
-  theme,
-  isMine,
-  onRequestImmersive,
-  immersiveActive,
-}: {
+type ChatVideoCardProps = {
   uri: string;
   durationSec?: number | null;
   theme: (typeof Colors)['light'];
   isMine: boolean;
   onRequestImmersive?: () => void;
   immersiveActive?: boolean;
-}) {
+  threadVisualRecede?: boolean;
+};
+
+/** Remount inner body so expo-video player is recreated after a load error (Try again). */
+function ChatVideoCard(props: ChatVideoCardProps) {
+  const [retryNonce, setRetryNonce] = useState(0);
+  return <ChatVideoCardBody key={`${props.uri}-${retryNonce}`} {...props} onRemountPlayer={() => setRetryNonce((n) => n + 1)} />;
+}
+
+function ChatVideoCardBody({
+  uri,
+  durationSec,
+  theme,
+  isMine,
+  onRequestImmersive,
+  immersiveActive,
+  threadVisualRecede = false,
+  onRemountPlayer,
+}: ChatVideoCardProps & { onRemountPlayer: () => void }) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const player = useVideoPlayer(uri, (p) => {
@@ -328,11 +417,31 @@ function ChatVideoCard({
 
   if (hasError) {
     return (
-      <View style={[styles.chatVideoCard, styles.chatVideoError, { borderColor: theme.border }]}>
-        <Ionicons name="videocam-off-outline" size={28} color={theme.textSecondary} />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6, textAlign: 'center' }}>
-          Couldn't load video
+      <View
+        style={[
+          styles.chatVideoCard,
+          styles.chatVideoError,
+          { borderColor: 'rgba(192,132,252,0.35)', backgroundColor: 'rgba(17,17,24,0.95)' },
+        ]}
+      >
+        <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.85)" />
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+          Couldn&apos;t load video
         </Text>
+        <Pressable
+          onPress={onRemountPlayer}
+          style={({ pressed }) => [
+            { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+            {
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: 'rgba(192,132,252,0.4)',
+              backgroundColor: 'rgba(139,92,246,0.12)',
+            },
+            pressed && { opacity: 0.85 },
+          ]}
+        >
+          <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(216,180,254,0.95)' }}>Try again</Text>
+        </Pressable>
       </View>
     );
   }
@@ -349,29 +458,45 @@ function ChatVideoCard({
       style={[
         styles.chatVideoCardOuter,
         {
-          borderColor: isMine ? 'rgba(236,72,153,0.5)' : 'rgba(255,255,255,0.16)',
-          backgroundColor: isMine ? 'rgba(236,72,153,0.1)' : 'rgba(255,255,255,0.05)',
+          borderColor: isMine ? 'rgba(236,72,153,0.55)' : 'rgba(255,255,255,0.14)',
+          backgroundColor: isMine ? 'rgba(236,72,153,0.1)' : 'rgba(255,255,255,0.04)',
+          opacity: threadVisualRecede ? 0.9 : 1,
         },
       ]}
     >
+      <View style={styles.chatVideoTypeRow}>
+        <View style={styles.chatVideoTypePill}>
+          <Text style={styles.chatVideoTypeLabel}>VIDEO</Text>
+        </View>
+      </View>
       <View style={styles.chatVideoInner}>
         <VideoView style={StyleSheet.absoluteFillObject} player={player} nativeControls contentFit="cover" />
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.55)']}
+          colors={['transparent', 'rgba(0,0,0,0.6)']}
           style={styles.chatVideoBottomGradient}
           pointerEvents="none"
         />
       </View>
       {!isReady ? (
         <View style={styles.chatVideoFallback}>
-          <ActivityIndicator color="rgba(255,255,255,0.9)" size="small" />
-          <Text style={styles.chatVideoFallbackLabel}>Loading…</Text>
+          <View style={styles.chatVideoFallbackInner}>
+            <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
+            <Text style={styles.chatVideoFallbackLabel}>Preparing playback…</Text>
+          </View>
         </View>
       ) : null}
       {onRequestImmersive ? (
         <Pressable
           onPress={onRequestImmersive}
-          style={({ pressed }) => [styles.chatVideoExpandBtn, pressed && { opacity: 0.85 }]}
+          style={({ pressed }) => [
+            styles.chatVideoExpandBtn,
+            {
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: 'rgba(255,255,255,0.2)',
+              backgroundColor: 'rgba(0,0,0,0.45)',
+            },
+            pressed && { opacity: 0.88 },
+          ]}
           accessibilityLabel="Open video full screen"
           hitSlop={8}
         >
@@ -379,7 +504,7 @@ function ChatVideoCard({
         </Pressable>
       ) : null}
       {durLabel ? (
-        <View style={[styles.videoDurationBadge, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+        <View style={[styles.videoDurationBadge, { backgroundColor: 'rgba(0,0,0,0.75)', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.08)' }]}>
           <Ionicons name="time-outline" size={11} color="rgba(255,255,255,0.95)" style={{ marginRight: 4 }} />
           <Text numberOfLines={1} style={styles.videoDurationText}>
             {durLabel}
@@ -397,7 +522,9 @@ export default function ChatThreadScreen() {
   const theme = Colors[colorScheme];
   const { user } = useAuth();
   const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
+  const shellLoading = isLoading && !data;
   const { data: matches = [] } = useMatches(user?.id);
+  const matchRowEarly = otherUserId ? matches.find((m) => m.id === otherUserId) : undefined;
   const queryClient = useQueryClient();
   const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
   useRealtimeMessages({
@@ -445,9 +572,13 @@ export default function ChatThreadScreen() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [voiceReplyHint, setVoiceReplyHint] = useState(false);
-  const listRef = useRef<FlatList<ThreadMessage>>(null);
+  const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
+  const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
   const stickToBottomRef = useRef(true);
+  const lastThreadCountRef = useRef(0);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [newBelowCue, setNewBelowCue] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
@@ -487,7 +618,7 @@ export default function ChatThreadScreen() {
   );
   /** Locks composer typing: photo pipeline or voice recording. Outbox transitions must not flip this (was collapsing keyboard on Queued→Sending). */
   const composerInputLocked = sendingPhoto || recording;
-  const sendFabDisabled = !input.trim() || composerInputLocked;
+  const sendFabDisabled = shellLoading || !input.trim() || composerInputLocked;
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId<ThreadMessage>(threadMessages, {
@@ -552,7 +683,10 @@ export default function ChatThreadScreen() {
   const listOnScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    stickToBottomRef.current = dist < 100;
+    const atBottom = dist < 100;
+    stickToBottomRef.current = atBottom;
+    setAwayFromBottom(dist > 140);
+    if (atBottom) setNewBelowCue(false);
   }, []);
 
   useEffect(() => {
@@ -560,6 +694,26 @@ export default function ChatThreadScreen() {
     if (!stickToBottomRef.current) return;
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [scrollAnchorKey]);
+
+  useEffect(() => {
+    const n = displayMessages.length;
+    const prev = lastThreadCountRef.current;
+    if (n > prev && prev > 0 && awayFromBottom) {
+      setNewBelowCue(true);
+    }
+    lastThreadCountRef.current = n;
+  }, [displayMessages.length, awayFromBottom]);
+
+  useEffect(() => {
+    lastThreadCountRef.current = 0;
+    setNewBelowCue(false);
+    setAwayFromBottom(false);
+    stickToBottomRef.current = true;
+  }, [otherUserId]);
+
+  useEffect(() => {
+    setExpandedPendingClusterKey(null);
+  }, [otherUserId]);
 
   useEffect(() => {
     if (!showVibeClipSendSheet) return;
@@ -601,6 +755,34 @@ export default function ChatThreadScreen() {
     }
     return map;
   }, [dateSuggestions]);
+
+  const lastClipOrVideoIndex = useMemo(() => {
+    let last = -1;
+    displayMessages.forEach((m, i) => {
+      const k = inferChatMediaRenderKind({
+        content: m.text,
+        audioUrl: m.audio_url,
+        videoUrl: m.video_url,
+        messageKind: m.messageKind,
+      });
+      if (k === 'vibe_clip' || k === 'video') last = i;
+    });
+    return last;
+  }, [displayMessages]);
+
+  const chatFlatRows = useMemo(
+    () =>
+      buildThreadPresentationRows(displayMessages, {
+        isDateTimeline: (m) =>
+          m.messageKind === 'date_suggestion' || m.messageKind === 'date_suggestion_event',
+        getRefId: (m) => m.refId ?? null,
+        suggestionStatus: (refId) => suggestionById.get(refId)?.status,
+        isPendingGame: (m) =>
+          m.messageKind === 'vibe_game_session' && m.gameSessionView?.status === 'active',
+        expandedPendingKey: expandedPendingClusterKey,
+      }),
+    [displayMessages, suggestionById, expandedPendingClusterKey],
+  );
 
   const openDateComposer = useCallback(
     (opts: {
@@ -704,7 +886,7 @@ export default function ChatThreadScreen() {
     toggleMute,
     toggleVideo,
   } = useMatchCall({
-    matchId: data?.matchId ?? null,
+    matchId: data?.matchId ?? matchRowEarly?.matchId ?? null,
     currentUserId: user?.id ?? null,
   });
 
@@ -730,7 +912,14 @@ export default function ChatThreadScreen() {
   const matchForActions =
     data?.matchId && otherUserId
       ? { matchId: data.matchId, id: otherUserId, name: otherName, archived_at: currentMatchRow?.archived_at ?? null }
-      : null;
+      : shellLoading && matchRowEarly && otherUserId
+        ? {
+            matchId: matchRowEarly.matchId,
+            id: otherUserId,
+            name: otherName,
+            archived_at: matchRowEarly.archived_at ?? null,
+          }
+        : null;
 
   const handleSend = () => {
     const text = input.trim();
@@ -1200,18 +1389,7 @@ export default function ChatThreadScreen() {
     );
   }
 
-  if (isLoading && !data) {
-    return (
-      <>
-        <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <LoadingState title="Loading conversation…" />
-        </View>
-        {appDialog}
-      </>
-    );
-  }
-
-  if (error || !data) {
+  if (!isLoading && (error || !data)) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -1227,7 +1405,7 @@ export default function ChatThreadScreen() {
     );
   }
 
-  if (!data.matchId) {
+  if (!isLoading && data && !data.matchId) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -1245,9 +1423,13 @@ export default function ChatThreadScreen() {
 
   const otherUser = data?.otherUser ?? null;
   const otherAvatarUri = otherUser
-    ? (otherUser.photos?.[0] ?? otherUser.avatar_url) ? avatarUrl(otherUser.photos?.[0] ?? otherUser.avatar_url ?? null) : null
+    ? (otherUser.photos?.[0] ?? otherUser.avatar_url)
+      ? avatarUrl(otherUser.photos?.[0] ?? otherUser.avatar_url ?? null)
+      : null
     : otherUserId
-      ? (matches.find((m) => m.id === otherUserId)?.image ?? null)
+      ? matchRowEarly?.image
+        ? avatarUrl(matchRowEarly.image)
+        : null
       : null;
   const lastSeenAt = otherUser?.last_seen_at ? new Date(otherUser.last_seen_at).getTime() : null;
   const activityLine = getChatPartnerActivityLine({
@@ -1255,11 +1437,28 @@ export default function ChatThreadScreen() {
     lastSeenAtMs: lastSeenAt,
   });
 
+  const threadAnchorSubtitle = useMemo(() => {
+    const first = data?.messages?.[0];
+    if (first?.sortAtMs == null) return null;
+    try {
+      return `Chat since ${format(new Date(first.sortAtMs), 'MMM yyyy')}`;
+    } catch {
+      return null;
+    }
+  }, [data?.messages]);
+
   const composerMediaError = voiceError || videoError;
   const suppressComposerMediaError =
     !!composerMediaError && isOffline && isLikelyNetworkFailure({ message: composerMediaError });
 
-  const renderBubbleContent = (item: ThreadMessage, textColor: string, timeColor: string, isMe: boolean) => {
+  const renderBubbleContent = (
+    item: ThreadMessage,
+    textColor: string,
+    timeColor: string,
+    isMe: boolean,
+    opts?: { threadVisualRecede?: boolean },
+  ) => {
+    const threadVisualRecede = opts?.threadVisualRecede ?? false;
     const pair = reactionByMessageId.get(item.id) ?? { mine: null, partner: null };
     const reaction =
       pair.mine || pair.partner
@@ -1369,6 +1568,7 @@ export default function ChatThreadScreen() {
                 setVideoViewer({ uri: clipMeta.videoUrl, poster: clipMeta.thumbnailUrl ?? null })
               }
               immersiveActive={videoViewer?.uri === clipMeta.videoUrl}
+              threadVisualRecede={threadVisualRecede}
             />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1389,6 +1589,7 @@ export default function ChatThreadScreen() {
             isMine={isMe}
             onRequestImmersive={() => setVideoViewer({ uri: videoUri })}
             immersiveActive={videoViewer?.uri === videoUri}
+            threadVisualRecede={threadVisualRecede}
           />
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1431,18 +1632,56 @@ export default function ChatThreadScreen() {
   const otherAge =
     otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0;
 
-  const renderItem: ListRenderItem<ThreadMessage> = ({ item, index }) => {
+  const renderItem: ListRenderItem<ChatListRow> = ({ item, index }) => {
+    if (item.type === 'pending_games_summary') {
+      return (
+        <View style={{ marginBottom: spacing.sm, alignItems: 'center', paddingHorizontal: 8 }}>
+          <Pressable
+            onPress={() => setExpandedPendingClusterKey(item.clusterKey)}
+            style={({ pressed }) => [
+              {
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+                backgroundColor: theme.surfaceSubtle,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+                borderRadius: 999,
+              },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={{ color: theme.textSecondary, fontSize: 11, fontWeight: '600' }}>
+              {item.hidden.length} earlier open game{item.hidden.length === 1 ? '' : 's'} · Show
+            </Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (item.type === 'pending_games_collapse') {
+      return (
+        <View style={{ marginBottom: spacing.xs, alignItems: 'center' }}>
+          <Pressable onPress={() => setExpandedPendingClusterKey(null)}>
+            <Text style={{ color: theme.textSecondary, fontSize: 11, textDecorationLine: 'underline' }}>
+              Collapse earlier games
+            </Text>
+          </Pressable>
+        </View>
+      );
+    }
+
+    const msg = item.message;
+
     const isDateTimeline =
-      item.messageKind === 'date_suggestion' || item.messageKind === 'date_suggestion_event';
-    if (isDateTimeline && !item.refId) {
+      msg.messageKind === 'date_suggestion' || msg.messageKind === 'date_suggestion_event';
+    if (isDateTimeline && !msg.refId) {
       return (
         <View style={{ marginBottom: spacing.md }}>
           <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Date suggestion (syncing…)</Text>
         </View>
       );
     }
-    if (isDateTimeline && item.refId) {
-      const sug = suggestionById.get(item.refId);
+    if (isDateTimeline && msg.refId) {
+      const sug = suggestionById.get(msg.refId);
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           {sug ? (
@@ -1453,6 +1692,7 @@ export default function ChatThreadScreen() {
               partnerUserId={otherUserId ?? ''}
               onOpenComposer={openDateComposer}
               onUpdated={onDateSuggestionUpdated}
+              threadUi={item.dateUi}
             />
           ) : (
             <Text style={{ color: theme.textSecondary, fontSize: 13, paddingVertical: 8 }}>
@@ -1463,39 +1703,46 @@ export default function ChatThreadScreen() {
       );
     }
 
-    // Full-width timeline card (same outer container semantics as date suggestion rows — not a left/right chat bubble).
-    if (item.messageKind === 'vibe_game_session' && item.gameSessionView && threadInvalidateScope) {
+    if (msg.messageKind === 'vibe_game_session' && msg.gameSessionView && threadInvalidateScope) {
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           <GameSessionBubble
-            view={item.gameSessionView}
+            view={msg.gameSessionView}
             matchId={data?.matchId ?? ''}
             currentUserId={user?.id ?? ''}
             partnerName={otherName ?? 'Them'}
-            timeLabel={item.time}
+            timeLabel={msg.time}
             invalidateScope={threadInvalidateScope}
           />
         </View>
       );
     }
 
-    const isMe = item.sender === 'me';
-    const messages = displayMessages;
-    const next = index < messages.length - 1 ? messages[index + 1] : null;
-    const prev = index > 0 ? messages[index - 1] : null;
-    const isLastInGroup = !next || next.sender !== item.sender;
+    const isMe = msg.sender === 'me';
+    const { prev, next } = bubbleMediaNeighbors(chatFlatRows, index);
+    const isLastInGroup = !next || next.sender !== msg.sender;
     const mediaKind = inferChatMediaRenderKind({
-      content: item.text,
-      audioUrl: item.audio_url,
-      videoUrl: item.video_url,
-      messageKind: item.messageKind,
+      content: msg.text,
+      audioUrl: msg.audio_url,
+      videoUrl: msg.video_url,
+      messageKind: msg.messageKind,
     });
     const isMediaBubble = mediaKind === 'video' || mediaKind === 'image' || mediaKind === 'vibe_clip';
     const prevKind = prev
-      ? inferChatMediaRenderKind({ content: prev.text, audioUrl: prev.audio_url, videoUrl: prev.video_url, messageKind: prev.messageKind })
+      ? inferChatMediaRenderKind({
+          content: prev.text,
+          audioUrl: prev.audio_url,
+          videoUrl: prev.video_url,
+          messageKind: prev.messageKind,
+        })
       : 'text';
     const nextKind = next
-      ? inferChatMediaRenderKind({ content: next.text, audioUrl: next.audio_url, videoUrl: next.video_url, messageKind: next.messageKind })
+      ? inferChatMediaRenderKind({
+          content: next.text,
+          audioUrl: next.audio_url,
+          videoUrl: next.video_url,
+          messageKind: next.messageKind,
+        })
       : 'text';
     const prevIsMedia = prevKind === 'video' || prevKind === 'image' || prevKind === 'vibe_clip';
     const nextIsMedia = nextKind === 'video' || nextKind === 'image' || nextKind === 'vibe_clip';
@@ -1508,7 +1755,12 @@ export default function ChatThreadScreen() {
           : 2;
     const textColor = isMe ? theme.primaryForeground : theme.text;
     const timeColor = isMe ? 'rgba(255,255,255,0.85)' : theme.textSecondary;
-    const content = renderBubbleContent(item, textColor, timeColor, isMe);
+    const threadIdx = displayMessages.findIndex((m) => m.id === msg.id);
+    const mediaRecede =
+      threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
+    const content = renderBubbleContent(msg, textColor, timeColor, isMe, {
+      threadVisualRecede: mediaRecede,
+    });
     const bubbleRadiusMe = {
       borderTopLeftRadius: 18,
       borderTopRightRadius: 18,
@@ -1551,7 +1803,7 @@ export default function ChatThreadScreen() {
       <Pressable
         onLongPress={() => {
           Vibration.vibrate(30);
-          setReactionPickerMessageId(item.id);
+          setReactionPickerMessageId(msg.id);
         }}
         delayLongPress={400}
         style={({ pressed }) => [
@@ -1631,7 +1883,15 @@ export default function ChatThreadScreen() {
                     <Text style={[styles.headerSubtitle, { color: activityColor }]} numberOfLines={1}>
                       {activityLine.text}
                     </Text>
-                  ) : null}
+                  ) : threadAnchorSubtitle ? (
+                    <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
+                      {threadAnchorSubtitle}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.headerSubtitle, { color: theme.textSecondary, opacity: 0.75 }]} numberOfLines={1}>
+                      Private chat
+                    </Text>
+                  )}
                 </View>
               </View>
             </Pressable>
@@ -1647,7 +1907,7 @@ export default function ChatThreadScreen() {
                     });
                     return;
                   }
-                  if (data?.matchId) startCall('voice');
+                  if (data?.matchId ?? matchRowEarly?.matchId) startCall('voice');
                 }}
                 style={({ pressed }) => [
                   styles.headerIconBtn,
@@ -1669,7 +1929,7 @@ export default function ChatThreadScreen() {
                     });
                     return;
                   }
-                  if (data?.matchId) startCall('video');
+                  if (data?.matchId ?? matchRowEarly?.matchId) startCall('video');
                 }}
                 style={({ pressed }) => [
                   styles.headerIconBtn,
@@ -1853,11 +2113,18 @@ export default function ChatThreadScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
+        <View style={styles.listAndJumpWrap}>
         <FlatList
           ref={listRef}
-          data={displayMessages}
+          data={chatFlatRows}
           renderItem={renderItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(row) =>
+            row.type === 'pending_games_summary'
+              ? `ps-${row.clusterKey}`
+              : row.type === 'pending_games_collapse'
+                ? `pc-${row.clusterKey}`
+                : row.message.id
+          }
           style={styles.messageList}
           keyboardShouldPersistTaps="handled"
           onScroll={listOnScroll}
@@ -1867,13 +2134,17 @@ export default function ChatThreadScreen() {
             displayMessages.length === 0 ? styles.listContentEmpty : null,
           ]}
           ListEmptyComponent={
-            <View style={styles.waveEmptyWrap}>
-              <Text style={styles.waveEmptyEmoji}>👋</Text>
-              <Text style={[styles.waveEmptyTitle, { color: theme.text }]}>{"It's a match!"}</Text>
-              <Text style={[styles.waveEmptySub, { color: theme.textSecondary }]}>
-                Send a wave to start the conversation
-              </Text>
-            </View>
+            shellLoading ? (
+              <ChatThreadSkeletonNative theme={theme} />
+            ) : (
+              <View style={styles.waveEmptyWrap}>
+                <Text style={styles.waveEmptyEmoji}>👋</Text>
+                <Text style={[styles.waveEmptyTitle, { color: theme.text }]}>{"It's a match!"}</Text>
+                <Text style={[styles.waveEmptySub, { color: theme.textSecondary }]}>
+                  Send a wave to start the conversation
+                </Text>
+              </View>
+            )
           }
           ListFooterComponent={
             partnerTyping ? (
@@ -1883,12 +2154,46 @@ export default function ChatThreadScreen() {
             ) : null
           }
         />
+        {!shellLoading && awayFromBottom && displayMessages.length > 0 ? (
+          <View style={styles.jumpLatestWrap} pointerEvents="box-none">
+            <Pressable
+              onPress={() => {
+                stickToBottomRef.current = true;
+                setAwayFromBottom(false);
+                setNewBelowCue(false);
+                requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+              }}
+              style={({ pressed }) => [
+                styles.jumpLatestPill,
+                {
+                  backgroundColor: 'rgba(12,12,18,0.92)',
+                  borderColor: 'rgba(255,255,255,0.12)',
+                  opacity: pressed ? 0.88 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={newBelowCue ? 'Jump to new messages' : 'Jump to latest'}
+            >
+              <Ionicons name="chevron-down" size={14} color="rgba(255,255,255,0.88)" />
+              <Text style={styles.jumpLatestText}>{newBelowCue ? 'New below' : 'Latest'}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        </View>
         <View style={[styles.contextualRow, { borderTopColor: 'rgba(255,255,255,0.06)', backgroundColor: CHAT_CANVAS_BG }]}>
           <Pressable
-            onPress={() => openDateComposer({ mode: 'new' })}
+            onPress={() => {
+              if (shellLoading) return;
+              openDateComposer({ mode: 'new' });
+            }}
+            disabled={shellLoading}
             style={({ pressed }) => [
               styles.contextChip,
-              { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                opacity: shellLoading ? 0.45 : pressed ? 0.9 : 1,
+              },
             ]}
             accessibilityRole="button"
             accessibilityLabel="Suggest a date"
@@ -1897,10 +2202,18 @@ export default function ChatThreadScreen() {
             <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Date</Text>
           </Pressable>
           <Pressable
-            onPress={() => openGamesEntry()}
+            onPress={() => {
+              if (shellLoading) return;
+              openGamesEntry();
+            }}
+            disabled={shellLoading}
             style={({ pressed }) => [
               styles.contextChip,
-              { backgroundColor: theme.surface, borderColor: theme.border, opacity: pressed ? 0.9 : 1 },
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                opacity: shellLoading ? 0.45 : pressed ? 0.9 : 1,
+              },
             ]}
             accessibilityRole="button"
             accessibilityLabel="Games"
@@ -1937,7 +2250,7 @@ export default function ChatThreadScreen() {
             <Pressable
               style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
               onPress={() => openPhotoOptions()}
-              disabled={composerInputLocked}
+              disabled={shellLoading || composerInputLocked}
               accessibilityLabel="Photo"
             >
               {sendingPhoto ? (
@@ -1949,7 +2262,7 @@ export default function ChatThreadScreen() {
             <Pressable
               style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
               onPress={() => openVideoMessageOptions()}
-              disabled={composerInputLocked}
+              disabled={shellLoading || composerInputLocked}
               accessibilityLabel="Vibe Clip — record or choose a clip"
             >
               {sendingVideo ? (
@@ -1963,19 +2276,20 @@ export default function ChatThreadScreen() {
               style={[
                 styles.inputDock,
                 {
-                  borderColor: 'rgba(255,255,255,0.08)',
+                  borderColor: 'rgba(255,255,255,0.1)',
                   color: theme.text,
                   backgroundColor: theme.surface,
+                  opacity: shellLoading ? 0.55 : 1,
                 },
               ]}
-              placeholder="Message…"
+              placeholder={shellLoading ? 'Loading…' : 'Message'}
               placeholderTextColor={theme.textSecondary}
               value={input}
               onChangeText={handleInputChange}
               multiline
               blurOnSubmit={false}
               maxLength={2000}
-              editable={!composerInputLocked}
+              editable={!shellLoading && !composerInputLocked}
             />
             <Pressable
               style={[
@@ -1990,7 +2304,7 @@ export default function ChatThreadScreen() {
                 voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
               ]}
               onPress={handleVoicePress}
-              disabled={composerInputLocked && !recording}
+              disabled={(shellLoading || composerInputLocked) && !recording}
               accessibilityLabel="Voice message"
             >
               {sendingVoice ? (
@@ -2232,7 +2546,29 @@ const styles = StyleSheet.create({
   voiceMetaRowMine: { justifyContent: 'flex-end' },
   voiceReactionBadge: { fontSize: 14, flexShrink: 0 },
   keyboard: { flex: 1 },
+  listAndJumpWrap: { flex: 1, position: 'relative' },
   messageList: { flex: 1 },
+  jumpLatestWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 10,
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  jumpLatestPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  jumpLatestText: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '600' },
+  skeletonWrap: { paddingTop: 8, paddingBottom: 24, width: '100%', gap: 10 },
+  skeletonRow: { width: '100%', flexDirection: 'row', paddingHorizontal: 0 },
+  skeletonBar: { height: 38, borderRadius: 16 },
   list: {
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm + 2,
@@ -2272,15 +2608,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   mediaBubbleTight: {
-    paddingHorizontal: 7,
-    paddingVertical: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
   },
   bubbleThemInner: {
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: 8,
   },
-  bubbleText: { fontSize: 15, lineHeight: 20 },
+  bubbleText: { fontSize: 14, lineHeight: 19 },
   bubbleTime: { fontSize: 10, marginTop: 6, opacity: 0.85 },
   localSendRow: {
     marginTop: 6,
@@ -2393,6 +2729,22 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
+  chatVideoTypeRow: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 4 },
+  chatVideoTypePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  chatVideoTypeLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    color: 'rgba(255,255,255,0.5)',
+  },
   chatVideoInner: { width: '100%', aspectRatio: 9 / 16, position: 'relative' },
   chatVideoBottomGradient: {
     position: 'absolute',
@@ -2407,10 +2759,20 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(8,8,14,0.55)',
-    gap: 8,
+    backgroundColor: 'rgba(8,8,14,0.5)',
   },
-  chatVideoFallbackLabel: { color: 'rgba(255,255,255,0.86)', fontSize: 12, fontWeight: '600' },
+  chatVideoFallbackInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(192,132,252,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  chatVideoFallbackLabel: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
   chatVideoExpandBtn: {
     position: 'absolute',
     top: 8,
@@ -2422,16 +2784,16 @@ const styles = StyleSheet.create({
   },
   videoDurationBadge: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
+    bottom: 6,
+    right: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    maxWidth: '80%',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    maxWidth: '78%',
   },
-  videoDurationText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  videoDurationText: { color: '#fff', fontSize: 10, fontWeight: '600' },
   chatImageOuter: {
     borderRadius: 14,
     overflow: 'hidden',

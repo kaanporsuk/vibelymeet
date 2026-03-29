@@ -7,6 +7,7 @@ import {
   Dimensions,
   StyleSheet,
   Text,
+  ActivityIndicator,
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -206,10 +207,55 @@ function VideoViewerBody({
   posterUri?: string | null;
   onClose: () => void;
 }) {
+  const [retryKey, setRetryKey] = useState(0);
+  return (
+    <VideoViewerStage
+      key={`${uri}-${retryKey}`}
+      uri={uri}
+      posterUri={posterUri}
+      onClose={onClose}
+      onRemountPlayer={() => setRetryKey((k) => k + 1)}
+    />
+  );
+}
+
+/**
+ * Isolated stage so `useVideoPlayer` + cleanup run per mount — preserves safeVideoPlayerCall teardown
+ * and allows Try again to recreate the player after errors.
+ */
+function VideoViewerStage({
+  uri,
+  posterUri,
+  onClose,
+  onRemountPlayer,
+}: {
+  uri: string;
+  posterUri?: string | null;
+  onClose: () => void;
+  onRemountPlayer: () => void;
+}) {
   const insets = useSafeAreaInsets();
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+
   const player = useVideoPlayer(uri, (p) => {
     p.loop = false;
   });
+
+  useEffect(() => {
+    const sub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'error') {
+        setPhase('error');
+        return;
+      }
+      if (payload.status === 'readyToPlay') {
+        setPhase('ready');
+      }
+      if (payload.status === 'loading') {
+        setPhase('loading');
+      }
+    });
+    return () => sub.remove();
+  }, [player]);
 
   useEffect(() => {
     safeVideoPlayerCall(() => {
@@ -224,26 +270,59 @@ function VideoViewerBody({
 
   return (
     <View style={styles.videoRoot}>
-      <Pressable
-        onPress={onClose}
-        style={[styles.videoClose, { top: insets.top + 8, right: 16 }]}
-        hitSlop={12}
-        accessibilityLabel="Close video"
-      >
-        <Ionicons name="close" size={28} color="rgba(255,255,255,0.95)" />
-      </Pressable>
-      {posterUri ? (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-          <Image
-            source={{ uri: posterUri }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="contain"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-          />
+      <View style={[styles.videoTopBar, { paddingTop: insets.top + 10, paddingHorizontal: 16 }]}>
+        <Text style={styles.videoStageTitle}>VIDEO</Text>
+        <Pressable
+          onPress={onClose}
+          hitSlop={12}
+          accessibilityLabel="Close video"
+          style={({ pressed }) => [styles.videoClose, pressed && { opacity: 0.8 }]}
+        >
+          <Ionicons name="close" size={26} color="rgba(255,255,255,0.95)" />
+        </Pressable>
+      </View>
+
+      <View style={styles.videoStageWrap}>
+        <View style={[styles.videoFrame, { marginBottom: Math.max(12, insets.bottom + 8) }]}>
+          {posterUri && phase === 'loading' ? (
+            <Image
+              source={{ uri: posterUri }}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="contain"
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
+          ) : null}
+
+          <VideoView style={styles.videoView} player={player} nativeControls contentFit="contain" />
+
+          {phase === 'loading' ? (
+            <View style={styles.videoLoadingOverlay} pointerEvents="none">
+              <View style={styles.videoLoadingPill}>
+                <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
+                <Text style={styles.videoLoadingText}>Preparing playback…</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {phase === 'error' ? (
+            <View style={styles.videoErrorOverlay}>
+              <Ionicons name="alert-circle-outline" size={40} color="rgba(196,181,253,0.9)" />
+              <Text style={styles.videoErrorText}>Couldn&apos;t play this video.</Text>
+              <Pressable
+                onPress={onRemountPlayer}
+                style={({ pressed }) => [styles.videoRetryBtn, pressed && { opacity: 0.88 }]}
+              >
+                <Text style={styles.videoRetryLabel}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
-      ) : null}
-      <VideoView style={styles.videoView} player={player} nativeControls contentFit="contain" />
+
+        <Text style={[styles.videoStageHint, { paddingBottom: Math.max(10, insets.bottom) }]}>
+          System controls below · fullscreen
+        </Text>
+      </View>
     </View>
   );
 }
@@ -319,15 +398,99 @@ const styles = StyleSheet.create({
   },
   videoRoot: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#030308',
+  },
+  videoTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 30,
+  },
+  videoStageTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: 'rgba(216,180,254,0.85)',
+  },
+  videoStageWrap: {
+    flex: 1,
     justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  videoFrame: {
+    flex: 1,
+    maxHeight: Dimensions.get('window').height * 0.78,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(168,85,247,0.28)',
+    backgroundColor: '#000',
+  },
+  videoLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    zIndex: 8,
+  },
+  videoLoadingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(192,132,252,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  videoLoadingText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  videoErrorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(3,3,8,0.92)',
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  videoErrorText: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  videoRetryBtn: {
+    marginTop: 4,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(192,132,252,0.45)',
+    backgroundColor: 'rgba(139,92,246,0.15)',
+  },
+  videoRetryLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(233,213,255,0.95)',
+  },
+  videoStageHint: {
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.32)',
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 8,
   },
   videoClose: {
-    position: 'absolute',
-    zIndex: 20,
-    padding: 8,
+    padding: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   videoView: {
     flex: 1,

@@ -17,11 +17,13 @@ import {
   CalendarDays,
   CalendarPlus,
   Gamepad2,
+  ChevronDown,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader, type ChatHeaderActivityLine } from "@/components/chat/ChatHeader";
+import { ChatThreadSkeleton } from "@/components/chat/ChatThreadSkeleton";
 import VoiceRecorder from "@/components/chat/VoiceRecorder";
 import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
@@ -81,6 +83,8 @@ import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
+import { format } from "date-fns";
+import { buildThreadPresentationRows } from "../../shared/chat/threadPresentation";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -144,6 +148,7 @@ function VibeClipMessageRow({
   threadMessageCount,
   immersiveVideoUrl,
   onRequestImmersiveVideo,
+  threadVisualRecede,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -154,6 +159,7 @@ function VibeClipMessageRow({
   threadMessageCount: number;
   immersiveVideoUrl: string | null;
   onRequestImmersiveVideo: (url: string, posterUrl?: string | null) => void;
+  threadVisualRecede?: boolean;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -191,6 +197,7 @@ function VibeClipMessageRow({
             reactionPair={message.reactionPair}
             onRequestImmersive={() => onRequestImmersiveVideo(clipMeta.videoUrl, clipMeta.thumbnailUrl ?? null)}
             immersiveActive={immersiveVideoUrl === clipMeta.videoUrl}
+            threadVisualRecede={threadVisualRecede}
           />
         ) : (
           <VideoMessageBubble
@@ -201,6 +208,7 @@ function VibeClipMessageRow({
               message.videoUrl ? () => onRequestImmersiveVideo(message.videoUrl!, null) : undefined
             }
             immersiveActive={!!message.videoUrl && immersiveVideoUrl === message.videoUrl}
+            threadVisualRecede={threadVisualRecede}
           />
         )}
         {message.isLastInGroup && (
@@ -253,9 +261,13 @@ const Chat = () => {
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
   const [photoLightboxInitialId, setPhotoLightboxInitialId] = useState<string | null>(null);
   const [videoLightbox, setVideoLightbox] = useState<{ url: string; posterUrl?: string | null } | null>(null);
+  const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const lastThreadCountRef = useRef(0);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [newBelowCue, setNewBelowCue] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
@@ -652,6 +664,9 @@ const Chat = () => {
   );
 
   const scrollToBottom = useCallback(() => {
+    stickToBottomRef.current = true;
+    setAwayFromBottom(false);
+    setNewBelowCue(false);
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
 
@@ -660,7 +675,10 @@ const Chat = () => {
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    stickToBottomRef.current = distanceFromBottom < 120;
+    const atBottom = distanceFromBottom < 120;
+    stickToBottomRef.current = atBottom;
+    setAwayFromBottom(distanceFromBottom > 140);
+    if (atBottom) setNewBelowCue(false);
   }, []);
 
   useEffect(() => {
@@ -669,27 +687,89 @@ const Chat = () => {
     setShowDateSuggestion(hasKeyword && newMessage.length > 3);
   }, [newMessage]);
 
-  const groupedMessages = useMemo(() => {
-    return displayMessages.map((message, index) => {
-      const prevMessage = displayMessages[index - 1];
-      const nextMessage = displayMessages[index + 1];
-      const isFirstInGroup = !prevMessage || prevMessage.sender !== message.sender;
-      const isLastInGroup = !nextMessage || nextMessage.sender !== message.sender;
-      const showAvatar = isLastInGroup && message.sender === "them";
+  const threadAnchorLabel = useMemo(() => {
+    const first = chatData?.messages?.[0];
+    if (!first?.createdAt) return null;
+    try {
+      return `Chat since ${format(new Date(first.createdAt), "MMM yyyy")}`;
+    } catch {
+      return null;
+    }
+  }, [chatData?.messages]);
 
-      return {
-        ...message,
-        isFirstInGroup,
-        isLastInGroup,
-        showAvatar,
-      };
+  const lastClipOrVideoIndex = useMemo(() => {
+    let last = -1;
+    displayMessages.forEach((m, i) => {
+      if (m.type === "vibe_clip" || m.type === "video") last = i;
     });
+    return last;
   }, [displayMessages]);
+
+  const threadRows = useMemo(
+    () =>
+      buildThreadPresentationRows(displayMessages, {
+        isDateTimeline: (m) =>
+          m.type === "date-suggestion" || m.type === "date-suggestion-event",
+        getRefId: (m) => m.refId ?? null,
+        suggestionStatus: (refId) => suggestionById.get(refId)?.status,
+        isPendingGame: (m) =>
+          m.type === "vibe-game-session" && m.gameSessionView?.status === "active",
+        expandedPendingKey: expandedPendingClusterKey,
+      }),
+    [displayMessages, suggestionById, expandedPendingClusterKey],
+  );
+
+  const rowsWithLayout = useMemo(() => {
+    return threadRows.map((row, index) => {
+      if (row.type === "pending_games_summary" || row.type === "pending_games_collapse") {
+        return { row, isFirstInGroup: true, isLastInGroup: true, showAvatar: false };
+      }
+      const prev = index > 0 ? threadRows[index - 1] : null;
+      const next = index < threadRows.length - 1 ? threadRows[index + 1] : null;
+      const prevS =
+        prev?.type === "message"
+          ? prev.message.sender
+          : prev?.type === "pending_games_summary"
+            ? prev.primary.sender
+            : null;
+      const nextS =
+        next?.type === "message"
+          ? next.message.sender
+          : next?.type === "pending_games_summary"
+            ? next.primary.sender
+            : null;
+      const m = row.message;
+      const isFirstInGroup = prevS === null || prevS !== m.sender;
+      const isLastInGroup = nextS === null || nextS !== m.sender;
+      const showAvatar = isLastInGroup && m.sender === "them";
+      return { row, isFirstInGroup, isLastInGroup, showAvatar };
+    });
+  }, [threadRows]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     scrollToBottom();
-  }, [groupedMessages, scrollToBottom]);
+  }, [rowsWithLayout, scrollToBottom]);
+
+  useEffect(() => {
+    const n = displayMessages.length;
+    const prev = lastThreadCountRef.current;
+    if (n > prev && prev > 0 && awayFromBottom) {
+      setNewBelowCue(true);
+    }
+    lastThreadCountRef.current = n;
+  }, [displayMessages.length, awayFromBottom]);
+
+  useEffect(() => {
+    lastThreadCountRef.current = 0;
+    setNewBelowCue(false);
+    setAwayFromBottom(false);
+    stickToBottomRef.current = true;
+  }, [id]);
+
+  useEffect(() => {
+    setExpandedPendingClusterKey(null);
+  }, [id]);
 
   const threadInvalidateScope = useMemo(
     () =>
@@ -1116,6 +1196,7 @@ const Chat = () => {
         user={otherUser}
         partnerTyping={partnerTyping}
         headerActivity={headerActivity}
+        threadAnchorLabel={threadAnchorLabel}
         matchId={chatData?.matchId || undefined}
         onBack={() => navigate("/matches")}
         onVideoCall={(type) => {
@@ -1128,16 +1209,17 @@ const Chat = () => {
         onFocusInput={() => inputRef.current?.focus()}
       />
 
+      <div className="flex-1 flex flex-col min-h-0 relative z-10">
       <main
         ref={(el) => {
           mainScrollRef.current = el;
         }}
         onScroll={onMainScroll}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 relative z-10"
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0"
       >
         {isLoadingChat ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div className="min-h-[min(100%,28rem)] flex flex-col">
+            <ChatThreadSkeleton className="flex-1" />
           </div>
         ) : displayMessages.length === 0 ? (
           <motion.div
@@ -1179,25 +1261,61 @@ const Chat = () => {
           </motion.div>
         ) : (
           <>
-            {groupedMessages.map((message) =>
-              message.type === "date-suggestion" || message.type === "date-suggestion-event" ? (
+            {rowsWithLayout.map(({ row, isFirstInGroup, isLastInGroup, showAvatar }) => {
+              if (row.type === "pending_games_summary") {
+                return (
+                  <div
+                    key={row.clusterKey}
+                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-2.5" : "mt-0.5")}
+                  >
+                    <button
+                      type="button"
+                      className="rounded-full border border-border/30 bg-muted/20 px-3 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/35 transition-colors"
+                      onClick={() => setExpandedPendingClusterKey(row.clusterKey)}
+                    >
+                      {row.hidden.length} earlier open game{row.hidden.length === 1 ? "" : "s"} · Show
+                    </button>
+                  </div>
+                );
+              }
+              if (row.type === "pending_games_collapse") {
+                return (
+                  <div key={`cg-${row.clusterKey}`} className="flex justify-center w-full mt-2 mb-0.5">
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={() => setExpandedPendingClusterKey(null)}
+                    >
+                      Collapse earlier games
+                    </button>
+                  </div>
+                );
+              }
+              const message = row.message;
+              const groupedMessage = { ...message, isFirstInGroup, isLastInGroup, showAvatar };
+              const threadIdx = displayMessages.findIndex((m) => m.id === message.id);
+              const mediaRecede =
+                threadIdx >= 0 && lastClipOrVideoIndex >= 0 && threadIdx < lastClipOrVideoIndex;
+
+              return groupedMessage.type === "date-suggestion" || groupedMessage.type === "date-suggestion-event" ? (
                 <div
-                  key={message.id}
+                  key={groupedMessage.id}
                   className={cn(
                     "flex",
-                    message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
-                  <div className="max-w-[min(92%,28rem)] w-full">
-                    {message.refId && suggestionById.get(message.refId) ? (
+                  <div className="max-w-[min(92%,252px)] w-full">
+                    {groupedMessage.refId && suggestionById.get(groupedMessage.refId) ? (
                       <DateSuggestionCard
-                        suggestion={suggestionById.get(message.refId)!}
+                        suggestion={suggestionById.get(groupedMessage.refId)!}
                         currentUserId={currentUserId}
                         partnerName={otherUser.name}
                         partnerUserId={chatData?.otherUser?.id ?? id ?? ""}
                         onOpenComposer={handleOpenDateComposer}
                         onUpdated={onDateSuggestionUpdated}
+                        threadUi={row.dateUi}
                       />
                     ) : (
                       <div className="rounded-2xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
@@ -1206,44 +1324,49 @@ const Chat = () => {
                     )}
                   </div>
                 </div>
-              ) : message.type === "vibe-game-session" && message.gameSessionView ? (
+              ) : groupedMessage.type === "vibe-game-session" && groupedMessage.gameSessionView ? (
                 <div
-                  key={message.id}
+                  key={groupedMessage.id}
                   className={cn(
                     "flex",
-                    message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
-                  <div className="max-w-[75%] overflow-hidden">
+                  <div
+                    className={cn(
+                      "max-w-[min(92%,252px)] w-full overflow-hidden transition-opacity duration-200",
+                      groupedMessage.gameSessionView.status === "complete" && "opacity-[0.9] saturate-[0.92]",
+                    )}
+                  >
                     {(() => {
-                      const payload = webGamePayloadFromSessionView(message.gameSessionView);
+                      const payload = webGamePayloadFromSessionView(groupedMessage.gameSessionView);
                       if (!payload) return null;
                       const hydratedGameMessage: GameMessage = {
-                        id: message.id,
-                        senderId: message.gameSessionView.starterUserId ?? "",
+                        id: groupedMessage.id,
+                        senderId: groupedMessage.gameSessionView.starterUserId ?? "",
                         type: "game_interactive",
-                        sender: message.sender,
-                        time: message.time,
+                        sender: groupedMessage.sender,
+                        time: groupedMessage.time,
                         gamePayload: payload,
                       };
                       return (
                         <GameBubbleRenderer
                           message={hydratedGameMessage}
                           matchName={otherUser.name}
-                          sessionCreatedAt={message.gameSessionView.createdAt}
+                          sessionCreatedAt={groupedMessage.gameSessionView.createdAt}
                           onGameUpdate={(_, __, updates) =>
-                            submitPersistedGameAction(message.gameSessionView!, payload, updates)
+                            submitPersistedGameAction(groupedMessage.gameSessionView!, payload, updates)
                           }
                         />
                       );
                     })()}
                   </div>
                 </div>
-              ) : message.type === "vibe_clip" ? (
+              ) : groupedMessage.type === "vibe_clip" ? (
                 <VibeClipMessageRow
-                  key={message.id}
-                  message={message}
+                  key={groupedMessage.id}
+                  message={groupedMessage}
                   otherUser={otherUser}
                   threadMessageCount={displayMessages.length}
                   immersiveVideoUrl={videoLightbox?.url ?? null}
@@ -1253,159 +1376,169 @@ const Chat = () => {
                   onSuggestDate={() =>
                     handleOpenDateComposer({ mode: "new", launchFrom: "vibe_clip" })
                   }
-                  onReactionPick={(emoji) => handleReaction(message.id, emoji)}
+                  onReactionPick={(emoji) => handleReaction(groupedMessage.id, emoji)}
+                  threadVisualRecede={mediaRecede}
                 />
-              ) : message.type === "video" ? (
+              ) : groupedMessage.type === "video" ? (
                 <div
-                  key={message.id}
+                  key={groupedMessage.id}
                   className={cn(
                     "flex items-end gap-2",
-                    message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
+                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
-                  {message.sender !== "me" && (
+                  {groupedMessage.sender !== "me" && (
                     <div className="w-7 shrink-0">
-                      {message.showAvatar && (
+                      {groupedMessage.showAvatar && (
                         <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
                       )}
                     </div>
                   )}
                   <div>
                     <VideoMessageBubble
-                      videoUrl={message.videoUrl!}
-                      duration={message.videoDuration || 0}
-                      isMine={message.sender === "me"}
+                      videoUrl={groupedMessage.videoUrl!}
+                      duration={groupedMessage.videoDuration || 0}
+                      isMine={groupedMessage.sender === "me"}
                       onRequestImmersive={
-                        message.videoUrl
-                          ? () => setVideoLightbox({ url: message.videoUrl!, posterUrl: null })
+                        groupedMessage.videoUrl
+                          ? () => setVideoLightbox({ url: groupedMessage.videoUrl!, posterUrl: null })
                           : undefined
                       }
-                      immersiveActive={!!message.videoUrl && videoLightbox?.url === message.videoUrl}
+                      immersiveActive={
+                        !!groupedMessage.videoUrl && videoLightbox?.url === groupedMessage.videoUrl
+                      }
+                      threadVisualRecede={mediaRecede}
                     />
-                    {message.isLastInGroup && (
-                      <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
+                    {groupedMessage.isLastInGroup && (
+                      <div
+                        className={cn(
+                          "mt-1 flex",
+                          groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                        )}
+                      >
                         <MessageStatus
-                          status={message.status || "delivered"}
-                          time={message.time}
-                          isMyMessage={message.sender === "me"}
+                          status={groupedMessage.status || "delivered"}
+                          time={groupedMessage.time}
+                          isMyMessage={groupedMessage.sender === "me"}
                         />
                       </div>
                     )}
                   </div>
                 </div>
-              ) : message.type === "image" ? (
+              ) : groupedMessage.type === "image" ? (
                 <div
-                  key={message.id}
+                  key={groupedMessage.id}
                   className={cn(
                     "flex items-end gap-2",
-                    message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
+                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
-                  {message.sender !== "me" && (
+                  {groupedMessage.sender !== "me" && (
                     <div className="w-7 shrink-0">
-                      {message.showAvatar && (
+                      {groupedMessage.showAvatar && (
                         <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
                       )}
                     </div>
                   )}
-                  <div className="max-w-[70%]">
+                  <div className="max-w-[75%]">
                     <button
                       type="button"
-                      className="group relative block w-56 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group relative block w-52 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       aria-label="View photo full screen"
-                      onClick={() => setPhotoLightboxInitialId(message.id)}
+                      onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                     >
                       <img
-                        src={parseChatImageMessageContent(message.text) || ""}
+                        src={parseChatImageMessageContent(groupedMessage.text) || ""}
                         alt="Shared image"
-                        className="w-56 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                        className="w-52 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
                         loading="lazy"
                       />
                     </button>
-                    {message.isLastInGroup && (
+                    {groupedMessage.isLastInGroup && (
                       <div
                         className={cn(
                           "mt-1 flex flex-col gap-1",
-                          message.sender === "me" ? "items-end" : "items-start"
+                          groupedMessage.sender === "me" ? "items-end" : "items-start",
                         )}
                       >
-                        {message.sender === "me" && message.sendError ? (
+                        {groupedMessage.sender === "me" && groupedMessage.sendError ? (
                           <>
                             <button
                               type="button"
                               onClick={() => {
-                                const failed = localMessages.find((m) => m.id === message.id);
+                                const failed = localMessages.find((m) => m.id === groupedMessage.id);
                                 if (!failed) return;
                                 sendTextMessage({ tempId: failed.id, text: failed.text });
                               }}
                               className="text-[10px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
                             >
-                              {message.sendError}
+                              {groupedMessage.sendError}
                             </button>
                             <span className="text-[10px] text-muted-foreground">
-                              {message.time} · failed
+                              {groupedMessage.time} · failed
                             </span>
                           </>
                         ) : (
                           <MessageStatus
-                            status={message.status || "delivered"}
-                            time={message.time}
-                            isMyMessage={message.sender === "me"}
+                            status={groupedMessage.status || "delivered"}
+                            time={groupedMessage.time}
+                            isMyMessage={groupedMessage.sender === "me"}
                           />
                         )}
                       </div>
                     )}
                   </div>
                 </div>
-              ) : message.type === "voice" ? (
+              ) : groupedMessage.type === "voice" ? (
                 <div
-                  key={message.id}
+                  key={groupedMessage.id}
                   className={cn(
                     "flex items-end gap-2",
-                    message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
+                    groupedMessage.sender === "me" ? "justify-end" : "justify-start",
+                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
-                  {message.sender !== "me" && (
+                  {groupedMessage.sender !== "me" && (
                     <div className="w-7 shrink-0">
-                      {message.showAvatar && (
+                      {groupedMessage.showAvatar && (
                         <img src={otherUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
                       )}
                     </div>
                   )}
-                  <div className={cn(
-                    "max-w-[70%] rounded-2xl px-3 py-2",
-                    message.sender === "me"
-                      ? "bg-gradient-primary text-primary-foreground"
-                      : "glass-card border border-border/30 text-foreground"
-                  )}>
-                    {/* Voice timing is rendered only inside VoiceMessageBubble. */}
+                  <div
+                    className={cn(
+                      "max-w-[75%] rounded-2xl px-2.5 py-1.5",
+                      groupedMessage.sender === "me"
+                        ? "bg-gradient-primary text-primary-foreground"
+                        : "glass-card border border-border/30 text-foreground",
+                    )}
+                  >
                     <VoiceMessageBubble
-                      audioUrl={message.audioUrl}
-                      duration={message.audioDuration || 0}
-                      isMine={message.sender === "me"}
+                      audioUrl={groupedMessage.audioUrl}
+                      duration={groupedMessage.audioDuration || 0}
+                      isMine={groupedMessage.sender === "me"}
                     />
                   </div>
                 </div>
-              ) : message.type === "text" ? (
+              ) : groupedMessage.type === "text" ? (
                 <MessageBubble
-                  key={message.id}
-                  message={message as TextMessage}
-                  isFirstInGroup={message.isFirstInGroup}
-                  isLastInGroup={message.isLastInGroup}
-                  showAvatar={message.showAvatar}
+                  key={groupedMessage.id}
+                  message={groupedMessage as TextMessage}
+                  isFirstInGroup={groupedMessage.isFirstInGroup}
+                  isLastInGroup={groupedMessage.isLastInGroup}
+                  showAvatar={groupedMessage.showAvatar}
                   avatarUrl={otherUser.avatar_url}
                   onReaction={handleReaction}
-                  onRetryFailedSend={(id) => {
-                    const failed = localMessages.find((m) => m.id === id);
+                  onRetryFailedSend={(mid) => {
+                    const failed = localMessages.find((m) => m.id === mid);
                     if (!failed) return;
                     sendTextMessage({ tempId: failed.id, text: failed.text });
                   }}
                 />
-              ) : null
-            )}
+              ) : null;
+            })}
 
             <AnimatePresence>
               {partnerTyping && (
@@ -1423,6 +1556,20 @@ const Chat = () => {
         <div ref={messagesEndRef} />
       </main>
 
+      {!isLoadingChat && awayFromBottom && displayMessages.length > 0 ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center z-20">
+          <button
+            type="button"
+            onClick={() => scrollToBottom()}
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/92 backdrop-blur-md px-3.5 py-1.5 text-xs font-medium text-foreground shadow-lg shadow-black/10 hover:bg-background transition-colors"
+          >
+            <ChevronDown className="w-3.5 h-3.5 opacity-80" aria-hidden />
+            {newBelowCue ? "New below" : "Latest"}
+          </button>
+        </div>
+      ) : null}
+      </div>
+
       {/* Input Area */}
       <div className="relative z-40 shrink-0">
         <DateSuggestionChip
@@ -1431,33 +1578,33 @@ const Chat = () => {
           onDismiss={() => setShowDateSuggestion(false)}
         />
 
-        <div className="px-2 pb-0.5 pt-0.5">
-          <div className="max-w-lg mx-auto flex items-stretch justify-center gap-1.5">
+        <div className="px-2 pb-0 pt-0">
+          <div className="max-w-lg mx-auto flex items-stretch justify-center gap-1">
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
               onClick={handleOpenDateComposerFromChip}
-              className="flex-1 min-w-0 h-8 max-h-8 px-2.5 rounded-full border border-rose-500/30 bg-rose-500/[0.09] text-rose-500/95 hover:bg-rose-500/16 transition-colors inline-flex items-center justify-center gap-1"
+              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1"
               aria-label="Suggest a Date"
             >
-              <CalendarPlus className="w-3.5 h-3.5 shrink-0 opacity-90" />
-              <span className="text-[11px] font-semibold truncate tracking-tight">Date</span>
+              <CalendarPlus className="w-3 h-3 shrink-0 text-rose-400/95" />
+              <span className="text-[11px] font-medium truncate tracking-tight">Date</span>
             </motion.button>
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
               onClick={() => setShowArcade(true)}
-              className="flex-1 min-w-0 h-8 max-h-8 px-2.5 rounded-full border border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400 hover:bg-cyan-500/14 transition-colors inline-flex items-center justify-center gap-1"
+              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1"
               aria-label="Open Games"
             >
-              <Gamepad2 className="w-3.5 h-3.5 shrink-0 opacity-90" />
-              <span className="text-[11px] font-semibold truncate tracking-tight">Games</span>
+              <Gamepad2 className="w-3 h-3 shrink-0 text-cyan-400/90" />
+              <span className="text-[11px] font-medium truncate tracking-tight">Games</span>
             </motion.button>
           </div>
         </div>
 
         {/* Input bar */}
-        <div className="glass-card border-t border-border/40 px-2 py-1.5 pb-safe">
+        <div className="glass-card border-t border-border/35 px-2 py-1 pb-safe">
           <input
             ref={photoInputRef}
             type="file"
@@ -1467,7 +1614,7 @@ const Chat = () => {
             tabIndex={-1}
             onChange={handlePhotoFileChange}
           />
-          <div className="flex items-end gap-1.5 max-w-lg mx-auto">
+          <div className="flex items-end gap-1 max-w-lg mx-auto">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
@@ -1483,17 +1630,17 @@ const Chat = () => {
                   photoInputRef.current?.click();
                 }}
                 className={cn(
-                  "w-9 h-9 rounded-full flex items-center justify-center transition-colors ring-1",
-                  "bg-secondary/40 text-muted-foreground hover:bg-secondary/60 ring-border/50",
+                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                  "bg-secondary/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                   "disabled:opacity-45 disabled:pointer-events-none"
                 )}
                 aria-label="Add photo"
                 title="Add photo"
               >
                 {sendingPhoto ? (
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
                 ) : (
-                  <Camera className="w-4 h-4" aria-hidden />
+                  <Camera className="w-3.5 h-3.5" aria-hidden />
                 )}
               </motion.button>
               <motion.button
@@ -1508,19 +1655,19 @@ const Chat = () => {
                   });
                   setIsRecordingVideo(true);
                 }}
-                className="w-9 h-9 rounded-full bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 flex items-center justify-center transition-colors ring-1 ring-violet-500/20 disabled:opacity-45 disabled:pointer-events-none"
+                className="w-8 h-8 rounded-full bg-violet-500/12 text-violet-300 hover:bg-violet-500/22 flex items-center justify-center transition-colors disabled:opacity-45 disabled:pointer-events-none"
                 title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
               >
-                <Film className="w-4 h-4" />
+                <Film className="w-3.5 h-3.5" />
               </motion.button>
 
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setShowVibeSync(true)}
-                className="hidden xs:flex w-9 h-9 rounded-full bg-neon-cyan/20 items-center justify-center text-neon-cyan hover:bg-neon-cyan/30 transition-colors"
+                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-neon-cyan hover:bg-secondary/50 transition-colors"
                 aria-label="Vibely schedule"
               >
-                <CalendarDays className="w-4 h-4" />
+                <CalendarDays className="w-3.5 h-3.5" />
               </motion.button>
 
               <motion.button
@@ -1539,18 +1686,18 @@ const Chat = () => {
                   setDateComposerLaunchSource("default");
                   setShowDateComposer(true);
                 }}
-                className="hidden xs:flex w-9 h-9 rounded-full bg-rose-500/15 items-center justify-center text-rose-500 hover:bg-rose-500/25 transition-colors"
+                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-rose-400 hover:bg-secondary/50 transition-colors"
                 aria-label="Suggest a date"
               >
-                <CalendarPlus className="w-4 h-4" />
+                <CalendarPlus className="w-3.5 h-3.5" />
               </motion.button>
 
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={() => setShowArcade(true)}
-                className="hidden xs:flex w-9 h-9 rounded-full bg-primary/20 items-center justify-center text-primary hover:bg-primary/30 transition-colors"
+                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/50 transition-colors"
               >
-                <Gamepad2 className="w-4 h-4" />
+                <Gamepad2 className="w-3.5 h-3.5" />
               </motion.button>
             </div>
 
@@ -1558,15 +1705,15 @@ const Chat = () => {
             <div className="flex-1 min-w-0">
               <textarea
                 ref={inputRef}
-                placeholder="Type a message..."
+                placeholder="Message"
                 value={newMessage}
                 onChange={(e) => handleComposerChange(e.target.value)}
                 onKeyPress={handleKeyPress}
                 rows={1}
-                className="w-full text-sm px-3.5 py-2.5 rounded-2xl glass-card border border-border/50 bg-secondary/30 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all max-h-32"
+                className="w-full text-[15px] leading-snug px-3 py-2 rounded-2xl border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32"
                 style={{
                   height: "auto",
-                  minHeight: "40px",
+                  minHeight: "38px",
                 }}
               />
             </div>
@@ -1576,14 +1723,14 @@ const Chat = () => {
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={handleSend}
-                className="shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg"
+                className="shrink-0 w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-md"
               >
                 <motion.div
                   initial={{ scale: 0, rotate: -90 }}
                   animate={{ scale: 1, rotate: 0 }}
                   transition={{ duration: 0.15 }}
                 >
-                  <Send className="w-5 h-5" />
+                  <Send className="w-[18px] h-[18px]" />
                 </motion.div>
               </motion.button>
             ) : (

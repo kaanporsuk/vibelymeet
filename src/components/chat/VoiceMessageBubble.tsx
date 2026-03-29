@@ -2,29 +2,12 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { waveformHeightsFromSeed } from "../../../shared/chat/voiceWaveformSeed";
 
 interface VoiceMessageBubbleProps {
   audioUrl?: string;
   duration: number;
   isMine: boolean;
-}
-
-/** Stable pseudo-waveform per message (no random remount flicker). */
-function waveformHeightsFromSeed(seed: string, length: number): number[] {
-  let h = 2166136261;
-  for (let c = 0; c < seed.length; c++) {
-    h ^= seed.charCodeAt(c);
-    h = Math.imul(h, 16777619);
-  }
-  const out: number[] = [];
-  for (let i = 0; i < length; i++) {
-    h ^= i * 2654435761;
-    h = Math.imul(h, 1597334677);
-    const t = (h >>> 0) / 4294967296;
-    const wave = 0.42 + 0.38 * Math.sin(i * 0.35 + t * 6.28) + 0.12 * Math.sin(i * 0.71 + t * 3.14);
-    out.push(Math.min(1, Math.max(0.12, wave)));
-  }
-  return out;
 }
 
 export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine }: VoiceMessageBubbleProps) => {
@@ -150,25 +133,26 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   };
 
   // Canonical voice timing ownership: only this component renders voice time labels.
-  // Parent/footer status rows must not add a second time readout for voice bubbles.
   const displayTime = (() => {
-    if (totalDuration <= 0 && !isPlaying && currentTime <= 0) return "Voice message";
-    if (isPlaying && totalDuration > 0) return `${formatDuration(currentTime)} · ${formatDuration(totalDuration)}`;
-    if (isPlaying) return formatDuration(currentTime);
-    return formatDuration(totalDuration > 0 ? totalDuration : currentTime);
+    const dur = formatDuration(totalDuration > 0 ? totalDuration : Math.max(0, Math.round(currentTime)));
+    if (totalDuration <= 0 && !isPlaying && currentTime <= 0) return "0:00";
+    if (isPlaying && totalDuration > 0)
+      return `${formatDuration(Math.max(0, Math.floor(currentTime)))} · ${formatDuration(totalDuration)}`;
+    if (isPlaying) return formatDuration(Math.max(0, Math.floor(currentTime)));
+    return dur;
   })();
 
   return (
-    <div className="flex items-center gap-2 min-w-[148px]">
+    <div className="flex items-center gap-1.5 min-w-[128px] max-w-[220px]">
       {/* Play/Pause button */}
       <motion.button
         whileTap={{ scale: 0.94 }}
         onClick={hasError ? retry : togglePlay}
         className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ring-1",
+          "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all duration-200 ring-1 shadow-sm",
           isMine
-            ? "bg-primary-foreground/18 hover:bg-primary-foreground/28 ring-primary-foreground/15"
-            : "bg-primary/12 hover:bg-primary/22 ring-primary/20"
+            ? "bg-primary-foreground/18 hover:bg-primary-foreground/28 ring-primary-foreground/25 shadow-[0_0_20px_rgba(255,255,255,0.08)]"
+            : "bg-primary/14 hover:bg-primary/24 ring-fuchsia-400/25 shadow-[0_0_24px_hsl(var(--primary)/0.2)]"
         )}
       >
         {isLoading ? (
@@ -183,11 +167,21 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
       </motion.button>
 
       {/* Waveform + time */}
-      <div className="flex-1 min-w-0 space-y-0.5">
+      <div className="flex-1 min-w-0 space-y-0">
+        <span
+          className={cn(
+            "text-[9px] font-semibold uppercase tracking-wide block mb-0.5",
+            isMine ? "text-primary-foreground/55" : "text-muted-foreground/80",
+          )}
+        >
+          Voice
+        </span>
         <div
           className={cn(
-            "flex items-center gap-px h-5 rounded-full px-1",
-            isMine ? "bg-primary-foreground/10" : "bg-muted/45",
+            "flex items-center gap-px h-[18px] rounded-full px-1 border backdrop-blur-[2px]",
+            isMine
+              ? "bg-primary-foreground/[0.09] border-primary-foreground/10"
+              : "bg-black/20 border-white/[0.08]",
           )}
           role="img"
           aria-label="Voice level"
@@ -215,8 +209,8 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
         </div>
         <span
           className={cn(
-            "text-[10px] font-mono tabular-nums tracking-tight",
-            isMine ? "text-primary-foreground/75" : "text-muted-foreground",
+            "text-[10px] font-mono tabular-nums tracking-tight mt-1 block leading-none",
+            isMine ? "text-primary-foreground/85" : "text-muted-foreground/90",
           )}
         >
           {displayTime}

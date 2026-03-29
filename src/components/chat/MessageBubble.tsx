@@ -131,7 +131,7 @@ export const MessageBubble = ({
 
       <div
         className={cn(
-          "max-w-[75%] px-3.5 py-2 relative",
+          "max-w-[75%] px-3 py-1.5 relative",
           isMe
             ? "bg-gradient-primary text-primary-foreground"
             : "glass-card text-foreground",
@@ -153,7 +153,7 @@ export const MessageBubble = ({
               )
         )}
       >
-        <p className="text-sm leading-relaxed">{message.text}</p>
+        <p className="text-[13px] leading-snug">{message.text}</p>
         {isMe && message.sendError ? (
           <button
             onClick={() => onRetryFailedSend?.(message.id)}
