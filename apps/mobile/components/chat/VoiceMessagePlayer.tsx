@@ -77,8 +77,8 @@ export function VoiceMessagePlayer({
             : `${playing ? 'Pause' : 'Play'} voice message`
         }
       >
-        <View style={styles.playSide}>
-          <Ionicons name={playing ? 'pause' : 'play'} size={22} color={fg} />
+        <View style={[styles.playSide, isMine ? styles.playSideMine : null]}>
+          <Ionicons name={playing ? 'pause' : 'play'} size={20} color={fg} />
           {status.isBuffering && playing ? (
             <ActivityIndicator size="small" color={fg} style={styles.bufferSpinner} />
           ) : null}
@@ -99,9 +99,17 @@ const styles = StyleSheet.create({
   wrap: { minWidth: 0, width: '100%' },
   row: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   playSide: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  bufferSpinner: { width: 18, height: 18 },
-  mid: { flex: 1, minWidth: 0, marginLeft: 10 },
-  progressTrack: { height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 2 },
-  timeRow: { fontSize: 11, marginTop: 6, includeFontPadding: false },
+  playSideMine: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  bufferSpinner: { width: 16, height: 16 },
+  mid: { flex: 1, minWidth: 0, marginLeft: 8 },
+  progressTrack: { height: 5, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  timeRow: { fontSize: 10, marginTop: 5, fontVariant: ['tabular-nums'], includeFontPadding: false },
 });

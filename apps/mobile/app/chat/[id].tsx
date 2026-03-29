@@ -13,8 +13,11 @@ import {
   Image,
   Vibration,
   Dimensions,
+  type NativeSyntheticEvent,
+  type NativeScrollEvent,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -35,7 +38,9 @@ import {
   useTypingBroadcast,
   useMatches,
   type ChatMessage,
+  type ChatOtherUser,
   type ReactionEmoji,
+  type ThreadInvalidateScope,
 } from '@/lib/chatApi';
 import { useMessageReactions } from '@/lib/useMessageReactions';
 import { setMessageReaction } from '@/lib/messageReactions';
@@ -77,17 +82,19 @@ import { supabase } from '@/lib/supabase';
 import { inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard } from '@/components/chat/VibeClipCard';
+import {
+  ChatThreadPhotoViewerModal,
+  ChatThreadVideoViewerModal,
+  type ChatThreadPhotoItem,
+} from '@/components/chat/ChatThreadMediaViewer';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
+import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
 import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
-  VIBE_CLIP_OUTBOX_FAILED,
-  VIBE_CLIP_OUTBOX_QUEUED,
-  VIBE_CLIP_OUTBOX_SENDING,
-  VIBE_CLIP_OUTBOX_FINISHING,
   VIBE_CLIP_PERM_CAMERA_MESSAGE,
   VIBE_CLIP_PERM_CAMERA_TITLE,
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
@@ -95,7 +102,9 @@ import {
 } from '../../../../shared/chat/vibeClipCaptureCopy';
 import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
+import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
 
@@ -161,17 +170,8 @@ function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendSt
 
 function outboxFooterPrimaryLabel(phase: ChatOutboxQueueState | undefined, payloadKind?: string): string | null {
   if (!phase) return null;
-  const isClip = payloadKind === 'video';
-  if (phase === 'queued') return isClip ? VIBE_CLIP_OUTBOX_QUEUED : 'Queued…';
-  if (phase === 'waiting_for_network') {
-    return isClip
-      ? "You're offline — your Vibe Clip will send when you reconnect."
-      : "You're offline — this will send when you reconnect.";
-  }
-  if (phase === 'sending') return isClip ? VIBE_CLIP_OUTBOX_SENDING : 'Sending…';
-  if (phase === 'awaiting_hydration') return isClip ? VIBE_CLIP_OUTBOX_FINISHING : 'Finishing up…';
-  if (phase === 'failed') return isClip ? VIBE_CLIP_OUTBOX_FAILED : 'Failed to send';
-  return null;
+  const label = outboxPhaseStatusLabel(phase, payloadKind as OutboxPayloadKind);
+  return label || null;
 }
 
 function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
@@ -258,12 +258,33 @@ function threadSortKey(m: ThreadMessage): number {
   return m.sortAtMs ?? 0;
 }
 
-function ChatImageCard({ uri, isMine, theme }: { uri: string; isMine: boolean; theme: (typeof Colors)['light'] }) {
+function ChatImageCard({
+  uri,
+  isMine,
+  theme: _theme,
+  onPress,
+}: {
+  uri: string;
+  isMine: boolean;
+  theme: (typeof Colors)['light'];
+  onPress?: () => void;
+}) {
   const frameBorder = isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.16)';
-  return (
+  const inner = (
     <View style={[styles.chatImageOuter, { borderColor: frameBorder }]}>
       <Image source={{ uri }} style={styles.chatImage} resizeMode="cover" accessibilityIgnoresInvertColors />
     </View>
+  );
+  if (!onPress) return inner;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => ({ opacity: pressed ? 0.92 : 1 })}
+      accessibilityLabel="View photo full screen"
+      accessibilityRole="button"
+    >
+      {inner}
+    </Pressable>
   );
 }
 
@@ -272,11 +293,15 @@ function ChatVideoCard({
   durationSec,
   theme,
   isMine,
+  onRequestImmersive,
+  immersiveActive,
 }: {
   uri: string;
   durationSec?: number | null;
   theme: (typeof Colors)['light'];
   isMine: boolean;
+  onRequestImmersive?: () => void;
+  immersiveActive?: boolean;
 }) {
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -297,11 +322,17 @@ function ChatVideoCard({
     return () => sub.remove();
   }, [player]);
 
+  useEffect(() => {
+    if (immersiveActive) safeVideoPlayerCall(() => player.pause());
+  }, [immersiveActive, player]);
+
   if (hasError) {
     return (
       <View style={[styles.chatVideoCard, styles.chatVideoError, { borderColor: theme.border }]}>
         <Ionicons name="videocam-off-outline" size={28} color={theme.textSecondary} />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6 }}>Couldn't load video</Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+          Couldn't load video
+        </Text>
       </View>
     );
   }
@@ -318,21 +349,41 @@ function ChatVideoCard({
       style={[
         styles.chatVideoCardOuter,
         {
-          borderColor: isMine ? 'rgba(236,72,153,0.45)' : 'rgba(255,255,255,0.14)',
-          backgroundColor: isMine ? 'rgba(236,72,153,0.08)' : 'rgba(255,255,255,0.04)',
+          borderColor: isMine ? 'rgba(236,72,153,0.5)' : 'rgba(255,255,255,0.16)',
+          backgroundColor: isMine ? 'rgba(236,72,153,0.1)' : 'rgba(255,255,255,0.05)',
         },
       ]}
     >
-      <VideoView style={styles.chatVideoInner} player={player} nativeControls contentFit="cover" />
+      <View style={styles.chatVideoInner}>
+        <VideoView style={StyleSheet.absoluteFillObject} player={player} nativeControls contentFit="cover" />
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.55)']}
+          style={styles.chatVideoBottomGradient}
+          pointerEvents="none"
+        />
+      </View>
       {!isReady ? (
         <View style={styles.chatVideoFallback}>
-          <Ionicons name="play-circle-outline" size={34} color="rgba(255,255,255,0.86)" />
-          <Text style={styles.chatVideoFallbackLabel}>Video</Text>
+          <ActivityIndicator color="rgba(255,255,255,0.9)" size="small" />
+          <Text style={styles.chatVideoFallbackLabel}>Loading…</Text>
         </View>
       ) : null}
+      {onRequestImmersive ? (
+        <Pressable
+          onPress={onRequestImmersive}
+          style={({ pressed }) => [styles.chatVideoExpandBtn, pressed && { opacity: 0.85 }]}
+          accessibilityLabel="Open video full screen"
+          hitSlop={8}
+        >
+          <Ionicons name="expand-outline" size={20} color="rgba(255,255,255,0.95)" />
+        </Pressable>
+      ) : null}
       {durLabel ? (
-        <View style={[styles.videoDurationBadge, { backgroundColor: isMine ? 'rgba(17,17,24,0.78)' : 'rgba(0,0,0,0.65)' }]}>
-          <Text numberOfLines={1} style={styles.videoDurationText}>{durLabel}</Text>
+        <View style={[styles.videoDurationBadge, { backgroundColor: 'rgba(0,0,0,0.72)' }]}>
+          <Ionicons name="time-outline" size={11} color="rgba(255,255,255,0.95)" style={{ marginRight: 4 }} />
+          <Text numberOfLines={1} style={styles.videoDurationText}>
+            {durLabel}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -349,7 +400,12 @@ export default function ChatThreadScreen() {
   const { data: matches = [] } = useMatches(user?.id);
   const queryClient = useQueryClient();
   const { enqueue, retry, remove, itemsForMatch, reconcileWithServerIds } = useChatOutbox();
-  useRealtimeMessages(data?.matchId ?? null, !!data?.matchId);
+  useRealtimeMessages({
+    matchId: data?.matchId ?? null,
+    enabled: !!data?.matchId && !!otherUserId && !!user?.id,
+    threadOtherUserId: otherUserId ?? undefined,
+    threadCurrentUserId: user?.id ?? undefined,
+  });
   const { data: reactionRows = [] } = useMessageReactions(data?.matchId);
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(data?.matchId);
 
@@ -381,13 +437,17 @@ export default function ChatThreadScreen() {
     previousRevision: DateSuggestionWithRelations['revisions'][0];
   } | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
+  const [videoViewer, setVideoViewer] = useState<{ uri: string; poster?: string | null } | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const voiceRecordStartedAtRef = useRef<number | null>(null);
   const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [voiceReplyHint, setVoiceReplyHint] = useState(false);
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList<ThreadMessage>>(null);
+  const inputRef = useRef<TextInput>(null);
+  const stickToBottomRef = useRef(true);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
@@ -412,6 +472,7 @@ export default function ChatThreadScreen() {
     return merged.sort((a, b) => threadSortKey(a) - threadSortKey(b));
   }, [data?.messages, outboxThreadMessages]);
 
+  /** True while any outbox item is actively sending (UI indicators only — must not lock the TextInput or iOS dismisses the keyboard). */
   const outboxBusy = useMemo(
     () => outboxForMatch.some((i) => i.state === 'sending'),
     [outboxForMatch]
@@ -424,7 +485,9 @@ export default function ChatThreadScreen() {
     () => outboxForMatch.some((i) => i.state === 'sending' && i.payload.kind === 'voice'),
     [outboxForMatch]
   );
-  const isSending = sendingPhoto || outboxBusy || recording;
+  /** Locks composer typing: photo pipeline or voice recording. Outbox transitions must not flip this (was collapsing keyboard on Queued→Sending). */
+  const composerInputLocked = sendingPhoto || recording;
+  const sendFabDisabled = !input.trim() || composerInputLocked;
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId<ThreadMessage>(threadMessages, {
@@ -433,6 +496,70 @@ export default function ChatThreadScreen() {
       getId: (m) => m.id,
     });
   }, [threadMessages]);
+
+  const threadInvalidateScope = useMemo((): ThreadInvalidateScope | undefined => {
+    if (!otherUserId || !user?.id) return undefined;
+    return {
+      otherUserId,
+      currentUserId: user.id,
+      matchId: data?.matchId ?? null,
+    };
+  }, [otherUserId, user?.id, data?.matchId]);
+
+  const lastThreadMsgIdRef = useRef<string | undefined>(undefined);
+  const lastThreadLenRef = useRef(0);
+  useEffect(() => {
+    if (displayMessages.length === 0) {
+      lastThreadMsgIdRef.current = undefined;
+      lastThreadLenRef.current = 0;
+      return;
+    }
+    const last = displayMessages[displayMessages.length - 1]!;
+    const prevId = lastThreadMsgIdRef.current;
+    const prevLen = lastThreadLenRef.current;
+    const grew = displayMessages.length > prevLen;
+    lastThreadMsgIdRef.current = last.id;
+    lastThreadLenRef.current = displayMessages.length;
+    if (prevId === undefined) return;
+    if (last.id === prevId) return;
+    if (!grew) return;
+    if (last.sender === 'them') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [displayMessages]);
+
+  const chatPhotoGalleryItems = useMemo((): ChatThreadPhotoItem[] => {
+    const out: ChatThreadPhotoItem[] = [];
+    for (const m of displayMessages) {
+      const kind = inferChatMediaRenderKind({
+        content: m.text,
+        audioUrl: m.audio_url,
+        videoUrl: m.video_url,
+        messageKind: m.messageKind,
+      });
+      if (kind !== 'image') continue;
+      const u = parseChatImageMessageContent(m.text);
+      if (u) out.push({ id: m.id, uri: u });
+    }
+    return out;
+  }, [displayMessages]);
+
+  const scrollAnchorKey = useMemo(() => {
+    const last = displayMessages[displayMessages.length - 1];
+    return last ? `${displayMessages.length}:${last.id}` : '';
+  }, [displayMessages]);
+
+  const listOnScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    stickToBottomRef.current = dist < 100;
+  }, []);
+
+  useEffect(() => {
+    if (!scrollAnchorKey) return;
+    if (!stickToBottomRef.current) return;
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+  }, [scrollAnchorKey]);
 
   useEffect(() => {
     if (!showVibeClipSendSheet) return;
@@ -521,19 +648,43 @@ export default function ChatThreadScreen() {
 
   const onDateSuggestionUpdated = useCallback(() => {
     void refetchDateSuggestions();
-    queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user?.id] });
+    if (otherUserId && user?.id) {
+      queryClient.invalidateQueries({
+        queryKey: threadMessagesQueryKey(otherUserId, user.id),
+        exact: true,
+      });
+    }
   }, [refetchDateSuggestions, queryClient, otherUserId, user?.id]);
 
   useEffect(() => {
     const mid = data?.matchId;
-    if (!mid) return;
+    if (!mid || !otherUserId || !user?.id) return;
     const t = setTimeout(() => {
       markMatchMessagesRead(mid)
-        .then(() => refetch())
+        .then(() => {
+          const key = threadMessagesQueryKey(otherUserId, user.id);
+          queryClient.setQueryData(key, (old: unknown) => {
+            if (!old || typeof old !== 'object' || !('messages' in old)) return old;
+            const o = old as {
+              messages: ChatMessage[];
+              matchId: string | null;
+              otherUser: ChatOtherUser | null;
+            };
+            const nowIso = new Date().toISOString();
+            return {
+              ...o,
+              messages: o.messages.map((m) =>
+                m.sender === 'them' && (m.read_at == null || m.read_at === undefined)
+                  ? { ...m, read_at: nowIso }
+                  : m
+              ),
+            };
+          });
+        })
         .catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [data?.matchId, data?.messages?.length, refetch]);
+  }, [data?.matchId, data?.messages?.length, otherUserId, user?.id, queryClient]);
 
   const {
     isRinging,
@@ -581,15 +732,11 @@ export default function ChatThreadScreen() {
       ? { matchId: data.matchId, id: otherUserId, name: otherName, archived_at: currentMatchRow?.archived_at ?? null }
       : null;
 
-  useEffect(() => {
-    if (displayMessages.length) {
-      listRef.current?.scrollToEnd({ animated: true });
-    }
-  }, [displayMessages.length]);
-
   const handleSend = () => {
     const text = input.trim();
-    if (!text || !data?.matchId || !user?.id || isSending) return;
+    if (!text || !data?.matchId || !user?.id || composerInputLocked) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    stickToBottomRef.current = true;
     void enqueue({
       matchId: data.matchId,
       otherUserId: otherUserId ?? '',
@@ -601,6 +748,7 @@ export default function ChatThreadScreen() {
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = null;
     }
+    requestAnimationFrame(() => inputRef.current?.focus());
   };
 
   const startVoiceRecording = async () => {
@@ -692,7 +840,7 @@ export default function ChatThreadScreen() {
   };
 
   const pickVideoFromLibrary = async () => {
-    if (!data?.matchId || !user?.id || isSending) return;
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
     setVideoError(null);
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -764,7 +912,7 @@ export default function ChatThreadScreen() {
 
   /** Primary video-message flow: record with the device camera (not library-only). */
   const recordVideoWithCamera = async () => {
-    if (!data?.matchId || !user?.id || isSending) return;
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
     setVideoError(null);
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -864,7 +1012,7 @@ export default function ChatThreadScreen() {
   };
 
   const pickPhotoFromLibrary = async () => {
-    if (!data?.matchId || !user?.id || isSending) return;
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -896,7 +1044,7 @@ export default function ChatThreadScreen() {
   };
 
   const takePhotoWithCamera = async () => {
-    if (!data?.matchId || !user?.id || isSending) return;
+    if (!data?.matchId || !user?.id || composerInputLocked) return;
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -1217,6 +1365,10 @@ export default function ChatThreadScreen() {
                       setReactionPickerMessageId(item.id);
                     }
               }
+              onRequestImmersive={() =>
+                setVideoViewer({ uri: clipMeta.videoUrl, poster: clipMeta.thumbnailUrl ?? null })
+              }
+              immersiveActive={videoViewer?.uri === clipMeta.videoUrl}
             />
             <View style={styles.mediaMetaBlock}>
               {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1227,13 +1379,16 @@ export default function ChatThreadScreen() {
       }
     }
     if ((mediaKind === 'video' || (mediaKind === 'vibe_clip' && item.video_url)) && item.video_url) {
+      const videoUri = item.video_url;
       return (
         <View style={styles.mediaContentWrap}>
           <ChatVideoCard
-            uri={item.video_url}
+            uri={videoUri}
             durationSec={item.video_duration_seconds ?? null}
             theme={theme}
             isMine={isMe}
+            onRequestImmersive={() => setVideoViewer({ uri: videoUri })}
+            immersiveActive={videoViewer?.uri === videoUri}
           />
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
@@ -1251,7 +1406,12 @@ export default function ChatThreadScreen() {
     if (imageUrl) {
       return (
         <View style={styles.mediaContentWrap}>
-          <ChatImageCard uri={imageUrl} isMine={isMe} theme={theme} />
+          <ChatImageCard
+            uri={imageUrl}
+            isMine={isMe}
+            theme={theme}
+            onPress={() => setPhotoViewer({ initialId: item.id })}
+          />
           <View style={styles.mediaMetaBlock}>
             {reaction ? <Text style={styles.reactionBadge}>{reaction}</Text> : null}
             {statusOrTime}
@@ -1304,7 +1464,7 @@ export default function ChatThreadScreen() {
     }
 
     // Full-width timeline card (same outer container semantics as date suggestion rows — not a left/right chat bubble).
-    if (item.messageKind === 'vibe_game_session' && item.gameSessionView) {
+    if (item.messageKind === 'vibe_game_session' && item.gameSessionView && threadInvalidateScope) {
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           <GameSessionBubble
@@ -1313,6 +1473,7 @@ export default function ChatThreadScreen() {
             currentUserId={user?.id ?? ''}
             partnerName={otherName ?? 'Them'}
             timeLabel={item.time}
+            invalidateScope={threadInvalidateScope}
           />
         </View>
       );
@@ -1698,6 +1859,9 @@ export default function ChatThreadScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           style={styles.messageList}
+          keyboardShouldPersistTaps="handled"
+          onScroll={listOnScroll}
+          scrollEventThrottle={16}
           contentContainerStyle={[
             styles.list,
             displayMessages.length === 0 ? styles.listContentEmpty : null,
@@ -1729,8 +1893,8 @@ export default function ChatThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Suggest a date"
           >
-            <Ionicons name="calendar-outline" size={16} color={theme.tint} />
-            <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Suggest a Date</Text>
+            <Ionicons name="calendar-outline" size={14} color={theme.tint} />
+            <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Date</Text>
           </Pressable>
           <Pressable
             onPress={() => openGamesEntry()}
@@ -1741,7 +1905,7 @@ export default function ChatThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Games"
           >
-            <Ionicons name="game-controller-outline" size={16} color={theme.neonCyan} />
+            <Ionicons name="game-controller-outline" size={14} color={theme.neonCyan} />
             <Text numberOfLines={1} style={[styles.contextChipLabel, { color: theme.text }]}>Games</Text>
           </Pressable>
         </View>
@@ -1773,7 +1937,7 @@ export default function ChatThreadScreen() {
             <Pressable
               style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
               onPress={() => openPhotoOptions()}
-              disabled={isSending}
+              disabled={composerInputLocked}
               accessibilityLabel="Photo"
             >
               {sendingPhoto ? (
@@ -1785,7 +1949,7 @@ export default function ChatThreadScreen() {
             <Pressable
               style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
               onPress={() => openVideoMessageOptions()}
-              disabled={isSending}
+              disabled={composerInputLocked}
               accessibilityLabel="Vibe Clip — record or choose a clip"
             >
               {sendingVideo ? (
@@ -1795,6 +1959,7 @@ export default function ChatThreadScreen() {
               )}
             </Pressable>
             <TextInput
+              ref={inputRef}
               style={[
                 styles.inputDock,
                 {
@@ -1808,8 +1973,9 @@ export default function ChatThreadScreen() {
               value={input}
               onChangeText={handleInputChange}
               multiline
+              blurOnSubmit={false}
               maxLength={2000}
-              editable={!isSending}
+              editable={!composerInputLocked}
             />
             <Pressable
               style={[
@@ -1824,7 +1990,7 @@ export default function ChatThreadScreen() {
                 voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
               ]}
               onPress={handleVoicePress}
-              disabled={isSending && !recording}
+              disabled={composerInputLocked && !recording}
               accessibilityLabel="Voice message"
             >
               {sendingVoice ? (
@@ -1839,10 +2005,10 @@ export default function ChatThreadScreen() {
               style={[
                 styles.sendFab,
                 { backgroundColor: theme.tint },
-                (!input.trim() || isSending) && styles.sendBtnDisabled,
+                sendFabDisabled && styles.sendBtnDisabled,
               ]}
               onPress={handleSend}
-              disabled={!input.trim() || isSending}
+              disabled={sendFabDisabled}
               accessibilityLabel="Send message"
             >
               <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
@@ -1893,7 +2059,7 @@ export default function ChatThreadScreen() {
           setShowVibeClipSendSheet(false);
           void pickVideoFromLibrary();
         }}
-        disabled={isSending}
+        disabled={composerInputLocked}
         promptSeed={data?.matchId ?? otherUserId ?? ''}
       />
 
@@ -1944,7 +2110,10 @@ export default function ChatThreadScreen() {
               });
             }
             void refetchDateSuggestions();
-            queryClient.invalidateQueries({ queryKey: ['messages', otherUserId, user.id] });
+            queryClient.invalidateQueries({
+              queryKey: threadMessagesQueryKey(otherUserId, user.id),
+              exact: true,
+            });
           }}
         />
       ) : null}
@@ -1952,54 +2121,72 @@ export default function ChatThreadScreen() {
         visible={showActiveDateSuggestionWarning}
         onClose={() => setShowActiveDateSuggestionWarning(false)}
       />
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <CharadesStartSheet
           visible={showCharadesStart}
           onClose={() => setShowCharadesStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <IntuitionStartSheet
           visible={showIntuitionStart}
           onClose={() => setShowIntuitionStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <RouletteStartSheet
           visible={showRouletteStart}
           onClose={() => setShowRouletteStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <ScavengerStartSheet
           visible={showScavengerStart}
           onClose={() => setShowScavengerStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <TwoTruthsStartSheet
           visible={showTwoTruthsStart}
           onClose={() => setShowTwoTruthsStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
-      {data?.matchId ? (
+      {data?.matchId && threadInvalidateScope ? (
         <WouldRatherStartSheet
           visible={showWouldRatherStart}
           onClose={() => setShowWouldRatherStart(false)}
           matchId={data.matchId}
           partnerName={otherName ?? 'Them'}
+          invalidateScope={threadInvalidateScope}
         />
       ) : null}
+      <ChatThreadPhotoViewerModal
+        visible={!!photoViewer}
+        items={chatPhotoGalleryItems}
+        initialId={photoViewer?.initialId ?? ''}
+        onClose={() => setPhotoViewer(null)}
+      />
+      <ChatThreadVideoViewerModal
+        visible={!!videoViewer}
+        uri={videoViewer?.uri ?? ''}
+        posterUri={videoViewer?.poster}
+        onClose={() => setVideoViewer(null)}
+      />
       {appDialog}
     </View>
   );
@@ -2008,15 +2195,15 @@ export default function ChatThreadScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  headerOuter: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  headerOuter: { paddingHorizontal: spacing.md, paddingBottom: spacing.xs + 2 },
   headerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 4,
   },
   backBtn: { padding: spacing.xs },
   headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
@@ -2033,8 +2220,8 @@ const styles = StyleSheet.create({
   headerAvatarLetter: { fontSize: 16, fontWeight: '600' },
   headerTextWrap: { flex: 1, minWidth: 0 },
   /** Fixed min height so header does not jump when subtitle is null (web `min-h-4` parity). */
-  headerSubtitleSlot: { minHeight: 17, justifyContent: 'center' },
-  headerTitle: { fontSize: 16, fontWeight: '600' },
+  headerSubtitleSlot: { minHeight: 14, justifyContent: 'center' },
+  headerTitle: { fontSize: 15, fontWeight: '600' },
   headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
@@ -2048,8 +2235,8 @@ const styles = StyleSheet.create({
   messageList: { flex: 1 },
   list: {
     paddingHorizontal: layout.containerPadding,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm + 2,
+    paddingBottom: spacing.md,
   },
   listContentEmpty: {
     flexGrow: 1,
@@ -2082,16 +2269,16 @@ const styles = StyleSheet.create({
   },
   bubbleGradient: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   mediaBubbleTight: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
   },
   bubbleThemInner: {
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   bubbleText: { fontSize: 15, lineHeight: 20 },
   bubbleTime: { fontSize: 10, marginTop: 6, opacity: 0.85 },
@@ -2125,23 +2312,26 @@ const styles = StyleSheet.create({
   contextualRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: spacing.xs + 2,
     paddingHorizontal: layout.containerPadding,
-    paddingVertical: spacing.sm,
+    paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   contextChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     flexShrink: 1,
     minWidth: 0,
+    flex: 1,
+    maxWidth: 168,
+    justifyContent: 'center',
   },
-  contextChipLabel: { fontSize: 13, fontWeight: '600', flexShrink: 1 },
+  contextChipLabel: { fontSize: 11, fontWeight: '700', flexShrink: 1 },
   composerDockCol: {
     paddingHorizontal: layout.containerPadding,
     paddingTop: spacing.sm,
@@ -2203,24 +2393,42 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
-  chatVideoInner: { width: '100%', aspectRatio: 16 / 9 },
+  chatVideoInner: { width: '100%', aspectRatio: 9 / 16, position: 'relative' },
+  chatVideoBottomGradient: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: '42%',
+  },
   chatVideoCard: { width: '100%', aspectRatio: 16 / 9 },
   chatVideoError: { alignItems: 'center', justifyContent: 'center' },
   chatVideoFallback: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(12,12,18,0.28)',
-    gap: 6,
+    backgroundColor: 'rgba(8,8,14,0.55)',
+    gap: 8,
   },
   chatVideoFallbackLabel: { color: 'rgba(255,255,255,0.86)', fontSize: 12, fontWeight: '600' },
+  chatVideoExpandBtn: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 6,
+    padding: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
   videoDurationBadge: {
     position: 'absolute',
     bottom: 8,
     right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 8,
     maxWidth: '80%',
   },
   videoDurationText: { color: '#fff', fontSize: 11, fontWeight: '600' },

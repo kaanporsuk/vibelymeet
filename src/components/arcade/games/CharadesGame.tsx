@@ -71,10 +71,13 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
           ? "You got it!"
           : "Guess the movie/song!";
 
+  const compact = isGuessed || isExpired;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-purple-500/20 to-violet-600/20",
@@ -83,25 +86,25 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
       )}
     >
       {/* Header */}
-      <div className="p-3 border-b border-purple-500/20">
+      <div className={cn("border-b border-purple-500/20", compact ? "px-2.5 py-2" : "p-3")}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">👻</span>
-          <div>
-            <h4 className="font-semibold text-sm text-foreground">Emoji Charades</h4>
-            <p className="text-xs text-muted-foreground">{headerSub}</p>
+          <span className={compact ? "text-lg" : "text-2xl"}>👻</span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm text-foreground leading-tight">Emoji Charades</h4>
+            <p className="text-[11px] text-muted-foreground leading-snug">{headerSub}</p>
           </div>
         </div>
       </div>
 
       {/* Emoji Display */}
-      <div className="p-6 flex justify-center items-center gap-3">
+      <div className={cn("flex justify-center items-center gap-2", compact ? "py-3 px-2" : "p-6 gap-3")}>
         {payload.data.emojis.map((emoji, index) => (
           <motion.span
             key={index}
             initial={{ scale: 0, rotate: -20 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ delay: index * 0.1, type: "spring" }}
-            className="text-4xl"
+            className={compact ? "text-3xl" : "text-4xl"}
           >
             {emoji}
           </motion.span>
@@ -127,7 +130,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
             key="expired"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="px-3 pb-3"
+            className={compact ? "px-2.5 pb-2" : "px-3 pb-3"}
           >
             <p className="text-sm text-muted-foreground text-center">This challenge expired</p>
           </motion.div>
@@ -136,7 +139,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
             key="input"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="px-3 pb-3"
+            className="px-2.5 pb-2"
           >
             <div className="relative">
               <input

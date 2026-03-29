@@ -18,6 +18,7 @@ import { isLikelyNetworkFailure, outboxFailureUserMessage } from '@/lib/networkE
 import { cleanupOutboxCacheUri } from '@/lib/chatOutbox/mediaCache';
 import type { ChatOutboxItem, ChatOutboxPayload, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { invalidateAfterThreadMutation } from '@/lib/chatApi';
 import { classifySendFailureMessage, durationBucketFromSeconds } from '../../../../shared/chat/vibeClipAnalytics';
 
 type ChatOutboxContextValue = {
@@ -225,8 +226,11 @@ export function ChatOutboxProvider({ children }: { children: React.ReactNode }) 
                 : it
             )
           );
-          queryClient.invalidateQueries({ queryKey: ['messages'] });
-          queryClient.invalidateQueries({ queryKey: ['matches'] });
+          invalidateAfterThreadMutation(queryClient, {
+            otherUserId: item.otherUserId,
+            currentUserId: item.userId,
+            matchId: item.matchId,
+          });
           continue;
         }
 

@@ -1,20 +1,41 @@
+/**
+ * Realtime thread invalidation. Incoming message sound is intentionally not wired here — see
+ * `src/lib/chatIncomingSound.ts` for defer rationale and a future hook point.
+ */
 import { useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 
 interface UseRealtimeMessagesOptions {
   matchId: string | null;
+  /** Partner profile id for this thread — required for scoped cache invalidation */
+  threadOtherUserId: string | null | undefined;
+  /** Current user id — required for scoped cache invalidation */
+  threadCurrentUserId: string | null | undefined;
   enabled?: boolean;
 }
 
-export const useRealtimeMessages = ({ matchId, enabled = true }: UseRealtimeMessagesOptions) => {
+export const useRealtimeMessages = ({
+  matchId,
+  threadOtherUserId,
+  threadCurrentUserId,
+  enabled = true,
+}: UseRealtimeMessagesOptions) => {
   const queryClient = useQueryClient();
 
   const invalidateMessages = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["messages"] });
+    if (threadOtherUserId && threadCurrentUserId) {
+      queryClient.invalidateQueries({
+        queryKey: threadMessagesQueryKey(threadOtherUserId, threadCurrentUserId),
+        exact: true,
+      });
+    }
     queryClient.invalidateQueries({ queryKey: ["matches"] });
-    queryClient.invalidateQueries({ queryKey: ["date-suggestions"] });
-  }, [queryClient]);
+    if (matchId) {
+      queryClient.invalidateQueries({ queryKey: ["date-suggestions", matchId] });
+    }
+  }, [queryClient, matchId, threadOtherUserId, threadCurrentUserId]);
 
   useEffect(() => {
     if (!matchId || !enabled) return;

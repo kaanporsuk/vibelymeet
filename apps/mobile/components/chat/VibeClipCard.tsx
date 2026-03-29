@@ -10,6 +10,7 @@ import { compactReactionLabel } from '../../../../shared/chat/messageReactionMod
 import { replyPromptForContext } from '../../../../shared/chat/vibeClipPrompts';
 import { CLIP_DATE_ACTION_HINT } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
+import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 
 type Props = {
@@ -25,6 +26,10 @@ type Props = {
   /** For optional reply spark copy (received clips). */
   threadMessageCount?: number;
   sparkMessageId?: string;
+  /** Opens full-screen chat video viewer. */
+  onRequestImmersive?: () => void;
+  /** Pause inline preview while immersive viewer is open for this URL. */
+  immersiveActive?: boolean;
 };
 
 const ACCENT = 'rgba(139,92,246,1)';
@@ -41,6 +46,8 @@ export function VibeClipCard({
   reactionPair,
   threadMessageCount = 0,
   sparkMessageId,
+  onRequestImmersive,
+  immersiveActive,
 }: Props) {
   const theme = Colors[useColorScheme()];
   const [hasError, setHasError] = useState(false);
@@ -70,6 +77,10 @@ export function VibeClipCard({
     });
     return () => sub.remove();
   }, [player]);
+
+  useEffect(() => {
+    if (immersiveActive) safeVideoPlayerCall(() => player.pause());
+  }, [immersiveActive, player]);
 
   useEffect(() => {
     const sub = player.addListener('playingChange', (ev) => {
@@ -146,8 +157,8 @@ export function VibeClipCard({
     >
       <View style={styles.header}>
         <View style={styles.brandPill}>
-          <Ionicons name="film-outline" size={11} color={ACCENT} />
-          <Text style={styles.brandLabel}>Vibe Clip</Text>
+          <Ionicons name="film-outline" size={10} color={ACCENT} />
+          <Text style={styles.brandLabel}>Clip</Text>
         </View>
       </View>
 
@@ -156,6 +167,17 @@ export function VibeClipCard({
           <Image source={{ uri: meta.thumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
         )}
         <VideoView style={styles.video} player={player} nativeControls contentFit="cover" />
+
+        {onRequestImmersive ? (
+          <Pressable
+            onPress={onRequestImmersive}
+            style={({ pressed }) => [styles.expandBtn, pressed && { opacity: 0.88 }]}
+            accessibilityLabel="Open clip full screen"
+            hitSlop={6}
+          >
+            <Ionicons name="expand-outline" size={20} color="rgba(255,255,255,0.95)" />
+          </Pressable>
+        ) : null}
 
         {!isReady && (
           <View style={styles.loadingOverlay} pointerEvents="none">
@@ -272,7 +294,7 @@ export function VibeClipCard({
 const styles = StyleSheet.create({
   outer: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 14,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -282,27 +304,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   header: {
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 6,
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: 4,
   },
   brandPill: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: 'rgba(139,92,246,0.12)',
+    backgroundColor: 'rgba(139,92,246,0.1)',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(139,92,246,0.3)',
+    borderColor: 'rgba(139,92,246,0.22)',
   },
   brandLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 9,
+    fontWeight: '800',
     color: ACCENT,
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
   },
   videoWrap: {
     width: '100%',
@@ -311,6 +333,15 @@ const styles = StyleSheet.create({
   video: {
     width: '100%',
     height: '100%',
+  },
+  expandBtn: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 8,
+    padding: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

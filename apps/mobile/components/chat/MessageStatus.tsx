@@ -26,8 +26,13 @@ export function MessageStatus({ status, time, isMyMessage = true }: MessageStatu
   return (
     <View style={styles.wrap}>
       <Text style={[styles.time, { color }]}>{time}</Text>
-      {status === 'sending' && <ActivityIndicator size="small" color={color} style={styles.spinner} />}
-      {status === 'sent' && <Ionicons name="checkmark" size={14} color={color} />}
+      {status === 'sending' ? (
+        <>
+          <Text style={[styles.sendingLabel, { color }]}>Sending…</Text>
+          <ActivityIndicator size="small" color={color} style={styles.spinner} />
+        </>
+      ) : null}
+      {status === 'sent' && <Ionicons name="checkmark" size={12} color={color} />}
       {(status === 'delivered' || status === 'read') && (
         <View style={styles.doubleCheck}>
           <Ionicons name="checkmark-done" size={14} color={status === 'read' ? theme.tint : color} />
@@ -40,6 +45,7 @@ export function MessageStatus({ status, time, isMyMessage = true }: MessageStatu
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   time: { fontSize: 10 },
-  spinner: { marginLeft: 2 },
+  sendingLabel: { fontSize: 10, opacity: 0.88 },
+  spinner: { marginLeft: 0 },
   doubleCheck: {},
 });

@@ -7,6 +7,10 @@ interface VideoMessageBubbleProps {
   videoUrl: string;
   duration: number;
   isMine: boolean;
+  /** When set, tap / expand opens chat fullscreen viewer instead of browser fullscreen */
+  onRequestImmersive?: () => void;
+  /** Pause inline preview while immersive viewer is open for this URL */
+  immersiveActive?: boolean;
 }
 
 const formatDuration = (s: number) => {
@@ -15,7 +19,13 @@ const formatDuration = (s: number) => {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 };
 
-export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageBubbleProps) => {
+export const VideoMessageBubble = ({
+  videoUrl,
+  duration,
+  isMine,
+  onRequestImmersive,
+  immersiveActive,
+}: VideoMessageBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -43,6 +53,13 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
     setHasMetadata(false);
     setLoadError(false);
   }, [videoUrl]);
+
+  useEffect(() => {
+    if (immersiveActive) {
+      videoRef.current?.pause();
+      setIsPlaying(false);
+    }
+  }, [immersiveActive]);
 
   const markReadyIfPossible = useCallback(() => {
     const video = videoRef.current;
@@ -100,16 +117,31 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
     setIsMuted(video.muted);
   }, []);
 
-  const handleFullscreen = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.requestFullscreen) {
-      video.requestFullscreen();
-    } else if ((video as any).webkitEnterFullscreen) {
-      (video as any).webkitEnterFullscreen();
+  const handleFullscreen = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (onRequestImmersive) {
+        onRequestImmersive();
+        return;
+      }
+      const video = videoRef.current;
+      if (!video) return;
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if ((video as any).webkitEnterFullscreen) {
+        (video as any).webkitEnterFullscreen();
+      }
+    },
+    [onRequestImmersive],
+  );
+
+  const onSurfaceInteract = useCallback(() => {
+    if (onRequestImmersive) {
+      onRequestImmersive();
+      return;
     }
-  }, []);
+    togglePlay();
+  }, [onRequestImmersive, togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) {
@@ -126,10 +158,11 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
 
   if (loadError) {
     return (
-      <div className="w-56 rounded-2xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-8 px-4 gap-2">
+      <div className="w-[min(14rem,88vw)] max-w-[220px] rounded-2xl overflow-hidden border border-border/40 bg-gradient-to-b from-secondary/40 to-secondary/20 flex flex-col items-center justify-center py-7 px-4 gap-2 shadow-inner">
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground text-center">Video unavailable</span>
+        <span className="text-[11px] text-muted-foreground text-center leading-snug">Couldn't load video</span>
         <button
+          type="button"
           onClick={() => {
             setLoadError(false);
             setIsLoading(true);
@@ -138,7 +171,7 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
             setCurrentTime(0);
             videoRef.current?.load();
           }}
-          className="text-xs text-primary hover:underline"
+          className="text-[11px] font-medium text-primary hover:underline underline-offset-2"
         >
           Retry
         </button>
@@ -147,7 +180,18 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
   }
 
   return (
-    <div className="w-56 rounded-2xl overflow-hidden relative group cursor-pointer" onClick={togglePlay}>
+    <div
+      className="w-[min(14rem,88vw)] max-w-[220px] rounded-2xl overflow-hidden relative group cursor-pointer shadow-lg shadow-black/25 ring-1 ring-white/10"
+      onClick={onSurfaceInteract}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSurfaceInteract();
+        }
+      }}
+      role={onRequestImmersive ? "button" : undefined}
+      tabIndex={onRequestImmersive ? 0 : undefined}
+    >
       <AspectRatio ratio={9 / 16}>
         {/* Premium loading placeholder */}
         {!isReady && (
@@ -166,9 +210,9 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
             />
 
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 backdrop-blur-sm">
-                <Loader2 className="h-4 w-4 animate-spin text-white/80" />
-                <span className="text-xs text-white/80">Loading video</span>
+              <div className="flex items-center gap-2 rounded-full bg-black/45 px-3 py-1.5 backdrop-blur-md border border-white/10">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-white/85" />
+                <span className="text-[11px] text-white/85 font-medium">Loading…</span>
               </div>
             </div>
 
@@ -214,10 +258,10 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/30"
+            className="absolute inset-0 flex items-center justify-center bg-black/35"
           >
-            <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-              <Play className="w-6 h-6 text-white ml-0.5" fill="white" />
+            <div className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
+              <Play className="w-7 h-7 text-white ml-1" fill="white" />
             </div>
           </motion.div>
         )}
@@ -237,10 +281,17 @@ export const VideoMessageBubble = ({ videoUrl, duration, isMine }: VideoMessageB
               {isPlaying ? formatDuration(Math.round(currentTime)) : formatDuration(duration)}
             </span>
             <div className="flex items-center gap-1.5">
-              <button onClick={toggleMute} className="text-white/80 hover:text-white">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleMute(e);
+                }}
+                className="text-white/80 hover:text-white"
+              >
                 {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={handleFullscreen} className="text-white/80 hover:text-white">
+              <button type="button" onClick={handleFullscreen} className="text-white/80 hover:text-white">
                 <Maximize className="w-3.5 h-3.5" />
               </button>
             </div>

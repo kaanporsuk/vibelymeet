@@ -159,11 +159,11 @@ export const ChatHeader = ({
 
   return (
     <>
-      <header className="relative z-40 glass-card border-b border-border/50 px-4 py-3 shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="relative z-40 glass-card border-b border-border/40 px-3 py-2 shrink-0">
+        <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="p-2 -ml-2 rounded-xl hover:bg-secondary transition-colors"
+            className="p-1.5 -ml-1 rounded-lg hover:bg-secondary/80 transition-colors"
           >
             <ArrowLeft className="w-5 h-5 text-foreground" />
           </button>
@@ -180,8 +180,8 @@ export const ChatHeader = ({
             showActions={false}
             mode="match"
             trigger={
-              <div className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity">
-                <div className="relative">
+              <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity">
+                <div className="relative shrink-0">
                   <ProfilePhoto
                     avatarUrl={user.avatar_url}
                     name={user.name}
@@ -212,9 +212,9 @@ export const ChatHeader = ({
                     )}
                   </AnimatePresence>
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h2 className="font-semibold text-foreground truncate">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <h2 className="font-semibold text-[15px] leading-tight text-foreground truncate">
                       {user.name}, {user.age}
                     </h2>
                     {partnerTierBadge === "premium" && (
@@ -229,7 +229,7 @@ export const ChatHeader = ({
                       </span>
                     )}
                   </div>
-                  <div className="min-h-4 h-4 overflow-hidden flex items-center">
+                  <div className="min-h-[14px] h-[14px] overflow-hidden flex items-center">
                     <AnimatePresence mode="wait">
                       {partnerTyping ? (
                         <motion.div

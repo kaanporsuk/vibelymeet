@@ -231,6 +231,55 @@ export function DateSuggestionCard({
     );
   }
 
+  const staleTerminal = ["declined", "expired", "cancelled", "not_now"].includes(status);
+  if (staleTerminal) {
+    const summary =
+      current != null
+        ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+        : "";
+    return (
+      <div className="max-w-[92%] rounded-xl border border-border/40 bg-muted/10 px-2.5 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground font-medium shrink-0">{STATUS_LABEL[status] ?? status}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px] shrink-0 text-primary"
+            onClick={() => onOpenComposer({ mode: "new" })}
+          >
+            New suggestion
+          </Button>
+        </div>
+        {summary ? (
+          <p className="text-[11px] text-muted-foreground/90 mt-1 leading-snug line-clamp-2">{summary}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === "completed") {
+    return (
+      <div className="max-w-[92%] rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-muted-foreground min-w-0 text-[12px]">
+            <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+            <span className="truncate">Date marked complete</span>
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-[11px] shrink-0 text-primary"
+            onClick={() => onOpenComposer({ mode: "new" })}
+          >
+            New
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const showCelebration = status === "accepted";
   const plan = suggestion.date_plan;
   const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
@@ -238,22 +287,22 @@ export function DateSuggestionCard({
   return (
     <div
       className={cn(
-        "max-w-[92%] rounded-2xl border px-3 py-3 text-sm shadow-sm",
+        "max-w-[92%] rounded-2xl border px-2.5 py-2.5 text-sm shadow-sm",
         showCelebration
           ? "border-primary/40 bg-gradient-to-br from-primary/15 to-transparent"
           : "border-border/60 bg-card/80 backdrop-blur-sm",
       )}
     >
       {showCelebration && (
-        <div className="flex items-center gap-2 mb-2 text-primary">
+        <div className="flex items-center gap-2 mb-1.5 text-primary">
           <Sparkles className="h-4 w-4 shrink-0" />
           <span className="font-semibold">It&apos;s a date!</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Date suggestion
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Date
         </span>
         <span
           className={cn(
@@ -270,7 +319,7 @@ export function DateSuggestionCard({
 
       {current && (
         <>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <p>
               <span className="text-muted-foreground">Type:</span>{" "}
               {showAgreedChips && agreed?.date_type ? (
@@ -336,14 +385,7 @@ export function DateSuggestionCard({
         </div>
       )}
 
-      {status === "completed" && (
-        <p className="mt-2 text-xs text-muted-foreground flex items-center gap-1">
-          <Check className="h-3.5 w-3.5 text-emerald-500" />
-          You both marked this date complete.
-        </p>
-      )}
-
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-2.5 flex flex-wrap gap-2">
         {status === "draft" && isProposer && (
           <>
             <Button
@@ -412,16 +454,6 @@ export function DateSuggestionCard({
           </>
         )}
 
-        {["declined", "expired", "cancelled", "not_now", "completed"].includes(status) && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onOpenComposer({ mode: "new" })}
-            className="gap-1"
-          >
-            New suggestion
-          </Button>
-        )}
       </div>
     </div>
   );

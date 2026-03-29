@@ -9,6 +9,7 @@ import { RouletteBubble } from '@/components/chat/games/RouletteBubble';
 import { ScavengerBubble } from '@/components/chat/games/ScavengerBubble';
 import { TwoTruthsBubble } from '@/components/chat/games/TwoTruthsBubble';
 import { WouldRatherBubble } from '@/components/chat/games/WouldRatherBubble';
+import type { ThreadInvalidateScope } from '@/lib/gamesApi';
 
 type Props = {
   view: NativeHydratedGameSessionView;
@@ -16,13 +17,14 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 /**
  * Routes hydrated `vibe_game_session` rows to the right native renderer; safe generic fallback
  * for unsupported or mismatched game types.
  */
-export function GameSessionBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function GameSessionBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
 
   if (view.gameType === '2truths' && view.foldedSnapshot.game_type === '2truths') {
@@ -33,6 +35,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -45,6 +48,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -57,6 +61,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -69,6 +74,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -81,6 +87,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -93,6 +100,7 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
         currentUserId={currentUserId}
         partnerName={partnerName}
         timeLabel={timeLabel}
+        invalidateScope={invalidateScope}
       />
     );
   }
@@ -124,10 +132,10 @@ export function GameSessionBubble({ view, matchId, currentUserId, partnerName, t
 
 const styles = StyleSheet.create({
   fallback: {
-    borderRadius: radius['2xl'],
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.lg,
-    gap: 6,
+    padding: spacing.sm + 2,
+    gap: 4,
   },
   fallbackTitle: {
     fontSize: 15,

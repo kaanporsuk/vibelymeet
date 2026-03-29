@@ -131,7 +131,7 @@ export const MessageBubble = ({
 
       <div
         className={cn(
-          "max-w-[75%] px-4 py-2.5 relative",
+          "max-w-[75%] px-3.5 py-2 relative",
           isMe
             ? "bg-gradient-primary text-primary-foreground"
             : "glass-card text-foreground",
@@ -168,7 +168,7 @@ export const MessageBubble = ({
             isMe ? "justify-end" : "justify-start"
           )}>
             {isMe && message.sendError ? (
-              <span className="text-[10px] text-primary-foreground/75">{message.time} · failed</span>
+              <span className="text-[10px] text-primary-foreground/60 tabular-nums">{message.time}</span>
             ) : (
               <MessageStatus
                 status={message.status || "delivered"}
@@ -234,15 +234,15 @@ export const MessageBubble = ({
       </AnimatePresence>
 
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+        initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        transition={{ type: "spring", stiffness: 420, damping: 28, mass: 0.85 }}
         className={cn(
           "flex items-end gap-2 relative",
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
           (message.reactionPair?.mine || message.reactionPair?.partner) && "mb-4",
-          isFirstInGroup ? "mt-3" : "mt-0.5"
+          isFirstInGroup ? "mt-2.5" : "mt-0.5"
         )}
       >
         {/* Avatar */}

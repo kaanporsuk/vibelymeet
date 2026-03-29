@@ -4,7 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
-import { formatSendGameEventError, newVibeGameSessionId, useStartTwoTruthsGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartTwoTruthsGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
@@ -12,9 +17,10 @@ type Props = {
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const { mutateAsync, isPending } = useStartTwoTruthsGame();
   const [statements, setStatements] = useState<[string, string, string]>(['', '', '']);
@@ -64,6 +70,7 @@ export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName }: 
         gameSessionId: newVibeGameSessionId(),
         statements: cleaned,
         lieIndex,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

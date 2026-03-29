@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
@@ -17,8 +17,24 @@ import {
   getEmptyConversationPreview,
 } from '../../../shared/chat/conversationListPreview';
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
+import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
 
 export type { NativeHydratedGameSessionView };
+export type { ThreadInvalidateScope };
+
+/** Exported for outbox + hydration paths that need the same scoped invalidation as send mutations */
+export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInvalidateScope | undefined) {
+  if (scope?.otherUserId && scope?.currentUserId) {
+    qc.invalidateQueries({
+      queryKey: threadMessagesQueryKey(scope.otherUserId, scope.currentUserId),
+      exact: true,
+    });
+  }
+  if (scope?.matchId) {
+    qc.invalidateQueries({ queryKey: ['date-suggestions', scope.matchId] });
+  }
+  qc.invalidateQueries({ queryKey: ['matches'] });
+}
 export type { ReactionPair };
 export type { ReactionEmoji } from '../../../shared/chat/messageReactionModel';
 
@@ -436,13 +452,12 @@ export function useSendMessage() {
       matchId: string;
       content: string;
       clientRequestId?: string;
+      invalidateScope?: ThreadInvalidateScope;
     }) => {
       return invokeSendMessageEdge({ matchId, content, clientRequestId });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
-      qc.invalidateQueries({ queryKey: ['date-suggestions'] });
+    onSuccess: (_data, variables) => {
+      invalidateAfterThreadMutation(qc, variables.invalidateScope);
     },
   });
 }
@@ -453,13 +468,27 @@ export async function markMatchMessagesRead(matchId: string): Promise<void> {
   if (error) throw error;
 }
 
-export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
+/** Scoped thread invalidation on message INSERT/UPDATE. Incoming sound: deferred — see repo `src/lib/chatIncomingSound.ts`. */
+export function useRealtimeMessages(opts: {
+  matchId: string | null;
+  enabled: boolean;
+  threadOtherUserId: string | null | undefined;
+  threadCurrentUserId: string | null | undefined;
+}) {
+  const { matchId, enabled, threadOtherUserId, threadCurrentUserId } = opts;
   const qc = useQueryClient();
   const invalidate = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['messages'] });
+    if (threadOtherUserId && threadCurrentUserId) {
+      qc.invalidateQueries({
+        queryKey: threadMessagesQueryKey(threadOtherUserId, threadCurrentUserId),
+        exact: true,
+      });
+    }
     qc.invalidateQueries({ queryKey: ['matches'] });
-    qc.invalidateQueries({ queryKey: ['date-suggestions'] });
-  }, [qc]);
+    if (matchId) {
+      qc.invalidateQueries({ queryKey: ['date-suggestions', matchId] });
+    }
+  }, [qc, matchId, threadOtherUserId, threadCurrentUserId]);
   useEffect(() => {
     if (!matchId || !enabled) return;
     const channel = supabase
@@ -479,7 +508,7 @@ export function useRealtimeMessages(matchId: string | null, enabled: boolean) {
  * visibility to messages in matches where the user is a participant — not all traffic on the table.
  * Channel `private` / `realtime.messages` policies apply to Broadcast/Presence, not Postgres Changes.
  *
- * Intentional overlap: `useRealtimeMessages(matchId)` still runs in open chat for `messages` query
+ * Intentional overlap: `useRealtimeMessages` still runs in open chat for scoped `messages` query
  * invalidation; this hook only touches `unread-message-count` + `badge-count`. No feedback loop:
  * `invalidateQueries` does not emit Realtime events.
  */

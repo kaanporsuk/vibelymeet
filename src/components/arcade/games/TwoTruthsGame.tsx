@@ -44,10 +44,13 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
     return 'truth';
   };
 
+  const compact = isCompleted || selectedIndex !== null;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-pink-500/20 to-rose-600/20",
@@ -55,12 +58,12 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
       )}
     >
       {/* Header */}
-      <div className="p-3 border-b border-pink-500/20">
+      <div className={cn("border-b border-pink-500/20", compact ? "px-2.5 py-2" : "p-3")}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🎭</span>
-          <div>
-            <h4 className="font-semibold text-sm text-foreground">Two Truths & A Lie</h4>
-            <p className="text-xs text-muted-foreground">
+          <span className={compact ? "text-lg" : "text-2xl"}>🎭</span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm text-foreground leading-tight">Two Truths & A Lie</h4>
+            <p className="text-[11px] text-muted-foreground leading-snug">
               {isOwn ? "They're guessing..." : "Can you spot the lie?"}
             </p>
           </div>
@@ -68,7 +71,7 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
       </div>
 
       {/* Statements */}
-      <div className="p-3 space-y-2">
+      <div className={cn(compact ? "px-2.5 py-2 space-y-1.5" : "p-3 space-y-2")}>
         {payload.data.statements.map((statement, index) => {
           const state = getButtonState(index);
           
@@ -79,8 +82,9 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
               onClick={() => handleGuess(index)}
               disabled={isOwn || isCompleted || selectedIndex !== null}
               className={cn(
-                "w-full p-3 rounded-xl text-left text-sm transition-all duration-300",
+                "w-full text-left text-sm transition-all duration-300",
                 "border",
+                compact ? "p-2 rounded-lg" : "p-3 rounded-xl",
                 state === 'default' && "bg-secondary/50 border-border/50 hover:border-pink-500/50 hover:bg-pink-500/10",
                 state === 'lie' && "bg-green-500/20 border-green-500/50 text-green-400",
                 state === 'wrong' && "bg-red-500/20 border-red-500/50 text-red-400",
@@ -119,7 +123,7 @@ export const TwoTruthsGame = ({ payload, isOwn, onGuess }: TwoTruthsGameProps) =
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="px-3 pb-3"
+            className={compact ? "px-2.5 pb-2" : "px-3 pb-3"}
           >
             <div className={cn(
               "p-2 rounded-lg text-center text-xs font-medium",

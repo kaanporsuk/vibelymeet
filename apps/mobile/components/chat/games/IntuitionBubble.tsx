@@ -7,7 +7,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { IntuitionSnapshot } from '@/lib/vibelyGamesTypes';
-import { buildIntuitionResultParams, formatSendGameEventError, useSendIntuitionChoice } from '@/lib/gamesApi';
+import {
+  buildIntuitionResultParams,
+  formatSendGameEventError,
+  useSendIntuitionChoice,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 
 type Props = {
   view: NativeHydratedGameSessionView;
@@ -15,6 +20,7 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 type BubblePhase =
@@ -54,7 +60,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
   return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting';
 }
 
-export function IntuitionBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function IntuitionBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
   if (snap.game_type !== 'intuition') return null;
@@ -81,7 +87,7 @@ export function IntuitionBubble({ view, matchId, currentUserId, partnerName, tim
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const r = await mutateAsync({ view, matchId, result });
+      const r = await mutateAsync({ view, matchId, result, invalidateScope });
       if (!r.ok) setSubmitError(formatSendGameEventError(r.error));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Something went wrong.');

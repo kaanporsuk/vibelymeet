@@ -7,7 +7,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { TwoTruthsSnapshot } from '@/lib/vibelyGamesTypes';
-import { buildTwoTruthsGuessParams, formatSendGameEventError, useSendTwoTruthsChoice } from '@/lib/gamesApi';
+import {
+  buildTwoTruthsGuessParams,
+  formatSendGameEventError,
+  useSendTwoTruthsChoice,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 
 type Props = {
   view: NativeHydratedGameSessionView;
@@ -15,6 +20,7 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 type BubblePhase =
@@ -62,7 +68,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
   return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting';
 }
 
-export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
   if (snap.game_type !== '2truths') return null;
@@ -97,7 +103,7 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const result = await mutateAsync({ view, matchId, guessIndex });
+      const result = await mutateAsync({ view, matchId, guessIndex, invalidateScope });
       if (!result.ok) {
         setSubmitError(formatSendGameEventError(result.error));
       }
