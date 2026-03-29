@@ -25,7 +25,7 @@ import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import type { DateSuggestionRevisionRow } from "@/hooks/useDateSuggestionData";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Loader2, Sparkles } from "lucide-react";
 import {
   CLIP_DATE_COMPOSER_PILL,
   CLIP_DATE_COMPOSER_SUBCOPY,
@@ -313,7 +313,13 @@ export function DateSuggestionComposer({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto max-w-md border-border/60 bg-background">
+      <DialogContent
+        className={cn(
+          "max-h-[90vh] overflow-y-auto border-border/60 bg-background shadow-2xl shadow-black/45",
+          "w-[min(100vw-1.5rem,100%)]",
+          step === 1 ? "max-w-2xl" : "max-w-lg",
+        )}
+      >
         <DialogHeader>
           <DialogTitle>
             {counterContext ? "Counter proposal" : `Suggest a date with ${partnerName}`}
@@ -330,13 +336,13 @@ export function DateSuggestionComposer({
           </div>
         )}
 
-        <div className="flex gap-1 text-xs text-muted-foreground mb-2">
+        <div className="mb-4 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
           {STEPS.map((s, i) => (
             <span
               key={s}
               className={cn(
-                "px-2 py-0.5 rounded-full",
-                i === step ? "bg-primary/20 text-primary font-medium" : "opacity-70",
+                "rounded-full px-2.5 py-1 transition-colors",
+                i === step ? "bg-primary/20 font-medium text-primary" : "opacity-65",
               )}
             >
               {s}
@@ -387,8 +393,8 @@ export function DateSuggestionComposer({
         )}
 
         {step === 1 && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-2">
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-2.5">
               {TIME_CHOICE_OPTIONS.map((o) => (
                 <button
                   key={o.key}
@@ -402,10 +408,10 @@ export function DateSuggestionComposer({
                     }))
                   }
                   className={cn(
-                    "rounded-xl border px-3 py-2.5 text-left text-sm",
+                    "rounded-xl border px-4 py-3 text-left text-sm leading-snug transition-colors",
                     w.timeChoiceKey === o.key
-                      ? "border-primary bg-primary/10"
-                      : "border-border/60 hover:bg-muted/50",
+                      ? "border-violet-500/45 bg-violet-500/10 text-foreground shadow-[0_0_0_1px_rgba(139,92,246,0.12)]"
+                      : "border-border/60 hover:bg-muted/40",
                   )}
                 >
                   {o.label}
@@ -413,121 +419,163 @@ export function DateSuggestionComposer({
               ))}
             </div>
             {w.timeChoiceKey === "pick_a_time" && (
-              <div className="space-y-3 rounded-xl border border-border/60 bg-muted/15 p-3">
+              <div
+                className={cn(
+                  "space-y-4 rounded-2xl border border-violet-500/20 bg-gradient-to-b from-violet-500/[0.08] via-muted/5 to-muted/10 p-4 sm:p-5",
+                  "ring-1 ring-inset ring-white/[0.04]",
+                )}
+              >
                 {!pickFlowOpen ? (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm font-medium tabular-nums">
-                      {w.pickStartIso
-                        ? formatProposedDateTimeSummary(w.pickStartIso)
-                        : "Choose a date, then a time."}
-                    </p>
-                    <Button type="button" variant="secondary" size="sm" className="shrink-0" onClick={openPickFlow}>
-                      {w.pickStartIso ? "Change" : "Choose date & time"}
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 text-violet-300">
+                        <Clock className="h-5 w-5" aria-hidden />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/90">
+                          Proposed time
+                        </p>
+                        <p className="text-lg font-semibold tabular-nums tracking-tight text-foreground sm:text-xl">
+                          {w.pickStartIso
+                            ? formatProposedDateTimeSummary(w.pickStartIso)
+                            : "Pick a day, then a time — you’ll preview it here."}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-11 w-full shrink-0 border-violet-500/25 bg-violet-500/10 px-5 text-sm font-semibold text-foreground hover:bg-violet-500/18 sm:w-auto"
+                      onClick={openPickFlow}
+                    >
+                      {w.pickStartIso ? "Edit date & time" : "Choose date & time"}
                     </Button>
                   </div>
                 ) : (
                   <>
                     {pickPhase === "date" ? (
-                      <div className="space-y-3">
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          Pick a date
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          Select a date. Past days aren’t available.
                         </p>
-                        <Calendar
-                          mode="single"
-                          selected={pickDay}
-                          onSelect={(d) => {
-                            if (!d) return;
-                            setPickDay(startOfDay(d));
-                            setPickPhase("time");
-                          }}
-                          disabled={(date) => isBefore(startOfDay(date), startOfDay(new Date()))}
-                          initialFocus
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={() => setPickPhase("time")}
-                        >
-                          Next: choose time
-                        </Button>
-                        <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setPickFlowOpen(false)}>
-                          Cancel
-                        </Button>
+                        <div className="flex justify-center rounded-xl border border-border/40 bg-background/40 p-2">
+                          <Calendar
+                            mode="single"
+                            selected={pickDay}
+                            onSelect={(d) => {
+                              if (!d) return;
+                              setPickDay(startOfDay(d));
+                              setPickPhase("time");
+                            }}
+                            disabled={(date) => isBefore(startOfDay(date), startOfDay(new Date()))}
+                            initialFocus
+                            className="mx-auto"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                          <Button type="button" variant="ghost" className="order-2 sm:order-1" onClick={() => setPickFlowOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="order-1 border-violet-500/30 sm:order-2"
+                            onClick={() => setPickPhase("time")}
+                          >
+                            Next: time
+                          </Button>
+                        </div>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            Pick a time
-                          </p>
+                      <div className="space-y-5">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Set the time</p>
+                            <p className="text-xs text-muted-foreground">Fine-tune hour and minute for the day you chose.</p>
+                          </div>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 shrink-0 px-2 text-xs"
+                            className="h-9 shrink-0 self-start text-violet-300 hover:bg-violet-500/10 hover:text-violet-200 sm:self-center"
                             onClick={() => setPickPhase("date")}
                           >
                             Change date
                           </Button>
                         </div>
-                        <p className="text-base font-semibold tabular-nums">
-                          {formatProposedDateTimeSummary(
-                            mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm).toISOString(),
-                          )}
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="space-y-1">
-                            <span className="text-xs text-muted-foreground">Hour</span>
-                            <select
-                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
-                              value={pickHour12}
-                              onChange={(e) => setPickHour12(Number(e.target.value))}
-                              aria-label="Hour"
-                            >
-                              {HOUR12_OPTIONS.map((h) => (
-                                <option key={h} value={h}>
-                                  {h}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-xs text-muted-foreground">Min</span>
-                            <select
-                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
-                              value={pickMinute}
-                              onChange={(e) => setPickMinute(Number(e.target.value))}
-                              aria-label="Minute"
-                            >
-                              {MINUTE_OPTIONS.map((m) => (
-                                <option key={m} value={m}>
-                                  {m.toString().padStart(2, "0")}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <span className="text-xs text-muted-foreground"> </span>
-                            <select
-                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
-                              value={pickAmPm}
-                              onChange={(e) => setPickAmPm(e.target.value as "AM" | "PM")}
-                              aria-label="AM or PM"
-                            >
-                              <option value="AM">AM</option>
-                              <option value="PM">PM</option>
-                            </select>
+
+                        <div className="rounded-xl border border-violet-500/15 bg-background/50 px-4 py-4 text-center ring-1 ring-inset ring-white/[0.03]">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/80">Preview</p>
+                          <p className="mt-1.5 text-xl font-semibold tabular-nums tracking-tight text-primary sm:text-2xl">
+                            {formatProposedDateTimeSummary(
+                              mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm).toISOString(),
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-border/50 bg-muted/20 p-4">
+                          <p className="mb-3 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                            Time
+                          </p>
+                          <div className="grid grid-cols-3 gap-3 sm:gap-4">
+                            <div className="space-y-2">
+                              <span className="block text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Hour
+                              </span>
+                              <select
+                                className="h-11 w-full rounded-xl border border-violet-500/20 bg-background px-2 text-center text-sm font-medium shadow-sm focus:border-violet-500/45 focus:outline-none focus:ring-1 focus:ring-violet-500/30"
+                                value={pickHour12}
+                                onChange={(e) => setPickHour12(Number(e.target.value))}
+                                aria-label="Hour"
+                              >
+                                {HOUR12_OPTIONS.map((h) => (
+                                  <option key={h} value={h}>
+                                    {h}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <span className="block text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Minute
+                              </span>
+                              <select
+                                className="h-11 w-full rounded-xl border border-violet-500/20 bg-background px-2 text-center text-sm font-medium shadow-sm focus:border-violet-500/45 focus:outline-none focus:ring-1 focus:ring-violet-500/30"
+                                value={pickMinute}
+                                onChange={(e) => setPickMinute(Number(e.target.value))}
+                                aria-label="Minute"
+                              >
+                                {MINUTE_OPTIONS.map((m) => (
+                                  <option key={m} value={m}>
+                                    {m.toString().padStart(2, "0")}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <span className="block text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Period
+                              </span>
+                              <select
+                                className="h-11 w-full rounded-xl border border-violet-500/20 bg-background px-2 text-center text-sm font-medium shadow-sm focus:border-violet-500/45 focus:outline-none focus:ring-1 focus:ring-violet-500/30"
+                                value={pickAmPm}
+                                onChange={(e) => setPickAmPm(e.target.value as "AM" | "PM")}
+                                aria-label="AM or PM"
+                              >
+                                <option value="AM">AM</option>
+                                <option value="PM">PM</option>
+                              </select>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <Button type="button" variant="outline" size="sm" onClick={() => setPickFlowOpen(false)}>
+
+                        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end sm:gap-3">
+                          <Button type="button" variant="outline" className="sm:min-w-[7rem]" onClick={() => setPickFlowOpen(false)}>
                             Cancel
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
+                            className="bg-primary sm:min-w-[7rem]"
                             onClick={() => {
                               const merged = mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm);
                               setW((p) => ({
@@ -538,7 +586,7 @@ export function DateSuggestionComposer({
                               setPickFlowOpen(false);
                             }}
                           >
-                            Save
+                            Save time
                           </Button>
                         </div>
                       </div>
@@ -648,7 +696,7 @@ export function DateSuggestionComposer({
         )}
 
         {step === 4 && (
-          <div className="space-y-2 text-sm rounded-xl border border-border/60 p-3 bg-muted/20">
+          <div className="space-y-3 rounded-2xl border border-border/50 bg-muted/15 p-4 text-sm ring-1 ring-inset ring-white/[0.03]">
             <p>
               <span className="text-muted-foreground">Type:</span>{" "}
               {w.dateTypeKey === "custom"
@@ -677,7 +725,7 @@ export function DateSuggestionComposer({
           </div>
         )}
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        <DialogFooter className="mt-2 flex-col gap-3 border-t border-border/40 pt-6 sm:flex-row sm:justify-end">
           {step > 0 && (
             <Button type="button" variant="outline" onClick={() => setStep((s) => s - 1)}>
               <ChevronLeft className="h-4 w-4 mr-1" /> Back
