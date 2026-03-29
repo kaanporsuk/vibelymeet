@@ -50,6 +50,20 @@ const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
 
   const handlePause = async () => {
     if (!selectedDuration || !user?.id) return;
+
+    const { data: safetyCheck } = await supabase
+      .from("profiles")
+      .select("is_suspended")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (safetyCheck?.is_suspended) {
+      toast.error("Account restricted", {
+        description: "Your account is currently restricted. Please contact support.",
+      });
+      return;
+    }
+
     const untilIso = pausedUntilForDuration(selectedDuration);
     const now = new Date().toISOString();
     setBusy(true);

@@ -8,6 +8,12 @@ LANGUAGE plpgsql
 STABLE
 SET search_path TO 'public'
 AS $$
+-- SAFETY CONTRACT:
+-- This function controls discovery visibility only.
+-- It does NOT affect: reports, blocks, admin moderation,
+-- safety alerts, or any trust & safety action.
+-- is_suspended is checked FIRST and independently of pause state.
+-- A suspended user remains hidden even after pause expiry.
 DECLARE
   v_is_paused boolean;
   v_paused_until timestamptz;

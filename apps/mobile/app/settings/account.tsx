@@ -271,6 +271,24 @@ export default function AccountSettingsScreen() {
 
   const applyTakeBreak = async () => {
     if (!user?.id || !breakChip) return;
+
+    // Safety: suspended users cannot use Take a Break to mask their state
+    const { data: safetyCheck } = await supabase
+      .from('profiles')
+      .select('is_suspended')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (safetyCheck?.is_suspended) {
+      show({
+        title: 'Account restricted',
+        message: 'Your account is currently restricted. Please contact support.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+
     const until = breakUntilForChip(breakChip);
     const now = new Date().toISOString();
     setBreakBusy(true);
@@ -364,6 +382,7 @@ export default function AccountSettingsScreen() {
         pause_reason: 'deactivated',
         discoverable: false,
         discovery_mode: 'hidden',
+        discovery_snooze_until: null,
       })
       .eq('id', user.id);
     setDeactivateOpen(false);

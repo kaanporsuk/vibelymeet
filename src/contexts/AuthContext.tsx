@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
+import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 
 interface User {
   id: string;
@@ -33,15 +34,8 @@ interface ProfileContextType {
   refreshProfile: () => Promise<void>;
 }
 
-interface EntitlementsContextType {
-  isAdmin: boolean;
-  pauseAccount: (duration: 'day' | 'week' | 'indefinite') => void;
-  resumeAccount: () => void;
-}
-
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
-const EntitlementsContext = createContext<EntitlementsContextType | undefined>(undefined);
 
 function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<string, unknown>): User {
   const untilIso =
@@ -68,7 +62,6 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [isOfflineAtBoot, setIsOfflineAtBoot] = useState(false);
   const [user, setUser] = useState<User | null>(null);
 
@@ -125,16 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (until <= new Date()) {
         await supabase
           .from("profiles")
-          .update({
-            account_paused: false,
-            account_paused_until: null,
-            is_paused: false,
-            paused_until: null,
-            paused_at: null,
-            pause_reason: null,
-            discoverable: true,
-            discovery_mode: "visible",
-          })
+          .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
           .eq("id", userId);
         const { data: refreshed } = await supabase
           .from("profiles")
@@ -151,24 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [session]);
 
-  const checkAdminRole = async (userId: string) => {
-    const { data } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId)
-      .eq('role', 'admin')
-      .maybeSingle();
-    
-    setIsAdmin(!!data);
-  };
-
   useEffect(() => {
     if (session?.user) {
       void refreshProfile();
-      void checkAdminRole(session.user.id);
     } else {
       setUser(null);
-      setIsAdmin(false);
     }
   }, [session?.user, refreshProfile]);
 
@@ -226,25 +197,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
-    setIsAdmin(false);
-  };
-
-  const pauseAccount = async (duration: 'day' | 'week' | 'indefinite') => {
-    if (!user) return;
-    const { data, error } = await supabase.functions.invoke('account-pause', {
-      body: { duration },
-    });
-    if (!error && data?.success) {
-      await refreshProfile();
-    }
-  };
-
-  const resumeAccount = async () => {
-    if (!user) return;
-    const { data, error } = await supabase.functions.invoke('account-resume', { body: {} });
-    if (!error && data?.success) {
-      await refreshProfile();
-    }
   };
 
   return (
@@ -265,15 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           refreshProfile,
         }}
       >
-        <EntitlementsContext.Provider
-          value={{
-            isAdmin,
-            pauseAccount,
-            resumeAccount,
-          }}
-        >
-          {children}
-        </EntitlementsContext.Provider>
+        {children}
       </ProfileContext.Provider>
     </SessionContext.Provider>
   );
@@ -291,14 +235,6 @@ export function useUserProfile() {
   const ctx = useContext(ProfileContext);
   if (!ctx) {
     throw new Error("useUserProfile must be used within an AuthProvider");
-  }
-  return ctx;
-}
-
-export function useAccountStatus() {
-  const ctx = useContext(EntitlementsContext);
-  if (!ctx) {
-    throw new Error("useAccountStatus must be used within an AuthProvider");
   }
   return ctx;
 }
