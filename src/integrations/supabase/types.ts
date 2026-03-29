@@ -1539,14 +1539,6 @@ export type Database = {
           onesignal_player_id: string | null
           onesignal_subscribed: boolean | null
           paused_until: string | null
-          pref_account_safety: boolean | null
-          pref_daily_drop: boolean | null
-          pref_events: boolean | null
-          pref_marketing: boolean | null
-          pref_matches: boolean | null
-          pref_messages: boolean | null
-          pref_vibes_social: boolean | null
-          pref_video_dates: boolean | null
           push_enabled: boolean | null
           quiet_hours_enabled: boolean | null
           quiet_hours_end: string | null
@@ -1576,14 +1568,6 @@ export type Database = {
           onesignal_player_id?: string | null
           onesignal_subscribed?: boolean | null
           paused_until?: string | null
-          pref_account_safety?: boolean | null
-          pref_daily_drop?: boolean | null
-          pref_events?: boolean | null
-          pref_marketing?: boolean | null
-          pref_matches?: boolean | null
-          pref_messages?: boolean | null
-          pref_vibes_social?: boolean | null
-          pref_video_dates?: boolean | null
           push_enabled?: boolean | null
           quiet_hours_enabled?: boolean | null
           quiet_hours_end?: string | null
@@ -1613,14 +1597,6 @@ export type Database = {
           onesignal_player_id?: string | null
           onesignal_subscribed?: boolean | null
           paused_until?: string | null
-          pref_account_safety?: boolean | null
-          pref_daily_drop?: boolean | null
-          pref_events?: boolean | null
-          pref_marketing?: boolean | null
-          pref_matches?: boolean | null
-          pref_messages?: boolean | null
-          pref_vibes_social?: boolean | null
-          pref_video_dates?: boolean | null
           push_enabled?: boolean | null
           quiet_hours_enabled?: boolean | null
           quiet_hours_end?: string | null

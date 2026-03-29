@@ -1,3 +1,7 @@
+/**
+ * Computes upcoming date proposal countdowns for UI + fires browser Notification when imminent.
+ * In-app foreground alerts — not redundant with OneSignal push.
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { DateProposal } from '@/hooks/useSchedule';
 import { differenceInSeconds, differenceInMinutes, differenceInHours, differenceInDays, format, isAfter, addHours } from 'date-fns';
