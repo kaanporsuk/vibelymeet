@@ -9,7 +9,6 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   Modal,
   Linking,
   Platform,
@@ -43,6 +42,7 @@ import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscrib
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 
 const CYAN = '#22D3EE';
@@ -164,6 +164,7 @@ export default function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
   const { show, dialog } = useVibelyDialog();
+  const { show: showPurchaseDialog, dialog: purchaseDialog } = useStatusDialog();
   const { user, signOut } = useAuth();
   const { refetch: refetchEntitlements } = useEntitlements();
   const qc = useQueryClient();
@@ -450,7 +451,13 @@ export default function AccountSettingsScreen() {
 
   const handleRestorePurchases = async () => {
     if (!isRevenueCatConfigured()) {
-      Alert.alert('Unavailable', 'In-app purchases are not configured on this build.');
+      showPurchaseDialog({
+        variant: 'info',
+        title: 'Unavailable',
+        message: 'In-app purchases are not configured on this build.',
+        primaryActionLabel: 'Got it',
+        onPrimaryAction: () => {},
+      });
       return;
     }
     setRestoring(true);
@@ -458,15 +465,23 @@ export default function AccountSettingsScreen() {
       const sdk = await restorePurchasesWithCustomerInfo();
       if (!sdk.ok) {
         if (sdk.errorCode === PURCHASES_ERROR_CODE.NETWORK_ERROR) {
-          Alert.alert(
-            'Connection Error',
-            'Please check your internet connection and try again.'
-          );
+          showPurchaseDialog({
+            variant: 'warning',
+            title: 'Connection problem',
+            message: 'Please check your internet connection and try again.',
+            primaryActionLabel: 'OK',
+            onPrimaryAction: () => {},
+            backdropDismissible: false,
+          });
         } else {
-          Alert.alert(
-            'Restore Failed',
-            'Something went wrong. Please try again or contact support.'
-          );
+          showPurchaseDialog({
+            variant: 'error',
+            title: 'Couldn’t restore',
+            message: 'Something went wrong. Please try again or contact support.',
+            primaryActionLabel: 'OK',
+            onPrimaryAction: () => {},
+            backdropDismissible: false,
+          });
         }
         console.error('Restore purchases error:', sdk.error);
         return;
@@ -491,17 +506,27 @@ export default function AccountSettingsScreen() {
         refreshProfile();
 
         const label = newTier === 'vip' ? 'VIP' : 'Premium';
-        Alert.alert(
-          'Purchases Restored',
-          `Your ${label} membership has been restored.`
-        );
+        showPurchaseDialog({
+          variant: 'success',
+          title: 'Purchases restored',
+          message: `Your ${label} membership has been restored.`,
+          primaryActionLabel: 'Great',
+          onPrimaryAction: () => {},
+        });
       } else {
         setRcTier('none');
         setRcExpiry(null);
-        Alert.alert(
-          'No Active Purchases',
-          "We couldn't find any active subscriptions to restore."
-        );
+        const storeAccountHint =
+          Platform.OS === 'ios'
+            ? 'We couldn’t find an active Vibely purchase linked to this Apple account.'
+            : 'We couldn’t find an active Vibely purchase linked to this Google account.';
+        showPurchaseDialog({
+          variant: 'info',
+          title: 'Nothing to restore',
+          message: storeAccountHint,
+          primaryActionLabel: 'Got it',
+          onPrimaryAction: () => {},
+        });
       }
     } finally {
       setRestoring(false);
@@ -1125,6 +1150,7 @@ export default function AccountSettingsScreen() {
       </Modal>
     </View>
     {dialog}
+    {purchaseDialog}
     </>
   );
 }
