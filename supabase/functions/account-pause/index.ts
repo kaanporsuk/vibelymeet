@@ -64,6 +64,20 @@ serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
+    // Safety: suspended accounts cannot pause
+    const { data: target } = await supabaseAdmin
+      .from("profiles")
+      .select("is_suspended")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (target?.is_suspended) {
+      return new Response(
+        JSON.stringify({ error: "account_restricted" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({

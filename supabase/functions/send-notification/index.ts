@@ -251,6 +251,14 @@ Deno.serve(async (req) => {
       })
     }
 
+    // ━━━ SAFETY CONTRACT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // "Take a break" hides users from discovery but NEVER:
+    //   - blocks safety_alerts notifications
+    //   - prevents reports or blocks against this user
+    //   - interferes with admin suspension/moderation
+    //   - shields the user from any trust & safety action
+    // The safety_alerts category ALWAYS bypasses pause gates.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 4. Check account-level pause (legacy is_paused + account_paused)
     if (category !== 'safety_alerts') {
       const { data: profileRow } = await supabase

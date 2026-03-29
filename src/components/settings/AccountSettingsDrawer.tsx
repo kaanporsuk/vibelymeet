@@ -37,6 +37,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { useSubscription } from "@/hooks/useSubscription";
@@ -244,6 +245,19 @@ export const AccountSettingsDrawer = ({
 
   const applyTakeBreak = async () => {
     if (!user || !breakChip) return;
+    const { data: safetyCheck } = await supabase
+      .from("profiles")
+      .select("is_suspended")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (safetyCheck?.is_suspended) {
+      toast.error("Account restricted", {
+        description: "Your account is currently restricted. Please contact support.",
+      });
+      return;
+    }
+
     const until = breakUntilForChip(breakChip);
     const now = new Date().toISOString();
     setBreakBusy(true);
@@ -291,16 +305,7 @@ export const AccountSettingsDrawer = ({
     try {
       const { error } = await supabase
         .from("profiles")
-        .update({
-          account_paused: false,
-          account_paused_until: null,
-          is_paused: false,
-          paused_until: null,
-          paused_at: null,
-          pause_reason: null,
-          discoverable: true,
-          discovery_mode: "visible",
-        })
+        .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
         .eq("id", user.id);
       if (error) {
         toast.error(error.message);

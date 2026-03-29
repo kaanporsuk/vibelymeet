@@ -77,6 +77,7 @@ function VibeClipCardInner({
         return;
       }
       if (payload.status === 'readyToPlay') {
+        setHasError(false);
         setIsReady(true);
       }
     });
@@ -139,32 +140,6 @@ function VibeClipCardInner({
       ? Math.max(0.5, Math.min(1.2, meta.aspectRatio))
       : 9 / 16;
 
-  if (hasError) {
-    return (
-      <View
-        style={[
-          styles.outer,
-          styles.errorOuter,
-          { borderColor: 'rgba(139,92,246,0.35)', backgroundColor: 'rgba(17,17,24,0.92)' },
-        ]}
-      >
-        <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 }}>
-          {"Couldn't load clip"}
-        </Text>
-        <Pressable
-          onPress={onRemountPlayer}
-          style={({ pressed }) => [
-            styles.clipRetryBtn,
-            pressed && { opacity: 0.88 },
-          ]}
-        >
-          <Text style={styles.clipRetryLabel}>Try again</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   return (
     <View
       style={[
@@ -187,7 +162,12 @@ function VibeClipCardInner({
         {meta.thumbnailUrl && !isReady && (
           <Image source={{ uri: meta.thumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
         )}
-        <VideoView style={styles.video} player={player} nativeControls contentFit="cover" />
+        <VideoView
+          style={[styles.video, hasError ? { opacity: 0 } : null]}
+          player={player}
+          nativeControls
+          contentFit="cover"
+        />
 
         {onRequestImmersive ? (
           <Pressable
@@ -208,7 +188,7 @@ function VibeClipCardInner({
           </Pressable>
         ) : null}
 
-        {!isReady && (
+        {!isReady && !hasError && (
           <View style={styles.loadingOverlay} pointerEvents="none">
             <View style={styles.loadingInner}>
               <ActivityIndicator color="rgba(255,255,255,0.92)" size="small" />
@@ -217,6 +197,23 @@ function VibeClipCardInner({
             </View>
           </View>
         )}
+
+        {hasError ? (
+          <View style={[styles.loadingOverlay, styles.clipErrorOverlay]}>
+            <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.88)" />
+            <Text
+              style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center', paddingHorizontal: 16 }}
+            >
+              {"Couldn't load clip"}
+            </Text>
+            <Pressable
+              onPress={onRemountPlayer}
+              style={({ pressed }) => [styles.clipRetryBtn, pressed && { opacity: 0.88 }]}
+            >
+              <Text style={styles.clipRetryLabel}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.durationBadge}>
           <Text style={styles.durationText}>{meta.durationLabel}</Text>
@@ -338,11 +335,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
   },
-  errorOuter: {
-    aspectRatio: 9 / 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   header: {
     paddingHorizontal: 6,
     paddingTop: 4,
@@ -388,6 +380,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(14,14,22,0.28)',
+  },
+  clipErrorOverlay: {
+    zIndex: 20,
+    backgroundColor: 'rgba(17,17,24,0.94)',
   },
   loadingInner: {
     alignItems: 'center',
