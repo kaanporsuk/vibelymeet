@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { startOfDay, isBefore } from "date-fns";
 import {
   DATE_TYPE_OPTIONS,
   TIME_CHOICE_OPTIONS,
@@ -31,8 +33,32 @@ import {
 } from "../../../shared/dateSuggestions/dateComposerLaunch";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
+import { formatProposedDateTimeSummary } from "../../../shared/dateSuggestions/formatProposedDateTimeSummary";
 
 const STEPS = ["Type", "When", "Place", "Message", "Review"] as const;
+
+const MINUTE_STEP = 5;
+const MINUTE_OPTIONS = Array.from({ length: 60 / MINUTE_STEP }, (_, i) => i * MINUTE_STEP);
+const HOUR12_OPTIONS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] as const;
+
+function wallTimePartsFromDate(d: Date): { hour12: number; minute: number; ampm: "AM" | "PM" } {
+  const h = d.getHours();
+  const ampm: "AM" | "PM" = h >= 12 ? "PM" : "AM";
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  const rawMin = d.getMinutes();
+  const minute = Math.min(55, Math.round(rawMin / MINUTE_STEP) * MINUTE_STEP);
+  return { hour12: h12, minute: minute, ampm };
+}
+
+function mergeDayAndWallTime(day: Date, hour12: number, minute: number, ampm: "AM" | "PM"): Date {
+  const out = startOfDay(day);
+  let h24 = hour12 % 12;
+  if (ampm === "PM" && hour12 !== 12) h24 += 12;
+  if (ampm === "AM" && hour12 === 12) h24 = 0;
+  out.setHours(h24, minute, 0, 0);
+  return out;
+}
 
 const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
 
@@ -143,6 +169,25 @@ export function DateSuggestionComposer({
   const submitInFlightRef = useRef(false);
   const [draftId, setDraftId] = useState<string | null>(draftSuggestionId ?? null);
 
+  /** Inline date → time flow for "Pick a time" (no fragile datetime-local). */
+  const [pickFlowOpen, setPickFlowOpen] = useState(false);
+  const [pickPhase, setPickPhase] = useState<"date" | "time">("date");
+  const [pickDay, setPickDay] = useState<Date>(() => startOfDay(new Date()));
+  const [pickHour12, setPickHour12] = useState(7);
+  const [pickMinute, setPickMinute] = useState(30);
+  const [pickAmPm, setPickAmPm] = useState<"AM" | "PM">("PM");
+
+  const openPickFlow = useCallback(() => {
+    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
+    const wall = wallTimePartsFromDate(base);
+    setPickDay(startOfDay(base));
+    setPickHour12(wall.hour12);
+    setPickMinute(wall.minute);
+    setPickAmPm(wall.ampm);
+    setPickPhase("date");
+    setPickFlowOpen(true);
+  }, [w.pickStartIso]);
+
   const shareEnabled = w.timeChoiceKey === "share_schedule";
   /** Partner grid only when countering (grant exists from their prior share). */
   const { data: partnerSlots = [], isLoading: slotsLoading } = useSharedPartnerSchedule(
@@ -200,6 +245,10 @@ export function DateSuggestionComposer({
     setStep(0);
     setDraftId(draftSuggestionId ?? null);
   }, [open, counterContext, draftSuggestionId, draftFromParent]);
+
+  useEffect(() => {
+    if (w.timeChoiceKey !== "pick_a_time") setPickFlowOpen(false);
+  }, [w.timeChoiceKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -349,6 +398,7 @@ export function DateSuggestionComposer({
                       ...p,
                       timeChoiceKey: o.key,
                       scheduleShareEnabled: o.key === "share_schedule",
+                      ...(o.key !== "pick_a_time" ? { pickStartIso: null, pickEndIso: null } : {}),
                     }))
                   }
                   className={cn(
@@ -363,20 +413,138 @@ export function DateSuggestionComposer({
               ))}
             </div>
             {w.timeChoiceKey === "pick_a_time" && (
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Start</label>
-                <input
-                  type="datetime-local"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                  value={w.pickStartIso ? w.pickStartIso.slice(0, 16) : ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setW((p) => ({
-                      ...p,
-                      pickStartIso: v ? new Date(v).toISOString() : null,
-                    }));
-                  }}
-                />
+              <div className="space-y-3 rounded-xl border border-border/60 bg-muted/15 p-3">
+                {!pickFlowOpen ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm font-medium tabular-nums">
+                      {w.pickStartIso
+                        ? formatProposedDateTimeSummary(w.pickStartIso)
+                        : "Choose a date, then a time."}
+                    </p>
+                    <Button type="button" variant="secondary" size="sm" className="shrink-0" onClick={openPickFlow}>
+                      {w.pickStartIso ? "Change" : "Choose date & time"}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {pickPhase === "date" ? (
+                      <div className="space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Pick a date
+                        </p>
+                        <Calendar
+                          mode="single"
+                          selected={pickDay}
+                          onSelect={(d) => {
+                            if (!d) return;
+                            setPickDay(startOfDay(d));
+                            setPickPhase("time");
+                          }}
+                          disabled={(date) => isBefore(startOfDay(date), startOfDay(new Date()))}
+                          initialFocus
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => setPickPhase("time")}
+                        >
+                          Next: choose time
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setPickFlowOpen(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Pick a time
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 shrink-0 px-2 text-xs"
+                            onClick={() => setPickPhase("date")}
+                          >
+                            Change date
+                          </Button>
+                        </div>
+                        <p className="text-base font-semibold tabular-nums">
+                          {formatProposedDateTimeSummary(
+                            mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm).toISOString(),
+                          )}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <span className="text-xs text-muted-foreground">Hour</span>
+                            <select
+                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                              value={pickHour12}
+                              onChange={(e) => setPickHour12(Number(e.target.value))}
+                              aria-label="Hour"
+                            >
+                              {HOUR12_OPTIONS.map((h) => (
+                                <option key={h} value={h}>
+                                  {h}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-xs text-muted-foreground">Min</span>
+                            <select
+                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                              value={pickMinute}
+                              onChange={(e) => setPickMinute(Number(e.target.value))}
+                              aria-label="Minute"
+                            >
+                              {MINUTE_OPTIONS.map((m) => (
+                                <option key={m} value={m}>
+                                  {m.toString().padStart(2, "0")}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-xs text-muted-foreground"> </span>
+                            <select
+                              className="w-full rounded-lg border border-border bg-background px-2 py-2 text-sm"
+                              value={pickAmPm}
+                              onChange={(e) => setPickAmPm(e.target.value as "AM" | "PM")}
+                              aria-label="AM or PM"
+                            >
+                              <option value="AM">AM</option>
+                              <option value="PM">PM</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <Button type="button" variant="outline" size="sm" onClick={() => setPickFlowOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const merged = mergeDayAndWallTime(pickDay, pickHour12, pickMinute, pickAmPm);
+                              setW((p) => ({
+                                ...p,
+                                pickStartIso: merged.toISOString(),
+                                pickEndIso: merged.toISOString(),
+                              }));
+                              setPickFlowOpen(false);
+                            }}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
             {shareEnabled && !counterContext && (
@@ -489,7 +657,9 @@ export function DateSuggestionComposer({
             </p>
             <p>
               <span className="text-muted-foreground">When:</span>{" "}
-              {TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
+              {w.timeChoiceKey === "pick_a_time" && w.pickStartIso
+                ? formatProposedDateTimeSummary(w.pickStartIso)
+                : TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
             </p>
             <p>
               <span className="text-muted-foreground">Place:</span>{" "}
