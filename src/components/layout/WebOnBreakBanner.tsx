@@ -2,17 +2,7 @@ import { useState } from "react";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-
-const END_BREAK_UPDATE = {
-  account_paused: false,
-  account_paused_until: null,
-  is_paused: false,
-  paused_until: null,
-  paused_at: null,
-  pause_reason: null,
-  discoverable: true,
-  discovery_mode: "visible" as const,
-};
+import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 
 /** Sticky amber strip when the signed-in user’s profile is paused (break / hidden from discovery). */
 export function WebOnBreakBanner() {
@@ -24,7 +14,10 @@ export function WebOnBreakBanner() {
   const endBreak = async () => {
     setBusy(true);
     try {
-      const { error } = await supabase.from("profiles").update(END_BREAK_UPDATE).eq("id", user.id);
+      const { error } = await supabase
+        .from("profiles")
+        .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+        .eq("id", user.id);
       if (error) {
         console.error("[WebOnBreakBanner]", error);
         return;

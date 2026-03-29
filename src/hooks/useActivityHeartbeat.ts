@@ -6,7 +6,7 @@ export const useActivityHeartbeat = () => {
   const { user } = useUserProfile();
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || user.isPaused) return;
 
     const update = () => {
       supabase
@@ -20,5 +20,5 @@ export const useActivityHeartbeat = () => {
     const interval = setInterval(update, 60000);
 
     return () => clearInterval(interval);
-  }, [user?.id]);
+  }, [user?.id, user?.isPaused]);
 };

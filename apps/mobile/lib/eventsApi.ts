@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { filterVisibleProfileIds } from '@/lib/profileVisibility';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 
 const GRACE_HOURS = 6;
@@ -588,10 +589,13 @@ export function useEventAttendees(eventId: string | undefined) {
         .eq('event_id', eventId);
       if (regError || !regs?.length) return [];
       const profileIds = [...new Set(regs.map((r) => r.profile_id).filter(Boolean))];
+      const visibleIds = await filterVisibleProfileIds(profileIds);
+      const visibleIdList = profileIds.filter((id) => visibleIds.has(id));
+      if (visibleIdList.length === 0) return [];
       const { data: profiles, error: profError } = await supabase
         .from('profiles')
         .select('id, name, age, avatar_url, photos')
-        .in('id', profileIds);
+        .in('id', visibleIdList);
       if (profError || !profiles?.length) return [];
       return profiles.map((p) => ({
         id: p.id,

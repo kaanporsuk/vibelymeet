@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 
 export const useUserRegistrations = () => {
   const { user } = useUserProfile();
@@ -24,10 +25,25 @@ export const useUserRegistrations = () => {
 };
 
 export const useRegisterForEvent = () => {
-  const { user } = useUserProfile();
+  const { user, refreshProfile } = useUserProfile();
+  const queryClient = useQueryClient();
 
   const registerForEvent = async (eventId: string): Promise<boolean> => {
     if (!user?.id) return false;
+
+    if (user.isPaused) {
+      const endBreak = window.confirm(
+        "You're on a break and hidden from discovery. End your break to register for this event?"
+      );
+      if (!endBreak) return false;
+      const { error: upErr } = await supabase
+        .from("profiles")
+        .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+        .eq("id", user.id);
+      if (upErr) return false;
+      await refreshProfile();
+      await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
+    }
 
     const { data, error } = await supabase.rpc("register_for_event", {
       p_event_id: eventId,

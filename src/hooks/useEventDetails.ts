@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { filterVisibleProfileIds } from "@/lib/profileVisibility";
 
 export interface EventDetails {
   id: string;
@@ -200,8 +201,13 @@ export const useEventAttendees = (eventId: string | undefined) => {
 
       if (!registrations?.length) return [];
 
-      // Fetch vibes for all attendees
-      const profileIds = registrations.map((r) => r.profile_id);
+      const allIds = registrations.map((r) => r.profile_id);
+      const visibleSet = await filterVisibleProfileIds(allIds);
+      const filteredRegs = registrations.filter((r) => visibleSet.has(r.profile_id));
+      if (!filteredRegs.length) return [];
+
+      // Fetch vibes for visible attendees only
+      const profileIds = filteredRegs.map((r) => r.profile_id);
       const { data: vibesData } = await supabase
         .from("profile_vibes")
         .select("profile_id, vibe_tags(label)")
@@ -257,7 +263,7 @@ export const useEventAttendees = (eventId: string | undefined) => {
 
       // Process each attendee with signed URLs
       const attendees = await Promise.all(
-        registrations
+        filteredRegs
           .filter((r) => r.profiles)
           .map(async (r) => {
             const rawProfile = Array.isArray(r.profiles)
