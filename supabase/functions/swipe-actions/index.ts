@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,6 +11,39 @@ type SwipeResult = {
   match_id?: string;
   immediate?: boolean;
 };
+
+async function sendNewMatchEmails(
+  serviceRoleClient: SupabaseClient,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  actorId: string,
+  targetId: string,
+) {
+  for (const uid of [targetId, actorId]) {
+    try {
+      const { data: authUser, error } = await serviceRoleClient.auth.admin.getUserById(uid);
+      if (error || !authUser?.user?.email) continue;
+      const res = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({
+          to: authUser.user.email,
+          template: "new_match",
+          data: {},
+        }),
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        console.error("swipe-actions match email http:", uid, res.status, t);
+      }
+    } catch (e) {
+      console.error("swipe-actions match email error:", uid, e);
+    }
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -93,6 +126,7 @@ serve(async (req) => {
         } catch (e) {
           console.error("swipe-actions new_match notify actor:", e);
         }
+        void sendNewMatchEmails(serviceClient, supabaseUrl, serviceRoleKey, actorId, target_id);
       } else if (result.result === "match_queued" && result.match_id) {
         // Notify partner about queued match / ready gate
         await serviceClient.functions.invoke("send-notification", {

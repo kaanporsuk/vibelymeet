@@ -241,6 +241,17 @@ export default function OnboardingScreen() {
         has_vibes: selectedVibeLabels.length > 0,
         vibe_count: selectedVibeLabels.length,
       });
+      if (user?.email) {
+        void supabase.functions
+          .invoke('send-email', {
+            body: {
+              to: user.email,
+              template: 'welcome',
+              data: { name: name.trim() },
+            },
+          })
+          .catch(() => {});
+      }
       await refreshOnboarding();
       router.replace('/(tabs)');
     } catch (e: unknown) {

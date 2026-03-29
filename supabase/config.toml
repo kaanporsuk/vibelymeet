@@ -115,5 +115,8 @@ verify_jwt = false
 [functions.date-reminder-cron]
 verify_jwt = false
 
+[functions.send-email]
+verify_jwt = false
+
 [functions.send-support-reply]
 verify_jwt = true

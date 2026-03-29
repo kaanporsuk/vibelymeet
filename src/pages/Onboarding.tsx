@@ -241,7 +241,19 @@ const Onboarding = () => {
         extra_time_credits: 0,
         extended_vibe_credits: 0,
       }, { onConflict: 'user_id' });
-      
+
+      if (user.email) {
+        void supabase.functions
+          .invoke("send-email", {
+            body: {
+              to: user.email,
+              template: "welcome",
+              data: { name: formData.name || "" },
+            },
+          })
+          .catch(() => {});
+      }
+
       // Clear saved progress
       localStorage.removeItem(STORAGE_KEY);
       
