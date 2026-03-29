@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
-import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking } from 'react-native';
+import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,6 +34,8 @@ import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -54,6 +56,7 @@ export default function EventDetailScreen() {
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+  const { isPaused } = useAccountPauseStatus();
 
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
@@ -145,7 +148,7 @@ export default function EventDetailScreen() {
   const isFemale = userGender === 'female' || userGender === 'woman';
   const userPrice = !event || isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
 
-  const handleRegister = useCallback(async () => {
+  const performRegisterCore = useCallback(async () => {
     if (!event) return;
     const vis = (event as EventDetailsRow).visibility;
     if (vis === 'premium' && !canAccessPremiumEvents) {
@@ -184,6 +187,41 @@ export default function EventDetailScreen() {
       });
     }
   }, [event, ev?.is_free, registerForEvent, canAccessPremiumEvents, canAccessVipEvents, showDialog, router]);
+
+  const handleRegister = useCallback(async () => {
+    if (!event) return;
+    if (isPaused && user?.id) {
+      Alert.alert(
+        "You're on a break",
+        'End your break to register for events. Your break settings are in Account & Security.',
+        [
+          { text: 'Stay on break', style: 'cancel' },
+          {
+            text: 'End break & register',
+            onPress: () => {
+              void (async () => {
+                const { error } = await endAccountBreakForUser(user.id);
+                if (error) {
+                  showDialog({
+                    title: 'Couldn’t update',
+                    message: error.message,
+                    variant: 'warning',
+                    primaryAction: { label: 'OK', onPress: () => {} },
+                  });
+                  return;
+                }
+                await queryClient.invalidateQueries({ queryKey: ['account-pause-status'] });
+                await queryClient.invalidateQueries({ queryKey: ['my-profile'] });
+                await performRegisterCore();
+              })();
+            },
+          },
+        ]
+      );
+      return;
+    }
+    await performRegisterCore();
+  }, [event, isPaused, user?.id, queryClient, showDialog, performRegisterCore]);
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;

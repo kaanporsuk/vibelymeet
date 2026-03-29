@@ -297,6 +297,7 @@ export const AccountSettingsDrawer = ({
           is_paused: false,
           paused_until: null,
           paused_at: null,
+          pause_reason: null,
           discoverable: true,
           discovery_mode: "visible",
         })

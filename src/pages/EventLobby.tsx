@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, SetStateAction } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User } from "lucide-react";
+import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -18,18 +18,23 @@ import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
+import { useQueryClient } from "@tanstack/react-query";
+import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const { user } = useUserProfile();
+  const { user, refreshProfile } = useUserProfile();
+  const queryClient = useQueryClient();
+  const [endingBreak, setEndingBreak] = useState(false);
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);
   const { data: isRegistered, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
+  const deckEnabled = Boolean(eventId && user?.id && !user.isPaused);
   const { profiles, isLoading: deckLoading, refetch: refetchDeck } = useEventDeck({
     eventId: eventId || "",
-    enabled: !!eventId && !!user?.id,
+    enabled: deckEnabled,
   });
   const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
@@ -328,7 +333,55 @@ const EventLobby = () => {
 
       {/* Card Area */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-4 max-w-lg mx-auto w-full relative">
-        {deckLoading && sortedProfiles.length === 0 ? (
+        {user?.isPaused ? (
+          <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
+            <Moon className="w-16 h-16 text-amber-500/20 mb-4" strokeWidth={1.25} aria-hidden />
+            <h2 className="text-xl font-display font-semibold text-foreground mb-2">{"You're on a break"}</h2>
+            <p className="text-sm text-muted-foreground mb-1">
+              {user.pauseUntil && user.pauseUntil > new Date()
+                ? `Discovery is paused until ${user.pauseUntil.toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : "Discovery is paused"}
+            </p>
+            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+              {
+                "Other people can't see you in the event deck right now. Your matches and chats stay active."
+              }
+            </p>
+            <Button
+              variant="outline"
+              className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+              disabled={endingBreak}
+              onClick={() => {
+                if (!user?.id) return;
+                setEndingBreak(true);
+                void (async () => {
+                  try {
+                    const { error } = await supabase
+                      .from("profiles")
+                      .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+                      .eq("id", user.id);
+                    if (error) {
+                      toast.error(error.message);
+                      return;
+                    }
+                    await refreshProfile();
+                    await queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+                    toast.success("You're visible again.");
+                  } finally {
+                    setEndingBreak(false);
+                  }
+                })();
+              }}
+            >
+              {endingBreak ? "Ending break…" : "End break & start discovering"}
+            </Button>
+          </div>
+        ) : deckLoading && sortedProfiles.length === 0 ? (
           <CardSkeleton />
         ) : isEmpty ? (
           <LobbyEmptyState onRefresh={refetchDeck} />

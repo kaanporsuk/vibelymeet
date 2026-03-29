@@ -32,6 +32,7 @@ import { usePushPermission } from '@/lib/usePushPermission';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
 import { spacing, layout } from '@/constants/theme';
+import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const BG = '#09090B';
 const CARD_BG = '#1C1C2E';
@@ -184,6 +185,8 @@ export default function ScheduleScreen() {
             <Text style={styles.toastErrorText}>Failed to copy schedule. Try again.</Text>
           </View>
         )}
+
+        <OnBreakBanner variant="compact" style={{ marginHorizontal: layout.containerPadding, marginBottom: 8 }} />
 
         {/* Upcoming date reminders */}
         {upcomingReminders.length > 0 && (

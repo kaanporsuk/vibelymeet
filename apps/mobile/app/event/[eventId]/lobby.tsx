@@ -12,7 +12,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
-import { GlassHeaderBar, Card, LoadingState, ErrorState, Skeleton } from '@/components/ui';
+import { GlassHeaderBar, Card, LoadingState, ErrorState, Skeleton, VibelyButton } from '@/components/ui';
 import { spacing, radius, layout, shadows } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -37,6 +37,9 @@ import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -78,12 +81,19 @@ export default function EventLobbyScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const pauseStatus = useAccountPauseStatus();
   const { show, dialog } = useVibelyDialog();
   const id = eventId ?? '';
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
   const { data: isRegistered } = useIsRegisteredForEvent(id, user?.id);
-  const { data: profiles = [], isLoading: deckLoading, isError: deckError, refetch: refetchDeck } = useEventDeck(id, user?.id ?? null, !!id && !!user?.id);
+  const deckQueryEnabled = Boolean(id && user?.id && !pauseStatus.isPaused);
+  const { data: profiles = [], isLoading: deckLoading, isError: deckError, refetch: refetchDeck } = useEventDeck(
+    id,
+    user?.id ?? null,
+    deckQueryEnabled
+  );
 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [processing, setProcessing] = useState(false);
@@ -93,6 +103,7 @@ export default function EventLobbyScreen() {
   const [queuedMatchCount, setQueuedMatchCount] = useState(0);
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
+  const [endingBreak, setEndingBreak] = useState(false);
   const lastOpenedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -276,6 +287,15 @@ export default function EventLobbyScreen() {
     return () => clearInterval(interval);
   }, [eventEndTime]);
 
+  const mysteryMatchEnabled = Boolean(
+    id && user?.id && event && !eventLoading && isRegistered === true && !pauseStatus.isPaused
+  );
+  const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
+    eventId: id,
+    onMatchFound: openReadyGateWithSession,
+    enabled: mysteryMatchEnabled,
+  });
+
   if (eventLoading && !event) {
     return (
       <>
@@ -406,10 +426,6 @@ export default function EventLobbyScreen() {
   );
 
   const isOffline = useIsOffline();
-  const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
-    eventId: id,
-    onMatchFound: openReadyGateWithSession,
-  });
 
   const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
     if (!current || processing) return;
@@ -492,6 +508,69 @@ export default function EventLobbyScreen() {
       <LiveSurfaceOfflineStrip />
 
       <View style={styles.body}>
+        {pauseStatus.isPaused ? (
+          <View style={styles.onBreakWrap}>
+            <Ionicons name="moon-outline" size={64} color="rgba(245, 158, 11, 0.2)" />
+            <Text style={[styles.onBreakTitle, { color: theme.text }]}>{"You're on a break"}</Text>
+            <Text style={[styles.onBreakSubtitle, { color: theme.textSecondary }]}>
+              {pauseStatus.isTimedBreak && pauseStatus.pausedUntil
+                ? `Discovery is paused until ${pauseStatus.pausedUntil.toLocaleString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}`
+                : 'Discovery is paused'}
+            </Text>
+            <Text style={[styles.onBreakBody, { color: theme.textSecondary }]}>
+              {
+                "Other people can't see you right now, and you won't appear in anyone's deck. Your existing matches and chats are still active."
+              }
+            </Text>
+            <VibelyButton
+              label="End break & start discovering"
+              loading={endingBreak}
+              onPress={() => {
+                if (!user?.id || endingBreak) return;
+                setEndingBreak(true);
+                void (async () => {
+                  try {
+                    const { error } = await endAccountBreakForUser(user.id);
+                    if (error) {
+                      show({
+                        title: 'Couldn’t update',
+                        message: error.message,
+                        variant: 'warning',
+                        primaryAction: { label: 'OK', onPress: () => {} },
+                      });
+                      return;
+                    }
+                    await queryClient.invalidateQueries({ queryKey: ['account-pause-status'] });
+                    await queryClient.invalidateQueries({ queryKey: ['my-profile'] });
+                    show({
+                      title: 'Welcome back!',
+                      message: "You're visible again.",
+                      variant: 'success',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
+                  } finally {
+                    setEndingBreak(false);
+                  }
+                })();
+              }}
+              variant="secondary"
+              disabled={endingBreak}
+              style={{
+                marginTop: spacing.lg,
+                borderColor: '#F59E0B',
+                borderWidth: 1,
+                backgroundColor: 'transparent',
+              }}
+              textStyle={{ color: '#F59E0B', fontWeight: '600' }}
+            />
+          </View>
+        ) : (
+          <>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Discover who's here
         </Text>
@@ -641,6 +720,8 @@ export default function EventLobbyScreen() {
             <Text style={[styles.deckMeta, { color: theme.textSecondary }]}>
               {currentIndex + 1} of {profiles.length} in deck
             </Text>
+          </>
+        )}
           </>
         )}
       </View>
@@ -835,6 +916,16 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   centeredInner: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
+  onBreakWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+  },
+  onBreakTitle: { fontSize: 22, fontWeight: '700', marginTop: spacing.lg, textAlign: 'center' },
+  onBreakSubtitle: { fontSize: 15, marginTop: spacing.sm, textAlign: 'center' },
+  onBreakBody: { fontSize: 14, marginTop: spacing.md, lineHeight: 20, textAlign: 'center', maxWidth: 320 },
   headerBar: { marginBottom: 0 },
   header: {
     flexDirection: 'row',

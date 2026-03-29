@@ -40,6 +40,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { isRevenueCatConfigured } from '@/lib/revenuecat';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -298,6 +299,7 @@ export default function AccountSettingsScreen() {
         return;
       }
       refreshProfile();
+      qc.invalidateQueries({ queryKey: ['account-pause-status'] });
       setBreakChip(null);
       show({
         title: 'You’re on a break',
@@ -326,18 +328,7 @@ export default function AccountSettingsScreen() {
     if (!user?.id) return;
     setBreakBusy(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          account_paused: false,
-          account_paused_until: null,
-          is_paused: false,
-          paused_until: null,
-          paused_at: null,
-          discoverable: true,
-          discovery_mode: 'visible',
-        })
-        .eq('id', user.id);
+      const { error } = await endAccountBreakForUser(user.id);
       if (error) {
         show({
           title: 'Couldn’t update',
@@ -348,6 +339,7 @@ export default function AccountSettingsScreen() {
         return;
       }
       refreshProfile();
+      qc.invalidateQueries({ queryKey: ['account-pause-status'] });
       show({
         title: 'Welcome back!',
         message: 'You’re visible in discovery again.',
@@ -369,6 +361,7 @@ export default function AccountSettingsScreen() {
         is_paused: true,
         paused_until: null,
         paused_at: new Date().toISOString(),
+        pause_reason: 'deactivated',
         discoverable: false,
         discovery_mode: 'hidden',
       })

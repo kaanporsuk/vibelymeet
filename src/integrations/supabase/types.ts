@@ -2905,6 +2905,7 @@ export type Database = {
         Returns: Json
       }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
+      clear_expired_pauses: { Args: never; Returns: number }
       daily_drop_transition: {
         Args: { p_action: string; p_drop_id: string; p_text?: string }
         Returns: Json
@@ -2937,6 +2938,33 @@ export type Database = {
       generate_recurring_events: {
         Args: { p_count?: number; p_parent_id: string }
         Returns: number
+      }
+      get_daily_drop_candidates: {
+        Args: { p_limit?: number; p_user_id: string }
+        Returns: {
+          about_me: string
+          age: number
+          avatar_url: string
+          bio: string
+          bunny_video_status: string
+          company: string
+          gender: string
+          height_cm: number
+          id: string
+          interested_in: string[]
+          job: string
+          lifestyle: Json
+          location: string
+          looking_for: string
+          name: string
+          phone_verified: boolean
+          photo_verified: boolean
+          photos: string[]
+          prompts: Json
+          tagline: string
+          vibe_caption: string
+          vibe_video_status: string
+        }[]
       }
       get_event_deck: {
         Args: { p_event_id: string; p_limit?: number; p_user_id: string }
@@ -3046,6 +3074,7 @@ export type Database = {
         Args: { user1_id: string; user2_id: string }
         Returns: boolean
       }
+      is_profile_hidden: { Args: { p_profile_id: string }; Returns: boolean }
       is_registered_for_event: {
         Args: { _event_id: string; _user_id: string }
         Returns: boolean

@@ -65,6 +65,7 @@ export function DeactivatedAccountReactivationPrompt() {
                     is_paused: false,
                     paused_until: null,
                     paused_at: null,
+                    pause_reason: null,
                   })
                   .eq('id', userId);
                 if (upErr) {
@@ -77,6 +78,7 @@ export function DeactivatedAccountReactivationPrompt() {
                   return;
                 }
                 await qc.invalidateQueries({ queryKey: ['my-profile'] });
+                await qc.invalidateQueries({ queryKey: ['account-pause-status'] });
                 await qc.invalidateQueries({ queryKey: ['profile-account', userId] });
                 await qc.invalidateQueries({ queryKey: ['privacy-profile', userId] });
               })();

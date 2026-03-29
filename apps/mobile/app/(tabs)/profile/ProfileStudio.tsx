@@ -27,6 +27,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { LoadingState, ErrorState, Card, Chip, SettingsRow, DestructiveRow } from '@/components/ui';
+import { OnBreakBanner } from '@/components/OnBreakBanner';
 import {
   fetchMyProfile,
   fetchProfileLiveCounts,
@@ -912,6 +913,10 @@ export default function ProfileStudio() {
             </Text>
           </RNView>
         </RNView>
+      </RNView>
+
+      <RNView style={{ paddingHorizontal: layout.containerPadding, marginBottom: spacing.sm }}>
+        <OnBreakBanner variant="compact" />
       </RNView>
 
       {/* ═══ Preview | Vibe Score circle | Complete Profile ═══ */}

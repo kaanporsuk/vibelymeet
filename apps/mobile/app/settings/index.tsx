@@ -24,6 +24,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import Constants from 'expo-constants';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -59,6 +60,7 @@ export default function SettingsScreen() {
   const { tierLabel } = useEntitlements();
   const { data: credits } = useCredits(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+  const { isPaused, remainingLabel } = useAccountPauseStatus();
 
   const handleManageSubscription = async () => {
     try {
@@ -151,8 +153,22 @@ export default function SettingsScreen() {
             <SettingsRow
               icon={<Ionicons name="person-outline" size={20} color={theme.accent} />}
               title="Account"
-              subtitle="Security, membership, and account control"
+              subtitle={
+                isPaused
+                  ? remainingLabel
+                    ? `On a break · ${remainingLabel}`
+                    : 'On a break'
+                  : 'Security, membership, and account control'
+              }
               onPress={() => router.push('/settings/account')}
+              right={
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {isPaused ? (
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#F59E0B' }} />
+                  ) : null}
+                  <Text style={{ color: theme.textSecondary }}>›</Text>
+                </View>
+              }
             />
           </Card>
 

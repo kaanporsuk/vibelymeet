@@ -50,6 +50,8 @@ export async function clearExpiredAccountPauseIfNeeded(userId: string | null | u
         account_paused_until: null,
         is_paused: false,
         paused_until: null,
+        paused_at: null,
+        pause_reason: null,
         discoverable: true,
         discovery_mode: 'visible',
       })

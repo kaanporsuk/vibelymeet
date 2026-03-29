@@ -44,6 +44,10 @@ const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 const EntitlementsContext = createContext<EntitlementsContextType | undefined>(undefined);
 
 function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<string, unknown>): User {
+  const untilIso =
+    (profileData?.paused_until as string | null | undefined) ||
+    (profileData?.account_paused_until as string | null | undefined) ||
+    null;
   return {
     id: supabaseUser.id,
     name: (profileData?.name as string) || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
@@ -56,8 +60,8 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
     isPremium: (profileData?.is_premium as boolean) || false,
     subscriptionTier: (profileData?.subscription_tier as string) ?? null,
     isVerified: (profileData?.photo_verified as boolean) || false,
-    isPaused: (profileData?.is_paused as boolean) || false,
-    pauseUntil: profileData?.paused_until ? new Date(profileData.paused_until as string) : null,
+    isPaused: !!(profileData?.is_paused || profileData?.account_paused),
+    pauseUntil: untilIso ? new Date(untilIso) : null,
   };
 }
 
@@ -106,13 +110,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const userId = session.user.id;
 
-    const { data: profile } = await supabase
+    const profileSelect =
+      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode";
+
+    let { data: profile } = await supabase
       .from("profiles")
-      .select(
-        "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason"
-      )
+      .select(profileSelect)
       .eq("id", userId)
       .maybeSingle();
+
+    // Web auto-expiry: timed account pause ended — align DB with native clearExpiredAccountPauseIfNeeded
+    if (profile?.account_paused && profile.account_paused_until) {
+      const until = new Date(profile.account_paused_until as string);
+      if (until <= new Date()) {
+        await supabase
+          .from("profiles")
+          .update({
+            account_paused: false,
+            account_paused_until: null,
+            is_paused: false,
+            paused_until: null,
+            paused_at: null,
+            pause_reason: null,
+            discoverable: true,
+            discovery_mode: "visible",
+          })
+          .eq("id", userId);
+        const { data: refreshed } = await supabase
+          .from("profiles")
+          .select(profileSelect)
+          .eq("id", userId)
+          .maybeSingle();
+        profile = refreshed ?? profile;
+      }
+    }
 
     const { data: { user: supabaseUser } } = await supabase.auth.getUser();
     if (supabaseUser) {

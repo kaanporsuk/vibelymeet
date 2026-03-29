@@ -34,6 +34,7 @@ import { connectivityService } from '@/lib/connectivityService';
 import { setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
+import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
@@ -144,10 +145,11 @@ function PostHogScreenTracker() {
   return null;
 }
 
-/** Updates profiles.last_seen_at every 60s while app is in foreground. */
+/** Updates profiles.last_seen_at every 60s while app is in foreground — skipped when on a break. */
 function ActivityHeartbeat() {
   const { user } = useAuth();
-  useActivityHeartbeat(user?.id ?? null);
+  const { isPaused } = useAccountPauseStatus();
+  useActivityHeartbeat(user?.id ?? null, isPaused);
   return null;
 }
 

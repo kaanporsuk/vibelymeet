@@ -8,9 +8,11 @@ import { supabase } from '@/lib/supabase';
 type UseMysteryMatchOptions = {
   eventId: string | undefined;
   onMatchFound?: (sessionId: string, partnerId: string) => void;
+  /** When false, stops polling and no-ops find (e.g. account on break). */
+  enabled?: boolean;
 };
 
-export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOptions) {
+export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMysteryMatchOptions) {
   const [isSearching, setIsSearching] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -25,7 +27,19 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
     }
   }, [eventId]);
 
+  useEffect(() => {
+    if (!enabled) {
+      setIsWaiting(false);
+      setIsSearching(false);
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+  }, [enabled]);
+
   const findMysteryMatch = useCallback(async () => {
+    if (!enabled) return;
     if (intervalRef.current || isWaiting) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!eventId || !user?.id) return;
@@ -96,7 +110,7 @@ export function useMysteryMatch({ eventId, onMatchFound }: UseMysteryMatchOption
     } catch {
       setIsSearching(false);
     }
-  }, [eventId, onMatchFound, isWaiting]);
+  }, [eventId, onMatchFound, isWaiting, enabled]);
 
   const cancelSearch = useCallback(() => {
     setIsWaiting(false);

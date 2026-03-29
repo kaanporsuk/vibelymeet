@@ -55,6 +55,7 @@ import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
+import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -662,6 +663,7 @@ export default function DashboardScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
       >
         <Animated.View style={[{ opacity: fadeAnim }, styles.scrollInner]}>
+          <OnBreakBanner variant="full" />
           {pendingDeletion && (
             <DeletionRecoveryBanner
               scheduledDate={pendingDeletion.scheduled_deletion_at}

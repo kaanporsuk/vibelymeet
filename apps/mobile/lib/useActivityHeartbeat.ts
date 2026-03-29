@@ -8,13 +8,14 @@ import { supabase } from '@/lib/supabase';
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-export function useActivityHeartbeat(userId: string | null | undefined) {
+/** When `skipHeartbeat` is true (e.g. user on a break), we do not touch `last_seen_at` so matches see stale activity. */
+export function useActivityHeartbeat(userId: string | null | undefined, skipHeartbeat = false) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const inFlightRef = useRef(false);
 
   const updateLastSeen = useCallback(async () => {
-    if (!userId || inFlightRef.current) return;
+    if (!userId || skipHeartbeat || inFlightRef.current) return;
     inFlightRef.current = true;
     try {
       const { error } = await supabase
@@ -27,14 +28,14 @@ export function useActivityHeartbeat(userId: string | null | undefined) {
     } finally {
       inFlightRef.current = false;
     }
-  }, [userId]);
+  }, [userId, skipHeartbeat]);
 
   const startHeartbeat = useCallback(() => {
-    if (!userId) return;
+    if (!userId || skipHeartbeat) return;
     void updateLastSeen();
     if (intervalRef.current) return;
     intervalRef.current = setInterval(() => void updateLastSeen(), HEARTBEAT_INTERVAL_MS);
-  }, [userId, updateLastSeen]);
+  }, [userId, skipHeartbeat, updateLastSeen]);
 
   const stopHeartbeat = useCallback(() => {
     if (intervalRef.current) {
@@ -44,7 +45,10 @@ export function useActivityHeartbeat(userId: string | null | undefined) {
   }, []);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || skipHeartbeat) {
+      stopHeartbeat();
+      return;
+    }
 
     const handleAppState = (nextState: AppStateStatus) => {
       if (nextState === 'active') {
@@ -61,5 +65,5 @@ export function useActivityHeartbeat(userId: string | null | undefined) {
       sub.remove();
       stopHeartbeat();
     };
-  }, [userId, startHeartbeat, stopHeartbeat]);
+  }, [userId, skipHeartbeat, startHeartbeat, stopHeartbeat]);
 }
