@@ -5,6 +5,10 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  downgradeRevenueCatSubscriptionRow,
+  upsertActiveRevenueCatSubscription,
+} from '../_shared/revenuecatSubscription.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,19 +28,6 @@ type RCEvent = {
   store?: string
 }
 
-function toPeriodEnd(ms: number | null | undefined): string | null {
-  if (ms == null) return null
-  return new Date(ms).toISOString()
-}
-
-function planFromProductId(productId: string | undefined): string | null {
-  if (!productId) return null
-  const lower = productId.toLowerCase()
-  if (lower.includes('annual') || lower.includes('yearly')) return 'annual'
-  if (lower.includes('monthly') || lower.includes('month')) return 'monthly'
-  return productId
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -45,7 +36,6 @@ Deno.serve(async (req) => {
   const authHeader = req.headers.get('Authorization')
   const expectedAuth = Deno.env.get('REVENUECAT_WEBHOOK_AUTHORIZATION')
   if (!expectedAuth || expectedAuth.trim() === '') {
-    console.error('RevenueCat webhook: REVENUECAT_WEBHOOK_AUTHORIZATION secret is not set')
     return new Response(
       JSON.stringify({ success: false, error: 'Webhook not configured' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -65,7 +55,6 @@ Deno.serve(async (req) => {
     const eventType = event.type
     const appUserId = event.app_user_id ?? event.original_app_user_id
 
-    // TEST and TRANSFER may have no app_user_id per RevenueCat docs; acknowledge and skip DB write
     if ((eventType === 'TEST' || eventType === 'TRANSFER') && !appUserId) {
       return new Response(
         JSON.stringify({ success: true, received: true }),
@@ -84,75 +73,44 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    const provider = 'revenuecat'
-    const plan = planFromProductId(event.product_id)
-    const currentPeriodEnd = toPeriodEnd(event.expiration_at_ms ?? undefined)
-    const isTrialing = event.period_type === 'TRIAL'
-
     switch (eventType) {
       case 'INITIAL_PURCHASE':
       case 'RENEWAL':
       case 'UNCANCELLATION':
       case 'SUBSCRIPTION_EXTENDED':
-      case 'TEMPORARY_ENTITLEMENT_GRANT': {
-        const { error } = await supabase.from('subscriptions').upsert(
-          {
-            user_id: appUserId,
-            provider,
-            status: isTrialing ? 'trialing' : 'active',
-            plan,
-            current_period_end: currentPeriodEnd,
-            rc_product_id: event.product_id ?? null,
-            rc_original_app_user_id: event.original_app_user_id ?? null,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id,provider' }
-        )
+      case 'TEMPORARY_ENTITLEMENT_GRANT':
+      case 'TRANSFER':
+      case 'PRODUCT_CHANGE': {
+        if (!event.product_id?.trim()) break
+        const { error } = await upsertActiveRevenueCatSubscription(supabase, appUserId, {
+          productId: event.product_id,
+          expirationAtMs: event.expiration_at_ms,
+          periodType: event.period_type ?? null,
+          originalAppUserId: event.original_app_user_id ?? null,
+        })
         if (error) {
-          console.error('RevenueCat webhook upsert error:', error)
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        const productId = event.product_id || ''
-        const tier = productId.toLowerCase().includes('vip') ? 'vip' : 'premium'
-        await supabase
-          .from('profiles')
-          .update({ subscription_tier: tier })
-          .eq('id', appUserId)
         break
       }
 
       case 'CANCELLATION':
       case 'EXPIRATION': {
-        const status = eventType === 'EXPIRATION' ? 'inactive' : 'canceled'
-        const { error } = await supabase
-          .from('subscriptions')
-          .update({
-            status,
-            current_period_end: currentPeriodEnd,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', appUserId)
-          .eq('provider', provider)
+        const { error } = await downgradeRevenueCatSubscriptionRow(
+          supabase,
+          appUserId,
+          eventType === 'EXPIRATION' ? 'EXPIRATION' : 'CANCELLATION',
+          event.expiration_at_ms
+        )
         if (error) {
-          console.error('RevenueCat webhook update error:', error)
           return new Response(
-            JSON.stringify({ success: false, error: error.message }),
+            JSON.stringify({ success: false, error }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           )
         }
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('premium_until')
-          .eq('id', appUserId)
-          .maybeSingle()
-        const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
-        await supabase
-          .from('profiles')
-          .update({ subscription_tier: adminActive ? 'premium' : 'free' })
-          .eq('id', appUserId)
         break
       }
 
@@ -164,8 +122,13 @@ Deno.serve(async (req) => {
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', appUserId)
-          .eq('provider', provider)
-        if (error) console.error('RevenueCat webhook billing_issue update error:', error)
+          .eq('provider', 'revenuecat')
+        if (error) {
+          return new Response(
+            JSON.stringify({ success: false, error: error.message }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
         break
       }
 
@@ -181,7 +144,6 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
-    console.error('RevenueCat webhook error:', error)
     return new Response(
       JSON.stringify({ success: false, error: String(error) }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

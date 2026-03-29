@@ -32,7 +32,7 @@ import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
 import { connectivityService } from '@/lib/connectivityService';
 import { setPostHogClient } from '@/lib/analytics';
-import { initRevenueCat } from '@/lib/revenuecat';
+import { initRevenueCat, isRevenueCatConfigured, setRevenueCatUserId } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
@@ -145,6 +145,17 @@ function PostHogScreenTracker() {
   return null;
 }
 
+/** Binds RevenueCat app user id to Supabase auth id (restore/purchases need this before opening Premium). */
+function RevenueCatUserSync() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (user?.id && isRevenueCatConfigured()) {
+      void setRevenueCatUserId(user.id);
+    }
+  }, [user?.id]);
+  return null;
+}
+
 /** Updates profiles.last_seen_at every 60s while app is in foreground — skipped when on a break. */
 function ActivityHeartbeat() {
   const { user } = useAuth();
@@ -230,6 +241,7 @@ function RootLayoutNav() {
         <NotificationPauseForeground />
         <DeactivatedAccountReactivationPrompt />
         <ActivityHeartbeat />
+        <RevenueCatUserSync />
         <BadgeCountUpdater />
         <ChatOutboxRunner />
         <View style={{ flex: 1 }}>
