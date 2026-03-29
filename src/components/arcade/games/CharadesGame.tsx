@@ -1,82 +1,75 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CharadesPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import confetti from "canvas-confetti";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
+import { charadesGuessMatches } from "../../../../shared/vibely-games/reducer";
+
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
 interface CharadesGameProps {
   payload: CharadesPayload;
   isOwn: boolean;
+  sessionCreatedAt?: string | null;
   onGuess?: (guess: string) => void;
 }
 
-// Simple fuzzy match function
-const fuzzyMatch = (guess: string, answer: string): boolean => {
-  const normalize = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const normalizedGuess = normalize(guess);
-  const normalizedAnswer = normalize(answer);
-  
-  // Exact match or contains
-  if (normalizedGuess === normalizedAnswer || normalizedAnswer.includes(normalizedGuess)) {
-    return true;
-  }
-  
-  // Levenshtein distance check (allows small typos)
-  const distance = levenshteinDistance(normalizedGuess, normalizedAnswer);
-  return distance <= Math.floor(normalizedAnswer.length * 0.3);
-};
-
-const levenshteinDistance = (a: string, b: string): number => {
-  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-  
-  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
-  for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
-  
-  for (let j = 1; j <= b.length; j++) {
-    for (let i = 1; i <= a.length; i++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[j][i] = Math.min(
-        matrix[j][i - 1] + 1,
-        matrix[j - 1][i] + 1,
-        matrix[j - 1][i - 1] + cost
-      );
-    }
-  }
-  
-  return matrix[b.length][a.length];
-};
-
-export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => {
+export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: CharadesGameProps) => {
   const [guess, setGuess] = useState("");
-  const [isGuessed, setIsGuessed] = useState(payload.data.isGuessed || false);
   const [showWrong, setShowWrong] = useState(false);
   const { playFeedback } = useSoundEffects();
+  const previousGuessCount = useRef(payload.data.guesses?.length || 0);
+
+  const isGuessed = payload.data.isGuessed === true || payload.step === "completed";
+
+  const createdMs = sessionCreatedAt ? new Date(sessionCreatedAt).getTime() : NaN;
+  const isExpired =
+    payload.step !== "completed" &&
+    Number.isFinite(createdMs) &&
+    Date.now() - createdMs > EXPIRY_MS;
+
+  useEffect(() => {
+    const currentCount = payload.data.guesses?.length || 0;
+    if (currentCount !== previousGuessCount.current) {
+      previousGuessCount.current = currentCount;
+    }
+  }, [payload.data.guesses?.length]);
 
   const handleSubmit = useCallback(() => {
-    if (!guess.trim() || isOwn || isGuessed) return;
-    
-    const correct = fuzzyMatch(guess, payload.data.answer);
-    
-    if (correct) {
-      setIsGuessed(true);
-      playFeedback('correct');
+    if (!guess.trim() || isOwn || isGuessed || isExpired) return;
+    const trimmedGuess = guess.trim();
+
+    onGuess?.(trimmedGuess);
+
+    const localMatch = charadesGuessMatches(payload.data.answer, trimmedGuess);
+
+    if (localMatch) {
+      playFeedback("correct");
       confetti({
         particleCount: 150,
         spread: 100,
         origin: { y: 0.5 },
-        colors: ['#8B5CF6', '#06B6D4', '#D946EF'],
-        shapes: ['circle', 'star'],
+        colors: ["#8B5CF6", "#06B6D4", "#D946EF"],
+        shapes: ["circle", "star"],
       });
     } else {
-      playFeedback('wrong');
+      playFeedback("wrong");
       setShowWrong(true);
       setTimeout(() => setShowWrong(false), 1500);
     }
-    
-    onGuess?.(guess);
+
     setGuess("");
-  }, [guess, isOwn, isGuessed, payload.data.answer, onGuess, playFeedback]);
+  }, [guess, isOwn, isGuessed, isExpired, payload.data.answer, onGuess, playFeedback]);
+
+  const headerSub =
+    isExpired
+      ? "This challenge expired"
+      : isOwn
+        ? "They're guessing..."
+        : isGuessed
+          ? "You got it!"
+          : "Guess the movie/song!";
 
   return (
     <motion.div
@@ -85,7 +78,8 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-purple-500/20 to-violet-600/20",
-        "border border-purple-500/30 backdrop-blur-sm"
+        "border border-purple-500/30 backdrop-blur-sm",
+        isExpired && "opacity-50"
       )}
     >
       {/* Header */}
@@ -94,9 +88,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
           <span className="text-2xl">👻</span>
           <div>
             <h4 className="font-semibold text-sm text-foreground">Emoji Charades</h4>
-            <p className="text-xs text-muted-foreground">
-              {isOwn ? "They're guessing..." : isGuessed ? "You got it!" : "Guess the movie/song!"}
-            </p>
+            <p className="text-xs text-muted-foreground">{headerSub}</p>
           </div>
         </div>
       </div>
@@ -130,7 +122,16 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
               <p className="font-semibold text-foreground">{payload.data.answer}</p>
             </div>
           </motion.div>
-        ) : !isOwn && (
+        ) : isExpired ? (
+          <motion.div
+            key="expired"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="px-3 pb-3"
+          >
+            <p className="text-sm text-muted-foreground text-center">This challenge expired</p>
+          </motion.div>
+        ) : !isOwn ? (
           <motion.div
             key="input"
             initial={{ opacity: 0 }}
@@ -142,7 +143,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
                 type="text"
                 value={guess}
                 onChange={(e) => setGuess(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 placeholder="Guess the movie..."
                 className={cn(
                   "w-full px-4 py-2 rounded-xl text-sm",
@@ -153,6 +154,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
                 )}
               />
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={!guess.trim()}
                 className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 rounded-lg bg-purple-500/30 text-purple-400 text-xs font-medium disabled:opacity-50"
@@ -173,7 +175,7 @@ export const CharadesGame = ({ payload, isOwn, onGuess }: CharadesGameProps) => 
               )}
             </AnimatePresence>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

@@ -116,7 +116,7 @@ export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: P
       }
     >
       <View style={styles.sheetHeader}>
-        <Text style={[styles.sheetTitle, { color: theme.text }]}>Charades</Text>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Emoji Charades</Text>
         <Pressable
           onPress={onClose}
           disabled={isPending}
