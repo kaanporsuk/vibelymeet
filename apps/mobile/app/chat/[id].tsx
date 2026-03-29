@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -580,6 +580,8 @@ export default function ChatThreadScreen() {
   const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
   const stickToBottomRef = useRef(true);
+  /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
+  const pendingThreadBottomSnapRef = useRef(false);
   const lastThreadCountRef = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
@@ -693,6 +695,23 @@ export default function ChatThreadScreen() {
     if (atBottom) setNewBelowCue(false);
   }, []);
 
+  const listOnContentSizeChange = useCallback(() => {
+    if (displayMessages.length === 0 && !shellLoading) {
+      pendingThreadBottomSnapRef.current = false;
+      return;
+    }
+    if (pendingThreadBottomSnapRef.current) {
+      pendingThreadBottomSnapRef.current = false;
+      stickToBottomRef.current = true;
+      setAwayFromBottom(false);
+      setNewBelowCue(false);
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      return;
+    }
+    if (!stickToBottomRef.current) return;
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+  }, [displayMessages.length, shellLoading]);
+
   useEffect(() => {
     if (!scrollAnchorKey) return;
     if (!stickToBottomRef.current) return;
@@ -708,11 +727,12 @@ export default function ChatThreadScreen() {
     lastThreadCountRef.current = n;
   }, [displayMessages.length, awayFromBottom]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     lastThreadCountRef.current = 0;
     setNewBelowCue(false);
     setAwayFromBottom(false);
     stickToBottomRef.current = true;
+    pendingThreadBottomSnapRef.current = true;
   }, [otherUserId]);
 
   useEffect(() => {
@@ -2145,6 +2165,7 @@ export default function ChatThreadScreen() {
           style={styles.messageList}
           keyboardShouldPersistTaps="handled"
           onScroll={listOnScroll}
+          onContentSizeChange={listOnContentSizeChange}
           scrollEventThrottle={16}
           contentContainerStyle={[
             styles.list,

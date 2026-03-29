@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -263,8 +263,11 @@ const Chat = () => {
   const [videoLightbox, setVideoLightbox] = useState<{ url: string; posterUrl?: string | null } | null>(null);
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const threadContentRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const stickToBottomRef = useRef(true);
+  /** True until we have applied the first bottom snap for this thread (avoids onScroll racing before scrollToBottom). */
+  const pendingThreadBottomSnapRef = useRef(false);
   const lastThreadCountRef = useRef(0);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
@@ -663,11 +666,14 @@ const Chat = () => {
     [chatData?.matchId, currentUserId, id, queryClient]
   );
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((opts?: { instant?: boolean }) => {
     stickToBottomRef.current = true;
     setAwayFromBottom(false);
     setNewBelowCue(false);
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({
+      block: "end",
+      behavior: opts?.instant ? "auto" : "smooth",
+    });
   }, []);
 
   const onMainScroll = useCallback(() => {
@@ -746,6 +752,28 @@ const Chat = () => {
     });
   }, [threadRows]);
 
+  useLayoutEffect(() => {
+    lastThreadCountRef.current = 0;
+    setNewBelowCue(false);
+    setAwayFromBottom(false);
+    stickToBottomRef.current = true;
+    pendingThreadBottomSnapRef.current = true;
+  }, [id]);
+
+  useLayoutEffect(() => {
+    if (isLoadingChat) return;
+    if (displayMessages.length === 0) {
+      pendingThreadBottomSnapRef.current = false;
+      return;
+    }
+    if (!pendingThreadBottomSnapRef.current) return;
+    pendingThreadBottomSnapRef.current = false;
+    stickToBottomRef.current = true;
+    setAwayFromBottom(false);
+    setNewBelowCue(false);
+    messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+  }, [id, isLoadingChat, displayMessages.length, rowsWithLayout]);
+
   useEffect(() => {
     if (!stickToBottomRef.current) return;
     scrollToBottom();
@@ -761,11 +789,15 @@ const Chat = () => {
   }, [displayMessages.length, awayFromBottom]);
 
   useEffect(() => {
-    lastThreadCountRef.current = 0;
-    setNewBelowCue(false);
-    setAwayFromBottom(false);
-    stickToBottomRef.current = true;
-  }, [id]);
+    const node = threadContentRef.current;
+    if (!node) return;
+    const ro = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return;
+      messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [id, isLoadingChat, displayMessages.length]);
 
   useEffect(() => {
     setExpandedPendingClusterKey(null);
@@ -1260,7 +1292,7 @@ const Chat = () => {
             </button>
           </motion.div>
         ) : (
-          <div className="w-full max-w-lg mx-auto space-y-0">
+          <div ref={threadContentRef} className="w-full max-w-lg mx-auto space-y-0">
             {rowsWithLayout.map(({ row, isFirstInGroup, isLastInGroup, showAvatar }) => {
               if (row.type === "pending_games_summary") {
                 return (
