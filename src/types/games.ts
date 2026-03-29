@@ -134,13 +134,14 @@ export const ARCADE_GAMES: GameDefinition[] = [
     icon: '👻',
     color: 'from-purple-500 to-violet-600',
   },
-  {
-    type: 'scavenger',
-    name: 'Scavenger Hunt',
-    description: 'Share photos, BeReal style',
-    icon: '📸',
-    color: 'from-green-500 to-emerald-600',
-  },
+  // Disabled: stubbed photo/media flow — re-enable when real upload-image pipeline is wired
+  // {
+  //   type: 'scavenger',
+  //   name: 'Scavenger Hunt',
+  //   description: 'Share photos, BeReal style',
+  //   icon: '📸',
+  //   color: 'from-green-500 to-emerald-600',
+  // },
   {
     type: 'roulette',
     name: 'Vibe Roulette',

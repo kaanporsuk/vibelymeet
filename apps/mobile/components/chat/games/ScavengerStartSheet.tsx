@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,10 +46,11 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
           showDialog({
-            title: 'Camera access',
-            message: 'Allow camera access so you can snap your scavenger photo.',
+            title: 'Camera Access Required',
+            message: 'Allow camera access in your Settings to take photos for this challenge.',
             variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
+            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+            secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
           return;
         }
@@ -57,10 +58,11 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
           showDialog({
-            title: 'Photos access',
-            message: 'Allow photo library access to pick your scavenger image.',
+            title: 'Photo Access Required',
+            message: 'Allow photo library access in your Settings to pick photos for this challenge.',
             variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
+            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+            secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
           return;
         }
@@ -130,7 +132,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
           ]}
         >
           <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Scavenger</Text>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Scavenger Hunt</Text>
             <Pressable
               onPress={onClose}
               disabled={isPending || uploading}
