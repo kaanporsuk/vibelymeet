@@ -54,6 +54,36 @@ function formatPauseRemaining(iso: string): string {
   return `${m}m`;
 }
 
+function dbTimeToInputValue(db: string): string {
+  const parts = (db || "22:00:00").split(":");
+  const h = String(parts[0] ?? "22").padStart(2, "0").slice(0, 2);
+  const m = String(parts[1] ?? "00").padStart(2, "0").slice(0, 2);
+  return `${h}:${m}`;
+}
+
+function inputValueToDbTime(html: string): string {
+  const [hRaw, mRaw] = (html || "22:00").split(":");
+  const h = Math.min(23, Math.max(0, parseInt(hRaw || "0", 10) || 0));
+  const m = Math.min(59, Math.max(0, parseInt(mRaw || "0", 10) || 0));
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+}
+
+function formatQuietWindowHuman(startDb: string, endDb: string): string {
+  const base = new Date();
+  const toDate = (t: string) => {
+    const [a, b] = (t || "00:00:00").split(":").map((x) => parseInt(x, 10) || 0);
+    const d = new Date(base);
+    d.setHours(a, b, 0, 0);
+    return d;
+  };
+  const opts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+  try {
+    return `Silent from ${toDate(startDb).toLocaleTimeString(undefined, opts)} to ${toDate(endDb).toLocaleTimeString(undefined, opts)}`;
+  } catch {
+    return "Quiet hours updated";
+  }
+}
+
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
   const { user } = useUserProfile();
   const { refreshSubscriptionState } = usePushNotifications();
@@ -65,6 +95,11 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     if (!isPaused || !prefs.paused_until) return "Off";
     return formatPauseRemaining(prefs.paused_until);
   }, [isPaused, prefs.paused_until]);
+
+  const quietWindowLabel = useMemo(
+    () => formatQuietWindowHuman(prefs.quiet_hours_start, prefs.quiet_hours_end),
+    [prefs.quiet_hours_start, prefs.quiet_hours_end]
+  );
 
   const handleEnablePush = async () => {
     if (!user?.id) return;
@@ -149,14 +184,6 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
       <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{label}</p>
     </div>
   );
-
-  const formatQuietTime = (time: string) => {
-    const [h] = time.split(":");
-    const hour = parseInt(h);
-    const ampm = hour >= 12 ? "PM" : "AM";
-    const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${h12}:00 ${ampm}`;
-  };
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -320,18 +347,58 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
                 <div>
                   <p className="text-sm font-medium text-foreground">Quiet Hours</p>
                   {prefs.quiet_hours_enabled && (
-                    <p className="text-xs text-muted-foreground">
-                      Silent from {formatQuietTime(prefs.quiet_hours_start)} to {formatQuietTime(prefs.quiet_hours_end)}
-                    </p>
+                    <p className="text-xs text-muted-foreground">{quietWindowLabel}</p>
                   )}
                 </div>
               </div>
               <Switch checked={prefs.quiet_hours_enabled} onCheckedChange={() => toggle("quiet_hours_enabled")} />
             </div>
             {prefs.quiet_hours_enabled && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="p-3 rounded-xl bg-secondary/20 text-xs text-muted-foreground">
-                <p>Times are in {prefs.quiet_hours_timezone}</p>
-                <p className="mt-1">Urgent notifications like video date invitations and safety alerts will still come through</p>
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="p-3 rounded-xl bg-secondary/20 space-y-3"
+              >
+                <p className="text-sm text-foreground">{quietWindowLabel}</p>
+                <p className="text-xs text-muted-foreground">
+                  Timezone (from this device):{" "}
+                  <span className="font-medium text-foreground/90">{prefs.quiet_hours_timezone}</span>
+                </p>
+                <div className="flex flex-wrap gap-4 items-end">
+                  <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                    Start
+                    <input
+                      type="time"
+                      className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                      value={dbTimeToInputValue(prefs.quiet_hours_start)}
+                      onChange={(e) => {
+                        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+                        savePrefs({
+                          quiet_hours_start: inputValueToDbTime(e.target.value),
+                          quiet_hours_timezone: tz,
+                        });
+                      }}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+                    End
+                    <input
+                      type="time"
+                      className="rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                      value={dbTimeToInputValue(prefs.quiet_hours_end)}
+                      onChange={(e) => {
+                        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+                        savePrefs({
+                          quiet_hours_end: inputValueToDbTime(e.target.value),
+                          quiet_hours_timezone: tz,
+                        });
+                      }}
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Urgent notifications like video date invitations and safety alerts will still come through
+                </p>
               </motion.div>
             )}
           </div>
