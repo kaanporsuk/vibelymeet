@@ -67,7 +67,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.create-credits-checkout]
-verify_jwt = true
+verify_jwt = false
 
 [functions.create-portal-session]
 verify_jwt = true

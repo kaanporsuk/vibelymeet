@@ -14,7 +14,11 @@ export const useCredits = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchCredits = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setCredits({ extraTime: 0, extendedVibe: 0 });
+      setIsLoading(false);
+      return;
+    }
 
     const { data } = await supabase
       .from("user_credits")
@@ -22,12 +26,11 @@ export const useCredits = () => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (data) {
-      setCredits({
-        extraTime: data.extra_time_credits,
-        extendedVibe: data.extended_vibe_credits,
-      });
-    }
+    setCredits(
+      data
+        ? { extraTime: data.extra_time_credits, extendedVibe: data.extended_vibe_credits }
+        : { extraTime: 0, extendedVibe: 0 }
+    );
     setIsLoading(false);
   }, [user?.id]);
 

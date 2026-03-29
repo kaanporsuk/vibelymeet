@@ -44,7 +44,7 @@ export function KeepTheVibe({
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get credits</Text>
+            <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get Credits</Text>
             <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>+2 / +5 min</Text>
           </Pressable>
         ) : (

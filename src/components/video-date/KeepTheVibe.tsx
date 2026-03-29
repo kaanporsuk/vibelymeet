@@ -49,6 +49,7 @@ export const KeepTheVibe = ({
                 whileTap={{ scale: 0.9 }}
                 disabled={isExtending}
                 onClick={() => handleExtend(2, "extra_time")}
+                aria-label={`Add 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
                 <Clock className="w-3 h-3 text-primary" />
@@ -82,6 +83,7 @@ export const KeepTheVibe = ({
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => window.open('/credits', '_blank')}
+            aria-label="Get Video Date Credits (opens in new tab)"
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >
             <Sparkles className="w-3 h-3 text-primary" />

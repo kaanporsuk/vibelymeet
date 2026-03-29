@@ -46,8 +46,12 @@ const Credits = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useUserProfile();
-  const { credits, isLoading, refetch } = useCredits();
+  const { credits, isLoading } = useCredits();
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = "Video Date Credits";
+  }, []);
 
   // Handle cancel return from Stripe
   useEffect(() => {
@@ -96,8 +100,8 @@ const Credits = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
-            <h1 className="text-xl font-display font-bold text-foreground">Get More Time</h1>
-            <p className="text-xs text-muted-foreground">Don't let a great conversation end too soon</p>
+            <h1 className="text-xl font-display font-bold text-foreground">Video Date Credits</h1>
+            <p className="text-xs text-muted-foreground">Extend great conversations on video dates</p>
           </div>
         </div>
       </header>
@@ -113,17 +117,11 @@ const Credits = () => {
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : (
-            <div className="flex items-center justify-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-primary" />
-                <span className="text-sm font-semibold text-foreground">{credits.extraTime} Extra Time</span>
-              </div>
-              <span className="text-muted-foreground">·</span>
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-accent" />
-                <span className="text-sm font-semibold text-foreground">{credits.extendedVibe} Extended Vibe</span>
-              </div>
-            </div>
+            <p className="text-sm font-semibold text-foreground">
+              Extra Time {credits.extraTime}
+              <span className="text-muted-foreground font-normal"> · </span>
+              Extended Vibe {credits.extendedVibe}
+            </p>
           )}
         </motion.div>
 
@@ -144,7 +142,7 @@ const Credits = () => {
                 }`}
               >
                 {pack.highlight && (
-                  <span className="absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-[10px] font-bold uppercase tracking-wider">
+                  <span className="absolute -top-2.5 right-4 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-accent to-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wider shadow-[0_0_12px_hsl(var(--accent)/0.45)]">
                     Best Value
                   </span>
                 )}
@@ -157,11 +155,13 @@ const Credits = () => {
                     <h3 className="font-display font-semibold text-foreground">{pack.name}</h3>
                     <p className="text-xs text-muted-foreground">{pack.description}</p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-display font-bold text-foreground">{pack.price}</p>
-                    {pack.originalPrice && (
-                      <p className="text-xs text-muted-foreground line-through">{pack.originalPrice}</p>
-                    )}
+                  <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
+                    <div className="flex items-baseline gap-2 flex-wrap justify-end">
+                      {pack.originalPrice && (
+                        <span className="text-xs text-muted-foreground line-through">{pack.originalPrice}</span>
+                      )}
+                      <p className="font-display font-bold text-foreground">{pack.price}</p>
+                    </div>
                   </div>
                 </div>
 
@@ -169,6 +169,8 @@ const Credits = () => {
                   variant={pack.highlight ? "gradient" : "outline"}
                   className="w-full mt-3"
                   disabled={loadingPack !== null}
+                  aria-busy={loadingPack === pack.id}
+                  aria-label={pack.highlight ? "Buy Vibe Bundle" : `Buy ${pack.name}`}
                   onClick={() => handlePurchase(pack.id)}
                 >
                   {loadingPack === pack.id ? "Redirecting…" : pack.highlight ? "Get Bundle" : "Buy Pack"}
