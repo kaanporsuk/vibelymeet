@@ -633,14 +633,18 @@ export function DateSuggestionSheet({
         ) : null}
         {stepContent}
       </KeyboardAwareBottomSheetModal>
+      {/*
+        iOS: transparent + formSheet is unsupported; the modal may not present (tap appears to do nothing).
+        Use overFullScreen with transparent so the dim + sheet stack above the existing sheet Modal.
+      */}
       <Modal
         visible={nativePickOpen}
         transparent
-        animationType="slide"
-        presentationStyle="formSheet"
+        animationType="fade"
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
         onRequestClose={() => setNativePickOpen(false)}
       >
-        <View style={styles.nativePickRoot}>
+        <View style={styles.nativePickRoot} pointerEvents="box-none">
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => setNativePickOpen(false)}
