@@ -43,7 +43,8 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
 
     const audio = new Audio();
     audio.preload = "metadata";
-    audio.crossOrigin = "anonymous";
+    // Do not set crossOrigin: voice files are served from CDN/storage without CORS for anonymous
+    // reads in many setups; credentialed CORS mode causes the element to fail load/play in browsers.
     audio.src = audioUrl;
     audioRef.current = audio;
 
@@ -77,6 +78,7 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
       setCurrentTime(0);
     };
 
+    audio.addEventListener("canplay", onCanPlay);
     audio.addEventListener("canplaythrough", onCanPlay);
     audio.addEventListener("waiting", onWaiting);
     audio.addEventListener("error", onError);
@@ -86,6 +88,7 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     audio.addEventListener("ended", onEnded);
 
     return () => {
+      audio.removeEventListener("canplay", onCanPlay);
       audio.removeEventListener("canplaythrough", onCanPlay);
       audio.removeEventListener("waiting", onWaiting);
       audio.removeEventListener("error", onError);

@@ -131,7 +131,7 @@ export const MessageBubble = ({
 
       <div
         className={cn(
-          "max-w-[75%] px-3 py-1.5 relative",
+          "max-w-[min(85%,18rem)] px-3 py-1.5 relative",
           isMe
             ? "bg-gradient-primary text-primary-foreground"
             : "glass-card text-foreground",
@@ -242,7 +242,7 @@ export const MessageBubble = ({
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
           (message.reactionPair?.mine || message.reactionPair?.partner) && "mb-4",
-          isFirstInGroup ? "mt-2.5" : "mt-0.5"
+          isFirstInGroup ? "mt-1.5" : "mt-0.5"
         )}
       >
         {/* Avatar */}
@@ -259,9 +259,6 @@ export const MessageBubble = ({
         )}
 
         {bubbleContent}
-
-        {/* Spacer for my messages */}
-        {isMe && <div className="w-1 shrink-0" />}
       </motion.div>
     </>
   );
