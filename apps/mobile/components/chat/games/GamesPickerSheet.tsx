@@ -53,7 +53,7 @@ const IN_CHAT_GAMES: readonly GameRowDef[] = [
   },
   {
     id: 'roulette',
-    title: 'Roulette',
+    title: 'Vibe Roulette',
     description: 'Surprise prompts for the chat',
     icon: 'shuffle-outline',
     accent: 'yellow',
