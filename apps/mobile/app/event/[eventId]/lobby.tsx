@@ -6,7 +6,6 @@ import {
   Pressable,
   Image,
   ScrollView,
-  Alert,
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -37,6 +36,7 @@ import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -78,6 +78,7 @@ export default function EventLobbyScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
+  const { show, dialog } = useVibelyDialog();
   const id = eventId ?? '';
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
@@ -277,48 +278,60 @@ export default function EventLobbyScreen() {
 
   if (eventLoading && !event) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading lobby…" message="Getting the lobby ready…" />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading lobby…" message="Getting the lobby ready…" />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (!event) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Event not found"
-          message="This event may have been removed or hasn't started yet. Go back to find another."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="Event not found"
+            message="This event may have been removed or hasn't started yet. Go back to find another."
+            actionLabel="Go back"
+            onActionPress={() => router.back()}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (!user?.id) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Sign in to view the lobby"
-          message="You need to be signed in to discover who's here."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="Sign in to view the lobby"
+            message="You need to be signed in to discover who's here."
+            actionLabel="Go back"
+            onActionPress={() => router.back()}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (!isRegistered) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Register first"
-          message="Register for this event to view the lobby and meet people."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="Register first"
+            message="Register for this event to view the lobby and meet people."
+            actionLabel="Go back"
+            onActionPress={() => router.back()}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
@@ -328,37 +341,69 @@ export default function EventLobbyScreen() {
   const hasCards = profiles.length > 0;
   const isEmpty = currentIndex >= profiles.length || !current;
 
-  const showSwipeToast = useCallback((result: string) => {
-    switch (result) {
-      case 'vibe_recorded':
-        break;
-      case 'match':
-        break;
-      case 'match_queued':
-        Alert.alert("You have a match waiting! It'll start when your partner is free 💚");
-        break;
-      case 'super_vibe_sent':
-        Alert.alert('Super Vibe sent! ✨', '');
-        break;
-      case 'no_credits':
-        Alert.alert('Get Super Vibes to stand out! ✨', '');
-        break;
-      case 'limit_reached':
-        Alert.alert("You've used all 3 Super Vibes for this event.", '');
-        break;
-      case 'already_super_vibed_recently':
-        Alert.alert("You've already sent them a Super Vibe recently.", '');
-        break;
-      case 'already_matched':
-        break;
-      case 'blocked':
-      case 'reported':
-        Alert.alert('This person is not available for matching.', '');
-        break;
-      default:
-        break;
-    }
-  }, []);
+  const showSwipeToast = useCallback(
+    (result: string) => {
+      switch (result) {
+        case 'vibe_recorded':
+          break;
+        case 'match':
+          break;
+        case 'match_queued':
+          show({
+            title: 'Match waiting',
+            message: 'It’ll start when your partner is free. 💚',
+            variant: 'success',
+            primaryAction: { label: 'Nice', onPress: () => {} },
+          });
+          break;
+        case 'super_vibe_sent':
+          show({
+            title: 'Super Vibe sent! ✨',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'no_credits':
+          show({
+            title: 'Get Super Vibes',
+            message: 'Grab credits to stand out with a Super Vibe. ✨',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'limit_reached':
+          show({
+            title: 'Super Vibe limit',
+            message: 'You’ve used all 3 Super Vibes for this event.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'already_super_vibed_recently':
+          show({
+            title: 'Already sent',
+            message: 'You recently Super Vibed this person.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'already_matched':
+          break;
+        case 'blocked':
+        case 'reported':
+          show({
+            title: 'Not available',
+            message: 'This person isn’t available for matching right now.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        default:
+          break;
+      }
+    },
+    [show]
+  );
 
   const isOffline = useIsOffline();
   const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
@@ -369,7 +414,12 @@ export default function EventLobbyScreen() {
   const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
     if (!current || processing) return;
     if (isOffline) {
-      Alert.alert("You're offline", 'Swipes need a connection.');
+      show({
+        title: 'You’re offline',
+        message: 'Reconnect to swipe and match in the lobby.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setProcessing(true);
@@ -395,13 +445,19 @@ export default function EventLobbyScreen() {
       setCurrentIndex((i) => Math.min(i + 1, profiles.length - 1));
       if (currentIndex + 1 >= profiles.length) refetchDeck();
     } catch {
-      Alert.alert('Something went wrong', 'Tap the card again to try, or pull to refresh the deck.');
+      show({
+        title: 'Something went wrong',
+        message: 'Tap the card to try again, or pull to refresh the deck.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setProcessing(false);
     }
   };
 
   return (
+    <>
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Pressable
@@ -612,6 +668,8 @@ export default function EventLobbyScreen() {
 
       <EventEndedModal isOpen={showEventEndedModal} />
     </View>
+    {dialog}
+    </>
   );
 }
 

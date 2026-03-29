@@ -4,7 +4,6 @@ import {
   TextInput,
   Pressable,
   ScrollView,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   View as RNView,
@@ -28,6 +27,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton, Card } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 function calculateAge(day: number, month: number, year: number): number {
   const today = new Date();
@@ -71,6 +71,7 @@ const INTENT_OPTIONS = [
 export default function OnboardingScreen() {
   const theme = Colors[useColorScheme()];
   const { refreshOnboarding } = useAuth();
+  const { show, dialog } = useVibelyDialog();
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [dobDay, setDobDay] = useState('');
@@ -159,7 +160,12 @@ export default function OnboardingScreen() {
     if (photos.length >= MAX_ONBOARDING_PHOTOS || uploadingPhoto) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo library access to add profile photos.');
+      show({
+        title: 'Photos need access',
+        message: 'Allow your photo library so you can add profile photos.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -180,7 +186,12 @@ export default function OnboardingScreen() {
       });
       setPhotos((prev: string[]) => (prev.length >= MAX_ONBOARDING_PHOTOS ? prev : [...prev, path]));
     } catch {
-      Alert.alert('Upload failed', 'Please try again.');
+      show({
+        title: 'Upload didn’t work',
+        message: 'Please try again in a moment.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setUploadingPhoto(false);
     }
@@ -194,7 +205,12 @@ export default function OnboardingScreen() {
       if (heightCm) {
         const h = Number(heightCm);
         if (!Number.isFinite(h) || !Number.isInteger(h) || h < 100 || h > 250) {
-          Alert.alert('Invalid height', 'Please enter a height between 100 cm and 250 cm, or leave blank.');
+          show({
+            title: 'Check your height',
+            message: 'Enter a height between 100 and 250 cm, or leave it blank.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
         parsedHeight = h;
@@ -229,7 +245,12 @@ export default function OnboardingScreen() {
       router.replace('/(tabs)');
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Something went wrong';
-      Alert.alert('Error', msg);
+      show({
+        title: 'Something went wrong',
+        message: msg,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setLoading(false);
     }
@@ -237,6 +258,7 @@ export default function OnboardingScreen() {
 
   if (ageBlocked) {
     return (
+      <>
       <RNView
         style={[
           styles.ageBlockedRoot,
@@ -269,10 +291,13 @@ export default function OnboardingScreen() {
           style={{ width: '100%', maxWidth: 400, marginTop: 32 }}
         />
       </RNView>
+      {dialog}
+      </>
     );
   }
 
   return (
+    <>
     <KeyboardAvoidingView
       style={[styles.kav, { backgroundColor: theme.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -699,6 +724,8 @@ export default function OnboardingScreen() {
         )}
       </ScrollView>
     </KeyboardAvoidingView>
+    {dialog}
+    </>
   );
 }
 

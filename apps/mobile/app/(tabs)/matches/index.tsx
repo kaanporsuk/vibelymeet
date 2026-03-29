@@ -15,7 +15,6 @@ import {
   TextInput,
   Platform,
   Image,
-  Alert,
   Linking,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
@@ -54,6 +53,7 @@ import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 import { getMatchSearchHitKind } from '@/lib/matchSearchHaystack';
 import {
   MATCHES_CONVERSATION_SORT_STORAGE_KEY,
@@ -226,14 +226,16 @@ export default function MatchesListScreen() {
   const [activeSwipeMatchId, setActiveSwipeMatchId] = useState<string | null>(null);
   const [unmatchSheetMatch, setUnmatchSheetMatch] = useState<MatchListItem | null>(null);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const handleUnmatch = useCallback(
     (matchId: string, name: string) => {
-      Alert.alert('Unmatch?', `Remove ${name} from your matches? You can undo within 5 seconds.`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unmatch',
-          style: 'destructive',
+      showDialog({
+        title: 'Unmatch?',
+        message: `Remove ${name} from your matches? You’ll have a few seconds to undo.`,
+        variant: 'destructive',
+        primaryAction: {
+          label: 'Unmatch',
           onPress: () => {
             setPendingUnmatchMatchId(matchId);
             setPendingUnmatchName(name);
@@ -241,31 +243,36 @@ export default function MatchesListScreen() {
             setActionsMatch(null);
           },
         },
-      ]);
+        secondaryAction: { label: 'Cancel', onPress: () => {} },
+      });
     },
-    [initiateUnmatch]
+    [initiateUnmatch, showDialog]
   );
 
   const handleBlock = useCallback(
     (blockedId: string, name: string, matchId: string) => {
-      Alert.alert('Block?', `Block ${name}? They won't be able to contact you or see your profile.`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Block',
-          style: 'destructive',
-          onPress: async () => {
-            setActionLoading('block');
-            try {
-              await blockUser({ blockedId, matchId });
-              setActionsMatch(null);
-            } finally {
-              setActionLoading(null);
-            }
+      showDialog({
+        title: 'Block this person?',
+        message: `${name} won’t be able to contact you or see your profile.`,
+        variant: 'destructive',
+        primaryAction: {
+          label: 'Block',
+          onPress: () => {
+            void (async () => {
+              setActionLoading('block');
+              try {
+                await blockUser({ blockedId, matchId });
+                setActionsMatch(null);
+              } finally {
+                setActionLoading(null);
+              }
+            })();
           },
         },
-      ]);
+        secondaryAction: { label: 'Cancel', onPress: () => {} },
+      });
     },
-    [blockUser]
+    [blockUser, showDialog]
   );
 
   const handleArchive = useCallback(
@@ -467,12 +474,15 @@ export default function MatchesListScreen() {
 
   if (error) {
     return (
-      <RNView style={[styles.centeredError, { backgroundColor: theme.background }]}>
-        <ErrorState
-          message="We couldn't load your matches. Check your connection and try again."
-          onActionPress={() => refetch()}
-        />
-      </RNView>
+      <>
+        <RNView style={[styles.centeredError, { backgroundColor: theme.background }]}>
+          <ErrorState
+            message="We couldn't load your matches. Check your connection and try again."
+            onActionPress={() => refetch()}
+          />
+        </RNView>
+        {dialogEl}
+      </>
     );
   }
 
@@ -484,6 +494,7 @@ export default function MatchesListScreen() {
 
     return (
       <ScreenContainer>
+        {dialogEl}
         <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
           <RNView style={styles.headerTitleRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
@@ -535,6 +546,7 @@ export default function MatchesListScreen() {
 
     return (
       <ScreenContainer>
+        {dialogEl}
         <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
           <RNView style={styles.headerTitleRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
@@ -587,6 +599,7 @@ export default function MatchesListScreen() {
   if (isLoading && !matches.length) {
     return (
       <ScreenContainer>
+        {dialogEl}
         <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
           <RNView style={styles.headerTopRow}>
             <RNView style={styles.headerTitleRow}>
@@ -639,6 +652,7 @@ export default function MatchesListScreen() {
 
   return (
     <ScreenContainer>
+      {dialogEl}
       <RNView onTouchStart={dismissOpenConversationSwipe}>
       <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
         <RNView style={styles.headerTopRow}>

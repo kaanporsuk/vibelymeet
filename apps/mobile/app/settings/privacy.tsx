@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
-  Alert,
   Platform,
   PermissionsAndroid,
 } from 'react-native';
@@ -36,6 +35,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useBlockUser } from '@/lib/useBlockUser';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -171,6 +171,7 @@ function SoonBadge({ theme }: { theme: (typeof Colors)['dark'] }) {
 export default function PrivacySettingsScreen() {
   const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
+  const { show, dialog } = useVibelyDialog();
   const { user } = useAuth();
   const qc = useQueryClient();
   const { blockedUsers } = useBlockUser(user?.id);
@@ -364,6 +365,7 @@ export default function PrivacySettingsScreen() {
   const loading = !user?.id || isProfileLoading;
 
   return (
+    <>
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerInner}>
@@ -683,8 +685,14 @@ export default function PrivacySettingsScreen() {
               discovery_audience: v,
             })
             .eq('id', user.id);
-          if (error) Alert.alert('Couldn’t save', error.message);
-          else invalidatePrivacy();
+          if (error) {
+            show({
+              title: 'Couldn’t save',
+              message: error.message,
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          } else invalidatePrivacy();
           setAudienceSheetOpen(false);
         }}
       />
@@ -710,8 +718,14 @@ export default function PrivacySettingsScreen() {
               show_online_status: v !== 'nobody',
             })
             .eq('id', user.id);
-          if (error) Alert.alert('Couldn’t save', error.message);
-          else invalidatePrivacy();
+          if (error) {
+            show({
+              title: 'Couldn’t save',
+              message: error.message,
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          } else invalidatePrivacy();
           setActivitySheetOpen(false);
         }}
       />
@@ -735,8 +749,14 @@ export default function PrivacySettingsScreen() {
               show_distance: v === 'approximate',
             })
             .eq('id', user.id);
-          if (error) Alert.alert('Couldn’t save', error.message);
-          else invalidatePrivacy();
+          if (error) {
+            show({
+              title: 'Couldn’t save',
+              message: error.message,
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          } else invalidatePrivacy();
           setDistanceSheetOpen(false);
         }}
       />
@@ -755,12 +775,20 @@ export default function PrivacySettingsScreen() {
         onSelect={async (v) => {
           if (!user?.id) return;
           const { error } = await supabase.from('profiles').update({ event_attendance_visibility: v }).eq('id', user.id);
-          if (error) Alert.alert('Couldn’t save', error.message);
-          else invalidatePrivacy();
+          if (error) {
+            show({
+              title: 'Couldn’t save',
+              message: error.message,
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          } else invalidatePrivacy();
           setEventAttSheetOpen(false);
         }}
       />
     </View>
+    {dialog}
+    </>
   );
 }
 
@@ -899,6 +927,7 @@ function DiscoveryModeSheet({
   userId: string | null;
   onSaved: () => void;
 }) {
+  const { show, dialog } = useVibelyDialog();
   const [main, setMain] = useState<DiscoveryMode>('visible');
   const [snoozeExpanded, setSnoozeExpanded] = useState(false);
   const [pickedSnooze, setPickedSnooze] = useState<SnoozePreset | null>(null);
@@ -947,7 +976,12 @@ function DiscoveryModeSheet({
       } else if (profile.discovery_mode === 'snoozed' && profile.discovery_snooze_until) {
         until = profile.discovery_snooze_until;
       } else {
-        Alert.alert('Pick a duration', 'Choose how long to snooze, or select Visible / Hidden.');
+        show({
+          title: 'Pick a duration',
+          message: 'Choose how long to snooze, or switch to Visible / Hidden.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
     }
@@ -963,7 +997,12 @@ function DiscoveryModeSheet({
         })
         .eq('id', userId);
       if (error) {
-        Alert.alert('Couldn’t save', error.message);
+        show({
+          title: 'Couldn’t save',
+          message: error.message,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       onSaved();
@@ -976,6 +1015,7 @@ function DiscoveryModeSheet({
   if (!visible) return null;
 
   return (
+    <>
     <Modal transparent visible animationType="slide">
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
@@ -1044,6 +1084,8 @@ function DiscoveryModeSheet({
         </Pressable>
       </Pressable>
     </Modal>
+    {dialog}
+    </>
   );
 }
 

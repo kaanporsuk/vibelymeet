@@ -8,7 +8,7 @@ export default function Index() {
   const colorScheme: 'light' | 'dark' = useColorScheme() === 'light' ? 'light' : 'dark';
   const themeColors = Colors[colorScheme];
 
-  if (loading || onboardingComplete === null) {
+  if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: themeColors.background }}>
         <ActivityIndicator size="large" color={themeColors.tint} />
@@ -18,6 +18,14 @@ export default function Index() {
 
   if (!session) {
     return <Redirect href="/(auth)/sign-in" />;
+  }
+
+  if (onboardingComplete === null) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: themeColors.background }}>
+        <ActivityIndicator size="large" color={themeColors.tint} />
+      </View>
+    );
   }
   if (onboardingComplete === false) {
     return <Redirect href="/(onboarding)" />;

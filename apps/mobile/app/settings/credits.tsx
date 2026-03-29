@@ -2,7 +2,7 @@
  * Video Date Credits — balance from user_credits; purchase via create-credits-checkout (Stripe in browser).
  */
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Linking, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase';
 import { getCreditsCheckoutUrl, type CreditPackId } from '@/lib/creditsCheckout';
 import { trackEvent } from '@/lib/analytics';
 import { CREDIT_PACK_IDS, CREDIT_PACKS, formatPackPriceEur } from '@shared/creditPacks';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const PACKS: { id: CreditPackId; name: string; description: string; price: string }[] = CREDIT_PACK_IDS.map(
   (id) => ({
@@ -52,6 +53,7 @@ export default function CreditsSettingsScreen() {
   const qc = useQueryClient();
   const { data: credits, isLoading, refetch: refetchCredits } = useCredits(user?.id);
   const [loadingPackId, setLoadingPackId] = useState<CreditPackId | null>(null);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useFocusEffect(
     useCallback(() => {
@@ -67,7 +69,12 @@ export default function CreditsSettingsScreen() {
       await Linking.openURL(url);
       qc.invalidateQueries({ queryKey: ['user_credits'] });
     } catch (e) {
-      Alert.alert('Checkout', e instanceof Error ? e.message : 'Could not start checkout. Try again.');
+      showDialog({
+        title: 'Checkout didn’t start',
+        message: e instanceof Error ? e.message : 'Something blocked checkout. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setLoadingPackId(null);
     }
@@ -75,6 +82,7 @@ export default function CreditsSettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassSurface
         style={[
           styles.header,

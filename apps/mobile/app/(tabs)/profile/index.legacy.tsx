@@ -6,7 +6,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
-  Alert,
   Image,
   RefreshControl,
   StyleSheet,
@@ -77,6 +76,7 @@ import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/p
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 // Web parity: PhotoManager / PhotoGallery max (src/components/PhotoManager.tsx)
 const MAX_PHOTOS = 6;
@@ -275,6 +275,8 @@ export default function ProfileScreen() {
     Animated.timing(fadeAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
   }, [fadeAnim]);
 
+  const { show, dialog } = useVibelyDialog();
+
   useEffect(() => {
     if (profile) {
       setName(profile.name ?? '');
@@ -301,7 +303,12 @@ export default function ProfileScreen() {
       await refreshOnboarding();
       setEditing(false);
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
+      show({
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -334,7 +341,12 @@ export default function ProfileScreen() {
       setShowPromptSheet(false);
       setPromptEditIndex(null);
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save prompt');
+      show({
+        title: 'Couldn’t save prompt',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -350,7 +362,12 @@ export default function ProfileScreen() {
       setShowPromptSheet(false);
       setPromptEditIndex(null);
     } catch (e: unknown) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to remove prompt');
+      show({
+        title: 'Couldn’t remove prompt',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -386,27 +403,32 @@ export default function ProfileScreen() {
   };
 
   const handleDeleteVibeVideo = () => {
-    Alert.alert(
-      'Delete vibe video?',
-      'This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
+    show({
+      title: 'Delete vibe video?',
+      message: 'This can’t be undone.',
+      variant: 'destructive',
+      primaryAction: {
+        label: 'Delete',
+        onPress: () => {
+          void (async () => {
             try {
               await deleteVibeVideo();
               qc.invalidateQueries({ queryKey: ['my-profile'] });
             } catch (e) {
               const msg =
                 e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
-              Alert.alert('Error', msg);
+              show({
+                title: 'Couldn’t delete',
+                message: msg,
+                variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
             }
-          },
+          })();
         },
-      ]
-    );
+      },
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
   };
 
   const handlePreviewProfile = () => router.push('/profile-preview');
@@ -419,7 +441,12 @@ export default function ProfileScreen() {
     setPhotoError(null);
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+      show({
+        title: 'Photos need access',
+        message: 'Allow your photo library to add a profile photo.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const pickerOptions: ImagePicker.ImagePickerOptions = {
@@ -435,12 +462,22 @@ export default function ProfileScreen() {
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
     if (!asset.uri?.trim()) {
-      Alert.alert('Could not use photo', 'The selected image could not be loaded. Try another.');
+      show({
+        title: 'Couldn’t use that photo',
+        message: 'The image didn’t load. Try another one.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const currentCount = profile?.photos?.length ?? 0;
     if (currentCount >= MAX_PHOTOS) {
-      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`);
+      show({
+        title: 'Gallery full',
+        message: `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setPhotoUploading(true);
@@ -466,7 +503,12 @@ export default function ProfileScreen() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Upload failed';
         setPhotoError(msg);
-        Alert.alert('Upload failed', msg);
+        show({
+          title: 'Upload failed',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       } finally {
         setPhotoUploading(false);
       }
@@ -482,7 +524,12 @@ export default function ProfileScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+        show({
+          title: 'Photos need access',
+          message: 'Allow your photo library to add a profile photo.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -503,7 +550,12 @@ export default function ProfileScreen() {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setEditingPhotos((prev) => [path, ...prev]);
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Upload failed',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setManageSaving(false);
     }
@@ -547,7 +599,12 @@ export default function ProfileScreen() {
 
   const saveManageSheet = async () => {
     if (editingPhotos.length === 0) {
-      Alert.alert('At least one photo', 'Keep or add at least one photo.');
+      show({
+        title: 'Keep a photo',
+        message: 'Add or keep at least one photo on your profile.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setManageSaving(true);
@@ -561,7 +618,12 @@ export default function ProfileScreen() {
       refetch().catch(() => {});
       setShowManageSheet(false);
     } catch (e) {
-      Alert.alert('Save failed', e instanceof Error ? e.message : 'Could not save photos.');
+      show({
+        title: 'Save failed',
+        message: e instanceof Error ? e.message : 'Could not save photos.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setManageSaving(false);
     }
@@ -571,37 +633,46 @@ export default function ProfileScreen() {
 
   if (isLoading && !profile) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading profile…" message="Just a sec…" />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading profile…" message="Just a sec…" />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (isError && !profile) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
-        <ErrorState
-          message={error instanceof Error ? error.message : "We couldn't load your profile."}
-          onActionPress={() => {
-            void refetch();
-            void refetchLiveCounts();
-          }}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+          <ErrorState
+            message={error instanceof Error ? error.message : "We couldn't load your profile."}
+            onActionPress={() => {
+              void refetch();
+              void refetchLiveCounts();
+            }}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (!isLoading && user?.id && !profile) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
-        <ErrorState
-          message="We couldn't load your profile. Check your connection and try again."
-          onActionPress={() => {
-            void refetch();
-            void refetchLiveCounts();
-          }}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background, flex: 1 }]}>
+          <ErrorState
+            message="We couldn't load your profile. Check your connection and try again."
+            onActionPress={() => {
+              void refetch();
+              void refetchLiveCounts();
+            }}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
@@ -1750,6 +1821,7 @@ export default function ProfileScreen() {
       onClose={() => setShowEmailVerify(false)}
       onVerified={() => { qc.invalidateQueries({ queryKey: ['my-profile'] }); }}
     />
+    {dialog}
     </>
   );
 }

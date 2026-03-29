@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
-  Alert,
   Platform,
   Image,
   TextInput,
@@ -40,6 +39,7 @@ import { EmailVerificationFlow } from '@/components/verification/EmailVerificati
 import { avatarUrl } from '@/lib/imageUrl';
 import { isRevenueCatConfigured } from '@/lib/revenuecat';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -148,6 +148,7 @@ function SoonBadge({ theme }: { theme: (typeof Colors)['dark'] }) {
 export default function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
+  const { show, dialog } = useVibelyDialog();
   const { user, signOut } = useAuth();
   const qc = useQueryClient();
   const email = user?.email ?? '';
@@ -288,12 +289,22 @@ export default function AccountSettingsScreen() {
         })
         .eq('id', user.id);
       if (error) {
-        Alert.alert('Couldn’t update', error.message);
+        show({
+          title: 'Couldn’t update',
+          message: error.message,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       refreshProfile();
       setBreakChip(null);
-      Alert.alert("You're on a break", "We'll be here when you're ready.");
+      show({
+        title: 'You’re on a break',
+        message: 'We’ll be here when you’re ready.',
+        variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setBreakBusy(false);
     }
@@ -302,14 +313,13 @@ export default function AccountSettingsScreen() {
   const confirmTakeBreak = () => {
     if (!breakChip) return;
     const until = breakUntilForChip(breakChip);
-    Alert.alert(
-      'Take a break?',
-      `You'll be hidden until ${formatBreakEnd(until)}.\n\nYour existing matches and chats won't be affected.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Confirm', onPress: () => void applyTakeBreak() },
-      ]
-    );
+    show({
+      title: 'Take a break?',
+      message: `You’ll be hidden until ${formatBreakEnd(until)}. Your matches and chats stay as they are.`,
+      variant: 'info',
+      primaryAction: { label: 'Confirm', onPress: () => void applyTakeBreak() },
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
   };
 
   const endBreak = async () => {
@@ -329,11 +339,21 @@ export default function AccountSettingsScreen() {
         })
         .eq('id', user.id);
       if (error) {
-        Alert.alert('Couldn’t update', error.message);
+        show({
+          title: 'Couldn’t update',
+          message: error.message,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       refreshProfile();
-      Alert.alert('Welcome back!', "You're visible in discovery again.");
+      show({
+        title: 'Welcome back!',
+        message: 'You’re visible in discovery again.',
+        variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setBreakBusy(false);
     }
@@ -355,7 +375,12 @@ export default function AccountSettingsScreen() {
       .eq('id', user.id);
     setDeactivateOpen(false);
     if (error) {
-      Alert.alert('Couldn’t deactivate', error.message);
+      show({
+        title: 'Couldn’t deactivate',
+        message: error.message,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     await signOut();
@@ -369,20 +394,29 @@ export default function AccountSettingsScreen() {
       : 'Your account and all data will be permanently deleted.';
     const subUrl = subscriptionManageUrl();
     if (isPremium) {
-      Alert.alert('Before you delete', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Manage subscription first', onPress: () => Linking.openURL(subUrl).catch(() => {}) },
-        {
-          text: 'Delete anyway',
-          style: 'destructive',
+      show({
+        title: 'Before you delete',
+        message: msg,
+        variant: 'warning',
+        primaryAction: {
+          label: 'Manage subscription',
+          onPress: () => {
+            void Linking.openURL(subUrl).catch(() => {});
+          },
+        },
+        secondaryAction: {
+          label: 'Continue anyway',
           onPress: () => router.push('/delete-account' as Href),
         },
-      ]);
+      });
     } else {
-      Alert.alert('Before you delete', msg, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Continue', onPress: () => router.push('/delete-account' as Href) },
-      ]);
+      show({
+        title: 'Before you delete',
+        message: msg,
+        variant: 'destructive',
+        primaryAction: { label: 'Continue', onPress: () => router.push('/delete-account' as Href) },
+        secondaryAction: { label: 'Cancel', onPress: () => {} },
+      });
     }
   };
 
@@ -393,9 +427,21 @@ export default function AccountSettingsScreen() {
       const ent = info.entitlements.active['premium'];
       setRcPremium(!!ent);
       setRcExpiry(ent?.expirationDate ?? null);
-      Alert.alert('Done', ent ? 'Purchases restored.' : 'No active purchases found.');
+      show({
+        title: ent ? 'Purchases restored' : 'No active purchases',
+        message: ent
+          ? 'Your subscription is active again.'
+          : 'We couldn’t find any active subscriptions to restore.',
+        variant: ent ? 'success' : 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } catch (e) {
-      Alert.alert('Restore failed', e instanceof Error ? e.message : 'Try again.');
+      show({
+        title: 'Restore failed',
+        message: e instanceof Error ? e.message : 'Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -407,6 +453,7 @@ export default function AccountSettingsScreen() {
     strength.tone === 'weak' ? theme.danger : strength.tone === 'fair' ? AMBER : theme.success;
 
   return (
+    <>
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerRow}>
@@ -745,17 +792,21 @@ export default function AccountSettingsScreen() {
                 title="Log out"
                 destructive
                 onPress={() =>
-                  Alert.alert('Log out?', "You'll need to sign back in to use Vibely.", [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Log out',
-                      style: 'destructive',
-                      onPress: async () => {
-                        await signOut();
-                        router.replace('/(auth)/sign-in');
+                  show({
+                    title: 'Log out?',
+                    message: 'You’ll need to sign back in to use Vibely.',
+                    variant: 'destructive',
+                    primaryAction: {
+                      label: 'Log out',
+                      onPress: () => {
+                        void (async () => {
+                          await signOut();
+                          router.replace('/(auth)/sign-in');
+                        })();
                       },
                     },
-                  ])
+                    secondaryAction: { label: 'Stay', onPress: () => {} },
+                  })
                 }
               />
             </CardShell>
@@ -813,17 +864,32 @@ export default function AccountSettingsScreen() {
             onPress={async () => {
               const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
               if (!re.test(newEmail) || newEmail !== confirmEmail) {
-                Alert.alert('Check emails', 'Enter a valid email and make sure both fields match.');
+                show({
+                  title: 'Check your emails',
+                  message: 'Enter a valid address and make sure both fields match.',
+                  variant: 'warning',
+                  primaryAction: { label: 'OK', onPress: () => {} },
+                });
                 return;
               }
               setEmailSubmitting(true);
               try {
                 const { error } = await supabase.auth.updateUser({ email: newEmail });
                 if (error) {
-                  Alert.alert('Couldn’t update', error.message);
+                  show({
+                    title: 'Couldn’t update',
+                    message: error.message,
+                    variant: 'warning',
+                    primaryAction: { label: 'OK', onPress: () => {} },
+                  });
                   return;
                 }
-                Alert.alert('Verification sent', `Check ${newEmail} to confirm.`);
+                show({
+                  title: 'Verification sent',
+                  message: `Check ${newEmail} to confirm.`,
+                  variant: 'success',
+                  primaryAction: { label: 'OK', onPress: () => {} },
+                });
                 setNewEmail('');
                 setConfirmEmail('');
                 setEmailSheetOpen(false);
@@ -874,7 +940,12 @@ export default function AccountSettingsScreen() {
             <Pressable
               onPress={async () => {
                 if (newPassword.length < 8 || newPassword !== confirmNewPassword) {
-                  Alert.alert('Check password', 'Min 8 characters and confirmation must match.');
+                  show({
+                    title: 'Check your password',
+                    message: 'Use at least 8 characters and make sure both new fields match.',
+                    variant: 'warning',
+                    primaryAction: { label: 'OK', onPress: () => {} },
+                  });
                   return;
                 }
                 setPasswordSubmitting(true);
@@ -884,19 +955,34 @@ export default function AccountSettingsScreen() {
                     password: currentPassword,
                   });
                   if (authErr) {
-                    Alert.alert('Incorrect', 'Current password is incorrect.');
+                    show({
+                      title: 'Incorrect password',
+                      message: 'Your current password doesn’t match.',
+                      variant: 'warning',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
                     return;
                   }
                   const { error } = await supabase.auth.updateUser({ password: newPassword });
                   if (error) {
-                    Alert.alert('Couldn’t update', error.message);
+                    show({
+                      title: 'Couldn’t update',
+                      message: error.message,
+                      variant: 'warning',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
                     return;
                   }
                   setCurrentPassword('');
                   setNewPassword('');
                   setConfirmNewPassword('');
                   setPasswordSheetOpen(false);
-                  Alert.alert('Password updated');
+                  show({
+                    title: 'Password updated',
+                    message: 'You’re all set.',
+                    variant: 'success',
+                    primaryAction: { label: 'OK', onPress: () => {} },
+                  });
                 } finally {
                   setPasswordSubmitting(false);
                 }
@@ -966,6 +1052,8 @@ export default function AccountSettingsScreen() {
         </Pressable>
       </Modal>
     </View>
+    {dialog}
+    </>
   );
 }
 

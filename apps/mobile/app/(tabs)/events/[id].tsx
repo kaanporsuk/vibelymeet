@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, router } from 'expo-router';
-import { StyleSheet, ScrollView, Pressable, Image, Alert, View, Text, Dimensions, Linking } from 'react-native';
+import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,6 +33,7 @@ import { TicketStub } from '@/components/events/TicketStub';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { format } from 'date-fns';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -52,6 +53,7 @@ export default function EventDetailScreen() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const { data: attendees = [] } = useEventAttendees(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
@@ -80,35 +82,52 @@ export default function EventDetailScreen() {
   const hasSentVibe = (profileId: string) => sentVibeIds.includes(profileId);
 
   const handleAttendeePress = useCallback(
-    async (attendee: AttendeeDisplay) => {
+    (attendee: AttendeeDisplay) => {
       if (!user?.id || !id) return;
       const viewProfile = () => router.push(`/user/${attendee.id}` as const);
       if (hasSentVibe(attendee.id)) {
-        Alert.alert(attendee.name, 'You already sent a vibe.', [
-          { text: 'View profile', onPress: viewProfile },
-          { text: 'OK', style: 'cancel' },
-        ]);
+        showDialog({
+          title: 'Already vibed',
+          message: `You already sent ${attendee.name} a vibe.`,
+          variant: 'info',
+          primaryAction: { label: 'View profile', onPress: viewProfile },
+          secondaryAction: { label: 'Close', onPress: () => {} },
+        });
         return;
       }
-      Alert.alert(attendee.name, `Send a vibe or view ${attendee.name}'s profile.`, [
-        { text: 'View profile', onPress: viewProfile },
-        {
-          text: 'Send vibe',
-          onPress: async () => {
-            const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
-            if (ok) {
-              refetchSentVibes();
-              refetchReceivedVibes();
-              Alert.alert('Vibe sent! 💫', "They'll see your interest before the event.");
-            } else {
-              Alert.alert('Couldn\'t send vibe', error ?? 'Try again.');
-            }
+      showDialog({
+        title: attendee.name,
+        message: `Send a vibe or peek at ${attendee.name}'s profile first.`,
+        variant: 'info',
+        primaryAction: {
+          label: 'Send vibe',
+          onPress: () => {
+            void (async () => {
+              const { ok, error } = await sendEventVibe(id, user.id, attendee.id);
+              if (ok) {
+                refetchSentVibes();
+                refetchReceivedVibes();
+                showDialog({
+                  title: 'Vibe sent!',
+                  message: "They'll see your interest before the event.",
+                  variant: 'success',
+                  primaryAction: { label: 'Love it', onPress: () => {} },
+                });
+              } else {
+                showDialog({
+                  title: 'Couldn’t send vibe',
+                  message: error ?? 'Try again.',
+                  variant: 'warning',
+                  primaryAction: { label: 'OK', onPress: () => {} },
+                });
+              }
+            })();
           },
         },
-        { text: 'Cancel', style: 'cancel' },
-      ]);
+        secondaryAction: { label: 'View profile', onPress: viewProfile },
+      });
     },
-    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes]
+    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes, showDialog, router]
   );
 
   useEffect(() => {
@@ -130,25 +149,23 @@ export default function EventDetailScreen() {
     if (!event) return;
     const vis = (event as EventDetailsRow).visibility;
     if (vis === 'premium' && !canAccessPremiumEvents) {
-      Alert.alert(
-        'Premium only',
-        'This event is for Premium members. Upgrade to unlock access.',
-        [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'View Premium', onPress: () => router.push('/premium') },
-        ]
-      );
+      showDialog({
+        title: 'Premium only',
+        message: 'This event is for Premium members. Upgrade to join.',
+        variant: 'info',
+        primaryAction: { label: 'View Premium', onPress: () => router.push('/premium') },
+        secondaryAction: { label: 'Not now', onPress: () => {} },
+      });
       return;
     }
     if (vis === 'vip' && !canAccessVipEvents) {
-      Alert.alert(
-        'VIP only',
-        'This event is for VIP members. Upgrade to unlock access.',
-        [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'View Premium', onPress: () => router.push('/premium') },
-        ]
-      );
+      showDialog({
+        title: 'VIP only',
+        message: 'This event is for VIP members. Upgrade to unlock access.',
+        variant: 'info',
+        primaryAction: { label: 'View Premium', onPress: () => router.push('/premium') },
+        secondaryAction: { label: 'Not now', onPress: () => {} },
+      });
       return;
     }
     const ok = await registerForEvent(event.id);
@@ -159,9 +176,14 @@ export default function EventDetailScreen() {
         is_free: ev?.is_free !== false,
       });
     } else {
-      Alert.alert("Couldn't register", 'Check your connection and try again.');
+      showDialog({
+        title: 'Couldn’t register',
+        message: 'Check your connection and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
-  }, [event, ev?.is_free, registerForEvent, canAccessPremiumEvents, canAccessVipEvents]);
+  }, [event, ev?.is_free, registerForEvent, canAccessPremiumEvents, canAccessVipEvents, showDialog, router]);
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;
@@ -173,7 +195,12 @@ export default function EventDetailScreen() {
     try {
       const { data: authData } = await supabase.auth.getSession();
       if (!authData?.session) {
-        Alert.alert('Sign in required', 'Please sign in to continue.');
+        showDialog({
+          title: 'Sign in required',
+          message: 'Please sign in to continue to checkout.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
@@ -181,14 +208,19 @@ export default function EventDetailScreen() {
       });
       const result = checkout as { success?: boolean; url?: string; error?: string } | null;
       if (checkoutError || !result?.success) {
-        Alert.alert('Payment error', result?.error ?? 'Payment failed. Try again.');
+        showDialog({
+          title: 'Payment didn’t go through',
+          message: result?.error ?? 'Payment failed. Try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       if (result?.url) await Linking.openURL(result.url);
     } finally {
       setIsPurchasing(false);
     }
-  }, [event, isFree, userPrice, handleRegister]);
+  }, [event, isFree, userPrice, handleRegister, showDialog]);
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
@@ -199,42 +231,52 @@ export default function EventDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['event-details', id] });
       setShowManageBooking(false);
     } else {
-      Alert.alert("Couldn't cancel", 'Check your connection and try again.');
+      showDialog({
+        title: 'Couldn’t cancel',
+        message: 'Check your connection and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
-  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id]);
+  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id, showDialog]);
 
   const openCancelConfirm = useCallback(() => {
     if (!event) return;
     setShowManageBooking(false);
-    Alert.alert(
-      'Cancel your spot?',
-      `Release your spot for ${event.title}?`,
-      [
-        { text: 'Keep', style: 'cancel' },
-        { text: 'Cancel spot', style: 'destructive', onPress: () => handleUnregister() },
-      ]
-    );
-  }, [event, handleUnregister]);
+    showDialog({
+      title: 'Cancel your spot?',
+      message: `Release your spot for ${event.title}?`,
+      variant: 'destructive',
+      primaryAction: { label: 'Cancel spot', onPress: () => void handleUnregister() },
+      secondaryAction: { label: 'Keep my spot', onPress: () => {} },
+    });
+  }, [event, handleUnregister, showDialog]);
 
   // Conditional returns — after ALL hooks
   if (isLoading && !event) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading event…" message="Just a sec…" />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading event…" message="Just a sec…" />
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
   if (error || !event) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
         <ErrorState
           title="Event not found"
           message="This event may have been removed or doesn't exist."
           actionLabel="Back to Events"
           onActionPress={() => router.push('/(tabs)/events')}
         />
-      </View>
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
@@ -266,6 +308,7 @@ export default function EventDetailScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Pressable
           onPress={() => router.back()}

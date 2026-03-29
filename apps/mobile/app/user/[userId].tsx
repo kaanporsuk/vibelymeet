@@ -2,7 +2,7 @@
  * Public profile — full parity via fetchUserProfile + UserProfileFullView + action footer.
  */
 import React, { useState, useCallback } from 'react';
-import { View, ActivityIndicator, Alert, Pressable, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, Pressable, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,7 @@ import { useMatches } from '@/lib/chatApi';
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 function paramToString(v: string | string[] | undefined): string | undefined {
   if (typeof v === 'string') return v;
@@ -37,51 +38,71 @@ export default function PublicProfileScreen() {
   const { mutateAsync: unmatch } = useUnmatch();
   const { blockUser, isUserBlocked } = useBlockUser(user?.id);
   const [showReport, setShowReport] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const handleUnmatch = useCallback(() => {
     if (!matchRow) return;
-    Alert.alert('Unmatch?', `Remove ${profile?.name ?? 'this user'} from your matches? This cannot be undone.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Unmatch',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await unmatch({ matchId: matchRow.matchId });
-            router.back();
-          } catch (err) {
-            if (__DEV__) console.warn('[UserProfile] unmatch failed:', err);
-            Alert.alert('Unmatch failed', 'Something went wrong. Please try again.');
-          }
+    showDialog({
+      title: 'Unmatch?',
+      message: `Remove ${profile?.name ?? 'this user'} from your matches? This can’t be undone.`,
+      variant: 'destructive',
+      primaryAction: {
+        label: 'Unmatch',
+        onPress: () => {
+          void (async () => {
+            try {
+              await unmatch({ matchId: matchRow.matchId });
+              router.back();
+            } catch (err) {
+              if (__DEV__) console.warn('[UserProfile] unmatch failed:', err);
+              showDialog({
+                title: 'Unmatch didn’t go through',
+                message: 'Something went wrong. Please try again.',
+                variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
+            }
+          })();
         },
       },
-    ]);
-  }, [matchRow, profile?.name, unmatch, router]);
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
+  }, [matchRow, profile?.name, unmatch, router, showDialog]);
 
   const handleBlock = useCallback(() => {
     if (!userId) return;
     const displayName = profile?.name || 'this user';
-    Alert.alert('Block?', `Block ${displayName}? They won't be able to contact you or see your profile.`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Block',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await blockUser({ blockedId: userId, matchId: matchRow?.matchId });
-            router.back();
-          } catch (err) {
-            if (__DEV__) console.warn('[UserProfile] block failed:', err);
-            Alert.alert('Block failed', 'Something went wrong. Please try again.');
-          }
+    showDialog({
+      title: 'Block this person?',
+      message: `${displayName} won’t be able to contact you or see your profile.`,
+      variant: 'destructive',
+      primaryAction: {
+        label: 'Block',
+        onPress: () => {
+          void (async () => {
+            try {
+              await blockUser({ blockedId: userId, matchId: matchRow?.matchId });
+              router.back();
+            } catch (err) {
+              if (__DEV__) console.warn('[UserProfile] block failed:', err);
+              showDialog({
+                title: 'Block didn’t go through',
+                message: 'Something went wrong. Please try again.',
+                variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
+            }
+          })();
         },
       },
-    ]);
-  }, [userId, profile?.name, matchRow?.matchId, blockUser, router]);
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
+  }, [userId, profile?.name, matchRow?.matchId, blockUser, router, showDialog]);
 
   if (!userId) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        {dialogEl}
         <ErrorState
           title="Invalid profile"
           message="User not found."
@@ -95,6 +116,7 @@ export default function PublicProfileScreen() {
   if (isPending || (profile == null && !isError)) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        {dialogEl}
         <ActivityIndicator size="large" color="#8B5CF6" />
       </View>
     );
@@ -103,6 +125,7 @@ export default function PublicProfileScreen() {
   if (!profile) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background }}>
+        {dialogEl}
         <ErrorState
           title="Could not load this profile."
           actionLabel="Go back"
@@ -114,6 +137,7 @@ export default function PublicProfileScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
+      {dialogEl}
       <UserProfileFullView profile={profile} isOwnProfile={false} onClose={() => router.back()} />
 
       {user?.id && userId && !isUserBlocked(userId) ? (

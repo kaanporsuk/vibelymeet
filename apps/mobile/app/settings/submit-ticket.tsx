@@ -7,7 +7,6 @@ import {
   StyleSheet,
   TextInput,
   Platform,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
 } from 'react-native';
@@ -25,6 +24,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { PRIORITY_BY_TYPE, SUPPORT_CATEGORIES, type PrimaryType } from '@/lib/supportCategories';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 function isPrimaryType(s: string | undefined): s is PrimaryType {
   return s === 'support' || s === 'feedback' || s === 'safety';
@@ -45,6 +45,7 @@ export default function SubmitTicketScreen() {
   const [userEmail, setUserEmail] = useState(user?.email ?? '');
   const [smartValues, setSmartValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const smartFields = cfg.smartFields ?? [];
 
@@ -84,7 +85,12 @@ export default function SubmitTicketScreen() {
         .single();
 
       if (error || !ticket) {
-        Alert.alert('Could not submit', error?.message ?? 'Try again.');
+        showDialog({
+          title: 'Couldn’t send that',
+          message: error?.message ?? 'Please try again in a moment.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         setSubmitting(false);
         return;
       }
@@ -117,7 +123,12 @@ export default function SubmitTicketScreen() {
         },
       });
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Something went wrong');
+      showDialog({
+        title: 'Something went wrong',
+        message: e instanceof Error ? e.message : 'Please try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSubmitting(false);
     }
@@ -128,6 +139,7 @@ export default function SubmitTicketScreen() {
       style={[styles.container, { backgroundColor: theme.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {dialogEl}
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>

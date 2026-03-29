@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   Image,
-  Alert,
 } from 'react-native';
 import { Link } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +24,7 @@ import {
   DAILY_DROP_REPLY_MAX_LENGTH,
   formatCountdownToNextDailyDropBatchUtc,
 } from '@/lib/dailyDropSchedule';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const OPENER_MAX = 140;
 
@@ -58,6 +58,7 @@ export default function DailyDropScreen() {
   const [openerInput, setOpenerInput] = useState('');
   const [replyInput, setReplyInput] = useState('');
   const [sending, setSending] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const canSendOpener = !!drop && !drop.opener_sender_id && openerInput.trim().length > 0 && openerInput.trim().length <= OPENER_MAX;
   const canSendReply =
@@ -86,7 +87,12 @@ export default function DailyDropScreen() {
       await sendOpener(openerInput.trim());
       setOpenerInput('');
     } catch (e) {
-      Alert.alert('Error', 'Could not send opener');
+      showDialog({
+        title: 'Couldn’t send',
+        message: 'Your opener didn’t go through. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSending(false);
     }
@@ -99,24 +105,35 @@ export default function DailyDropScreen() {
       await sendReply(replyInput.trim());
       setReplyInput('');
     } catch (e) {
-      Alert.alert('Error', 'Could not send reply');
+      showDialog({
+        title: 'Couldn’t send',
+        message: 'Your reply didn’t go through. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSending(false);
     }
   };
 
   const handlePass = () => {
-    Alert.alert('Pass on this drop?', "You won't be able to message this person through Daily Drop.", [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Pass', style: 'destructive', onPress: () => passDrop() },
-    ]);
+    showDialog({
+      title: 'Pass on this drop?',
+      message: "You won’t be able to message this person through Daily Drop.",
+      variant: 'destructive',
+      primaryAction: { label: 'Pass', onPress: () => void passDrop() },
+      secondaryAction: { label: 'Keep chatting', onPress: () => {} },
+    });
   };
 
   if (isLoading && !drop) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading your drop…" message="Finding today's match." />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading your drop…" message="Finding today's match." />
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
@@ -125,75 +142,87 @@ export default function DailyDropScreen() {
       ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
       : 'Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.';
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <GlassHeaderBar insets={insets} style={styles.headerBar}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
-        </GlassHeaderBar>
-        <View style={styles.centered}>
-          <View style={[styles.emptyIconWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.38), borderColor: withAlpha(theme.tint, 0.25) }]}>
-            <Ionicons name="gift-outline" size={40} color={theme.tint} />
+      <>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <GlassHeaderBar insets={insets} style={styles.headerBar}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+          </GlassHeaderBar>
+          <View style={styles.centered}>
+            <View style={[styles.emptyIconWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.38), borderColor: withAlpha(theme.tint, 0.25) }]}>
+              <Ionicons name="gift-outline" size={40} color={theme.tint} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>No drop for today</Text>
+            <Text style={[styles.emptySub, { color: theme.textSecondary }]}>{emptySub}</Text>
+            <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
           </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>No drop for today</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>{emptySub}</Text>
-          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
         </View>
-      </View>
+        {dialogEl}
+      </>
     );
   }
 
   if (drop.status === 'invalidated') {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <GlassHeaderBar insets={insets} style={styles.headerBar}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
-        </GlassHeaderBar>
-        <View style={styles.centered}>
-          <Text style={{ fontSize: 40, marginBottom: spacing.sm }}>⚡</Text>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Drop no longer available</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-            This drop was removed. Next batch in {formatCountdownToNextDailyDropBatchUtc()}.
-          </Text>
-          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+      <>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <GlassHeaderBar insets={insets} style={styles.headerBar}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+          </GlassHeaderBar>
+          <View style={styles.centered}>
+            <Text style={{ fontSize: 40, marginBottom: spacing.sm }}>⚡</Text>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>Drop no longer available</Text>
+            <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+              This drop was removed. Next batch in {formatCountdownToNextDailyDropBatchUtc()}.
+            </Text>
+            <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+          </View>
         </View>
-      </View>
+        {dialogEl}
+      </>
     );
   }
 
   if (drop.status === 'passed') {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <GlassHeaderBar insets={insets} style={styles.headerBar}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
-        </GlassHeaderBar>
-        <View style={styles.centered}>
-          <Ionicons name="close-circle-outline" size={48} color={theme.textSecondary} />
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>This Daily Drop has ended</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-            Your next Daily Drop arrives after the next batch (UTC).
-          </Text>
-          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+      <>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <GlassHeaderBar insets={insets} style={styles.headerBar}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+          </GlassHeaderBar>
+          <View style={styles.centered}>
+            <Ionicons name="close-circle-outline" size={48} color={theme.textSecondary} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>This Daily Drop has ended</Text>
+            <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+              Your next Daily Drop arrives after the next batch (UTC).
+            </Text>
+            <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
+          </View>
         </View>
-      </View>
+        {dialogEl}
+      </>
     );
   }
 
   if (isExpired) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <GlassHeaderBar insets={insets} style={styles.headerBar}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
-        </GlassHeaderBar>
-        <View style={styles.centered}>
-          <View style={[styles.emptyIconWrap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Ionicons name="time-outline" size={40} color={theme.textSecondary} />
+      <>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <GlassHeaderBar insets={insets} style={styles.headerBar}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+          </GlassHeaderBar>
+          <View style={styles.centered}>
+            <View style={[styles.emptyIconWrap, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Ionicons name="time-outline" size={40} color={theme.textSecondary} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>This drop has expired</Text>
+            <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
+              You will get a new match after the next Daily Drop batch.
+            </Text>
+            <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
           </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>This drop has expired</Text>
-          <Text style={[styles.emptySub, { color: theme.textSecondary }]}>
-            You will get a new match after the next Daily Drop batch.
-          </Text>
-          <VibelyButton label="Refresh" onPress={() => refetch()} variant="secondary" style={styles.emptyRefresh} />
         </View>
-      </View>
+        {dialogEl}
+      </>
     );
   }
 
@@ -204,37 +233,41 @@ export default function DailyDropScreen() {
   if (showReveal) {
     const partnerPhoto = partner?.avatar_url ?? partner?.photos?.[0];
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <GlassHeaderBar insets={insets} style={styles.headerBar}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
-        </GlassHeaderBar>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <Pressable onPress={() => markViewed()} style={({ pressed }) => [pressed && { opacity: 0.95 }]}>
-            <View style={[styles.revealCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <View style={styles.revealAvatarWrap}>
-                {partnerPhoto ? (
-                  <>
-                    <Image source={{ uri: avatarUrl(partnerPhoto) }} style={styles.revealAvatarImg} blurRadius={20} />
-                    <BlurView intensity={80} style={StyleSheet.absoluteFill} tint="dark" />
-                  </>
-                ) : (
-                  <View style={[styles.revealAvatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]} />
-                )}
+      <>
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <GlassHeaderBar insets={insets} style={styles.headerBar}>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
+          </GlassHeaderBar>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable onPress={() => markViewed()} style={({ pressed }) => [pressed && { opacity: 0.95 }]}>
+              <View style={[styles.revealCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <View style={styles.revealAvatarWrap}>
+                  {partnerPhoto ? (
+                    <>
+                      <Image source={{ uri: avatarUrl(partnerPhoto) }} style={styles.revealAvatarImg} blurRadius={20} />
+                      <BlurView intensity={80} style={StyleSheet.absoluteFill} tint="dark" />
+                    </>
+                  ) : (
+                    <View style={[styles.revealAvatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]} />
+                  )}
+                </View>
+                <Text style={[styles.revealLabel, { color: theme.tint }]}>💧 Today’s Drop</Text>
+                <Text style={[styles.revealHint, { color: theme.textSecondary }]}>Tap to reveal who we picked for you</Text>
               </View>
-              <Text style={[styles.revealLabel, { color: theme.tint }]}>💧 Today’s Drop</Text>
-              <Text style={[styles.revealHint, { color: theme.textSecondary }]}>Tap to reveal who we picked for you</Text>
-            </View>
-          </Pressable>
-        </ScrollView>
-      </View>
+            </Pressable>
+          </ScrollView>
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
   return (
+    <>
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Daily Drop</Text>
@@ -345,6 +378,8 @@ export default function DailyDropScreen() {
         )}
       </ScrollView>
     </View>
+    {dialogEl}
+    </>
   );
 }
 

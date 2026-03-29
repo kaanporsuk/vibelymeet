@@ -13,7 +13,6 @@ import {
   TextInput,
   StyleSheet,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { BlurView } from 'expo-blur';
@@ -28,6 +27,7 @@ import {
   formatCountdownToNextDailyDropBatchUtc,
   DAILY_DROP_REPLY_MAX_LENGTH,
 } from '@/lib/dailyDropSchedule';
+import { useVibelyDialog, type VibelyDialogShowConfig } from '@/components/VibelyDialog';
 
 const OPENER_MAX_LENGTH = 140;
 
@@ -41,7 +41,19 @@ type Props = {
   userId: string | null | undefined;
 };
 
-export function DropsTabContent({ userId }: Props) {
+type BodyProps = Props & { showDialog: (config: VibelyDialogShowConfig) => void };
+
+export function DropsTabContent(props: Props) {
+  const { show, dialog } = useVibelyDialog();
+  return (
+    <>
+      <DropsTabContentBody {...props} showDialog={show} />
+      {dialog}
+    </>
+  );
+}
+
+function DropsTabContentBody({ userId, showDialog }: BodyProps) {
   const router = useRouter();
   const theme = Colors[useColorScheme()];
   const {
@@ -74,10 +86,13 @@ export function DropsTabContent({ userId }: Props) {
   const [sendingReply, setSendingReply] = useState(false);
 
   const handlePass = () => {
-    Alert.alert('Pass on this drop?', 'This closes it for both of you.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Pass', style: 'destructive', onPress: () => passDrop() },
-    ]);
+    showDialog({
+      title: 'Pass on this drop?',
+      message: 'This closes it for both of you.',
+      variant: 'destructive',
+      primaryAction: { label: 'Pass', onPress: () => { void passDrop(); } },
+      secondaryAction: { label: 'Stay', onPress: () => {} },
+    });
   };
 
   if (isLoading) {
@@ -239,7 +254,12 @@ export function DropsTabContent({ userId }: Props) {
                 await sendReply(replyInput);
                 setReplyInput('');
               } catch {
-                Alert.alert('Error', 'Could not send reply. Try again.');
+                showDialog({
+                  title: 'Couldn’t send',
+                  message: 'Your reply didn’t go through. Try again.',
+                  variant: 'warning',
+                  primaryAction: { label: 'OK', onPress: () => {} },
+                });
               } finally {
                 setSendingReply(false);
               }
@@ -308,7 +328,12 @@ export function DropsTabContent({ userId }: Props) {
               await sendOpener(openerInput);
               setOpenerInput('');
             } catch {
-              Alert.alert('Error', 'Could not send. Try again.');
+              showDialog({
+                title: 'Couldn’t send',
+                message: 'Something went wrong. Try again.',
+                variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
             } finally {
               setSendingOpener(false);
             }

@@ -12,7 +12,6 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
-  Alert,
   Modal,
 } from 'react-native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -39,6 +38,7 @@ import {
   CLIP_DATE_COMPOSER_SUBCOPY,
   type DateComposerLaunchSource,
 } from '../../../../shared/dateSuggestions/dateComposerLaunch';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
 
@@ -175,6 +175,7 @@ export function DateSuggestionSheet({
   const [tempPick, setTempPick] = useState(new Date());
   const [iosPickOpen, setIosPickOpen] = useState(false);
   const [iosTempPick, setIosTempPick] = useState(new Date());
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     if (!visible) return;
@@ -244,10 +245,20 @@ export function DateSuggestionSheet({
         if (e.suggestionId) setDraftId(e.suggestionId);
         onSuccess?.();
         onClose();
-        Alert.alert('Date suggestion', 'You already have an active date suggestion in this chat.');
+        showDialog({
+          title: 'Already planning something',
+          message: 'You already have an active date suggestion in this chat.',
+          variant: 'info',
+          primaryAction: { label: 'Got it', onPress: () => {} },
+        });
       } else {
         console.error(e);
-        Alert.alert('Error', counterContext ? 'Could not send counter.' : 'Could not send suggestion.');
+        showDialog({
+          title: 'Couldn’t send',
+          message: counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     } finally {
       submitInFlightRef.current = false;
@@ -717,6 +728,7 @@ export function DateSuggestionSheet({
           </View>
         </View>
       </Modal>
+      {dialogEl}
     </>
   );
 }
