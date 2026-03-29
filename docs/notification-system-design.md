@@ -22,7 +22,7 @@ This document is the result of a full audit of web and native notification code,
 | 10 | Event reminder (admin, 15 min) | Push | "{eventTitle} starts soon! ⏰" | "Get ready — starting in 15 minutes" | `/event/{eventId}/lobby` | Client: AdminEventControls | notify_event_reminder |
 | 11 | New event created (admin) | Email (Resend) | "🎉 New Event: {title}" | HTML: event details, CTA to events | — | Edge: event-notifications (event_created) | N/A (email) |
 | 12 | Event capacity alert (admin) | Email | "🔥 \"{title}\" is {pct}% Full!" | HTML: FOMO, CTA | — | Edge: event-notifications (capacity_alert) | N/A (email) |
-| 13 | Vibe sent (mutual / non-mutual) | In-app only (push_notification_events row) | "💜 It's a Mutual Vibe!" / "💫 Someone sent you a Vibe!" | Text with sender + event | — | Edge: vibe-notification (no push, only DB log) | notify_someone_vibed_you |
+| 13 | Vibe sent (mutual / non-mutual) | OneSignal push | "It's a match!" / "Someone vibed you" style copy | Event lobby pre-event | — | Web: `useEventVibes` → `send-notification` (`new_match` / `someone_vibed_you`) | notify_new_match / notify_someone_vibed_you |
 
 **Web in-app (NotificationContext):** Match, message, event, date_proposal — shown as toasts/cards; not push. Date reminders are scheduled client-side (usePushNotifications.scheduleDateReminder) or via service worker; no server-sent date_reminder push documented. Event reminders (30m/5m) are not automated in code found; admin sends manual "Event reminder" (item 10).
 
@@ -37,7 +37,7 @@ This document is the result of a full audit of web and native notification code,
 
 - **send-notification** Edge Function: single entry point for push. Checks account pause (profiles.is_paused), prefs pause (paused_until), push_enabled, category toggle, match mute, quiet hours, message throttle (1/min when message_bundle_enabled). Sends to both onesignal_player_id and mobile_onesignal_player_id. Categories: new_match, messages, someone_vibed_you, ready_gate, event_live, event_reminder, date_reminder, daily_drop, recommendations, product_updates, credits_subscription; safety_alerts bypasses pause/quiet hours.
 - **event-notifications:** email only (Resend); event_created + capacity_alert; admin-only, rate-limited.
-- **vibe-notification:** writes push_notification_events only; does not call send-notification (no push for “someone vibed you” from this path; swipe-actions does send push for super_vibe_sent/vibe_recorded).
+- **Event lobby vibes (web):** `useEventVibes` invokes **`send-notification`** for mutual vs one-way vibes (replaces legacy `vibe-notification`). Swipe-actions still sends push for `super_vibe_sent` / `vibe_recorded` at events.
 - **daily-drop-actions:** send_opener → daily_drop to partner; send_reply → new_match to opener.
 - **generate-daily-drops:** cron; creates pairs, then send-notification daily_drop to each user.
 - **email-drip:** cron; profile-complete (profile live + 2+ photos, 1h–7d old); first-event-nudge (1–7d old, no registrations). Resend; unsubscribe via UNSUB_HMAC_SECRET.
@@ -273,5 +273,5 @@ Configure these segments in the OneSignal dashboard (not in code). Use them to s
 ## References (files audited)
 
 - **Web:** src/hooks/usePushNotifications.ts, useNotificationPreferences.ts, useEventVibes.ts; src/components/notifications/* (NotificationContainer, NotificationPermissionFlow, MessageNotificationCard, etc.); src/contexts/NotificationContext.tsx; src/lib/notifications.ts; src/components/admin/AdminEventControls.tsx, AdminEventFormModal.tsx; src/integrations/supabase/types.ts (notification_preferences, push_notification_events).
-- **Edge:** supabase/functions/send-notification/index.ts, send-message/index.ts, swipe-actions/index.ts, daily-drop-actions/index.ts, generate-daily-drops/index.ts, vibe-notification/index.ts, event-notifications/index.ts, push-webhook/index.ts, email-drip/index.ts, stripe-webhook/index.ts.
+- **Edge:** supabase/functions/send-notification/index.ts, send-message/index.ts, swipe-actions/index.ts, daily-drop-actions/index.ts, generate-daily-drops/index.ts, event-notifications/index.ts, push-webhook/index.ts, stripe-webhook/index.ts.
 - **Native:** apps/mobile/lib/onesignal.ts, usePushPermission.ts, useNotificationPreferences.ts; apps/mobile/components/notifications/NotificationPermissionFlow.tsx, PushRegistration.tsx; apps/mobile/app/settings/notifications.tsx; app.config.js.

@@ -34,7 +34,7 @@
 7. **Settings** — `NotificationsDrawer` uses `promptForPush` + `getPlayerId` + Supabase upsert (OneSignal path), plus full prefs UI.  
    - `src/components/settings/NotificationsDrawer.tsx` **L59–71**
 
-8. **Parallel: local / SW scheduling** — `useServiceWorker` registers **`/sw.js`** (not `OneSignalSDK.sw.js`). `usePushNotifications` uses this for `showNotification` / `scheduleDateReminder` when `swReady`. `NotificationManager` only logs when `usePushNotifications().isGranted`.  
+8. **Local scheduling** — `useServiceWorker` no longer registers **`/sw.js`** (removed to avoid conflicting with OneSignal at scope `/`). `usePushNotifications` falls back to `window.Notification` and `localStorage` for scheduled items when the custom SW is not active. `NotificationManager` only logs when `usePushNotifications().isGranted`.  
    - `src/hooks/useServiceWorker.ts` **L18–22**  
    - `src/hooks/usePushNotifications.ts` **L55–77**, **L139–163**  
    - `src/components/notifications/NotificationManager.tsx` **L13–25**
@@ -54,14 +54,14 @@
 | Settings drawer | `src/components/settings/NotificationsDrawer.tsx` |
 | Prefs hook | `src/hooks/useNotificationPreferences.ts` |
 | Client → Edge | `src/lib/notifications.ts` → `send-notification` |
-| Custom SW | `public/sw.js`, `src/hooks/useServiceWorker.ts` |
+| Custom SW | *(removed — OneSignal owns `/`)* |
 | OneSignal SW shim | `public/OneSignalSDK.sw.js` |
 | App shell | `src/App.tsx` |
 
 ### 1.3 Issues found (web)
 
 - **CRITICAL — Split permission sources:** Dashboard / Schedule / `NotificationPermissionFlow` use **`Notification.requestPermission()`** while `PushPermissionPrompt` and `NotificationsDrawer` use **OneSignal `requestPermission`**. Browser can show “granted” for Web Notifications without OneSignal subscription (and vice versa). `NotificationPermissionButton.isGranted` does **not** equal OneSignal `isSubscribed()`.
-- **HIGH — Dual service worker story:** App registers **`/sw.js`** for custom scheduling; OneSignal v16 uses its own worker path (dashboard typically expects root `OneSignalSDK.sw.js` — present as shim). Two registrations can be confusing; behavior depends on browser + order.
+- **Resolved — Dual SW:** Custom **`/sw.js`** registration was removed; only OneSignal’s worker is used for web push at scope `/`.
 - **MEDIUM — `getPlayerId` timing / API:** `src/lib/onesignal.ts` **L63–65** uses `await OneSignal.User.PushSubscription.id`. If the user is not yet opted in or the SDK exposes an async getter elsewhere, this can resolve **null** until subscription settles — consider retries or official v16 `getIdAsync`-style API if available.
 - **HIGH — `PushPermissionPrompt` vs browser-only grant:** If `Notification.permission === 'granted'` but OneSignal is **not** subscribed (e.g. user only used `NotificationPermissionFlow`), the prompt **never shows** (**L36–37**), so **no** OneSignal `promptForPush` / player ID sync from that path.
 - **MEDIUM — Hardcoded fallback App ID:** `ONESIGNAL_APP_ID_FALLBACK` in `src/lib/onesignal.ts` **L7–9** if `VITE_ONESIGNAL_APP_ID` unset.
@@ -155,7 +155,7 @@
 | Native App ID | `process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID` — `apps/mobile/lib/onesignal.ts` **L9** |
 | Web SDK | `https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js` — `index.html` **L29** |
 | Web SW shim | `public/OneSignalSDK.sw.js` → `importScripts` CDN worker **L6** |
-| Custom SW | `public/sw.js` + register in `useServiceWorker.ts` **L20** |
+| Custom SW | *(not registered)* |
 | iOS | `onesignal-expo-plugin`, NSE in `app.json` **L63–70**, **L96–104**; `UIBackgroundModes` includes `remote-notification` **L21–24** |
 | Android | `POST_NOTIFICATIONS` in `app.json` **L47** |
 | REST API key | Not in client code; expected as Edge secret **`ONESIGNAL_API_KEY`** (docs only) |
@@ -212,7 +212,7 @@
 | 4 | Player ID: **upsert** `notification_preferences.onesignal_player_id`, `onesignal_subscribed` — PushPermissionPrompt **L73–79**, useAppBootstrap **L35–44** |
 | 5 | Denied: PushPermissionPrompt **skips** if `Notification.permission === 'denied'` **L38**; Flow shows **denied** step **L146–165** (`NotificationPermissionFlow.tsx`); settings copy for unblock: `NotificationsDrawer.tsx` **L170–172** |
 | 6 | **`onesignal_player_id`** column |
-| 7 | **Yes** — `public/sw.js` (custom), `public/OneSignalSDK.sw.js` (OneSignal shim) |
+| 7 | **OneSignal only** — `public/OneSignalSDK.sw.js` (shim); custom `sw.js` file removed |
 | 8 | Edge functions **invoke** `send-notification` (send-message, swipe-actions, daily-drop-actions, generate-daily-drops, client `notifications.ts`, etc.) |
 | 9 | Load prefs by `user_id` → `onesignal_player_id` / `mobile_onesignal_player_id` in `send-notification/index.ts` |
 | 10 | **Production check:** validate with live OneSignal + device (not a code gap) |

@@ -107,7 +107,7 @@ All critical RPCs exist with the expected signatures.
 
 ### 3a. Deployed Edge Functions (live)
 
-34 functions: `delete-account`, `email-verification`, `event-notifications`, `push-webhook`, `geocode`, `vibe-notification`, `verify-admin`, `forward-geocode`, `daily-room`, `phone-verify`, `email-drip`, `unsubscribe`, `admin-review-verification`, `create-video-upload`, `video-webhook`, `delete-vibe-video`, `upload-image`, `upload-voice`, `upload-event-cover`, `create-checkout-session`, `stripe-webhook`, `create-event-checkout`, `create-credits-checkout`, `create-portal-session`, `cancel-deletion`, `request-account-deletion`, `send-notification`, `generate-daily-drops`, `upload-chat-video`, `account-resume`, `account-pause`, `daily-drop-actions`, `send-message`, `swipe-actions`, `revenuecat-webhook`.
+33 functions: `delete-account`, `email-verification`, `event-notifications`, `push-webhook`, `geocode`, `verify-admin`, `forward-geocode`, `daily-room`, `phone-verify`, `admin-review-verification`, `create-video-upload`, `video-webhook`, `delete-vibe-video`, `upload-image`, `upload-voice`, `upload-event-cover`, `create-checkout-session`, `stripe-webhook`, `create-event-checkout`, `create-credits-checkout`, `create-portal-session`, `cancel-deletion`, `request-account-deletion`, `send-notification`, `generate-daily-drops`, `upload-chat-video`, `daily-drop-actions`, `send-message`, `swipe-actions`, `revenuecat-webhook`.
 
 ### 3b. Repo `supabase/functions/` vs deployed
 
@@ -116,7 +116,7 @@ All 34 deployed function names have a matching directory under `supabase/functio
 ### 3c. Code invocations: `supabase.functions.invoke()` and `fetch(.../functions/v1/...)`
 
 **Web:**  
-`create-checkout-session`, `create-video-upload` (fetch), `daily-room`, `upload-image` (fetch), `send-notification`, `geocode`, `push-webhook` (doc only), `upload-voice` (fetch), `upload-event-cover` (fetch), `admin-review-verification`, `daily-drop-actions`, `create-checkout-session`, `create-event-checkout`, `create-credits-checkout` (fetch), `verify-admin`, `delete-vibe-video` (fetch), `phone-verify`, `email-verification/send`, `email-verification/verify`, `request-account-deletion` (fetch), `event-notifications`, `forward-geocode`, `vibe-notification`, `delete-account`, `account-pause`, `account-resume`, `cancel-deletion`, `swipe-actions`, `send-message`.
+`create-checkout-session`, `create-video-upload` (fetch), `daily-room`, `upload-image` (fetch), `send-notification`, `geocode`, `push-webhook` (doc only), `upload-voice` (fetch), `upload-event-cover` (fetch), `admin-review-verification`, `daily-drop-actions`, `create-checkout-session`, `create-event-checkout`, `create-credits-checkout` (fetch), `verify-admin`, `delete-vibe-video` (fetch), `phone-verify`, `email-verification/send`, `email-verification/verify`, `request-account-deletion` (fetch), `event-notifications`, `forward-geocode`, `delete-account`, `cancel-deletion`, `swipe-actions`, `send-message`.
 
 **Native:**  
 `daily-room`, `email-verification/send`, `email-verification/verify`, `create-video-upload` (fetch), `delete-vibe-video` (fetch), `create-portal-session`, `request-account-deletion`, `create-credits-checkout` (fetch), `phone-verify`, `send-message`, `swipe-actions`, `daily-drop-actions`, `upload-voice` (fetch), `upload-chat-video` (fetch), `upload-image` (fetch), `cancel-deletion`.
