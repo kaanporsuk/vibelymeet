@@ -109,5 +109,11 @@ verify_jwt = true
 [functions.date-suggestion-expiry]
 verify_jwt = false
 
+[functions.credit-replenish]
+verify_jwt = false
+
+[functions.date-reminder-cron]
+verify_jwt = false
+
 [functions.send-support-reply]
 verify_jwt = true

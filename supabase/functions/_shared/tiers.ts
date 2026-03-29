@@ -58,8 +58,8 @@ export const TIERS: Record<TierId, TierDefinition> = {
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** No auto-replenish mechanism exists yet. Set to 0 until cron job is built.
-       *  Target values: free=0, premium=3, vip=unlimited (null). */
+      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
+       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
       monthlyVideoDateCredits: 0,
       maxActiveConversations: null,
       dailyDropPriority: 0,
@@ -84,9 +84,9 @@ export const TIERS: Record<TierId, TierDefinition> = {
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** No auto-replenish mechanism exists yet. Set to 0 until cron job is built.
-       *  Target values: free=0, premium=3, vip=unlimited (null). */
-      monthlyVideoDateCredits: 0,
+      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
+       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
+      monthlyVideoDateCredits: 3,
       maxActiveConversations: null,
       dailyDropPriority: 1,
     },
@@ -110,9 +110,9 @@ export const TIERS: Record<TierId, TierDefinition> = {
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** No auto-replenish mechanism exists yet. Set to 0 until cron job is built.
-       *  Target values: free=0, premium=3, vip=unlimited (null). */
-      monthlyVideoDateCredits: 0,
+      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
+       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
+      monthlyVideoDateCredits: 10,
       maxActiveConversations: null,
       dailyDropPriority: 2,
     },
@@ -187,7 +187,7 @@ export const CAPABILITY_REGISTRY: CapabilityMeta[] = [
   { key: 'hasBadge', label: 'Profile badge', type: 'boolean', category: 'boolean', description: 'Show a tier badge on profile' },
   { key: 'dailySwipeLimit', label: 'Daily swipe limit', type: 'number_or_null', category: 'quota', description: 'Max swipes per day (empty = unlimited)' },
   { key: 'monthlyEventJoins', label: 'Monthly event joins', type: 'number_or_null', category: 'quota', description: 'Max event registrations per month (empty = unlimited)' },
-  { key: 'monthlyVideoDateCredits', label: 'Monthly video credits', type: 'number_or_null', category: 'quota', description: 'Planned auto-allocated credits per month — not active until replenish cron exists (empty = unlimited when enabled)' },
+  { key: 'monthlyVideoDateCredits', label: 'Monthly video credits', type: 'number_or_null', category: 'quota', description: 'Extra video-date credits per month (cron replenishes on the 1st; empty = unlimited when used that way)' },
   { key: 'maxActiveConversations', label: 'Max conversations', type: 'number_or_null', category: 'quota', description: 'Max active conversations (empty = unlimited)' },
   { key: 'dailyDropPriority', label: 'Daily Drop priority', type: 'number', category: 'quota', description: 'Priority weight for Daily Drop (higher = matched first)' },
   { key: 'accessibleEventTiers', label: 'Event tier access', type: 'string_array', category: 'access', description: 'Which event visibility levels accessible' },
