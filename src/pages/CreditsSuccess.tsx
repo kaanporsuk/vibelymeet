@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCredits } from "@/hooks/useCredits";
 import { trackEvent } from "@/lib/analytics";
+import { toast } from "sonner";
 
 const PACK_LABELS: Record<string, string> = {
   extra_time_3: "+3 Extra Time credits",
@@ -18,13 +19,17 @@ const CreditsSuccess = () => {
   const { refetch } = useCredits();
   const pack = params.get("pack") || "";
   const label = PACK_LABELS[pack] || "Credits added";
+  const didRunRef = useRef(false);
 
   useEffect(() => {
+    if (didRunRef.current) return;
+    didRunRef.current = true;
     if (pack) trackEvent('credit_purchase_completed', { pack });
-    refetch();
-    // Clean up URL to prevent re-triggering on refresh
+    void refetch();
+    toast.success("Credits added — your balance is updated.");
+    document.title = "Video Date Credits — Success";
     window.history.replaceState({}, document.title, "/credits/success");
-  }, [refetch]);
+  }, [pack, refetch]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">

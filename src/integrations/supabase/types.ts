@@ -155,7 +155,7 @@ export type Database = {
       credit_adjustments: {
         Row: {
           adjustment_reason: string | null
-          admin_id: string
+          admin_id: string | null
           created_at: string
           credit_type: string
           id: string
@@ -165,7 +165,7 @@ export type Database = {
         }
         Insert: {
           adjustment_reason?: string | null
-          admin_id: string
+          admin_id?: string | null
           created_at?: string
           credit_type: string
           id?: string
@@ -175,7 +175,7 @@ export type Database = {
         }
         Update: {
           adjustment_reason?: string | null
-          admin_id?: string
+          admin_id?: string | null
           created_at?: string
           credit_type?: string
           id?: string

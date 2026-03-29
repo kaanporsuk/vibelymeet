@@ -135,6 +135,39 @@ Deno.serve(async (req) => {
               break
             }
 
+            const adjustmentRows: {
+              admin_id: null
+              user_id: string
+              credit_type: string
+              previous_value: number
+              new_value: number
+              adjustment_reason: string
+            }[] = []
+            if (extraTime > 0) {
+              adjustmentRows.push({
+                admin_id: null,
+                user_id: creditUserId,
+                credit_type: 'extra_time',
+                previous_value: prevExtra,
+                new_value: newExtra,
+                adjustment_reason: `stripe_checkout:${packId}:session:${session.id}`,
+              })
+            }
+            if (extendedVibe > 0) {
+              adjustmentRows.push({
+                admin_id: null,
+                user_id: creditUserId,
+                credit_type: 'extended_vibe',
+                previous_value: prevExtended,
+                new_value: newExtended,
+                adjustment_reason: `stripe_checkout:${packId}:session:${session.id}`,
+              })
+            }
+            if (adjustmentRows.length > 0) {
+              const { error: adjErr } = await supabase.from('credit_adjustments').insert(adjustmentRows)
+              if (adjErr) console.error('credit_adjustments insert failed:', adjErr)
+            }
+
             try {
               const notifResponse = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-notification`, {
                 method: 'POST',

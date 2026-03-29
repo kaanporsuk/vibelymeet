@@ -58,7 +58,7 @@ export default function SettingsScreen() {
   const { user } = useAuth();
   const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
   const { tierLabel } = useEntitlements();
-  const { data: credits } = useCredits(user?.id);
+  const { data: credits, isLoading: creditsLoading } = useCredits(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused, remainingLabel } = useAccountPauseStatus();
 
@@ -139,11 +139,9 @@ export default function SettingsScreen() {
               icon={<Ionicons name="flash" size={20} color={theme.tint} />}
               title="Video Date Credits"
               subtitle={
-                isPremium && currentPeriodEnd
-                  ? `${tierLabel} · Expires ${formatDate(currentPeriodEnd)}`
-                  : credits
-                    ? `${credits.extra_time_credits ?? 0} Extra Time · ${credits.extended_vibe_credits ?? 0} Extended Vibe`
-                    : 'Extra Time · Extended Vibe'
+                creditsLoading
+                  ? 'Loading…'
+                  : `${credits?.extra_time_credits ?? 0} Extra Time · ${credits?.extended_vibe_credits ?? 0} Extended Vibe`
               }
               onPress={() => router.push('/settings/credits')}
             />

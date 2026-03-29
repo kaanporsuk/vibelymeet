@@ -51,6 +51,19 @@ Deno.serve(async (req) => {
       )
     }
 
+    const origin =
+      (req.headers.get('origin') ?? '').trim() ||
+      (Deno.env.get('CREDITS_CHECKOUT_APP_ORIGIN') ?? '').trim()
+    if (!origin) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Missing Origin for checkout redirect (set CREDITS_CHECKOUT_APP_ORIGIN for clients without Origin)',
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
     // Get or create Stripe customer (web uses Stripe provider)
     const { data: subData } = await supabase
       .from('subscriptions')
@@ -84,8 +97,8 @@ Deno.serve(async (req) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `${req.headers.get('origin')}/credits/success?pack=${packId}`,
-      cancel_url: `${req.headers.get('origin')}/credits?cancelled=true`,
+      success_url: `${origin}/credits/success?pack=${packId}`,
+      cancel_url: `${origin}/credits?cancelled=true`,
       metadata: {
         type: 'credits_pack',
         supabase_user_id: user.id,
