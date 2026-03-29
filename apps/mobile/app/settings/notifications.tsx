@@ -487,7 +487,7 @@ export default function NotificationsSettingsScreen() {
         <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
         <Text style={{ fontSize: 17, fontWeight: '700', color: theme.tint }}>Enabled</Text>
         <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
-          You&apos;ll get date reminders, new matches, and daily drop alerts.
+          You&apos;ll get new matches, messages, and daily drop alerts based on your toggles below.
         </Text>
       </View>
     );

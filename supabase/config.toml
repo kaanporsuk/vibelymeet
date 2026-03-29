@@ -27,12 +27,6 @@ verify_jwt = true
 [functions.phone-verify]
 verify_jwt = true
 
-[functions.email-drip]
-verify_jwt = false
-
-[functions.unsubscribe]
-verify_jwt = false
-
 [functions.admin-review-verification]
 verify_jwt = true
 
@@ -107,12 +101,6 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.forward-geocode]
-verify_jwt = true
-
-[functions.account-pause]
-verify_jwt = true
-
-[functions.account-resume]
 verify_jwt = true
 
 [functions.health]

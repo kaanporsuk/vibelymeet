@@ -113,8 +113,7 @@ Deno.serve(async (req) => {
       ? `You and ${senderProfile.name} both vibed each other for "${event.title}"! Make sure to connect at the event.`
       : `${senderProfile.name} is interested in meeting you at "${event.title}"! Send a vibe back to create a mutual connection.`;
 
-    // Log the notification attempt for tracking
-    console.log(`Vibe notification: ${notificationTitle} - ${notificationMessage}`);
+    console.warn("vibe-notification: recording push_notification_events row (in-app path)");
 
     // Create a push notification event record for tracking
     const { error: insertError } = await serviceClient
