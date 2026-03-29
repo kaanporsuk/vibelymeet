@@ -8,21 +8,21 @@ import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
  * already granted notification permission (no prompt on every app open).
  */
 export function PushRegistration() {
-  const { user, session, onboardingComplete } = useAuth();
+  const { user } = useAuth();
 
   useEffect(() => {
     initOneSignal();
   }, []);
 
   useEffect(() => {
-    if (!user?.id || !session) {
+    if (!user?.id) {
       logoutOneSignal();
       return;
     }
     syncPushWithBackendIfPermissionGranted(user.id)
       .then(() => syncNativePushSuppressionWithBackend(user.id))
       .catch(() => {});
-  }, [user?.id, session]);
+  }, [user?.id]);
 
   return null;
 }

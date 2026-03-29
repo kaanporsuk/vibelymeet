@@ -14,64 +14,51 @@ const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID')!
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
 const APP_URL = Deno.env.get('APP_URL') || 'https://vibelymeet.com'
 
+// Map notification category → notify_* column (settings UI + DB). No entry = do not block on category toggles (e.g. safety_alerts).
 const CATEGORY_TO_COLUMN: Record<string, string> = {
-  new_match: 'notify_new_match',
+  new_message: 'notify_messages',
+  voice_message: 'notify_messages',
+  video_message: 'notify_messages',
+  message_reaction: 'notify_messages',
+  date_proposal_received: 'notify_messages',
+  date_proposal_accepted: 'notify_messages',
+  date_proposal_declined: 'notify_messages',
   messages: 'notify_messages',
-  someone_vibed_you: 'notify_someone_vibed_you',
-  ready_gate: 'notify_ready_gate',
-  event_live: 'notify_event_live',
+  date_suggestion_proposed: 'notify_messages',
+  date_suggestion_countered: 'notify_messages',
+  date_suggestion_accepted: 'notify_messages',
+  date_suggestion_declined: 'notify_messages',
+  date_suggestion_cancelled: 'notify_messages',
+  date_suggestion_expiring_soon: 'notify_messages',
+  new_match: 'notify_new_match',
+  mutual_vibe: 'notify_new_match',
+  who_liked_you: 'notify_new_match',
+  event_registered: 'notify_event_reminder',
+  event_reminder_30m: 'notify_event_reminder',
+  event_reminder_5m: 'notify_event_reminder',
+  event_ended: 'notify_event_reminder',
+  new_event_city: 'notify_event_reminder',
+  event_almost_full: 'notify_event_reminder',
   event_reminder: 'notify_event_reminder',
-  date_reminder: 'notify_date_reminder',
+  event_live: 'notify_event_live',
   daily_drop: 'notify_daily_drop',
+  drop_opener: 'notify_daily_drop',
+  drop_reply: 'notify_daily_drop',
+  drop_expiring: 'notify_daily_drop',
+  partner_ready: 'notify_ready_gate',
+  date_starting: 'notify_ready_gate',
+  reconnection: 'notify_ready_gate',
+  ready_gate: 'notify_ready_gate',
+  date_reminder: 'notify_date_reminder',
+  vibe_received: 'notify_someone_vibed_you',
+  super_vibe: 'notify_someone_vibed_you',
+  someone_vibed_you: 'notify_someone_vibed_you',
+  premium_teaser: 'notify_recommendations',
+  re_engagement: 'notify_recommendations',
+  weekly_summary: 'notify_recommendations',
   recommendations: 'notify_recommendations',
   product_updates: 'notify_product_updates',
   credits_subscription: 'notify_credits_subscription',
-}
-
-// Map notification category to 8 pref groups (pref_*). If pref is false, skip push. No entry = always send (e.g. safety_alerts).
-const NOTIFICATION_TYPE_TO_PREF: Record<string, string> = {
-  new_message: 'pref_messages',
-  voice_message: 'pref_messages',
-  video_message: 'pref_messages',
-  message_reaction: 'pref_messages',
-  date_proposal_received: 'pref_messages',
-  date_proposal_accepted: 'pref_messages',
-  date_proposal_declined: 'pref_messages',
-  messages: 'pref_messages',
-  new_match: 'pref_matches',
-  mutual_vibe: 'pref_matches',
-  who_liked_you: 'pref_matches',
-  event_registered: 'pref_events',
-  event_reminder_30m: 'pref_events',
-  event_reminder_5m: 'pref_events',
-  event_live: 'pref_events',
-  event_ended: 'pref_events',
-  new_event_city: 'pref_events',
-  event_almost_full: 'pref_events',
-  event_reminder: 'pref_events',
-  daily_drop: 'pref_daily_drop',
-  drop_opener: 'pref_daily_drop',
-  drop_reply: 'pref_daily_drop',
-  drop_expiring: 'pref_daily_drop',
-  partner_ready: 'pref_video_dates',
-  date_starting: 'pref_video_dates',
-  reconnection: 'pref_video_dates',
-  ready_gate: 'pref_video_dates',
-  date_reminder: 'pref_video_dates',
-  vibe_received: 'pref_vibes_social',
-  super_vibe: 'pref_vibes_social',
-  someone_vibed_you: 'pref_vibes_social',
-  premium_teaser: 'pref_marketing',
-  re_engagement: 'pref_marketing',
-  weekly_summary: 'pref_marketing',
-  recommendations: 'pref_marketing',
-  product_updates: 'pref_marketing',
-  date_suggestion_proposed: 'pref_messages',
-  date_suggestion_countered: 'pref_messages',
-  date_suggestion_accepted: 'pref_messages',
-  date_suggestion_declined: 'pref_messages',
-  date_suggestion_cancelled: 'pref_messages',
-  date_suggestion_expiring_soon: 'pref_messages',
 }
 
 // Categories that bypass quiet hours (time-critical / safety)
@@ -301,15 +288,8 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 7. Check category toggle (pref_* groups first, then legacy notify_*)
+    // 7. Check category toggle (notify_* columns only — matches settings UI)
     if (category !== 'safety_alerts') {
-      const prefKey = NOTIFICATION_TYPE_TO_PREF[category]
-      if (prefKey && prefs[prefKey] === false) {
-        await logNotification(user_id, category, title, body, data, false, 'user_disabled')
-        return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
       const col = CATEGORY_TO_COLUMN[category]
       if (col && prefs[col] === false) {
         await logNotification(user_id, category, title, body, data, false, 'user_disabled')
@@ -385,8 +365,9 @@ Deno.serve(async (req) => {
     let finalBody = body
     let collapseId: string | undefined
     if (category === 'messages' && prefs.message_bundle_enabled && data?.match_id) {
-      // OneSignal collapse_id max 64 chars; match_id alone scopes per-conversation for this recipient
-      collapseId = `msg_${data.match_id}`
+      // Per-recipient per-conversation; OneSignal collapse_id max 64 chars
+      const raw = `msg_${data.match_id}_${user_id}`
+      collapseId = raw.length <= 64 ? raw : raw.slice(0, 64)
       const { count: unreadCount } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })

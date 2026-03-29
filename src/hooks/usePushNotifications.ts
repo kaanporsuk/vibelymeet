@@ -1,3 +1,7 @@
+/**
+ * OneSignal subscription state, browser permission, and optional local/service-worker scheduling.
+ * In-app foreground alerts — not redundant with OneSignal push (e.g. scheduleDateReminder when SW/localStorage handles timing).
+ */
 import { useState, useEffect, useCallback } from 'react';
 import { useServiceWorker } from './useServiceWorker';
 import {
