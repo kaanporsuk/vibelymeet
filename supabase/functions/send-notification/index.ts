@@ -251,21 +251,27 @@ Deno.serve(async (req) => {
       })
     }
 
-    // 4. Check account-level pause (profiles.is_paused / paused_until)
+    // 4. Check account-level pause (legacy is_paused + account_paused)
     if (category !== 'safety_alerts') {
       const { data: profileRow } = await supabase
         .from('profiles')
-        .select('is_paused, paused_until')
+        .select('is_paused, paused_until, account_paused, account_paused_until')
         .eq('id', user_id)
         .maybeSingle()
-      if (profileRow?.is_paused) {
-        const until = profileRow.paused_until
-        if (until == null || new Date(until) > new Date()) {
-          await logNotification(user_id, category, title, body, data, false, 'account_paused')
-          return new Response(JSON.stringify({ success: false, reason: 'account_paused' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        }
+
+      // Check legacy pause
+      const legacyPaused = profileRow?.is_paused === true &&
+        (profileRow.paused_until == null || new Date(profileRow.paused_until) > new Date())
+
+      // Check new pause
+      const accountPaused = profileRow?.account_paused === true &&
+        (profileRow.account_paused_until == null || new Date(profileRow.account_paused_until) > new Date())
+
+      if (legacyPaused || accountPaused) {
+        await logNotification(user_id, category, title, body, data, false, 'account_paused')
+        return new Response(JSON.stringify({ success: false, reason: 'account_paused' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
       }
     }
 

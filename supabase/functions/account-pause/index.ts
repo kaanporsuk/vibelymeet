@@ -67,10 +67,18 @@ serve(async (req) => {
     const { error: updateError } = await supabaseAdmin
       .from("profiles")
       .update({
+        // Legacy columns (read by RPCs and Edge Functions)
         is_paused: true,
         paused_at: now.toISOString(),
         paused_until: pausedUntil,
         pause_reason: reason,
+        // New columns (read by native reactivation prompt)
+        account_paused: true,
+        account_paused_until: pausedUntil,
+        // Discovery flags
+        discoverable: false,
+        discovery_mode: "hidden",
+        discovery_snooze_until: null,
         updated_at: now.toISOString(),
       })
       .eq("id", userId);

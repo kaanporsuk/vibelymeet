@@ -163,26 +163,39 @@ serve(async (req) => {
 
     const { data: eligibleUsers } = await supabase
       .from("profiles")
-      .select("id, name, gender, interested_in, age, is_suspended, is_paused, paused_until")
+      .select(
+        "id, name, gender, interested_in, age, is_suspended, is_paused, paused_until, account_paused, account_paused_until",
+      )
       .gte("updated_at", sevenDaysAgo)
       .or("is_suspended.is.null,is_suspended.eq.false");
 
-    const eligibleUsersFiltered = (eligibleUsers || []).filter(
-      (u: { is_paused?: boolean; paused_until?: string | null }) => {
-        if (!u.is_paused) return true;
+    type EligibleRow = {
+      id: string;
+      is_paused?: boolean | null;
+      paused_until?: string | null;
+      account_paused?: boolean | null;
+      account_paused_until?: string | null;
+    };
+
+    const eligibleUsersFiltered = (eligibleUsers || []).filter((u: EligibleRow) => {
+      // Legacy pause check
+      if (u.is_paused) {
         const until = u.paused_until;
-        if (!until) {
-          // paused indefinitely or missing timestamp: treat as still paused
-          return false;
-        }
+        if (!until) return false;
         const untilDate = new Date(until);
-        if (Number.isNaN(untilDate.getTime())) {
-          // invalid timestamp: safest is to keep user paused
-          return false;
-        }
-        return untilDate <= now;
+        if (Number.isNaN(untilDate.getTime())) return false;
+        if (untilDate > now) return false;
       }
-    );
+      // New pause check
+      if (u.account_paused) {
+        const until = u.account_paused_until;
+        if (!until) return false;
+        const untilDate = new Date(until);
+        if (Number.isNaN(untilDate.getTime())) return false;
+        if (untilDate > now) return false;
+      }
+      return true;
+    });
 
     eligibleUsersFiltered.sort((a: { id: string }, b: { id: string }) =>
       a.id.localeCompare(b.id)

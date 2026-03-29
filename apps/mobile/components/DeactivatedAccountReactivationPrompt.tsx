@@ -65,6 +65,7 @@ export function DeactivatedAccountReactivationPrompt() {
                     is_paused: false,
                     paused_until: null,
                     paused_at: null,
+                    pause_reason: null,
                   })
                   .eq('id', userId);
                 if (upErr) {

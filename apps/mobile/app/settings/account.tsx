@@ -334,6 +334,7 @@ export default function AccountSettingsScreen() {
           is_paused: false,
           paused_until: null,
           paused_at: null,
+          pause_reason: null,
           discoverable: true,
           discovery_mode: 'visible',
         })
@@ -369,6 +370,7 @@ export default function AccountSettingsScreen() {
         is_paused: true,
         paused_until: null,
         paused_at: new Date().toISOString(),
+        pause_reason: 'deactivated',
         discoverable: false,
         discovery_mode: 'hidden',
       })

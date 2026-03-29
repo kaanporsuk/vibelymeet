@@ -2,7 +2,9 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Moon, Clock, Infinity, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAccountStatus, useUserProfile } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface PauseAccountFlowProps {
   onBack: () => void;
@@ -32,16 +34,49 @@ const pauseOptions = [
   },
 ];
 
+function pausedUntilForDuration(duration: PauseDuration): string | null {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  if (duration === "day") return new Date(now + day).toISOString();
+  if (duration === "week") return new Date(now + 7 * day).toISOString();
+  return null;
+}
+
 const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
-  const { pauseAccount } = useAccountStatus();
-  const { user } = useUserProfile();
+  const { user, refreshProfile } = useUserProfile();
   const [selectedDuration, setSelectedDuration] = useState<PauseDuration | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const handlePause = () => {
-    if (!selectedDuration) return;
-    pauseAccount(selectedDuration);
-    setIsSuccess(true);
+  const handlePause = async () => {
+    if (!selectedDuration || !user?.id) return;
+    const untilIso = pausedUntilForDuration(selectedDuration);
+    const now = new Date().toISOString();
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          account_paused: true,
+          account_paused_until: untilIso,
+          is_paused: true,
+          paused_until: untilIso,
+          paused_at: now,
+          pause_reason: "user_break",
+          discoverable: false,
+          discovery_mode: "hidden",
+          discovery_snooze_until: null,
+        })
+        .eq("id", user.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      await refreshProfile();
+      setIsSuccess(true);
+    } finally {
+      setBusy(false);
+    }
   };
 
   if (isSuccess) {
@@ -195,10 +230,10 @@ const PauseAccountFlow = ({ onBack, onComplete }: PauseAccountFlowProps) => {
         <Button
           variant="gradient"
           className="w-full bg-gradient-to-r from-blue-500 to-indigo-500"
-          disabled={!selectedDuration}
-          onClick={handlePause}
+          disabled={!selectedDuration || busy}
+          onClick={() => void handlePause()}
         >
-          Start My Break
+          {busy ? "Saving…" : "Start My Break"}
         </Button>
 
         <p className="text-xs text-center text-muted-foreground">
