@@ -12,6 +12,9 @@ verify_jwt = true
 [functions.event-notifications]
 verify_jwt = true
 
+[functions.event-reminders]
+verify_jwt = false
+
 [functions.vibe-notification]
 verify_jwt = true
 
