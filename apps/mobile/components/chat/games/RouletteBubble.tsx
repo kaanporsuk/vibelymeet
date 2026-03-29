@@ -9,6 +9,8 @@ import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { RouletteSnapshot } from '@/lib/vibelyGamesTypes';
 import { buildRouletteAnswerParams, formatSendGameEventError, useSendRouletteChoice } from '@/lib/gamesApi';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -18,6 +20,7 @@ type Props = {
 };
 
 type BubblePhase =
+  | 'expired'
   | 'complete'
   | 'submitting'
   | 'actionable'
@@ -25,7 +28,7 @@ type BubblePhase =
   | 'invalid_context'
   | 'ambiguous';
 
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete' | 'submitting'>;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete' | 'submitting' | 'expired'>;
 
 function derivePhase(
   snap: RouletteSnapshot,
@@ -34,8 +37,10 @@ function derivePhase(
   actionable: boolean,
   canBuild: boolean,
   canActNext: boolean,
-  isStarter: boolean
+  isStarter: boolean,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) return 'complete';
   if (isPending) return 'submitting';
   if (actionable) return 'actionable';
@@ -45,30 +50,56 @@ function derivePhase(
 }
 
 function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete' && phase !== 'submitting';
+  return phase !== 'complete' && phase !== 'submitting' && phase !== 'expired';
 }
 
 export function RouletteBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (snap.game_type !== 'roulette') return null;
+  const rouletteSnap = snap.game_type === 'roulette' ? snap : null;
 
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
   const { mutateAsync, isPending } = useSendRouletteChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [draftAnswer, setDraftAnswer] = useState('');
   const tapGuard = useRef(false);
 
-  const canBuild = buildRouletteAnswerParams(view, matchId, draftAnswer) != null;
-  const actionable = !complete && view.canCurrentUserActNext;
-  const canSubmit = actionable && canBuild && !isPending;
-  const phase = derivePhase(snap, complete, isPending, actionable, canBuild, view.canCurrentUserActNext, isStarter);
-
   useEffect(() => {
+    if (!rouletteSnap) return;
     setSubmitError(null);
     setDraftAnswer('');
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_answer, snap.status]);
+  }, [
+    view.gameSessionId,
+    view.latestMessageId,
+    view.updatedAt,
+    rouletteSnap?.status,
+    rouletteSnap?.receiver_answer,
+    rouletteSnap?.is_unlocked,
+  ]);
+
+  if (!rouletteSnap) return null;
+
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    rouletteSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = rouletteSnap.status === 'complete';
+
+  const canBuild = buildRouletteAnswerParams(view, matchId, draftAnswer) != null;
+  const actionable = !complete && !isExpired && view.canCurrentUserActNext;
+  const canSubmit = actionable && canBuild && !isPending;
+  const phase = derivePhase(
+    rouletteSnap,
+    complete,
+    isPending,
+    actionable,
+    canBuild,
+    view.canCurrentUserActNext,
+    isStarter,
+    isExpired
+  );
 
   const handleSubmit = async () => {
     if (tapGuard.current || isPending) return;
@@ -86,7 +117,12 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
   };
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)', opacity: isExpired ? 0.5 : 1 },
+      ]}
+    >
       <LinearGradient colors={[theme.neonCyan, theme.tint]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.accentBar} />
       <View style={styles.inner}>
         <View style={styles.titleRow}>
@@ -95,80 +131,84 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
           </View>
           <View style={styles.titleTextCol}>
             <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Roulette</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Vibe Roulette</Text>
           </View>
         </View>
 
         {phase === 'complete' ? (
-          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} snap={snap} />
-        ) : isNonCompleteNonSubmittingPhase(phase) ? (
+          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} />
+        ) : phase !== 'expired' && isNonCompleteNonSubmittingPhase(phase) ? (
           <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
         ) : null}
 
         <View style={[styles.questionCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
           <Text style={[styles.questionLabel, { color: theme.textSecondary }]}>Question</Text>
-          <Text style={[styles.questionText, { color: theme.text }]}>“{snap.question}”</Text>
+          <Text style={[styles.questionText, { color: theme.text }]}>“{rouletteSnap.question}”</Text>
         </View>
 
-        <View style={styles.answerStack}>
-          <AnswerCard
-            title={isStarter ? 'Your answer' : `${partnerName}'s answer`}
-            value={snap.sender_answer}
-            hidden={phase !== 'complete'}
-            theme={theme}
-          />
-
-          {phase === 'actionable' ? (
-            <View style={[styles.inputCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-              <Text style={[styles.answerLabel, { color: theme.textSecondary }]}>Your answer to unlock</Text>
-              <TextInput
-                value={draftAnswer}
-                onChangeText={(t) => {
-                  setDraftAnswer(t);
-                  if (submitError) setSubmitError(null);
-                }}
-                placeholder="Type your answer..."
-                placeholderTextColor={theme.textSecondary}
-                editable={!isPending}
-                multiline
-                maxLength={500}
-                style={[
-                  styles.answerInput,
-                  {
-                    color: theme.text,
-                    borderColor: theme.border,
-                    backgroundColor: theme.surface,
-                  },
-                ]}
-              />
-              <Pressable
-                onPress={() => void handleSubmit()}
-                disabled={!canSubmit}
-                style={({ pressed }) => [
-                  styles.submitBtn,
-                  {
-                    backgroundColor: theme.tint,
-                    opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1,
-                  },
-                ]}
-              >
-                {isPending ? (
-                  <ActivityIndicator color={theme.primaryForeground} />
-                ) : (
-                  <Text style={[styles.submitBtnText, { color: theme.primaryForeground }]}>Answer to unlock</Text>
-                )}
-              </Pressable>
-            </View>
-          ) : (
+        {phase === 'expired' ? (
+          <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
+        ) : (
+          <View style={styles.answerStack}>
             <AnswerCard
-              title={isStarter ? `${partnerName}'s answer` : 'Your answer'}
-              value={snap.receiver_answer ?? ''}
+              title={isStarter ? 'Your answer' : `${partnerName}'s answer`}
+              value={rouletteSnap.sender_answer}
               hidden={phase !== 'complete'}
               theme={theme}
-              emptyCopy={isStarter ? `Waiting on ${partnerName}...` : 'Waiting for reveal...'}
             />
-          )}
-        </View>
+
+            {phase === 'actionable' ? (
+              <View style={[styles.inputCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+                <Text style={[styles.answerLabel, { color: theme.textSecondary }]}>Your answer to unlock</Text>
+                <TextInput
+                  value={draftAnswer}
+                  onChangeText={(t) => {
+                    setDraftAnswer(t);
+                    if (submitError) setSubmitError(null);
+                  }}
+                  placeholder="Type your answer..."
+                  placeholderTextColor={theme.textSecondary}
+                  editable={!isPending}
+                  multiline
+                  maxLength={500}
+                  style={[
+                    styles.answerInput,
+                    {
+                      color: theme.text,
+                      borderColor: theme.border,
+                      backgroundColor: theme.surface,
+                    },
+                  ]}
+                />
+                <Pressable
+                  onPress={() => void handleSubmit()}
+                  disabled={!canSubmit}
+                  style={({ pressed }) => [
+                    styles.submitBtn,
+                    {
+                      backgroundColor: theme.tint,
+                      opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1,
+                    },
+                  ]}
+                >
+                  {isPending ? (
+                    <ActivityIndicator color={theme.primaryForeground} />
+                  ) : (
+                    <Text style={[styles.submitBtnText, { color: theme.primaryForeground }]}>Answer to unlock</Text>
+                  )}
+                </Pressable>
+              </View>
+            ) : (
+              <AnswerCard
+                title={isStarter ? `${partnerName}'s answer` : 'Your answer'}
+                value={rouletteSnap.receiver_answer ?? ''}
+                hidden={phase !== 'complete'}
+                theme={theme}
+                emptyCopy={isStarter ? `Waiting on ${partnerName}...` : 'Waiting for reveal...'}
+              />
+            )}
+          </View>
+        )}
 
         {phase === 'submitting' ? (
           <View style={[styles.submittingRow, { backgroundColor: theme.secondary }]}>
@@ -278,12 +318,10 @@ function CompleteBlock({
   theme,
   partnerName,
   isStarter,
-  snap,
 }: {
   theme: (typeof Colors)['light'];
   partnerName: string;
   isStarter: boolean;
-  snap: RouletteSnapshot;
 }) {
   return (
     <View style={[styles.completeBlock, { borderColor: 'rgba(6,182,212,0.45)', backgroundColor: 'rgba(6,182,212,0.1)' }]}>
@@ -328,6 +366,7 @@ const styles = StyleSheet.create({
   },
   questionLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   questionText: { fontSize: 16, lineHeight: 22, fontStyle: 'italic' },
+  expiredStatus: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: spacing.xs },
   answerStack: { gap: spacing.sm },
   answerCard: {
     borderRadius: radius.lg,

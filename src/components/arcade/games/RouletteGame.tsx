@@ -1,25 +1,42 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useCallback } from "react";
+import { motion } from "framer-motion";
 import { RoulettePayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Lock, Eye } from "lucide-react";
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 interface RouletteGameProps {
   payload: RoulettePayload;
   isOwn: boolean;
+  sessionCreatedAt?: string | null;
   onAnswer?: (answer: string) => void;
 }
 
-export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) => {
-  const [myAnswer, setMyAnswer] = useState(payload.data.receiverAnswer || "");
-  const [hasSubmitted, setHasSubmitted] = useState(!!payload.data.receiverAnswer);
-  const isUnlocked = payload.data.isUnlocked;
+export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: RouletteGameProps) => {
+  const [answerDraft, setAnswerDraft] = useState("");
 
-  const handleSubmit = () => {
-    if (!myAnswer.trim() || isOwn || hasSubmitted) return;
-    setHasSubmitted(true);
-    onAnswer?.(myAnswer);
-  };
+  const isUnlocked = payload.data.isUnlocked;
+  const hasSubmitted = !!payload.data.receiverAnswer || payload.step === "completed";
+
+  const createdMs = sessionCreatedAt ? new Date(sessionCreatedAt).getTime() : NaN;
+  const isExpired =
+    payload.step !== "completed" &&
+    Number.isFinite(createdMs) &&
+    Date.now() - createdMs > EXPIRY_MS;
+
+  const handleSubmit = useCallback(() => {
+    const trimmed = answerDraft.trim();
+    if (!trimmed || isOwn || hasSubmitted || isExpired) return;
+    onAnswer?.(trimmed);
+    setAnswerDraft("");
+  }, [answerDraft, isOwn, hasSubmitted, isExpired, onAnswer]);
+
+  const headerSub = isExpired
+    ? "This challenge expired"
+    : isUnlocked
+      ? "Answers revealed!"
+      : "Answer to unlock";
 
   return (
     <motion.div
@@ -28,7 +45,8 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-cyan-500/20 to-teal-600/20",
-        "border border-cyan-500/30 backdrop-blur-sm"
+        "border border-cyan-500/30 backdrop-blur-sm",
+        isExpired && "opacity-50"
       )}
     >
       {/* Header */}
@@ -37,9 +55,7 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
           <span className="text-2xl">🎡</span>
           <div>
             <h4 className="font-semibold text-sm text-foreground">Vibe Roulette</h4>
-            <p className="text-xs text-muted-foreground">
-              {isUnlocked ? "Answers revealed!" : "Answer to unlock"}
-            </p>
+            <p className="text-xs text-muted-foreground">{headerSub}</p>
           </div>
         </div>
       </div>
@@ -55,15 +71,17 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
       <div className="p-3 space-y-3">
         {/* Sender's Answer */}
         <div className="relative">
-          <div className={cn(
-            "p-3 rounded-xl border",
-            isUnlocked 
-              ? "bg-neon-violet/10 border-neon-violet/30" 
-              : "bg-secondary/50 border-border/50"
-          )}>
+          <div
+            className={cn(
+              "p-3 rounded-xl border",
+              isUnlocked
+                ? "bg-neon-violet/10 border-neon-violet/30"
+                : "bg-secondary/50 border-border/50"
+            )}
+          >
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs text-neon-violet font-medium">
-                {isOwn ? 'Your answer' : 'Their answer'}
+                {isOwn ? "Your answer" : "Their answer"}
               </span>
             </div>
             {isUnlocked ? (
@@ -85,11 +103,13 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
 
         {/* Receiver's Answer / Input */}
         <div className="relative">
-          {isUnlocked && hasSubmitted ? (
+          {isExpired ? (
+            <p className="text-sm text-muted-foreground text-center px-2 py-2">This challenge expired</p>
+          ) : isUnlocked && hasSubmitted ? (
             <div className="p-3 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-neon-cyan font-medium">
-                  {isOwn ? 'Their answer' : 'Your answer'}
+                  {isOwn ? "Their answer" : "Your answer"}
                 </span>
               </div>
               <motion.p
@@ -97,7 +117,7 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
                 animate={{ opacity: 1 }}
                 className="text-sm text-foreground"
               >
-                {payload.data.receiverAnswer || myAnswer}
+                {payload.data.receiverAnswer ?? ""}
               </motion.p>
             </div>
           ) : hasSubmitted ? (
@@ -109,15 +129,17 @@ export const RouletteGame = ({ payload, isOwn, onAnswer }: RouletteGameProps) =>
           ) : !isOwn ? (
             <div className="space-y-2">
               <textarea
-                value={myAnswer}
-                onChange={(e) => setMyAnswer(e.target.value)}
+                value={answerDraft}
+                onChange={(e) => setAnswerDraft(e.target.value)}
                 placeholder="Answer to reveal..."
                 rows={2}
+                maxLength={500}
                 className="w-full px-3 py-2 rounded-xl text-sm bg-secondary/50 border border-border/50 focus:outline-none focus:border-cyan-500/50 resize-none placeholder:text-muted-foreground"
               />
               <button
+                type="button"
                 onClick={handleSubmit}
-                disabled={!myAnswer.trim()}
+                disabled={!answerDraft.trim()}
                 className="w-full py-2 rounded-xl bg-cyan-500/30 hover:bg-cyan-500/40 text-cyan-400 text-sm font-medium transition-colors disabled:opacity-50"
               >
                 <Lock className="w-4 h-4 inline mr-2" />

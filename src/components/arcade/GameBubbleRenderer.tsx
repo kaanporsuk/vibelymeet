@@ -88,6 +88,7 @@ export const GameBubbleRenderer = ({
           <RouletteGame
             payload={payload}
             isOwn={isOwn}
+            sessionCreatedAt={sessionCreatedAt}
             onAnswer={(answer) => handleUpdate({ receiverAnswer: answer, isUnlocked: true })}
           />
         );

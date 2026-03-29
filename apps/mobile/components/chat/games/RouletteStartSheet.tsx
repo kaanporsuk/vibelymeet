@@ -112,7 +112,7 @@ export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: P
       }
     >
       <View style={styles.sheetHeader}>
-        <Text style={[styles.sheetTitle, { color: theme.text }]}>Roulette</Text>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Vibe Roulette</Text>
         <Pressable
           onPress={onClose}
           disabled={isPending}
