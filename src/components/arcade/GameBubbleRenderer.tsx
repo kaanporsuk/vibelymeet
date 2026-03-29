@@ -9,6 +9,8 @@ import { IntuitionGame } from "./games/IntuitionGame";
 interface GameBubbleRendererProps {
   message: GameMessage;
   matchName?: string;
+  /** Session row `created_at` for expiry (e.g. vibe-game-session messages). */
+  sessionCreatedAt?: string | null;
   onGameUpdate?: (
     messageId: string,
     updatedPayload: GamePayload,
@@ -16,7 +18,12 @@ interface GameBubbleRendererProps {
   ) => void;
 }
 
-export const GameBubbleRenderer = ({ message, matchName = "Match", onGameUpdate }: GameBubbleRendererProps) => {
+export const GameBubbleRenderer = ({
+  message,
+  matchName = "Match",
+  sessionCreatedAt,
+  onGameUpdate,
+}: GameBubbleRendererProps) => {
   const isOwn = message.sender === "me";
   const payload = message.gamePayload;
 
@@ -62,6 +69,7 @@ export const GameBubbleRenderer = ({ message, matchName = "Match", onGameUpdate 
           <CharadesGame
             payload={payload}
             isOwn={isOwn}
+            sessionCreatedAt={sessionCreatedAt}
             onGuess={(guess) => handleUpdate({ guesses: [...(payload.data.guesses || []), guess] })}
           />
         );

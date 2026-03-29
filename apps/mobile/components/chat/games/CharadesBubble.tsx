@@ -9,6 +9,8 @@ import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { CharadesSnapshot } from '@/lib/vibelyGamesTypes';
 import { buildCharadesGuessParams, formatSendGameEventError, useSendCharadesChoice } from '@/lib/gamesApi';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -17,8 +19,16 @@ type Props = {
   timeLabel: string;
 };
 
-type BubblePhase = 'complete' | 'submitting' | 'actionable' | 'waiting_partner' | 'invalid_context' | 'ambiguous';
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete' | 'submitting'>;
+type BubblePhase =
+  | 'expired'
+  | 'complete'
+  | 'submitting'
+  | 'actionable'
+  | 'waiting_partner'
+  | 'invalid_context'
+  | 'ambiguous';
+
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete' | 'submitting' | 'expired'>;
 
 function derivePhase(
   snap: CharadesSnapshot,
@@ -27,8 +37,10 @@ function derivePhase(
   actionable: boolean,
   canBuild: boolean,
   canActNext: boolean,
-  isStarter: boolean
+  isStarter: boolean,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) return 'complete';
   if (isPending) return 'submitting';
   if (actionable) return 'actionable';
@@ -38,30 +50,56 @@ function derivePhase(
 }
 
 function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete' && phase !== 'submitting';
+  return phase !== 'complete' && phase !== 'submitting' && phase !== 'expired';
 }
 
 export function CharadesBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (snap.game_type !== 'charades') return null;
+  const charadesSnap = snap.game_type === 'charades' ? snap : null;
 
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
   const { mutateAsync, isPending } = useSendCharadesChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [guessText, setGuessText] = useState('');
   const tapGuard = useRef(false);
 
-  const canBuild = buildCharadesGuessParams(view, matchId, guessText) != null;
-  const actionable = !complete && view.canCurrentUserActNext;
-  const canSubmit = actionable && canBuild && !isPending;
-  const phase = derivePhase(snap, complete, isPending, actionable, canBuild, view.canCurrentUserActNext, isStarter);
-
   useEffect(() => {
+    if (!charadesSnap) return;
     setSubmitError(null);
     setGuessText('');
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.status, snap.guesses.length, snap.is_guessed]);
+  }, [
+    view.gameSessionId,
+    view.latestMessageId,
+    view.updatedAt,
+    charadesSnap?.status,
+    charadesSnap?.guesses?.length,
+    charadesSnap?.is_guessed,
+  ]);
+
+  if (!charadesSnap) return null;
+
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    charadesSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = charadesSnap.status === 'complete';
+
+  const canBuild = buildCharadesGuessParams(view, matchId, guessText) != null;
+  const actionable = !complete && !isExpired && view.canCurrentUserActNext;
+  const canSubmit = actionable && canBuild && !isPending;
+  const phase = derivePhase(
+    charadesSnap,
+    complete,
+    isPending,
+    actionable,
+    canBuild,
+    view.canCurrentUserActNext,
+    isStarter,
+    isExpired
+  );
 
   const handleGuess = async () => {
     if (tapGuard.current || isPending) return;
@@ -83,7 +121,12 @@ export function CharadesBubble({ view, matchId, currentUserId, partnerName, time
   };
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)', opacity: isExpired ? 0.5 : 1 },
+      ]}
+    >
       <LinearGradient
         colors={[theme.neonViolet, theme.neonPink]}
         start={{ x: 0, y: 0 }}
@@ -97,23 +140,27 @@ export function CharadesBubble({ view, matchId, currentUserId, partnerName, time
           </View>
           <View style={styles.titleTextCol}>
             <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Charades</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Emoji Charades</Text>
           </View>
         </View>
 
         {phase === 'complete' ? (
-          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} answer={snap.answer} />
-        ) : isNonCompleteNonSubmittingPhase(phase) ? (
+          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} answer={charadesSnap.answer} />
+        ) : phase !== 'expired' && isNonCompleteNonSubmittingPhase(phase) ? (
           <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
         ) : null}
 
         <View style={styles.emojiRow}>
-          {snap.emojis.map((emoji, idx) => (
+          {charadesSnap.emojis.map((emoji, idx) => (
             <View key={`${emoji}-${idx}`} style={[styles.emojiChip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <Text style={styles.emojiText}>{emoji}</Text>
             </View>
           ))}
         </View>
+
+        {phase === 'expired' ? (
+          <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
+        ) : null}
 
         {phase === 'actionable' ? (
           <View style={[styles.inputCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
@@ -164,10 +211,10 @@ export function CharadesBubble({ view, matchId, currentUserId, partnerName, time
           </View>
         ) : null}
 
-        {snap.guesses.length > 0 && phase !== 'complete' ? (
+        {charadesSnap.guesses.length > 0 && phase !== 'complete' && phase !== 'expired' ? (
           <View style={[styles.guessHistory, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
             <Text style={[styles.guessHistoryLabel, { color: theme.textSecondary }]}>Latest guess</Text>
-            <Text style={[styles.guessHistoryText, { color: theme.text }]}>{snap.guesses[snap.guesses.length - 1]}</Text>
+            <Text style={[styles.guessHistoryText, { color: theme.text }]}>{charadesSnap.guesses[charadesSnap.guesses.length - 1]}</Text>
           </View>
         ) : null}
 
@@ -292,6 +339,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emojiText: { fontSize: 26 },
+  expiredStatus: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: spacing.xs },
   inputCard: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

@@ -1066,6 +1066,7 @@ const Chat = () => {
                         <GameBubbleRenderer
                           message={hydratedGameMessage}
                           matchName={otherUser.name}
+                          sessionCreatedAt={message.gameSessionView.createdAt}
                           onGameUpdate={(_, __, updates) =>
                             submitPersistedGameAction(message.gameSessionView!, payload, updates)
                           }

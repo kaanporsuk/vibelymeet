@@ -60,7 +60,7 @@ const IN_CHAT_GAMES: readonly GameRowDef[] = [
   },
   {
     id: 'charades',
-    title: 'Charades',
+    title: 'Emoji Charades',
     description: 'Act it out and let them guess',
     icon: 'body-outline',
     accent: 'violet',
