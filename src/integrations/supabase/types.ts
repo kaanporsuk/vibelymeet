@@ -2439,7 +2439,6 @@ export type Database = {
           extended_vibe_credits: number
           extra_time_credits: number
           id: string
-          super_vibe_credits: number
           updated_at: string
           user_id: string
         }
@@ -2448,7 +2447,6 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
-          super_vibe_credits?: number
           updated_at?: string
           user_id: string
         }
@@ -2457,7 +2455,6 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
-          super_vibe_credits?: number
           updated_at?: string
           user_id?: string
         }

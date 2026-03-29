@@ -240,7 +240,6 @@ const Onboarding = () => {
         user_id: user.id,
         extra_time_credits: 0,
         extended_vibe_credits: 0,
-        super_vibe_credits: 0,
       }, { onConflict: 'user_id' });
       
       // Clear saved progress

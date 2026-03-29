@@ -60,7 +60,8 @@ const EventLobby = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [exitDirection, setExitDirection] = useState<"left" | "right" | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
-  const [superVibeCount, setSuperVibeCount] = useState(0);
+  /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
+  const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [userVibes, setUserVibes] = useState<string[]>([]);
 
   // Swipe action — show Ready Gate on immediate match
@@ -107,18 +108,21 @@ const EventLobby = () => {
     })();
   }, [user?.id]);
 
-  // Fetch super vibe credit count
+  // Super vibes left this event (same rule as handle_swipe: max 3 per event)
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !eventId) return;
     (async () => {
-      const { data } = await supabase
-        .from("user_credits")
-        .select("super_vibe_credits")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (data) setSuperVibeCount(data.super_vibe_credits);
+      const { count, error } = await supabase
+        .from("event_swipes")
+        .select("*", { count: "exact", head: true })
+        .eq("event_id", eventId)
+        .eq("actor_id", user.id)
+        .eq("swipe_type", "super_vibe");
+      if (error) return;
+      const used = count ?? 0;
+      setSuperVibeRemaining(Math.max(0, 3 - used));
     })();
-  }, [user?.id]);
+  }, [user?.id, eventId]);
 
   // Set status to browsing on mount, offline on unmount
   useEffect(() => {
@@ -284,7 +288,7 @@ const EventLobby = () => {
 
     const result = await swipe(targetId, "super_vibe");
     if (result && (result as any).result === "super_vibe_sent") {
-      setSuperVibeCount((prev: number) => Math.max(0, prev - 1));
+      setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
     }
   }, [currentProfile, isAnimating, swipe, advanceCard]);
 
@@ -477,13 +481,13 @@ const EventLobby = () => {
             {/* Super Vibe */}
             <button
               onClick={handleSuperVibe}
-              disabled={isAnimating || superVibeCount <= 0}
+              disabled={isAnimating || superVibeRemaining <= 0}
               className="relative w-12 h-12 rounded-full bg-neon-yellow/20 border border-neon-yellow/40 flex items-center justify-center hover:bg-neon-yellow/30 transition-all active:scale-90 disabled:opacity-30"
             >
               <Star className="w-5 h-5 text-neon-yellow" fill="hsl(var(--neon-yellow))" />
-              {superVibeCount > 0 && (
+              {superVibeRemaining > 0 && (
                 <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-neon-yellow text-background text-[10px] font-bold flex items-center justify-center">
-                  {superVibeCount}
+                  {superVibeRemaining}
                 </span>
               )}
             </button>

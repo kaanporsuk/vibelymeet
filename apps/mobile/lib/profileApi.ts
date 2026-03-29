@@ -368,7 +368,7 @@ export async function createProfile(data: {
   if (error) throw error;
   // Initialize user_credits like web onboarding
   await supabase.from('user_credits').upsert(
-    { user_id: user.id, extra_time_credits: 0, extended_vibe_credits: 0, super_vibe_credits: 0 },
+    { user_id: user.id, extra_time_credits: 0, extended_vibe_credits: 0 },
     { onConflict: 'user_id' }
   );
 }
