@@ -73,16 +73,26 @@ serve(async (req) => {
     // Only send notifications for specific results; rely on handle_swipe's own idempotency (e.g. already_matched / already_super_vibed_recently)
     try {
       if (result.result === "match" && result.match_id) {
-        // Notify target about new match
-        await serviceClient.functions.invoke("send-notification", {
-          body: {
-            user_id: target_id,
-            category: "new_match",
-            title: "It's a match! 🎉",
-            body: "You have a new match! Start chatting now.",
-            data: { url: "/matches", match_id: result.match_id },
-          },
-        });
+        const matchBody = {
+          category: "new_match" as const,
+          title: "It's a match! 🎉",
+          body: "You both vibed — start chatting now!",
+          data: { url: "/matches", match_id: result.match_id },
+        };
+        try {
+          await serviceClient.functions.invoke("send-notification", {
+            body: { user_id: target_id, ...matchBody },
+          });
+        } catch (e) {
+          console.error("swipe-actions new_match notify target:", e);
+        }
+        try {
+          await serviceClient.functions.invoke("send-notification", {
+            body: { user_id: actorId, ...matchBody },
+          });
+        } catch (e) {
+          console.error("swipe-actions new_match notify actor:", e);
+        }
       } else if (result.result === "match_queued" && result.match_id) {
         // Notify partner about queued match / ready gate
         await serviceClient.functions.invoke("send-notification", {

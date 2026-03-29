@@ -135,18 +135,26 @@ export const PostDateSurvey = ({
           p_session_id: sessionId,
         });
 
-        if ((result as any)?.mutual) {
+        const mutualResult = result as { mutual?: boolean; match_id?: string } | null;
+        if (mutualResult?.mutual) {
           setStep("celebration");
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
-          // Notify partner about mutual match
-          sendNotification({
+          const matchId = mutualResult.match_id;
+          await sendNotification({
             user_id: partnerId,
             category: "new_match",
             title: "It's a match! 🎉",
-            body: `You and ${partnerName} both vibed!`,
-            data: { url: "/matches" },
+            body: "You both vibed — start chatting now!",
+            data: { url: "/matches", ...(matchId ? { match_id: matchId } : {}) },
+          });
+          await sendNotification({
+            user_id: user.id,
+            category: "new_match",
+            title: "It's a match! 🎉",
+            body: "You both vibed — start chatting now!",
+            data: { url: "/matches", ...(matchId ? { match_id: matchId } : {}) },
           });
         } else {
           setStep("highlights");

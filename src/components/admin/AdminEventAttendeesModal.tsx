@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { sendNotification } from "@/lib/notifications";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
@@ -36,6 +37,8 @@ interface AdminEventAttendeesModalProps {
   onClose: () => void;
 }
 
+const NOTIFY_ALL_COOLDOWN_MS = 5 * 60 * 1000;
+
 const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalProps) => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -43,6 +46,18 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   const [showPending, setShowPending] = useState(true);
   const [showAttended, setShowAttended] = useState(true);
   const [showNoShow, setShowNoShow] = useState(true);
+  const [notifyAllBody, setNotifyAllBody] = useState("");
+  const [isSendingNotifyAll, setIsSendingNotifyAll] = useState(false);
+  const [lastNotifyAllAt, setLastNotifyAllAt] = useState<number | null>(null);
+  const [cooldownBump, setCooldownBump] = useState(0);
+
+  useEffect(() => {
+    if (lastNotifyAllAt == null) return;
+    const elapsed = Date.now() - lastNotifyAllAt;
+    if (elapsed >= NOTIFY_ALL_COOLDOWN_MS) return;
+    const t = setTimeout(() => setCooldownBump((x) => x + 1), NOTIFY_ALL_COOLDOWN_MS - elapsed);
+    return () => clearTimeout(t);
+  }, [lastNotifyAllAt, cooldownBump]);
 
   // Fetch event registrations with profile data
   const { data: registrations, isLoading } = useQuery({
@@ -144,14 +159,45 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     );
   };
 
-  const sendNotification = (profileId: string, name: string) => {
-    toast.success(`Notification sent to ${name}`);
-  };
+  const notifyCooldownActive =
+    lastNotifyAllAt != null && Date.now() - lastNotifyAllAt < NOTIFY_ALL_COOLDOWN_MS;
 
-  const sendBulkNotification = () => {
-    toast.success(`Notifications sent to ${selectedAttendees.length} attendees`);
-    setSelectedAttendees([]);
-  };
+  const sendNotifyAllRegistrants = useCallback(async () => {
+    const body = notifyAllBody.trim();
+    if (!body) {
+      toast.error("Enter a notification message");
+      return;
+    }
+    if (notifyCooldownActive) {
+      toast.message("Please wait 5 minutes between broadcasts to all attendees.");
+      return;
+    }
+    setIsSendingNotifyAll(true);
+    try {
+      const { data: allRegs, error } = await supabase
+        .from("event_registrations")
+        .select("profile_id")
+        .eq("event_id", event.id);
+      if (error) throw error;
+      const ids = [...new Set((allRegs ?? []).map((r) => r.profile_id).filter(Boolean))] as string[];
+      const eventTitle = (event.title as string) || "Your event";
+      for (const user_id of ids) {
+        await sendNotification({
+          user_id,
+          category: "event_reminder",
+          title: eventTitle,
+          body,
+          data: { url: `/event/${event.id}/lobby`, event_id: event.id },
+        });
+      }
+      setLastNotifyAllAt(Date.now());
+      toast.success(`Notification sent to ${ids.length} attendees`);
+    } catch {
+      toast.error("Failed to send notifications");
+    } finally {
+      setIsSendingNotifyAll(false);
+    }
+  }, [notifyAllBody, notifyCooldownActive, event.id, event.title]);
 
   const exportAttendees = () => {
     if (!registrations?.length) return;
@@ -244,6 +290,25 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         </div>
       </div>
 
+      {/* Broadcast push to all registrants */}
+      <div className="shrink-0 border-b border-border/50 bg-card">
+        <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
+          <label htmlFor="admin-notify-all-body" className="text-xs font-medium text-muted-foreground">
+            Message to all registered attendees (push)
+          </label>
+          <Input
+            id="admin-notify-all-body"
+            placeholder="Your event starts in 15 minutes!"
+            value={notifyAllBody}
+            onChange={(e) => setNotifyAllBody(e.target.value)}
+            className="bg-secondary/50"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Sends via the same system as event reminders. 5-minute cooldown between sends.
+          </p>
+        </div>
+      </div>
+
       {/* Toolbar */}
       <div className="shrink-0 border-b border-border/50 bg-card">
         <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col md:flex-row gap-4 justify-between">
@@ -325,11 +390,12 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
               <Button
                 size="sm"
                 variant="outline"
-                onClick={sendBulkNotification}
+                onClick={() => void sendNotifyAllRegistrants()}
+                disabled={isSendingNotifyAll || notifyCooldownActive}
                 className="gap-1"
               >
                 <Bell className="w-4 h-4" />
-                Notify
+                {isSendingNotifyAll ? "Sending…" : "Notify"}
               </Button>
               <Button
                 size="sm"
@@ -463,11 +529,12 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                             Mark No Show
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => sendNotification(profile?.id, profile?.name)}
+                            onClick={() => void sendNotifyAllRegistrants()}
+                            disabled={isSendingNotifyAll || notifyCooldownActive}
                             className="gap-2"
                           >
                             <Bell className="w-4 h-4" />
-                            Send Notification
+                            Notify all attendees
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
