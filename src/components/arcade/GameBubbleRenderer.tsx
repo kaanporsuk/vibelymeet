@@ -51,6 +51,7 @@ export const GameBubbleRenderer = ({
           <TwoTruthsGame
             payload={payload}
             isOwn={isOwn}
+            sessionCreatedAt={sessionCreatedAt}
             onGuess={(index) => handleUpdate({ guessedIndex: index, isCorrect: index === payload.data.lieIndex })}
           />
         );
@@ -100,6 +101,7 @@ export const GameBubbleRenderer = ({
             payload={payload}
             isOwn={isOwn}
             matchName={matchName}
+            sessionCreatedAt={sessionCreatedAt}
             onRespond={(response) => handleUpdate({ receiverResponse: response })}
           />
         );

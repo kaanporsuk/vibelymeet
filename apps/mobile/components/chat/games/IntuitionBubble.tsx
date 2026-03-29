@@ -14,6 +14,8 @@ import {
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -24,6 +26,7 @@ type Props = {
 };
 
 type BubblePhase =
+  | 'expired'
   | 'complete_correct'
   | 'complete_wrong'
   | 'submitting'
@@ -33,7 +36,7 @@ type BubblePhase =
   | 'ambiguous';
 
 type CompletePhase = Extract<BubblePhase, 'complete_correct' | 'complete_wrong'>;
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting'>;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting' | 'expired'>;
 
 function derivePhase(
   snap: IntuitionSnapshot,
@@ -42,8 +45,10 @@ function derivePhase(
   actionable: boolean,
   canBuild: boolean,
   canActNext: boolean,
-  isStarter: boolean
+  isStarter: boolean,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) return snap.receiver_result === 'correct' ? 'complete_correct' : 'complete_wrong';
   if (isPending) return 'submitting';
   if (actionable) return 'actionable';
@@ -57,31 +62,50 @@ function isCompletePhase(phase: BubblePhase): phase is CompletePhase {
 }
 
 function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting';
+  return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting' && phase !== 'expired';
 }
 
 export function IntuitionBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (snap.game_type !== 'intuition') return null;
+  const intuitionSnap = snap.game_type === 'intuition' ? snap : null;
 
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
   const { mutateAsync, isPending } = useSendIntuitionChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const tapGuard = useRef(false);
 
-  const canBuild = buildIntuitionResultParams(view, matchId, 'correct') != null;
-  const actionable = canBuild && !complete;
-  const phase = derivePhase(snap, complete, isPending, actionable, canBuild, view.canCurrentUserActNext, isStarter);
-  const predicted = snap.options[snap.sender_choice];
-  const other = snap.options[snap.sender_choice === 0 ? 1 : 0];
-
   useEffect(() => {
+    if (!intuitionSnap) return;
     setSubmitError(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_result, snap.status]);
+  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, intuitionSnap?.receiver_result, intuitionSnap?.status]);
+
+  if (!intuitionSnap) return null;
+
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    intuitionSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = intuitionSnap.status === 'complete';
+  const canBuild = buildIntuitionResultParams(view, matchId, 'correct') != null;
+  const actionable = canBuild && !complete && !isExpired;
+  const phase = derivePhase(
+    intuitionSnap,
+    complete,
+    isPending,
+    actionable,
+    canBuild,
+    view.canCurrentUserActNext,
+    isStarter,
+    isExpired
+  );
+  const predicted = intuitionSnap.options[intuitionSnap.sender_choice];
+  const other = intuitionSnap.options[intuitionSnap.sender_choice === 0 ? 1 : 0];
 
   const handleRespond = async (result: 'correct' | 'wrong') => {
+    if (isExpired) return;
     if (tapGuard.current || isPending) return;
     if (!canBuild) return;
     tapGuard.current = true;
@@ -97,7 +121,12 @@ export function IntuitionBubble({ view, matchId, currentUserId, partnerName, tim
   };
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)', opacity: isExpired ? 0.5 : 1 },
+      ]}
+    >
       <LinearGradient colors={[theme.neonViolet, theme.tint]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.accentBar} />
       <View style={styles.inner}>
         <View style={styles.titleRow}>
@@ -114,6 +143,10 @@ export function IntuitionBubble({ view, matchId, currentUserId, partnerName, tim
           <CompleteOutcomeBlock phase={phase} theme={theme} partnerName={partnerName} isStarter={isStarter} />
         ) : isNonCompleteNonSubmittingPhase(phase) ? (
           <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
+        ) : null}
+
+        {phase === 'expired' ? (
+          <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
         ) : null}
 
         <View style={[styles.predictionCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
@@ -272,6 +305,7 @@ const styles = StyleSheet.create({
   titleTextCol: { flex: 1, minWidth: 0 },
   kicker: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
   title: { fontSize: 18, fontWeight: '700', marginTop: 2 },
+  expiredStatus: { textAlign: 'center', fontSize: 13, lineHeight: 18, paddingVertical: spacing.sm },
   statusStrip: {
     flexDirection: 'row',
     alignItems: 'flex-start',
