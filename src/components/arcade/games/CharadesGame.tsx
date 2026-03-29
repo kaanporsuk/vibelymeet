@@ -79,7 +79,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
         "bg-gradient-to-br from-purple-500/20 to-violet-600/20",
         "border border-purple-500/30 backdrop-blur-sm",
         isExpired && "opacity-50"
@@ -97,14 +97,14 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
       </div>
 
       {/* Emoji Display */}
-      <div className={cn("flex justify-center items-center gap-2", compact ? "py-3 px-2" : "p-6 gap-3")}>
+      <div className={cn("flex justify-center items-center gap-1.5", compact ? "py-2 px-2" : "py-4 px-2 gap-2")}>
         {payload.data.emojis.map((emoji, index) => (
           <motion.span
             key={index}
             initial={{ scale: 0, rotate: -20 }}
             animate={{ scale: 1, rotate: 0 }}
             transition={{ delay: index * 0.1, type: "spring" }}
-            className={compact ? "text-3xl" : "text-4xl"}
+            className={compact ? "text-2xl" : "text-3xl"}
           >
             {emoji}
           </motion.span>
@@ -118,11 +118,11 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
             key="answer"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="px-3 pb-3"
+            className="px-2 pb-2"
           >
-            <div className="p-3 rounded-xl bg-green-500/20 border border-green-500/30 text-center">
-              <p className="text-xs text-green-400 mb-1">🎉 Correct!</p>
-              <p className="font-semibold text-foreground">{payload.data.answer}</p>
+            <div className="p-2 rounded-lg bg-green-500/20 border border-green-500/30 text-center">
+              <p className="text-[10px] text-green-400 mb-0.5 font-medium">Correct</p>
+              <p className="text-sm font-semibold text-foreground leading-tight">{payload.data.answer}</p>
             </div>
           </motion.div>
         ) : isExpired ? (
@@ -139,7 +139,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
             key="input"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="px-2.5 pb-2"
+            className="px-2 pb-2"
           >
             <div className="relative">
               <input
@@ -149,7 +149,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 placeholder="Guess the movie..."
                 className={cn(
-                  "w-full px-4 py-2 rounded-xl text-sm",
+                  "w-full px-3 py-1.5 rounded-lg text-sm",
                   "bg-secondary/50 border border-border/50",
                   "focus:outline-none focus:border-purple-500/50",
                   "placeholder:text-muted-foreground",

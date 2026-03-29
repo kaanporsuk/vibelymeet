@@ -30,15 +30,15 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[280px] rounded-2xl overflow-hidden",
+        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
         "bg-gradient-to-br from-green-500/20 to-emerald-600/20",
         "border border-green-500/30 backdrop-blur-sm"
       )}
     >
       {/* Header */}
-      <div className={cn("border-b border-green-500/20", compact ? "px-2.5 py-2" : "p-3")}>
-        <div className="flex items-center gap-2">
-          <span className={compact ? "text-lg" : "text-2xl"}>📸</span>
+      <div className={cn("border-b border-green-500/20", compact ? "px-2 py-1.5" : "px-2.5 py-2")}>
+        <div className="flex items-center gap-1.5">
+          <span className={compact ? "text-base" : "text-xl"}>📸</span>
           <div className="min-w-0">
             <h4 className="font-semibold text-sm text-foreground leading-tight">Scavenger Hunt</h4>
             <p className="text-[11px] text-muted-foreground leading-snug">
@@ -49,14 +49,14 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       </div>
 
       {/* Prompt */}
-      <div className={cn("text-center border-b border-green-500/20", compact ? "px-2.5 py-2" : "p-3")}>
-        <p className="text-sm font-medium text-foreground leading-snug">{payload.data.prompt}</p>
+      <div className={cn("text-center border-b border-green-500/20", compact ? "px-2 py-1.5" : "px-2.5 py-2")}>
+        <p className="text-xs font-medium text-foreground leading-snug">{payload.data.prompt}</p>
       </div>
 
       {/* Photos Grid */}
-      <div className={cn("grid grid-cols-2", compact ? "p-2 gap-1.5" : "p-3 gap-2")}>
+      <div className={cn("grid grid-cols-2", compact ? "p-1.5 gap-1" : "p-2 gap-1.5")}>
         {/* Sender's Photo */}
-        <div className="aspect-square rounded-xl overflow-hidden relative">
+        <div className="aspect-square rounded-lg overflow-hidden relative">
           {isUnlocked ? (
             <motion.img
               initial={{ filter: "blur(20px)" }}
@@ -82,7 +82,7 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
         </div>
 
         {/* Receiver's Photo / Upload Button */}
-        <div className="aspect-square rounded-xl overflow-hidden relative">
+        <div className="aspect-square rounded-lg overflow-hidden relative">
           {isUnlocked && hasReplied ? (
             <motion.img
               initial={{ filter: "blur(20px)" }}

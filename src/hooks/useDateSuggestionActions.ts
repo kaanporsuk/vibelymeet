@@ -69,8 +69,8 @@ export function useDateSuggestionActions() {
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["date-suggestions"] });
-    qc.invalidateQueries({ queryKey: ["messages"] });
     qc.invalidateQueries({ queryKey: ["matches"] });
+    // Thread rows refresh via callers (scoped threadMessagesQueryKey) and realtime — avoid broad ["messages"] refetch.
   };
 
   return useMutation({

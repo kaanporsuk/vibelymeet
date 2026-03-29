@@ -14,6 +14,7 @@ import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateS
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Calendar, Check, Sparkles, Share2 } from "lucide-react";
+import type { DateCardThreadUi } from "../../../shared/chat/threadPresentation";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
@@ -61,6 +62,8 @@ type Props = {
     counter?: { suggestionId: string; previousRevision: DateSuggestionWithRelations["revisions"][0] };
   }) => void;
   onUpdated: () => void;
+  /** Thread presentation: older terminal rows render quieter. */
+  threadUi?: DateCardThreadUi;
 };
 
 export function DateSuggestionCard({
@@ -70,6 +73,7 @@ export function DateSuggestionCard({
   partnerUserId,
   onOpenComposer,
   onUpdated,
+  threadUi = "normal",
 }: Props) {
   const queryClient = useQueryClient();
   const cancelInFlightRef = useRef(false);
@@ -237,18 +241,26 @@ export function DateSuggestionCard({
       current != null
         ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
         : "";
+    if (threadUi === "quiet_stale") {
+      return (
+        <div className="max-w-[min(92%,252px)] rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] leading-snug text-muted-foreground/70">
+          <span className="font-medium text-muted-foreground/80">{STATUS_LABEL[status] ?? status}</span>
+          {summary ? <span className="text-muted-foreground/60"> · {summary}</span> : null}
+        </div>
+      );
+    }
     return (
-      <div className="max-w-[92%] rounded-xl border border-border/40 bg-muted/10 px-2.5 py-2 text-xs">
+      <div className="max-w-[min(92%,252px)] rounded-xl border border-border/40 bg-muted/10 px-2.5 py-1.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <span className="text-muted-foreground font-medium shrink-0">{STATUS_LABEL[status] ?? status}</span>
           <Button
             type="button"
-            variant="ghost"
+            variant="link"
             size="sm"
-            className="h-7 px-2 text-[11px] shrink-0 text-primary"
+            className="h-auto py-0 px-1 text-[10px] shrink-0 text-primary"
             onClick={() => onOpenComposer({ mode: "new" })}
           >
-            New suggestion
+            New
           </Button>
         </div>
         {summary ? (
@@ -259,8 +271,23 @@ export function DateSuggestionCard({
   }
 
   if (status === "completed") {
+    if (threadUi === "quiet_completed") {
+      const when =
+        current != null
+          ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+          : "";
+      return (
+        <div className="max-w-[min(92%,252px)] rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] text-muted-foreground/70 flex items-center gap-1.5">
+          <Check className="h-3 w-3 text-emerald-600/70 shrink-0" />
+          <span className="truncate">
+            Date marked complete
+            {when ? <span className="text-muted-foreground/55"> · {when}</span> : null}
+          </span>
+        </div>
+      );
+    }
     return (
-      <div className="max-w-[92%] rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-2 text-xs">
+      <div className="max-w-[min(92%,252px)] rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-1.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-muted-foreground min-w-0 text-[12px]">
             <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
@@ -268,9 +295,9 @@ export function DateSuggestionCard({
           </p>
           <Button
             type="button"
-            variant="ghost"
+            variant="link"
             size="sm"
-            className="h-7 px-2 text-[11px] shrink-0 text-primary"
+            className="h-auto py-0 px-1 text-[10px] shrink-0 text-primary"
             onClick={() => onOpenComposer({ mode: "new" })}
           >
             New
@@ -287,22 +314,22 @@ export function DateSuggestionCard({
   return (
     <div
       className={cn(
-        "max-w-[92%] rounded-2xl border px-2.5 py-2.5 text-sm shadow-sm",
+        "max-w-[min(92%,252px)] rounded-xl border px-2.5 py-1.5 text-sm shadow-sm",
         showCelebration
           ? "border-primary/40 bg-gradient-to-br from-primary/15 to-transparent"
           : "border-border/60 bg-card/80 backdrop-blur-sm",
       )}
     >
       {showCelebration && (
-        <div className="flex items-center gap-2 mb-1.5 text-primary">
-          <Sparkles className="h-4 w-4 shrink-0" />
-          <span className="font-semibold">It&apos;s a date!</span>
+        <div className="flex items-center gap-1.5 mb-1 text-primary">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+          <span className="text-sm font-semibold leading-tight">It&apos;s a date!</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Date
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="text-[10px] font-medium text-muted-foreground/90">
+          Date idea
         </span>
         <span
           className={cn(
@@ -319,9 +346,9 @@ export function DateSuggestionCard({
 
       {current && (
         <>
-          <div className="space-y-1">
+          <div className="space-y-0.5 text-[13px] leading-snug">
             <p>
-              <span className="text-muted-foreground">Type:</span>{" "}
+              <span className="text-muted-foreground text-xs">Type</span>{" "}
               {showAgreedChips && agreed?.date_type ? (
                 <span>
                   <AgreedChip /> {labelForDateType(current.date_type_key)}
@@ -331,7 +358,7 @@ export function DateSuggestionCard({
               )}
             </p>
             <p>
-              <span className="text-muted-foreground">When:</span>{" "}
+              <span className="text-muted-foreground text-xs">When</span>{" "}
               {showAgreedChips && agreed?.time ? (
                 <span>
                   <AgreedChip /> {formatWhen(current)}
@@ -347,7 +374,7 @@ export function DateSuggestionCard({
               </p>
             )}
             <p>
-              <span className="text-muted-foreground">Place:</span>{" "}
+              <span className="text-muted-foreground text-xs">Place</span>{" "}
               {showAgreedChips && agreed?.place ? (
                 <span>
                   <AgreedChip /> {placeLine(current)}
@@ -358,7 +385,7 @@ export function DateSuggestionCard({
             </p>
             {optionalNote.length > 0 && (
               <p>
-                <span className="text-muted-foreground">Note:</span>{" "}
+                <span className="text-muted-foreground text-xs">Note</span>{" "}
                 {showAgreedChips && agreed?.optional_message ? (
                   <span>
                     <AgreedChip /> {optionalNote}
@@ -373,7 +400,7 @@ export function DateSuggestionCard({
       )}
 
       {status === "accepted" && plan && (
-        <div className="mt-3 rounded-xl border border-border/50 bg-background/50 p-2 space-y-1">
+        <div className="mt-2 rounded-lg border border-border/50 bg-background/50 p-1.5 space-y-0.5">
           <p className="text-xs font-medium flex items-center gap-1 text-emerald-600">
             <Check className="h-3.5 w-3.5" />
             In your Vibely Calendar

@@ -525,7 +525,7 @@ function OptionRow({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: radius['2xl'],
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
   },
@@ -534,8 +534,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   inner: {
-    padding: spacing.lg,
-    gap: spacing.md,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   titleRow: {
     flexDirection: 'row',
@@ -554,13 +554,12 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   kicker: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    letterSpacing: 0.2,
   },
   title: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     marginTop: 2,
   },
@@ -571,10 +570,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   outcomeBlock: {
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
-    gap: spacing.md,
+    padding: spacing.sm + 2,
+    gap: spacing.sm,
   },
   outcomeTop: {
     flexDirection: 'row',
@@ -597,8 +596,8 @@ const styles = StyleSheet.create({
   outcomePicksRow: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: spacing.md,
-    gap: spacing.md,
+    paddingTop: spacing.sm + 2,
+    gap: spacing.sm,
   },
   outcomePickCol: {
     flex: 1,
@@ -691,11 +690,11 @@ const styles = StyleSheet.create({
   optionRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing.md,
+    gap: spacing.sm,
     width: '100%',
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
+    padding: spacing.sm + 2,
   },
   optionLetter: {
     width: 28,
@@ -714,8 +713,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   optionText: {
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 19,
   },
   badge: {
     alignSelf: 'flex-start',

@@ -439,9 +439,9 @@ function ReceiverPhotoCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: radius['2xl'], borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  card: { borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   accentBar: { height: 3, width: '100%' },
-  inner: { padding: spacing.lg, gap: spacing.md },
+  inner: { padding: spacing.md, gap: spacing.sm },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   iconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   titleTextCol: { flex: 1, minWidth: 0 },
@@ -479,7 +479,7 @@ const styles = StyleSheet.create({
     minHeight: 170,
   },
   photoLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
-  photo: { width: '100%', height: 128, borderRadius: radius.md, marginTop: 2 },
+  photo: { width: '100%', height: 112, borderRadius: radius.md, marginTop: 2 },
   hiddenWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.xs, paddingHorizontal: spacing.xs },
   hiddenText: { fontSize: 12, lineHeight: 17, textAlign: 'center' },
   replyActions: { flexDirection: 'row', gap: spacing.sm },

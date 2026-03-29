@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Play, Volume2, VolumeX, Maximize, AlertCircle, Loader2 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
+import { cn } from "@/lib/utils";
 
 interface VideoMessageBubbleProps {
   videoUrl: string;
@@ -11,6 +12,7 @@ interface VideoMessageBubbleProps {
   onRequestImmersive?: () => void;
   /** Pause inline preview while immersive viewer is open for this URL */
   immersiveActive?: boolean;
+  threadVisualRecede?: boolean;
 }
 
 const formatDuration = (s: number) => {
@@ -25,6 +27,7 @@ export const VideoMessageBubble = ({
   isMine,
   onRequestImmersive,
   immersiveActive,
+  threadVisualRecede = false,
 }: VideoMessageBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -155,10 +158,11 @@ export const VideoMessageBubble = ({
   }, []);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isBuffering = isReady && isLoading && isPlaying;
 
   if (loadError) {
     return (
-      <div className="w-[min(14rem,88vw)] max-w-[220px] rounded-2xl overflow-hidden border border-border/40 bg-gradient-to-b from-secondary/40 to-secondary/20 flex flex-col items-center justify-center py-7 px-4 gap-2 shadow-inner">
+      <div className="w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden border border-fuchsia-500/20 bg-gradient-to-b from-secondary/30 to-black/40 flex flex-col items-center justify-center py-5 px-3 gap-1.5 shadow-inner shadow-black/30">
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Couldn't load video</span>
         <button
@@ -181,7 +185,10 @@ export const VideoMessageBubble = ({
 
   return (
     <div
-      className="w-[min(14rem,88vw)] max-w-[220px] rounded-2xl overflow-hidden relative group cursor-pointer shadow-lg shadow-black/25 ring-1 ring-white/10"
+      className={cn(
+        "w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
+        threadVisualRecede && "opacity-[0.9] ring-white/[0.06] shadow-black/10",
+      )}
       onClick={onSurfaceInteract}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -192,6 +199,11 @@ export const VideoMessageBubble = ({
       role={onRequestImmersive ? "button" : undefined}
       tabIndex={onRequestImmersive ? 0 : undefined}
     >
+      <div className="flex items-center gap-1 px-2 pt-1.5 pb-0.5">
+        <span className="inline-flex items-center rounded-full border border-white/[0.1] bg-white/[0.04] px-1.5 py-px">
+          <span className="text-[8px] font-bold uppercase tracking-[0.14em] text-white/55">Video</span>
+        </span>
+      </div>
       <AspectRatio ratio={9 / 16}>
         {/* Premium loading placeholder */}
         {!isReady && (
@@ -210,9 +222,9 @@ export const VideoMessageBubble = ({
             />
 
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="flex items-center gap-2 rounded-full bg-black/45 px-3 py-1.5 backdrop-blur-md border border-white/10">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-white/85" />
-                <span className="text-[11px] text-white/85 font-medium">Loading…</span>
+              <div className="flex items-center gap-2 rounded-full bg-black/55 px-3.5 py-2 backdrop-blur-md border border-fuchsia-500/15 shadow-[0_0_24px_rgba(168,85,247,0.12)]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-fuchsia-300/90" />
+                <span className="text-[11px] text-white/88 font-medium tracking-tight">Preparing…</span>
               </div>
             </div>
 
@@ -253,46 +265,60 @@ export const VideoMessageBubble = ({
           ].join(" ")}
         />
 
+        {isBuffering ? (
+          <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center bg-black/25">
+            <div className="flex items-center gap-2 rounded-full border border-white/12 bg-black/55 px-3 py-1.5 backdrop-blur-sm">
+              <Loader2 className="h-3 w-3 animate-spin text-fuchsia-300/90" />
+              <span className="text-[10px] font-medium text-white/85">Buffering…</span>
+            </div>
+          </div>
+        ) : null}
+
         {/* Play overlay */}
         {!isPlaying && isReady && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 flex items-center justify-center bg-black/35"
+            className="absolute inset-0 flex items-center justify-center bg-black/40"
           >
-            <div className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
-              <Play className="w-7 h-7 text-white ml-1" fill="white" />
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-white/20 to-white/5 backdrop-blur-md border border-white/25 flex items-center justify-center shadow-lg shadow-fuchsia-500/10 ring-1 ring-fuchsia-400/20">
+              <Play className="w-5 h-5 text-white ml-0.5 drop-shadow-md" fill="white" />
             </div>
           </motion.div>
         )}
 
         {/* Bottom controls */}
-        <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-          {/* Progress bar */}
-          <div className="w-full h-1 rounded-full bg-white/30 mb-2">
+        <div className="absolute bottom-0 inset-x-0 px-2 pt-2 pb-1.5 bg-gradient-to-t from-black/70 via-black/35 to-transparent">
+          <div className="w-full h-1 rounded-full bg-white/15 overflow-hidden mb-1.5 ring-1 ring-white/[0.06]">
             <div
-              className="h-full rounded-full bg-white transition-all"
+              className="h-full rounded-full bg-gradient-to-r from-fuchsia-400 via-violet-400 to-pink-400 transition-[width] duration-150 ease-out shadow-[0_0_12px_rgba(232,121,249,0.35)]"
               style={{ width: `${progress}%` }}
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-white/80 font-mono">
-              {isPlaying ? formatDuration(Math.round(currentTime)) : formatDuration(duration)}
+          <div className="flex items-center justify-between gap-1">
+            <span className="text-[9px] text-white/80 font-mono tabular-nums font-medium">
+              {isPlaying && duration > 0
+                ? `${formatDuration(Math.round(currentTime))} · ${formatDuration(duration)}`
+                : formatDuration(duration)}
             </span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-0.5">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   toggleMute(e);
                 }}
-                className="text-white/80 hover:text-white"
+                className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
               >
-                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
               </button>
-              <button type="button" onClick={handleFullscreen} className="text-white/80 hover:text-white">
-                <Maximize className="w-3.5 h-3.5" />
+              <button
+                type="button"
+                onClick={handleFullscreen}
+                className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <Maximize className="w-3 h-3" />
               </button>
             </div>
           </div>
