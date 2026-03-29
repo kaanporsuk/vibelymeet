@@ -173,7 +173,7 @@ function VibeClipMessageRow({
       className={cn(
         "flex items-end gap-2",
         isMine ? "justify-end" : "justify-start",
-        message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
+        message.isFirstInGroup ? "mt-1.5" : "mt-0.5"
       )}
     >
       {!isMine && (
@@ -1215,7 +1215,7 @@ const Chat = () => {
           mainScrollRef.current = el;
         }}
         onScroll={onMainScroll}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 min-h-0"
+        className="flex-1 overflow-y-auto px-2 sm:px-3 py-1.5 space-y-0 min-h-0"
       >
         {isLoadingChat ? (
           <div className="min-h-[min(100%,28rem)] flex flex-col">
@@ -1260,13 +1260,13 @@ const Chat = () => {
             </button>
           </motion.div>
         ) : (
-          <>
+          <div className="w-full max-w-lg mx-auto space-y-0">
             {rowsWithLayout.map(({ row, isFirstInGroup, isLastInGroup, showAvatar }) => {
               if (row.type === "pending_games_summary") {
                 return (
                   <div
                     key={row.clusterKey}
-                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-2.5" : "mt-0.5")}
+                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-1.5" : "mt-0.5")}
                   >
                     <button
                       type="button"
@@ -1303,7 +1303,7 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
                   )}
                 >
                   <div className="max-w-[min(92%,252px)] w-full">
@@ -1330,7 +1330,7 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
                   )}
                 >
                   <div
@@ -1385,7 +1385,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1432,7 +1432,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1442,7 +1442,7 @@ const Chat = () => {
                       )}
                     </div>
                   )}
-                  <div className="max-w-[75%]">
+                  <div className="max-w-[min(85%,18rem)]">
                     <button
                       type="button"
                       className="group relative block w-52 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -1497,7 +1497,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-2.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1509,7 +1509,7 @@ const Chat = () => {
                   )}
                   <div
                     className={cn(
-                      "max-w-[75%] rounded-2xl px-2.5 py-1.5",
+                      "max-w-[min(85%,18rem)] rounded-2xl px-2.5 py-1.5",
                       groupedMessage.sender === "me"
                         ? "bg-gradient-primary text-primary-foreground"
                         : "glass-card border border-border/30 text-foreground",
@@ -1551,7 +1551,7 @@ const Chat = () => {
                 </motion.div>
               )}
             </AnimatePresence>
-          </>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </main>

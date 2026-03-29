@@ -512,8 +512,15 @@ function ChatVideoCardBody({
   );
 }
 
+function normalizeRouteUserId(raw: string | string[] | undefined): string | undefined {
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+  if (Array.isArray(raw) && typeof raw[0] === 'string' && raw[0].trim()) return raw[0].trim();
+  return undefined;
+}
+
 export default function ChatThreadScreen() {
-  const { id: otherUserId } = useLocalSearchParams<{ id: string }>();
+  const { id: routeChatId } = useLocalSearchParams<{ id: string | string[] }>();
+  const otherUserId = normalizeRouteUserId(routeChatId);
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -1700,16 +1707,29 @@ export default function ChatThreadScreen() {
       );
     }
 
-    if (msg.messageKind === 'vibe_game_session' && msg.gameSessionView && threadInvalidateScope) {
+    if (msg.messageKind === 'vibe_game_session' && msg.gameSessionView) {
+      if (!user?.id || !otherUserId) {
+        return (
+          <View style={{ marginBottom: spacing.md, width: '100%' }}>
+            <Text style={{ color: theme.textSecondary, fontSize: 13, paddingVertical: 8 }}>Loading game…</Text>
+          </View>
+        );
+      }
+      const gameInvalidateScope: ThreadInvalidateScope =
+        threadInvalidateScope ?? {
+          otherUserId,
+          currentUserId: user.id,
+          matchId: data?.matchId ?? null,
+        };
       return (
         <View style={{ marginBottom: spacing.md, width: '100%' }}>
           <GameSessionBubble
             view={msg.gameSessionView}
             matchId={data?.matchId ?? ''}
-            currentUserId={user?.id ?? ''}
+            currentUserId={user.id}
             partnerName={otherName ?? 'Them'}
             timeLabel={msg.time}
-            invalidateScope={threadInvalidateScope}
+            invalidateScope={gameInvalidateScope}
           />
         </View>
       );
