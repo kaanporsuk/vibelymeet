@@ -409,6 +409,8 @@ export type Database = {
           ends_at: string | null
           id: string
           match_id: string
+          reminder_push_30m_sent_at: string | null
+          reminder_push_5m_sent_at: string | null
           starts_at: string | null
           status: string
           venue_label: string | null
@@ -425,6 +427,8 @@ export type Database = {
           ends_at?: string | null
           id?: string
           match_id: string
+          reminder_push_30m_sent_at?: string | null
+          reminder_push_5m_sent_at?: string | null
           starts_at?: string | null
           status?: string
           venue_label?: string | null
@@ -441,6 +445,8 @@ export type Database = {
           ends_at?: string | null
           id?: string
           match_id?: string
+          reminder_push_30m_sent_at?: string | null
+          reminder_push_5m_sent_at?: string | null
           starts_at?: string | null
           status?: string
           venue_label?: string | null
@@ -2415,6 +2421,7 @@ export type Database = {
           extended_vibe_credits: number
           extra_time_credits: number
           id: string
+          last_replenished_at: string | null
           updated_at: string
           user_id: string
         }
@@ -2423,6 +2430,7 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
+          last_replenished_at?: string | null
           updated_at?: string
           user_id: string
         }
@@ -2431,6 +2439,7 @@ export type Database = {
           extended_vibe_credits?: number
           extra_time_credits?: number
           id?: string
+          last_replenished_at?: string | null
           updated_at?: string
           user_id?: string
         }

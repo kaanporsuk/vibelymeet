@@ -19,6 +19,7 @@ import {
   Moon,
   Layers,
   AlertTriangle,
+  AlarmClock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -308,6 +309,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
           <div className="space-y-2">
             <ToggleRow icon={Calendar} label="Event Going Live" description="When an event you joined starts" prefKey="notify_event_live" iconColor="text-orange-500" />
             <ToggleRow icon={Clock} label="Event Reminders" description="Reminders before your events" prefKey="notify_event_reminder" iconColor="text-amber-500" />
+            <ToggleRow icon={AlarmClock} label="Date Reminders" description="Alerts before your video dates" prefKey="notify_date_reminder" iconColor="text-cyan-500" />
           </div>
 
           <SectionHeader label="Discovery" />

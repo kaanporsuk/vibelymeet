@@ -98,6 +98,13 @@ const NOTIFICATION_SECTIONS = [
         desc: 'Reminders before your events',
         color: '#F97316',
       },
+      {
+        key: 'notify_date_reminder',
+        icon: 'alarm-outline' as const,
+        label: 'Date Reminders',
+        desc: 'Alerts before your video dates',
+        color: '#06B6D4',
+      },
     ],
   },
   {
