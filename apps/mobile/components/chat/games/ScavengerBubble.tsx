@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,6 +12,8 @@ import { buildScavengerPhotoParams, formatSendGameEventError, useSendScavengerCh
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -20,8 +22,16 @@ type Props = {
   timeLabel: string;
 };
 
-type BubblePhase = 'complete' | 'submitting' | 'actionable' | 'waiting_partner' | 'invalid_context' | 'ambiguous';
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, 'complete' | 'submitting'>;
+type BubblePhase =
+  | 'complete'
+  | 'submitting'
+  | 'actionable'
+  | 'waiting_partner'
+  | 'invalid_context'
+  | 'ambiguous'
+  | 'expired';
+
+type StatusStripPhase = 'invalid_context' | 'ambiguous';
 
 function derivePhase(
   snap: ScavengerSnapshot,
@@ -30,18 +40,16 @@ function derivePhase(
   actionable: boolean,
   canBuild: boolean,
   canActNext: boolean,
-  isStarter: boolean
+  isStarter: boolean,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) return 'complete';
   if (isPending) return 'submitting';
   if (actionable) return 'actionable';
   if (canActNext && !canBuild) return 'invalid_context';
   if (isStarter && snap.receiver_photo_url == null) return 'waiting_partner';
   return 'ambiguous';
-}
-
-function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete' && phase !== 'submitting';
 }
 
 export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
@@ -71,13 +79,28 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
 
   if (!scavengerSnap) return null;
 
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    scavengerSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
   const isStarter = view.starterUserId === currentUserId;
   const complete = scavengerSnap.status === 'complete';
 
   const canBuild = selectedPhotoUrl ? buildScavengerPhotoParams(view, matchId, selectedPhotoUrl) != null : false;
-  const actionable = !complete && view.canCurrentUserActNext;
+  const actionable = !complete && !isExpired && view.canCurrentUserActNext;
   const canSubmit = actionable && canBuild && !isPending && !uploading;
-  const phase = derivePhase(scavengerSnap, complete, isPending || uploading, actionable, canBuild, view.canCurrentUserActNext, isStarter);
+  const phase = derivePhase(
+    scavengerSnap,
+    complete,
+    isPending || uploading,
+    actionable,
+    canBuild,
+    view.canCurrentUserActNext,
+    isStarter,
+    isExpired
+  );
 
   const pickAndUpload = async (fromCamera: boolean) => {
     if (isPending || uploading || !actionable) return;
@@ -87,10 +110,11 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
           showDialog({
-            title: 'Camera access',
-            message: 'Allow camera access so you can snap your reply.',
+            title: 'Camera Access Required',
+            message: 'Allow camera access in your Settings to take photos for this challenge.',
             variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
+            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+            secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
           return;
         }
@@ -98,10 +122,11 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
           showDialog({
-            title: 'Photos access',
-            message: 'Allow photo library access to pick your reply.',
+            title: 'Photo Access Required',
+            message: 'Allow photo library access in your Settings to pick photos for this challenge.',
             variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
+            primaryAction: { label: 'Open Settings', onPress: () => void Linking.openSettings() },
+            secondaryAction: { label: 'Not Now', onPress: () => {} },
           });
           return;
         }
@@ -136,116 +161,128 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
     }
   };
 
+  const senderUri = scavengerSnap.sender_photo_url?.trim() ? scavengerSnap.sender_photo_url : null;
+  const receiverFinalUri =
+    complete && scavengerSnap.receiver_photo_url?.trim() ? scavengerSnap.receiver_photo_url : null;
+  const receiverDraftUri = !complete && selectedPhotoUrl ? selectedPhotoUrl : null;
+  const receiverDisplayUri = receiverFinalUri ?? receiverDraftUri;
+
   return (
     <>
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
-      <LinearGradient colors={['#22c55e', '#14b8a6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.accentBar} />
-      <View style={styles.inner}>
-        <View style={styles.titleRow}>
-          <View style={[styles.iconWrap, { backgroundColor: 'rgba(34,197,94,0.2)' }]}>
-            <Ionicons name="camera-outline" size={20} color={theme.success} />
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)', opacity: isExpired ? 0.5 : 1 }]}>
+        <LinearGradient colors={['#22c55e', '#14b8a6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.accentBar} />
+        <View style={styles.inner}>
+          <View style={styles.titleRow}>
+            <View style={[styles.iconWrap, { backgroundColor: 'rgba(34,197,94,0.2)' }]}>
+              <Ionicons name="camera-outline" size={20} color={theme.success} />
+            </View>
+            <View style={styles.titleTextCol}>
+              <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Scavenger Hunt</Text>
+            </View>
           </View>
-          <View style={styles.titleTextCol}>
-            <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Scavenger</Text>
+
+          {phase === 'expired' ? null : phase === 'complete' ? null : phase === 'waiting_partner' ? (
+            <Text style={[styles.singleStatus, { color: theme.textSecondary }]}>Waiting for their reply</Text>
+          ) : phase === 'invalid_context' || phase === 'ambiguous' ? (
+            <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
+          ) : null}
+
+          <View style={[styles.promptCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+            <Text style={[styles.promptLabel, { color: theme.textSecondary }]}>Prompt</Text>
+            <Text style={[styles.promptText, { color: theme.text }]}>{scavengerSnap.prompt}</Text>
           </View>
-        </View>
 
-        {phase === 'complete' ? (
-          <CompleteBlock theme={theme} partnerName={partnerName} isStarter={isStarter} />
-        ) : isNonCompleteNonSubmittingPhase(phase) ? (
-          <StatusStrip phase={phase} partnerName={partnerName} theme={theme} />
-        ) : null}
+          <View style={styles.photoGrid}>
+            <PhotoCard
+              theme={theme}
+              title={isStarter ? 'Your photo' : `${partnerName}'s photo`}
+              uri={senderUri}
+              emptyPlaceholder="No challenge photo"
+            />
+            <ReceiverPhotoCard
+              theme={theme}
+              title={isStarter ? `${partnerName}'s photo` : 'Your photo'}
+              isStarter={isStarter}
+              complete={complete}
+              isExpired={isExpired}
+              actionable={actionable}
+              displayUri={receiverDisplayUri}
+              partnerName={partnerName}
+            />
+          </View>
 
-        <View style={[styles.promptCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-          <Text style={[styles.promptLabel, { color: theme.textSecondary }]}>Prompt</Text>
-          <Text style={[styles.promptText, { color: theme.text }]}>{scavengerSnap.prompt}</Text>
-        </View>
+          {phase === 'actionable' ? (
+            <>
+              <View style={styles.replyActions}>
+                <Pressable
+                  onPress={() => void pickAndUpload(true)}
+                  disabled={isPending || uploading}
+                  style={[styles.actionBtn, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                >
+                  <Ionicons name="camera-outline" size={16} color={theme.neonCyan} />
+                  <Text style={[styles.actionText, { color: theme.text }]}>Take photo</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void pickAndUpload(false)}
+                  disabled={isPending || uploading}
+                  style={[styles.actionBtn, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+                >
+                  <Ionicons name="images-outline" size={16} color={theme.neonCyan} />
+                  <Text style={[styles.actionText, { color: theme.text }]}>Choose photo</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
 
-        <View style={styles.photoGrid}>
-          <PhotoCard
-            theme={theme}
-            title={isStarter ? 'Your photo' : `${partnerName}'s photo`}
-            uri={scavengerSnap.sender_photo_url}
-            hidden={!complete}
-            placeholder={isStarter ? 'Waiting to unlock both photos' : 'Unlock by replying with your photo'}
-          />
-          <PhotoCard
-            theme={theme}
-            title={isStarter ? `${partnerName}'s photo` : 'Your photo'}
-            uri={complete ? (scavengerSnap.receiver_photo_url ?? null) : selectedPhotoUrl}
-            hidden={!complete && !selectedPhotoUrl}
-            placeholder={
-              isStarter
-                ? `Waiting on ${partnerName} to reply`
-                : selectedPhotoUrl
-                  ? 'Ready to submit'
-                  : 'Choose or take a photo to reply'
-            }
-          />
-        </View>
-
-        {phase === 'actionable' ? (
-          <View style={styles.replyActions}>
+          {phase === 'actionable' ? (
             <Pressable
-              onPress={() => void pickAndUpload(true)}
-              disabled={isPending || uploading}
-              style={[styles.actionBtn, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+              onPress={() => void handleSubmit()}
+              disabled={!canSubmit}
+              style={({ pressed }) => [
+                styles.submitBtn,
+                {
+                  backgroundColor: theme.tint,
+                  opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1,
+                },
+              ]}
             >
-              <Ionicons name="camera-outline" size={16} color={theme.neonCyan} />
-              <Text style={[styles.actionText, { color: theme.text }]}>Take photo</Text>
+              {isPending || uploading ? (
+                <ActivityIndicator color={theme.primaryForeground} />
+              ) : (
+                <Text style={[styles.submitBtnText, { color: theme.primaryForeground }]}>Submit photo reply</Text>
+              )}
             </Pressable>
-            <Pressable
-              onPress={() => void pickAndUpload(false)}
-              disabled={isPending || uploading}
-              style={[styles.actionBtn, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
-            >
-              <Ionicons name="images-outline" size={16} color={theme.neonCyan} />
-              <Text style={[styles.actionText, { color: theme.text }]}>Choose photo</Text>
-            </Pressable>
-          </View>
-        ) : null}
+          ) : null}
 
-        {phase === 'actionable' ? (
-          <Pressable
-            onPress={() => void handleSubmit()}
-            disabled={!canSubmit}
-            style={({ pressed }) => [
-              styles.submitBtn,
-              {
-                backgroundColor: theme.tint,
-                opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1,
-              },
-            ]}
-          >
-            {isPending || uploading ? (
-              <ActivityIndicator color={theme.primaryForeground} />
-            ) : (
-              <Text style={[styles.submitBtnText, { color: theme.primaryForeground }]}>Submit photo reply</Text>
-            )}
-          </Pressable>
-        ) : null}
+          {phase === 'submitting' ? (
+            <View style={[styles.submittingRow, { backgroundColor: theme.secondary }]}>
+              <ActivityIndicator size="small" color={theme.success} />
+              <Text style={[styles.submittingText, { color: theme.text }]}>
+                {uploading ? 'Uploading your photo…' : 'Saving your reply…'}
+              </Text>
+            </View>
+          ) : null}
 
-        {phase === 'submitting' ? (
-          <View style={[styles.submittingRow, { backgroundColor: theme.secondary }]}>
-            <ActivityIndicator size="small" color={theme.success} />
-            <Text style={[styles.submittingText, { color: theme.text }]}>
-              {uploading ? 'Uploading your photo…' : 'Saving your reply…'}
-            </Text>
-          </View>
-        ) : null}
+          {phase === 'expired' ? (
+            <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
+          ) : null}
 
-        {submitError ? (
-          <View style={[styles.errorBanner, { borderColor: theme.dangerSoft, backgroundColor: theme.dangerSoft }]}>
-            <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
-            <Text style={[styles.errorText, { color: theme.text }]}>{submitError}</Text>
-          </View>
-        ) : null}
+          {complete ? (
+            <Text style={[styles.completeStatus, { color: theme.textSecondary }]}>Challenge completed</Text>
+          ) : null}
 
-        <Text style={[styles.time, { color: theme.textSecondary }]}>{timeLabel}</Text>
+          {submitError ? (
+            <View style={[styles.errorBanner, { borderColor: theme.dangerSoft, backgroundColor: theme.dangerSoft }]}>
+              <Ionicons name="alert-circle-outline" size={18} color={theme.danger} />
+              <Text style={[styles.errorText, { color: theme.text }]}>{submitError}</Text>
+            </View>
+          ) : null}
+
+          <Text style={[styles.time, { color: theme.textSecondary }]}>{timeLabel}</Text>
+        </View>
       </View>
-    </View>
-    {dialogEl}
+      {dialogEl}
     </>
   );
 }
@@ -255,28 +292,14 @@ function StatusStrip({
   partnerName,
   theme,
 }: {
-  phase: NonCompleteNonSubmittingPhase;
+  phase: StatusStripPhase;
   partnerName: string;
   theme: (typeof Colors)['light'];
 }) {
   const cfg: Record<
-    NonCompleteNonSubmittingPhase,
+    StatusStripPhase,
     { icon: ComponentProps<typeof Ionicons>['name']; title: string; detail: string; bg: string; iconColor: string }
   > = {
-    actionable: {
-      icon: 'camera-outline',
-      title: 'Your turn to reply',
-      detail: 'Upload a photo to unlock both shots.',
-      bg: 'rgba(34,197,94,0.12)',
-      iconColor: theme.success,
-    },
-    waiting_partner: {
-      icon: 'hourglass-outline',
-      title: `Waiting on ${partnerName}`,
-      detail: 'Your challenge is live. Waiting for their photo reply.',
-      bg: 'rgba(34,197,94,0.12)',
-      iconColor: theme.success,
-    },
     invalid_context: {
       icon: 'warning-outline',
       title: 'Something is off',
@@ -308,49 +331,102 @@ function PhotoCard({
   theme,
   title,
   uri,
-  hidden,
-  placeholder,
+  emptyPlaceholder,
 }: {
   theme: (typeof Colors)['light'];
   title: string;
   uri: string | null;
-  hidden: boolean;
-  placeholder: string;
+  emptyPlaceholder: string;
 }) {
   return (
     <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
       <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
-      {hidden ? (
-        <View style={styles.hiddenWrap}>
-          <Ionicons name="lock-closed-outline" size={16} color={theme.textSecondary} />
-          <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>{placeholder}</Text>
-        </View>
-      ) : uri ? (
+      {uri ? (
         <Image source={{ uri }} style={styles.photo} />
       ) : (
-        <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>{placeholder}</Text>
+        <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>{emptyPlaceholder}</Text>
       )}
     </View>
   );
 }
 
-function CompleteBlock({
+function ReceiverPhotoCard({
   theme,
-  partnerName,
+  title,
   isStarter,
+  complete,
+  isExpired,
+  actionable,
+  displayUri,
+  partnerName,
 }: {
   theme: (typeof Colors)['light'];
-  partnerName: string;
+  title: string;
   isStarter: boolean;
+  complete: boolean;
+  isExpired: boolean;
+  actionable: boolean;
+  displayUri: string | null;
+  partnerName: string;
 }) {
+  if (complete && displayUri) {
+    return (
+      <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+        <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+        <Image source={{ uri: displayUri }} style={styles.photo} />
+      </View>
+    );
+  }
+
+  if (complete && !displayUri) {
+    return (
+      <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+        <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+        <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>No reply photo</Text>
+      </View>
+    );
+  }
+
+  if (isStarter) {
+    return (
+      <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+        <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+        <View style={styles.hiddenWrap}>
+          <Ionicons name="lock-closed-outline" size={16} color={theme.textSecondary} />
+          <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>
+            {isExpired ? '—' : `Waiting on ${partnerName}`}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (actionable && !isExpired) {
+    if (displayUri) {
+      return (
+        <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+          <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+          <Image source={{ uri: displayUri }} style={styles.photo} />
+        </View>
+      );
+    }
+    return (
+      <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+        <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+        <View style={styles.hiddenWrap}>
+          <Ionicons name="camera-outline" size={16} color={theme.textSecondary} />
+          <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>Reply with your photo</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.completeBlock, { borderColor: 'rgba(34,197,94,0.45)', backgroundColor: 'rgba(34,197,94,0.1)' }]}>
-      <Ionicons name="checkmark-circle" size={22} color={theme.success} />
-      <View style={styles.statusTextWrap}>
-        <Text style={[styles.statusTitle, { color: theme.text }]}>Both photos unlocked</Text>
-        <Text style={[styles.statusDetail, { color: theme.textSecondary }]}>
-          {isStarter ? `${partnerName} replied to your challenge.` : 'Your reply unlocked both photos.'}
-        </Text>
+    <View style={[styles.photoCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+      <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>{title}</Text>
+      <View style={styles.hiddenWrap}>
+        <Ionicons name="help-circle-outline" size={16} color={theme.textSecondary} />
+        <Text style={[styles.hiddenText, { color: theme.textSecondary }]}>—</Text>
       </View>
     </View>
   );
@@ -365,6 +441,9 @@ const styles = StyleSheet.create({
   titleTextCol: { flex: 1, minWidth: 0 },
   kicker: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, textTransform: 'uppercase' },
   title: { fontSize: 18, fontWeight: '700', marginTop: 2 },
+  singleStatus: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  completeStatus: { fontSize: 13, lineHeight: 18, textAlign: 'center' },
+  expiredStatus: { fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: spacing.xs },
   statusStrip: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -426,14 +505,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   submittingText: { fontSize: 14, fontWeight: '600' },
-  completeBlock: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
-  },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',

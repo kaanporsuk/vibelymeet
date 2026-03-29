@@ -67,7 +67,7 @@ const IN_CHAT_GAMES: readonly GameRowDef[] = [
   },
   {
     id: 'scavenger',
-    title: 'Scavenger',
+    title: 'Scavenger Hunt',
     description: 'Find something fun around you',
     icon: 'compass-outline',
     accent: 'cyan',
