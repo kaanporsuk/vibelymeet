@@ -405,6 +405,7 @@ function ChatVideoCardBody({
         return;
       }
       if (payload.status === 'readyToPlay') {
+        setHasError(false);
         setIsReady(true);
       }
     });
@@ -414,37 +415,6 @@ function ChatVideoCardBody({
   useEffect(() => {
     if (immersiveActive) safeVideoPlayerCall(() => player.pause());
   }, [immersiveActive, player]);
-
-  if (hasError) {
-    return (
-      <View
-        style={[
-          styles.chatVideoCard,
-          styles.chatVideoError,
-          { borderColor: 'rgba(192,132,252,0.35)', backgroundColor: 'rgba(17,17,24,0.95)' },
-        ]}
-      >
-        <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.85)" />
-        <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
-          Couldn&apos;t load video
-        </Text>
-        <Pressable
-          onPress={onRemountPlayer}
-          style={({ pressed }) => [
-            { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
-            {
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: 'rgba(192,132,252,0.4)',
-              backgroundColor: 'rgba(139,92,246,0.12)',
-            },
-            pressed && { opacity: 0.85 },
-          ]}
-        >
-          <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(216,180,254,0.95)' }}>Try again</Text>
-        </Pressable>
-      </View>
-    );
-  }
 
   const durLabel =
     durationSec != null && durationSec > 0
@@ -470,19 +440,46 @@ function ChatVideoCardBody({
         </View>
       </View>
       <View style={styles.chatVideoInner}>
-        <VideoView style={StyleSheet.absoluteFillObject} player={player} nativeControls contentFit="cover" />
+        <VideoView
+          style={[StyleSheet.absoluteFillObject, hasError ? { opacity: 0 } : null]}
+          player={player}
+          nativeControls
+          contentFit="cover"
+        />
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.6)']}
           style={styles.chatVideoBottomGradient}
           pointerEvents="none"
         />
       </View>
-      {!isReady ? (
+      {!isReady && !hasError ? (
         <View style={styles.chatVideoFallback}>
           <View style={styles.chatVideoFallbackInner}>
             <ActivityIndicator color="rgba(216,180,254,0.95)" size="small" />
             <Text style={styles.chatVideoFallbackLabel}>Preparing playback…</Text>
           </View>
+        </View>
+      ) : null}
+      {hasError ? (
+        <View style={[styles.chatVideoFallback, styles.chatVideoErrorOverlay]} pointerEvents="box-none">
+          <Ionicons name="videocam-off-outline" size={28} color="rgba(196,181,253,0.85)" />
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' }}>
+            Couldn&apos;t load video
+          </Text>
+          <Pressable
+            onPress={onRemountPlayer}
+            style={({ pressed }) => [
+              { marginTop: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+              {
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: 'rgba(192,132,252,0.4)',
+                backgroundColor: 'rgba(139,92,246,0.12)',
+              },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(216,180,254,0.95)' }}>Try again</Text>
+          </Pressable>
         </View>
       ) : null}
       {onRequestImmersive ? (
@@ -2755,6 +2752,12 @@ const styles = StyleSheet.create({
   },
   chatVideoCard: { width: '100%', aspectRatio: 16 / 9 },
   chatVideoError: { alignItems: 'center', justifyContent: 'center' },
+  chatVideoErrorOverlay: {
+    zIndex: 12,
+    backgroundColor: 'rgba(17,17,24,0.96)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(192,132,252,0.35)',
+  },
   chatVideoFallback: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
