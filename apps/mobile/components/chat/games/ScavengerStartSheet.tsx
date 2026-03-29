@@ -8,7 +8,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomScavengerPrompt } from '@/lib/scavengerPrompts';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
-import { formatSendGameEventError, newVibeGameSessionId, useStartScavengerGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartScavengerGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
 type Props = {
@@ -16,9 +21,10 @@ type Props = {
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartScavengerGame();
@@ -101,6 +107,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
         gameSessionId: newVibeGameSessionId(),
         prompt: prompt.trim(),
         senderPhotoUrl,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

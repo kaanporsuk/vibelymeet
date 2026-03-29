@@ -9,15 +9,23 @@ interface VoiceMessageBubbleProps {
   isMine: boolean;
 }
 
-const generateWaveformData = (length: number = 30): number[] => {
-  const data: number[] = [];
-  for (let i = 0; i < length; i++) {
-    const base = 0.2 + Math.random() * 0.5;
-    const variation = Math.sin(i * 0.4) * 0.15;
-    data.push(Math.min(1, Math.max(0.1, base + variation)));
+/** Stable pseudo-waveform per message (no random remount flicker). */
+function waveformHeightsFromSeed(seed: string, length: number): number[] {
+  let h = 2166136261;
+  for (let c = 0; c < seed.length; c++) {
+    h ^= seed.charCodeAt(c);
+    h = Math.imul(h, 16777619);
   }
-  return data;
-};
+  const out: number[] = [];
+  for (let i = 0; i < length; i++) {
+    h ^= i * 2654435761;
+    h = Math.imul(h, 1597334677);
+    const t = (h >>> 0) / 4294967296;
+    const wave = 0.42 + 0.38 * Math.sin(i * 0.35 + t * 6.28) + 0.12 * Math.sin(i * 0.71 + t * 3.14);
+    out.push(Math.min(1, Math.max(0.12, wave)));
+  }
+  return out;
+}
 
 export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine }: VoiceMessageBubbleProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -27,7 +35,10 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const waveformData = useMemo(() => generateWaveformData(30), []);
+  const waveformData = useMemo(
+    () => waveformHeightsFromSeed(`${audioUrl ?? ""}|${initialDuration}`, 28),
+    [audioUrl, initialDuration],
+  );
 
   const totalDuration = (() => {
     const resolved = Number.isFinite(resolvedDuration) && resolvedDuration > 0 ? resolvedDuration : 0;
@@ -148,49 +159,66 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   })();
 
   return (
-    <div className="flex items-center gap-2.5 min-w-[160px]">
+    <div className="flex items-center gap-2 min-w-[148px]">
       {/* Play/Pause button */}
       <motion.button
-        whileTap={{ scale: 0.9 }}
+        whileTap={{ scale: 0.94 }}
         onClick={hasError ? retry : togglePlay}
         className={cn(
-          "w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
-          isMine ? "bg-primary-foreground/20 hover:bg-primary-foreground/30" : "bg-primary/15 hover:bg-primary/25"
+          "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ring-1",
+          isMine
+            ? "bg-primary-foreground/18 hover:bg-primary-foreground/28 ring-primary-foreground/15"
+            : "bg-primary/12 hover:bg-primary/22 ring-primary/20"
         )}
       >
         {isLoading ? (
-          <Loader2 className={cn("w-4 h-4 animate-spin", isMine ? "text-primary-foreground" : "text-primary")} />
+          <Loader2 className={cn("w-3.5 h-3.5 animate-spin", isMine ? "text-primary-foreground" : "text-primary")} />
         ) : hasError ? (
-          <AlertCircle className="w-4 h-4 text-destructive" />
+          <AlertCircle className="w-3.5 h-3.5 text-destructive" />
         ) : isPlaying ? (
-          <Pause className={cn("w-4 h-4", isMine ? "text-primary-foreground" : "text-foreground")} />
+          <Pause className={cn("w-3.5 h-3.5", isMine ? "text-primary-foreground" : "text-foreground")} />
         ) : (
-          <Play className={cn("w-4 h-4 ml-0.5", isMine ? "text-primary-foreground" : "text-foreground")} />
+          <Play className={cn("w-3.5 h-3.5 ml-0.5", isMine ? "text-primary-foreground" : "text-foreground")} />
         )}
       </motion.button>
 
       {/* Waveform + time */}
-      <div className="flex-1 min-w-0 space-y-1">
-        {/* Waveform bars */}
-        <div className="flex items-center gap-[2px] h-6">
+      <div className="flex-1 min-w-0 space-y-0.5">
+        <div
+          className={cn(
+            "flex items-center gap-px h-5 rounded-full px-1",
+            isMine ? "bg-primary-foreground/10" : "bg-muted/45",
+          )}
+          role="img"
+          aria-label="Voice level"
+        >
           {waveformData.map((height, i) => {
-            const barPct = (i / waveformData.length) * 100;
+            const barPct = (i / Math.max(1, waveformData.length - 1)) * 100;
             const isPlayed = barPct <= progress;
             return (
               <div
                 key={i}
                 className={cn(
-                  "w-[2.5px] rounded-full transition-colors duration-100",
+                  "w-[2px] rounded-full transition-colors duration-150",
                   isMine
-                    ? isPlayed ? "bg-primary-foreground" : "bg-primary-foreground/35"
-                    : isPlayed ? "bg-primary" : "bg-muted-foreground/25"
+                    ? isPlayed
+                      ? "bg-primary-foreground shadow-[0_0_6px_rgba(255,255,255,0.25)]"
+                      : "bg-primary-foreground/30"
+                    : isPlayed
+                      ? "bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.35)]"
+                      : "bg-muted-foreground/20",
                 )}
                 style={{ height: `${height * 100}%` }}
               />
             );
           })}
         </div>
-        <span className={cn("text-[10px] font-mono", isMine ? "text-primary-foreground/70" : "text-muted-foreground")}>
+        <span
+          className={cn(
+            "text-[10px] font-mono tabular-nums tracking-tight",
+            isMine ? "text-primary-foreground/75" : "text-muted-foreground",
+          )}
+        >
           {displayTime}
         </span>
       </div>

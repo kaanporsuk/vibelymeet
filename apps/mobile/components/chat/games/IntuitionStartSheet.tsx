@@ -6,16 +6,22 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomIntuitionOptions } from '@/lib/intuitionPrompts';
-import { formatSendGameEventError, newVibeGameSessionId, useStartIntuitionGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartIntuitionGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function IntuitionStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function IntuitionStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartIntuitionGame();
@@ -55,6 +61,7 @@ export function IntuitionStartSheet({ visible, onClose, matchId, partnerName }: 
         gameSessionId: newVibeGameSessionId(),
         options: [options[0], options[1]],
         senderChoice,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

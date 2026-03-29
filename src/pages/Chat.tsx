@@ -27,6 +27,8 @@ import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble } from "@/components/chat/VibeClipBubble";
+import { ChatPhotoLightbox } from "@/components/chat/ChatPhotoLightbox";
+import { ChatVideoLightbox } from "@/components/chat/ChatVideoLightbox";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import {
   formatChatImageMessageContent,
@@ -78,11 +80,18 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
+import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
+
+function clientRequestIdFromStructured(p: Record<string, unknown> | null | undefined): string | null {
+  if (!p || typeof p !== "object") return null;
+  const id = (p as { client_request_id?: unknown }).client_request_id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
 
 interface ChatMessage {
   id: string;
@@ -102,6 +111,25 @@ interface ChatMessage {
   refId?: string | null;
   structuredPayload?: Record<string, unknown> | null;
   gameSessionView?: WebHydratedGameSessionView;
+  /** Epoch ms for ordering merged thread (server: created_at; optimistic: send time) */
+  sortAtMs?: number;
+  /** Matches structured_payload.client_request_id on the server row after send */
+  clientRequestId?: string;
+}
+
+/** Merge server rows with optimistic locals: drop locals once server echoes the same client_request_id; sort by send time */
+function mergeServerAndLocalChatMessages(realMsgs: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
+  const serverClientIds = new Set<string>();
+  for (const m of realMsgs) {
+    const cid = clientRequestIdFromStructured(m.structuredPayload);
+    if (cid) serverClientIds.add(cid);
+  }
+  const locals = localMessages.filter((l) => !(l.clientRequestId && serverClientIds.has(l.clientRequestId)));
+  return [...realMsgs, ...locals].sort((a, b) => {
+    const t = (a.sortAtMs ?? 0) - (b.sortAtMs ?? 0);
+    if (t !== 0) return t;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 type TextMessage = ChatMessage & { type: "text" };
@@ -114,6 +142,8 @@ function VibeClipMessageRow({
   onSuggestDate,
   onReactionPick,
   threadMessageCount,
+  immersiveVideoUrl,
+  onRequestImmersiveVideo,
 }: {
   message: ChatMessage & { isFirstInGroup?: boolean; isLastInGroup?: boolean; showAvatar?: boolean };
   otherUser: { avatar_url: string | null } | null;
@@ -122,6 +152,8 @@ function VibeClipMessageRow({
   onSuggestDate?: () => void;
   onReactionPick?: (emoji: ReactionEmoji) => void;
   threadMessageCount: number;
+  immersiveVideoUrl: string | null;
+  onRequestImmersiveVideo: (url: string, posterUrl?: string | null) => void;
 }) {
   const clipMeta = extractVibeClipMeta({
     video_url: message.videoUrl,
@@ -135,7 +167,7 @@ function VibeClipMessageRow({
       className={cn(
         "flex items-end gap-2",
         isMine ? "justify-end" : "justify-start",
-        message.isFirstInGroup ? "mt-3" : "mt-0.5"
+        message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
       )}
     >
       {!isMine && (
@@ -157,12 +189,18 @@ function VibeClipMessageRow({
             onSuggestDate={isMine ? undefined : onSuggestDate}
             onReactionPick={isMine ? undefined : onReactionPick}
             reactionPair={message.reactionPair}
+            onRequestImmersive={() => onRequestImmersiveVideo(clipMeta.videoUrl, clipMeta.thumbnailUrl ?? null)}
+            immersiveActive={immersiveVideoUrl === clipMeta.videoUrl}
           />
         ) : (
           <VideoMessageBubble
-            videoUrl={message.videoUrl}
+            videoUrl={message.videoUrl!}
             duration={message.videoDuration || 0}
             isMine={isMine}
+            onRequestImmersive={
+              message.videoUrl ? () => onRequestImmersiveVideo(message.videoUrl!, null) : undefined
+            }
+            immersiveActive={!!message.videoUrl && immersiveVideoUrl === message.videoUrl}
           />
         )}
         {message.isLastInGroup && (
@@ -213,7 +251,11 @@ const Chat = () => {
   } | null>(null);
   const [showArcade, setShowArcade] = useState(false);
   const [activeGameCreator, setActiveGameCreator] = useState<GameType | null>(null);
+  const [photoLightboxInitialId, setPhotoLightboxInitialId] = useState<string | null>(null);
+  const [videoLightbox, setVideoLightbox] = useState<{ url: string; posterUrl?: string | null } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const stickToBottomRef = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
@@ -225,7 +267,12 @@ const Chat = () => {
     onCallEnded: () => {},
   });
 
-  useRealtimeMessages({ matchId: chatData?.matchId || null, enabled: !!chatData?.matchId });
+  useRealtimeMessages({
+    matchId: chatData?.matchId || null,
+    threadOtherUserId: id || null,
+    threadCurrentUserId: currentUserId || null,
+    enabled: !!chatData?.matchId && !!id && !!currentUserId,
+  });
   const { partnerTyping } = useTypingBroadcast(
     chatData?.matchId ?? null,
     currentUserId || null,
@@ -309,6 +356,7 @@ const Chat = () => {
   const messages: ChatMessage[] = useMemo(() => {
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
       const pair = reactionByMessageId.get(m.id) ?? { mine: null, partner: null };
+      const sortAtMs = new Date(m.createdAt).getTime();
       if (m.messageKind === "date_suggestion" || m.messageKind === "date_suggestion_event") {
         return {
           id: m.id,
@@ -320,6 +368,7 @@ const Chat = () => {
           structuredPayload: m.structuredPayload ?? undefined,
           status: "delivered" as MessageStatusType,
           reactionPair: pair,
+          sortAtMs,
         };
       }
       if (m.messageKind === "vibe_game_session") {
@@ -332,6 +381,7 @@ const Chat = () => {
           status: "delivered" as MessageStatusType,
           gameSessionView: m.gameSessionView,
           reactionPair: pair,
+          sortAtMs,
         };
       }
       return {
@@ -352,9 +402,10 @@ const Chat = () => {
         structuredPayload: m.structuredPayload ?? undefined,
         status: "delivered" as MessageStatusType,
         reactionPair: pair,
+        sortAtMs,
       };
     });
-    return [...realMsgs, ...localMessages];
+    return mergeServerAndLocalChatMessages(realMsgs, localMessages);
   }, [chatData?.messages, localMessages, reactionByMessageId]);
 
   const displayMessages = useMemo(() => {
@@ -364,6 +415,17 @@ const Chat = () => {
       getId: (m) => m.id,
     });
   }, [messages]);
+
+  const chatPhotoLightboxItems = useMemo(() => {
+    const out: { id: string; url: string }[] = [];
+    for (const m of displayMessages) {
+      if (m.type !== "image") continue;
+      const url = parseChatImageMessageContent(m.text);
+      if (!url) continue;
+      out.push({ id: m.id, url });
+    }
+    return out;
+  }, [displayMessages]);
 
   useEffect(() => {
     if (!showDateComposer || dateComposerLaunchSource !== "vibe_clip") return;
@@ -477,7 +539,10 @@ const Chat = () => {
           toast.error(formatSendGameEventError(result.error));
           return;
         }
-        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({
+          queryKey: threadMessagesQueryKey(id || "", currentUserId),
+          exact: true,
+        });
         queryClient.invalidateQueries({ queryKey: ["matches"] });
         toast.success("Game sent!");
       } finally {
@@ -574,7 +639,10 @@ const Chat = () => {
           return;
         }
 
-        queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+        queryClient.invalidateQueries({
+          queryKey: threadMessagesQueryKey(id || "", currentUserId),
+          exact: true,
+        });
         queryClient.invalidateQueries({ queryKey: ["matches"] });
       } finally {
         actionLockRef.current.delete(view.gameSessionId);
@@ -585,6 +653,14 @@ const Chat = () => {
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  const onMainScroll = useCallback(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 120;
   }, []);
 
   useEffect(() => {
@@ -611,8 +687,17 @@ const Chat = () => {
   }, [displayMessages]);
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     scrollToBottom();
   }, [groupedMessages, scrollToBottom]);
+
+  const threadInvalidateScope = useMemo(
+    () =>
+      id && currentUserId
+        ? { otherUserId: id, currentUserId, matchId: chatData?.matchId ?? null }
+        : undefined,
+    [id, currentUserId, chatData?.matchId],
+  );
 
   const sendTextMessage = useCallback(
     (opts?: { tempId?: string; text?: string }) => {
@@ -622,7 +707,13 @@ const Chat = () => {
         toast.error("No active conversation found");
         return;
       }
-      const tempId = opts?.tempId ?? `temp-${Date.now()}`;
+      if (!threadInvalidateScope) {
+        toast.error("No active conversation found");
+        return;
+      }
+      const createdAtMs = Date.now();
+      const clientRequestId = crypto.randomUUID();
+      const tempId = opts?.tempId ?? `temp-${createdAtMs}`;
       const optimisticKind = inferChatMediaRenderKind({ content: text });
       const tempMsg: ChatMessage = {
         id: tempId,
@@ -631,32 +722,58 @@ const Chat = () => {
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         type: optimisticKind === "image" ? "image" : "text",
         status: "sending",
+        sortAtMs: createdAtMs,
+        clientRequestId,
       };
       if (!opts?.tempId) {
         setLocalMessages((prev) => [...prev, tempMsg]);
       } else {
-        setLocalMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, status: "sending", sendError: undefined } : m)));
+        setLocalMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  status: "sending",
+                  sendError: undefined,
+                  clientRequestId,
+                  sortAtMs: createdAtMs,
+                }
+              : m,
+          ),
+        );
       }
       sendMessage(
-        { matchId: chatData.matchId, content: text },
         {
-          onSuccess: () => {
-            setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+          matchId: chatData.matchId,
+          content: text,
+          clientRequestId,
+          invalidateScope: threadInvalidateScope,
+        },
+        {
+          onSuccess: (data) => {
+            if (typeof navigator !== "undefined" && navigator.vibrate) {
+              navigator.vibrate(12);
+            }
+            const row = data as { structured_payload?: Record<string, unknown> } | null | undefined;
+            const srvCid = clientRequestIdFromStructured(row?.structured_payload ?? null);
+            setLocalMessages((prev) =>
+              prev.filter((m) => m.id !== tempId && (!srvCid || m.clientRequestId !== srvCid)),
+            );
           },
           onError: () => {
             setLocalMessages((prev) =>
               prev.map((m) =>
                 m.id === tempId
-                  ? { ...m, status: "sent" as MessageStatusType, sendError: "Failed to send. Tap retry." }
-                  : m
-              )
+                  ? { ...m, status: "sent" as MessageStatusType, sendError: "Couldn't send · Tap to retry" }
+                  : m,
+              ),
             );
             toast.error("Failed to send message");
           },
-        }
+        },
       );
     },
-    [chatData?.matchId, newMessage, sendMessage]
+    [chatData?.matchId, newMessage, sendMessage, threadInvalidateScope],
   );
 
   const handlePhotoFileChange = useCallback(
@@ -683,7 +800,13 @@ const Chat = () => {
         return;
       }
 
-      const tempId = `temp-img-${Date.now()}`;
+      if (!threadInvalidateScope) {
+        toast.error("Cannot send photo right now");
+        return;
+      }
+      const createdAtMs = Date.now();
+      const clientRequestId = crypto.randomUUID();
+      const tempId = `temp-img-${createdAtMs}`;
       setSendingPhoto(true);
       try {
         const path = await uploadImageToBunny(file, session.access_token);
@@ -696,28 +819,42 @@ const Chat = () => {
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           type: "image",
           status: "sending",
+          sortAtMs: createdAtMs,
+          clientRequestId,
         };
         setLocalMessages((prev) => [...prev, tempMsg]);
         sendMessage(
-          { matchId: chatData.matchId, content },
           {
-            onSuccess: () => {
-              setLocalMessages((prev) => prev.filter((m) => m.id !== tempId));
+            matchId: chatData.matchId,
+            content,
+            clientRequestId,
+            invalidateScope: threadInvalidateScope,
+          },
+          {
+            onSuccess: (data) => {
+              if (typeof navigator !== "undefined" && navigator.vibrate) {
+                navigator.vibrate(12);
+              }
+              const row = data as { structured_payload?: Record<string, unknown> } | null | undefined;
+              const srvCid = clientRequestIdFromStructured(row?.structured_payload ?? null);
+              setLocalMessages((prev) =>
+                prev.filter((m) => m.id !== tempId && (!srvCid || m.clientRequestId !== srvCid)),
+              );
             },
             onError: () => {
               setLocalMessages((prev) =>
                 prev.map((m) =>
                   m.id === tempId
-                    ? { ...m, status: "sent" as MessageStatusType, sendError: "Failed to send. Tap retry." }
-                    : m
-                )
+                    ? { ...m, status: "sent" as MessageStatusType, sendError: "Couldn't send · Tap to retry" }
+                    : m,
+                ),
               );
               toast.error("Failed to send photo");
             },
             onSettled: () => {
               setSendingPhoto(false);
             },
-          }
+          },
         );
       } catch (err) {
         console.error("Photo upload error:", err);
@@ -725,7 +862,7 @@ const Chat = () => {
         setSendingPhoto(false);
       }
     },
-    [chatData?.matchId, user?.id, sendMessage]
+    [chatData?.matchId, user?.id, sendMessage, threadInvalidateScope]
   );
 
   const handleSend = () => {
@@ -734,6 +871,7 @@ const Chat = () => {
       toast.error("You're offline — message will send when you reconnect");
       return;
     }
+    stickToBottomRef.current = true;
     setNewMessage("");
     setLocalTyping(false);
     if (typingTimeoutRef.current) {
@@ -742,6 +880,10 @@ const Chat = () => {
     }
     setShowDateSuggestion(false);
     sendTextMessage();
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      requestAnimationFrame(() => inputRef.current?.focus());
+    });
   };
 
   const handleComposerChange = (text: string) => {
@@ -825,7 +967,12 @@ const Chat = () => {
 
   const onDateSuggestionUpdated = useCallback(() => {
     void refetchDateSuggestions();
-    queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+    if (id && currentUserId) {
+      queryClient.invalidateQueries({
+        queryKey: threadMessagesQueryKey(id, currentUserId),
+        exact: true,
+      });
+    }
   }, [refetchDateSuggestions, queryClient, id, currentUserId]);
 
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
@@ -846,11 +993,16 @@ const Chat = () => {
         chatData.matchId
       );
 
+      if (!threadInvalidateScope) {
+        toast.error("Cannot send voice message right now");
+        return;
+      }
       await publishVoiceMessage.mutateAsync({
         matchId: chatData.matchId,
         audioUrl,
         durationSeconds: duration,
         clientRequestId: crypto.randomUUID(),
+        invalidateScope: threadInvalidateScope,
       });
     } catch (err) {
       console.error("Voice message error:", err);
@@ -889,6 +1041,10 @@ const Chat = () => {
 
       const clientRequestId = crypto.randomUUID();
 
+      if (!threadInvalidateScope) {
+        toast.error("Cannot send Vibe Clip right now");
+        return;
+      }
       publishVibeClip.mutate(
         {
           matchId: chatData.matchId,
@@ -897,6 +1053,7 @@ const Chat = () => {
           clientRequestId,
           thumbnailUrl: uploaded.thumbnailUrl,
           aspectRatio: uploaded.aspectRatio,
+          invalidateScope: threadInvalidateScope,
         },
         {
           onSuccess: () => {
@@ -971,7 +1128,13 @@ const Chat = () => {
         onFocusInput={() => inputRef.current?.focus()}
       />
 
-      <main className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 relative z-10">
+      <main
+        ref={(el) => {
+          mainScrollRef.current = el;
+        }}
+        onScroll={onMainScroll}
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5 relative z-10"
+      >
         {isLoadingChat ? (
           <div className="flex items-center justify-center h-full">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -1001,10 +1164,12 @@ const Chat = () => {
             </p>
             <button
               onClick={() => {
-                if (!chatData?.matchId) return;
+                if (!chatData?.matchId || !threadInvalidateScope) return;
                 sendMessage({
                   matchId: chatData.matchId,
                   content: "👋",
+                  clientRequestId: crypto.randomUUID(),
+                  invalidateScope: threadInvalidateScope,
                 });
               }}
               className="px-6 py-2.5 rounded-full bg-gradient-primary text-primary-foreground font-medium text-sm shadow-lg hover:opacity-90 transition-opacity"
@@ -1021,7 +1186,7 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-3" : "mt-0.5",
+                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
                   <div className="max-w-[min(92%,28rem)] w-full">
@@ -1047,7 +1212,7 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-3" : "mt-0.5",
+                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5",
                   )}
                 >
                   <div className="max-w-[75%] overflow-hidden">
@@ -1081,6 +1246,8 @@ const Chat = () => {
                   message={message}
                   otherUser={otherUser}
                   threadMessageCount={displayMessages.length}
+                  immersiveVideoUrl={videoLightbox?.url ?? null}
+                  onRequestImmersiveVideo={(url, posterUrl) => setVideoLightbox({ url, posterUrl })}
                   onReplyWithClip={() => setIsRecordingVideo(true)}
                   onVoiceReply={() => scrollToBottom()}
                   onSuggestDate={() =>
@@ -1094,7 +1261,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
                   )}
                 >
                   {message.sender !== "me" && (
@@ -1106,9 +1273,15 @@ const Chat = () => {
                   )}
                   <div>
                     <VideoMessageBubble
-                      videoUrl={message.videoUrl}
+                      videoUrl={message.videoUrl!}
                       duration={message.videoDuration || 0}
                       isMine={message.sender === "me"}
+                      onRequestImmersive={
+                        message.videoUrl
+                          ? () => setVideoLightbox({ url: message.videoUrl!, posterUrl: null })
+                          : undefined
+                      }
+                      immersiveActive={!!message.videoUrl && videoLightbox?.url === message.videoUrl}
                     />
                     {message.isLastInGroup && (
                       <div className={cn("mt-1 flex", message.sender === "me" ? "justify-end" : "justify-start")}>
@@ -1127,7 +1300,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
                   )}
                 >
                   {message.sender !== "me" && (
@@ -1138,12 +1311,19 @@ const Chat = () => {
                     </div>
                   )}
                   <div className="max-w-[70%]">
-                    <img
-                      src={parseChatImageMessageContent(message.text) || ""}
-                      alt="Shared image"
-                      className="w-56 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40"
-                      loading="lazy"
-                    />
+                    <button
+                      type="button"
+                      className="group relative block w-56 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      aria-label="View photo full screen"
+                      onClick={() => setPhotoLightboxInitialId(message.id)}
+                    >
+                      <img
+                        src={parseChatImageMessageContent(message.text) || ""}
+                        alt="Shared image"
+                        className="w-56 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                        loading="lazy"
+                      />
+                    </button>
                     {message.isLastInGroup && (
                       <div
                         className={cn(
@@ -1185,7 +1365,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     message.sender === "me" ? "justify-end" : "justify-start",
-                    message.isFirstInGroup ? "mt-3" : "mt-0.5"
+                    message.isFirstInGroup ? "mt-2.5" : "mt-0.5"
                   )}
                 >
                   {message.sender !== "me" && (
@@ -1196,7 +1376,7 @@ const Chat = () => {
                     </div>
                   )}
                   <div className={cn(
-                    "max-w-[70%] rounded-2xl px-3 py-2.5",
+                    "max-w-[70%] rounded-2xl px-3 py-2",
                     message.sender === "me"
                       ? "bg-gradient-primary text-primary-foreground"
                       : "glass-card border border-border/30 text-foreground"
@@ -1251,33 +1431,33 @@ const Chat = () => {
           onDismiss={() => setShowDateSuggestion(false)}
         />
 
-        <div className="px-2 pb-1">
-          <div className="max-w-lg mx-auto flex items-center gap-2">
+        <div className="px-2 pb-0.5 pt-0.5">
+          <div className="max-w-lg mx-auto flex items-stretch justify-center gap-1.5">
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
               onClick={handleOpenDateComposerFromChip}
-              className="flex-1 min-w-0 h-9 px-3 rounded-full border border-rose-500/35 bg-rose-500/12 text-rose-500 hover:bg-rose-500/20 transition-colors inline-flex items-center justify-center gap-1.5"
+              className="flex-1 min-w-0 h-8 max-h-8 px-2.5 rounded-full border border-rose-500/30 bg-rose-500/[0.09] text-rose-500/95 hover:bg-rose-500/16 transition-colors inline-flex items-center justify-center gap-1"
               aria-label="Suggest a Date"
             >
-              <CalendarPlus className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-medium truncate">Suggest a Date</span>
+              <CalendarPlus className="w-3.5 h-3.5 shrink-0 opacity-90" />
+              <span className="text-[11px] font-semibold truncate tracking-tight">Date</span>
             </motion.button>
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
               onClick={() => setShowArcade(true)}
-              className="flex-1 min-w-0 h-9 px-3 rounded-full border border-primary/35 bg-primary/12 text-primary hover:bg-primary/20 transition-colors inline-flex items-center justify-center gap-1.5"
+              className="flex-1 min-w-0 h-8 max-h-8 px-2.5 rounded-full border border-cyan-500/25 bg-cyan-500/[0.08] text-cyan-400 hover:bg-cyan-500/14 transition-colors inline-flex items-center justify-center gap-1"
               aria-label="Open Games"
             >
-              <Gamepad2 className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-medium truncate">Games</span>
+              <Gamepad2 className="w-3.5 h-3.5 shrink-0 opacity-90" />
+              <span className="text-[11px] font-semibold truncate tracking-tight">Games</span>
             </motion.button>
           </div>
         </div>
 
         {/* Input bar */}
-        <div className="glass-card border-t border-border/50 p-2 pb-safe">
+        <div className="glass-card border-t border-border/40 px-2 py-1.5 pb-safe">
           <input
             ref={photoInputRef}
             type="file"
@@ -1456,7 +1636,12 @@ const Chat = () => {
           }
           onSuccess={() => {
             void refetchDateSuggestions();
-            queryClient.invalidateQueries({ queryKey: ["messages", id, currentUserId] });
+            if (id && currentUserId) {
+              queryClient.invalidateQueries({
+                queryKey: threadMessagesQueryKey(id, currentUserId),
+                exact: true,
+              });
+            }
           }}
           launchSource={dateComposerLaunchSource}
           threadMessageCount={displayMessages.length}
@@ -1566,6 +1751,25 @@ const Chat = () => {
             onEndCall={matchCall.endCall}
           />
         )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {photoLightboxInitialId && chatPhotoLightboxItems.length > 0 ? (
+          <ChatPhotoLightbox
+            key="chat-photo-lightbox"
+            items={chatPhotoLightboxItems}
+            initialId={photoLightboxInitialId}
+            onClose={() => setPhotoLightboxInitialId(null)}
+          />
+        ) : null}
+        {videoLightbox ? (
+          <ChatVideoLightbox
+            key="chat-video-lightbox"
+            videoUrl={videoLightbox.url}
+            posterUrl={videoLightbox.posterUrl}
+            onClose={() => setVideoLightbox(null)}
+          />
+        ) : null}
       </AnimatePresence>
     </div>
   );

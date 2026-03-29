@@ -5,7 +5,12 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomRouletteQuestion } from '@/lib/roulettePrompts';
-import { formatSendGameEventError, newVibeGameSessionId, useStartRouletteGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartRouletteGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
@@ -13,9 +18,10 @@ type Props = {
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function RouletteStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const { mutateAsync, isPending } = useStartRouletteGame();
   const [question, setQuestion] = useState<string>(() => randomRouletteQuestion());
@@ -62,6 +68,7 @@ export function RouletteStartSheet({ visible, onClose, matchId, partnerName }: P
         gameSessionId: newVibeGameSessionId(),
         question: question.trim(),
         senderAnswer,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

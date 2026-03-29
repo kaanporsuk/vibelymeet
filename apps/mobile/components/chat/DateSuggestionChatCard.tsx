@@ -316,6 +316,63 @@ export function DateSuggestionChatCard({
     );
   }
 
+  const staleTerminal = ['declined', 'expired', 'cancelled', 'not_now'].includes(status);
+  if (staleTerminal) {
+    const summary =
+      current != null
+        ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+        : '';
+    return (
+      <>
+        <View style={[styles.compactCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+          <View style={styles.compactTopRow}>
+            <Text style={[styles.compactStatus, { color: theme.textSecondary }]}>
+              {STATUS_LABEL[status] ?? status}
+            </Text>
+            <Pressable
+              onPress={() => onOpenComposer({ mode: 'new' })}
+              style={({ pressed }) => [styles.compactLinkBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Text style={[styles.compactLinkText, { color: theme.tint }]}>New suggestion</Text>
+            </Pressable>
+          </View>
+          {summary ? (
+            <Text style={[styles.compactSummary, { color: theme.textSecondary }]} numberOfLines={2}>
+              {summary}
+            </Text>
+          ) : null}
+        </View>
+        {dialogEl}
+      </>
+    );
+  }
+
+  if (status === 'completed') {
+    return (
+      <>
+        <View
+          style={[
+            styles.compactCard,
+            { borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.06)' },
+          ]}
+        >
+          <View style={styles.compactTopRow}>
+            <Text style={[styles.compactDoneLabel, { color: theme.textSecondary }]} numberOfLines={1}>
+              Date marked complete
+            </Text>
+            <Pressable
+              onPress={() => onOpenComposer({ mode: 'new' })}
+              style={({ pressed }) => [styles.compactLinkBtn, pressed && { opacity: 0.85 }]}
+            >
+              <Text style={[styles.compactLinkText, { color: theme.tint }]}>New</Text>
+            </Pressable>
+          </View>
+        </View>
+        {dialogEl}
+      </>
+    );
+  }
+
   const showCelebration = status === 'accepted';
   const plan = suggestion.date_plan;
   const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
@@ -457,15 +514,6 @@ export function DateSuggestionChatCard({
         </View>
       ) : null}
 
-      {status === 'completed' ? (
-        <View style={styles.completedRow}>
-          <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
-          <Text style={[styles.completedText, { color: theme.textSecondary }]}>
-            You both marked this date complete.
-          </Text>
-        </View>
-      ) : null}
-
       <View style={[styles.actions, { borderTopColor: theme.border }]}>
         {status === 'draft' && isProposer && (
           <>
@@ -518,8 +566,6 @@ export function DateSuggestionChatCard({
           </>
         )}
 
-        {['declined', 'expired', 'cancelled', 'not_now', 'completed'].includes(status) &&
-          btn('New suggestion', () => onOpenComposer({ mode: 'new' }))}
       </View>
     </View>
     {dialogEl}
@@ -536,10 +582,28 @@ function AgreedChip() {
 }
 
 const styles = StyleSheet.create({
+  compactCard: {
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 10,
+    maxWidth: '100%',
+  },
+  compactTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  compactStatus: { fontSize: 12, fontWeight: '700' },
+  compactDoneLabel: { fontSize: 12, flex: 1, fontWeight: '600' },
+  compactSummary: { fontSize: 11, marginTop: 6, lineHeight: 15 },
+  compactLinkBtn: { paddingVertical: 4, paddingHorizontal: 4 },
+  compactLinkText: { fontSize: 11, fontWeight: '700' },
   card: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: spacing.md,
+    padding: spacing.sm + 2,
     maxWidth: '100%',
   },
   celebrationRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm },

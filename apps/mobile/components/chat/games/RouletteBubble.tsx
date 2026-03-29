@@ -7,7 +7,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { RouletteSnapshot } from '@/lib/vibelyGamesTypes';
-import { buildRouletteAnswerParams, formatSendGameEventError, useSendRouletteChoice } from '@/lib/gamesApi';
+import {
+  buildRouletteAnswerParams,
+  formatSendGameEventError,
+  useSendRouletteChoice,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
 
@@ -17,6 +22,7 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 type BubblePhase =
@@ -53,7 +59,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
   return phase !== 'complete' && phase !== 'submitting' && phase !== 'expired';
 }
 
-export function RouletteBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function RouletteBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
   const rouletteSnap = snap.game_type === 'roulette' ? snap : null;
@@ -107,7 +113,7 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const result = await mutateAsync({ view, matchId, receiverAnswer: draftAnswer.trim() });
+      const result = await mutateAsync({ view, matchId, receiverAnswer: draftAnswer.trim(), invalidateScope });
       if (!result.ok) setSubmitError(formatSendGameEventError(result.error));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Something went wrong.');

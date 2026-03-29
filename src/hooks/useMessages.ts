@@ -1,8 +1,24 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
+import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+
+export type { ThreadInvalidateScope };
+
+function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInvalidateScope | undefined) {
+  if (scope?.otherUserId && scope?.currentUserId) {
+    qc.invalidateQueries({
+      queryKey: threadMessagesQueryKey(scope.otherUserId, scope.currentUserId),
+      exact: true,
+    });
+  }
+  if (scope?.matchId) {
+    qc.invalidateQueries({ queryKey: ["date-suggestions", scope.matchId] });
+  }
+  qc.invalidateQueries({ queryKey: ["matches"] });
+}
 
 export interface Message {
   id: string;
@@ -109,15 +125,29 @@ export const useSendMessage = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ matchId, content }: { matchId: string; content: string }) => {
+    mutationFn: async ({
+      matchId,
+      content,
+      clientRequestId,
+    }: {
+      matchId: string;
+      content: string;
+      clientRequestId?: string;
+      invalidateScope?: ThreadInvalidateScope;
+    }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      const body: Record<string, string> = {
+        match_id: matchId,
+        content: content.trim(),
+      };
+      if (clientRequestId?.trim()) {
+        body.client_request_id = clientRequestId.trim();
+      }
+
       const { data, error } = await supabase.functions.invoke("send-message", {
-        body: {
-          match_id: matchId,
-          content,
-        },
+        body,
       });
 
       if (error) {
@@ -125,12 +155,14 @@ export const useSendMessage = () => {
         throw error;
       }
 
-      const payload = data as { message?: unknown } | null | undefined;
-      return payload?.message;
+      const payload = data as { success?: boolean; message?: unknown; error?: string } | null | undefined;
+      if (!payload?.success) {
+        throw new Error(payload?.error || "Send failed");
+      }
+      return payload.message;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
+    onSuccess: (_data, variables) => {
+      invalidateAfterThreadMutation(queryClient, variables.invalidateScope);
     },
   });
 };
@@ -147,6 +179,7 @@ export const usePublishVibeClip = () => {
       clientRequestId: string;
       thumbnailUrl?: string | null;
       aspectRatio?: number | null;
+      invalidateScope?: ThreadInvalidateScope;
     }) => {
       const body: Record<string, unknown> = {
         match_id: params.matchId,
@@ -169,9 +202,8 @@ export const usePublishVibeClip = () => {
       if (!payload?.success) throw new Error(payload?.error || "Vibe Clip publish failed");
       return payload.message;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
+    onSuccess: (_data, variables) => {
+      invalidateAfterThreadMutation(queryClient, variables.invalidateScope);
     },
   });
 };
@@ -186,6 +218,7 @@ export const usePublishVoiceMessage = () => {
       audioUrl: string;
       durationSeconds: number;
       clientRequestId: string;
+      invalidateScope?: ThreadInvalidateScope;
     }) => {
       const body: Record<string, unknown> = {
         match_id: params.matchId,
@@ -204,9 +237,8 @@ export const usePublishVoiceMessage = () => {
       if (!payload?.success) throw new Error(payload?.error || "Voice message publish failed");
       return payload.message;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
+    onSuccess: (_data, variables) => {
+      invalidateAfterThreadMutation(queryClient, variables.invalidateScope);
     },
   });
 };

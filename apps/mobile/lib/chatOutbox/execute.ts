@@ -1,5 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { invokeSendMessageEdge, invokePublishVibeClip, invokePublishVoiceMessage } from '@/lib/chatApi';
+import {
+  invokeSendMessageEdge,
+  invokePublishVibeClip,
+  invokePublishVoiceMessage,
+  invalidateAfterThreadMutation,
+} from '@/lib/chatApi';
 import { formatChatImageMessageContent } from '@/lib/chatMessageContent';
 import { uploadChatImageMessage, uploadChatVideoMessage, uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import type { ChatOutboxItem } from '@/lib/chatOutbox/types';
@@ -106,9 +111,11 @@ export async function executeOutboxItem(
     throw new Error('Send succeeded but no message id returned.');
   }
 
-  queryClient.invalidateQueries({ queryKey: ['messages'] });
-  queryClient.invalidateQueries({ queryKey: ['matches'] });
-  queryClient.invalidateQueries({ queryKey: ['date-suggestions'] });
+  invalidateAfterThreadMutation(queryClient, {
+    otherUserId: item.otherUserId,
+    currentUserId: item.userId,
+    matchId: item.matchId,
+  });
 
   return { serverMessageId, uploadedPublicUrl, uploadedMediaUrl };
 }

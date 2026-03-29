@@ -79,10 +79,11 @@ export const MessageStatus = ({ status, time, isMyMessage = true }: MessageStatu
         {status === "sending" && (
           <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: 0.7 }}
-            className="text-primary-foreground/70"
+            animate={{ opacity: 0.85 }}
+            className="flex items-center gap-1 text-primary-foreground/75"
           >
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <span className="text-[10px] font-medium tracking-tight">Sending…</span>
+            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
           </motion.div>
         )}
         

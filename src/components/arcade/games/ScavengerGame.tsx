@@ -22,10 +22,13 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
     onUploadPhoto?.(mockPhoto);
   };
 
+  const compact = isUnlocked || hasReplied;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-green-500/20 to-emerald-600/20",
@@ -33,12 +36,12 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       )}
     >
       {/* Header */}
-      <div className="p-3 border-b border-green-500/20">
+      <div className={cn("border-b border-green-500/20", compact ? "px-2.5 py-2" : "p-3")}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">📸</span>
-          <div>
-            <h4 className="font-semibold text-sm text-foreground">Scavenger Hunt</h4>
-            <p className="text-xs text-muted-foreground">
+          <span className={compact ? "text-lg" : "text-2xl"}>📸</span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm text-foreground leading-tight">Scavenger Hunt</h4>
+            <p className="text-[11px] text-muted-foreground leading-snug">
               {isUnlocked ? "Photos revealed!" : "Reply to unlock"}
             </p>
           </div>
@@ -46,12 +49,12 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       </div>
 
       {/* Prompt */}
-      <div className="p-3 text-center border-b border-green-500/20">
-        <p className="text-sm font-medium text-foreground">{payload.data.prompt}</p>
+      <div className={cn("text-center border-b border-green-500/20", compact ? "px-2.5 py-2" : "p-3")}>
+        <p className="text-sm font-medium text-foreground leading-snug">{payload.data.prompt}</p>
       </div>
 
       {/* Photos Grid */}
-      <div className="p-3 grid grid-cols-2 gap-2">
+      <div className={cn("grid grid-cols-2", compact ? "p-2 gap-1.5" : "p-3 gap-2")}>
         {/* Sender's Photo */}
         <div className="aspect-square rounded-xl overflow-hidden relative">
           {isUnlocked ? (
@@ -117,8 +120,8 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
 
       {/* Status message */}
       {!isUnlocked && !isOwn && !hasReplied && (
-        <div className="px-3 pb-3">
-          <p className="text-xs text-center text-muted-foreground">
+        <div className="px-2.5 pb-2">
+          <p className="text-[11px] text-center text-muted-foreground leading-snug">
             Upload your photo to see theirs 👀
           </p>
         </div>

@@ -8,7 +8,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { ScavengerSnapshot } from '@/lib/vibelyGamesTypes';
-import { buildScavengerPhotoParams, formatSendGameEventError, useSendScavengerChoice } from '@/lib/gamesApi';
+import {
+  buildScavengerPhotoParams,
+  formatSendGameEventError,
+  useSendScavengerChoice,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
@@ -20,6 +25,7 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 type BubblePhase =
@@ -52,7 +58,7 @@ function derivePhase(
   return 'ambiguous';
 }
 
-export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { mutateAsync, isPending } = useSendScavengerChoice();
@@ -152,7 +158,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const result = await mutateAsync({ view, matchId, receiverPhotoUrl: selectedPhotoUrl });
+      const result = await mutateAsync({ view, matchId, receiverPhotoUrl: selectedPhotoUrl, invalidateScope });
       if (!result.ok) setSubmitError(formatSendGameEventError(result.error));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Something went wrong.');

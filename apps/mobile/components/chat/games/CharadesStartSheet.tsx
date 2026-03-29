@@ -5,7 +5,12 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { CHARADES_EMOJI_PICKER } from '@/lib/charadesEmojiPicker';
-import { formatSendGameEventError, newVibeGameSessionId, useStartCharadesGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartCharadesGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type Props = {
@@ -13,9 +18,10 @@ type Props = {
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function CharadesStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const { mutateAsync, isPending } = useStartCharadesGame();
   const [answer, setAnswer] = useState('');
@@ -66,6 +72,7 @@ export function CharadesStartSheet({ visible, onClose, matchId, partnerName }: P
         gameSessionId: newVibeGameSessionId(),
         answer: answerTrim,
         emojis: selectedEmojis,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

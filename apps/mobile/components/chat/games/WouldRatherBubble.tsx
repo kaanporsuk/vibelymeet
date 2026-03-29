@@ -11,6 +11,7 @@ import {
   buildWouldRatherReceiverVoteParams,
   formatSendGameEventError,
   useSendWouldRatherChoice,
+  type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
 
 const EXPIRY_MS = 48 * 60 * 60 * 1000;
@@ -21,6 +22,7 @@ type Props = {
   currentUserId: string;
   partnerName: string;
   timeLabel: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
 /** UI phases derived only from folded snapshot + hydration flags (no invented game rules). */
@@ -74,7 +76,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
   return phase !== 'complete_match' && phase !== 'complete_split' && phase !== 'submitting' && phase !== 'expired';
 }
 
-export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
+export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
   const wouldRatherSnap = snap.game_type === 'would_rather' ? snap : null;
@@ -130,7 +132,7 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
     tapGuard.current = true;
     setSubmitError(null);
     try {
-      const result = await mutateAsync({ view, matchId, receiverVote: vote });
+      const result = await mutateAsync({ view, matchId, receiverVote: vote, invalidateScope });
       if (!result.ok) {
         setSubmitError(formatSendGameEventError(result.error));
       }

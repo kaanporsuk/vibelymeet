@@ -33,6 +33,10 @@ interface VibeClipBubbleProps {
   reactionPair?: ReactionPair | null;
   threadMessageCount?: number;
   sparkMessageId?: string;
+  /** Opens chat fullscreen video viewer (preferred over browser fullscreen). */
+  onRequestImmersive?: () => void;
+  /** Pause inline preview while immersive viewer is open for this clip URL. */
+  immersiveActive?: boolean;
 }
 
 export const VibeClipBubble = ({
@@ -45,6 +49,8 @@ export const VibeClipBubble = ({
   reactionPair,
   threadMessageCount = 0,
   sparkMessageId,
+  onRequestImmersive,
+  immersiveActive,
 }: VibeClipBubbleProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -147,16 +153,38 @@ export const VibeClipBubble = ({
     setIsMuted(video.muted);
   }, []);
 
-  const handleFullscreen = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.requestFullscreen) {
-      video.requestFullscreen();
-    } else if ((video as any).webkitEnterFullscreen) {
-      (video as any).webkitEnterFullscreen();
+  const handleFullscreen = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (onRequestImmersive) {
+        onRequestImmersive();
+        return;
+      }
+      const video = videoRef.current;
+      if (!video) return;
+      if (video.requestFullscreen) {
+        video.requestFullscreen();
+      } else if ((video as any).webkitEnterFullscreen) {
+        (video as any).webkitEnterFullscreen();
+      }
+    },
+    [onRequestImmersive],
+  );
+
+  useEffect(() => {
+    if (immersiveActive) {
+      videoRef.current?.pause();
+      setIsPlaying(false);
     }
-  }, []);
+  }, [immersiveActive]);
+
+  const onVideoSurfaceClick = useCallback(() => {
+    if (onRequestImmersive) {
+      onRequestImmersive();
+      return;
+    }
+    togglePlay();
+  }, [onRequestImmersive, togglePlay]);
 
   const handleTimeUpdate = useCallback(() => {
     if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
@@ -184,7 +212,7 @@ export const VibeClipBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-56 rounded-2xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-8 px-4 gap-2">
+      <div className="w-[min(13rem,85vw)] max-w-[208px] rounded-xl overflow-hidden bg-secondary/50 flex flex-col items-center justify-center py-6 px-3 gap-2">
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
         <span className="text-xs text-muted-foreground text-center">Clip unavailable</span>
         <button
@@ -207,22 +235,33 @@ export const VibeClipBubble = ({
   return (
     <div
       className={[
-        "w-56 rounded-2xl overflow-hidden relative group",
+        "w-[min(13rem,85vw)] max-w-[208px] rounded-xl overflow-hidden relative group",
         isMine
-          ? "ring-1 ring-violet-500/40 bg-violet-500/5"
-          : "ring-1 ring-white/10 bg-white/[0.03]",
+          ? "ring-1 ring-violet-500/35 bg-violet-500/[0.04]"
+          : "ring-1 ring-white/[0.08] bg-white/[0.025]",
       ].join(" ")}
     >
-      {/* Branded header */}
-      <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5">
-        <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/12 border border-violet-500/25 px-2 py-0.5">
-          <Film className="w-3 h-3 text-violet-400" />
-          <span className="text-[10px] font-bold text-violet-400 tracking-wide">Vibe Clip</span>
+      {/* Branded header — compact in-thread */}
+      <div className="flex items-center gap-1 px-2 pt-1.5 pb-1">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 px-1.5 py-[1px]">
+          <Film className="w-2.5 h-2.5 text-violet-400/95" />
+          <span className="text-[9px] font-bold text-violet-400/95 tracking-wide">Clip</span>
         </span>
       </div>
 
       {/* Video surface */}
-      <div className="cursor-pointer" onClick={togglePlay}>
+      <div
+        className="cursor-pointer"
+        onClick={onVideoSurfaceClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onVideoSurfaceClick();
+          }
+        }}
+        role={onRequestImmersive ? "button" : undefined}
+        tabIndex={onRequestImmersive ? 0 : undefined}
+      >
         <AspectRatio ratio={clipAspectRatio}>
           {!isReady && (
             <div className="absolute inset-0 bg-black">
@@ -304,10 +343,10 @@ export const VibeClipBubble = ({
                 {isPlaying ? formatDuration(Math.round(currentTime)) : meta.durationLabel}
               </span>
               <div className="flex items-center gap-1.5">
-                <button onClick={toggleMute} className="text-white/80 hover:text-white">
+                <button type="button" onClick={toggleMute} className="text-white/80 hover:text-white">
                   {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
                 </button>
-                <button onClick={handleFullscreen} className="text-white/80 hover:text-white">
+                <button type="button" onClick={handleFullscreen} className="text-white/80 hover:text-white">
                   <Maximize className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -1,8 +1,12 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { invalidateAfterThreadMutation } from '@/lib/chatApi';
+import type { ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
 import { parseVibeGameEnvelopeFromStructuredPayload } from '../../../shared/vibely-games/parse';
 import type { GameType, VibeGameEventType, VibeGameMessageEnvelopeV1 } from '../../../shared/vibely-games/types';
 import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
+
+export type { ThreadInvalidateScope };
 
 /** Client may never send `session_complete` (server-only). */
 export type ClientVibeGameEventType = Exclude<VibeGameEventType, 'session_complete'>;
@@ -834,6 +838,7 @@ export function useStartTwoTruthsGame() {
       gameSessionId: string;
       statements: [string, string, string];
       lieIndex: 0 | 1 | 2;
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startTwoTruthsGame({
         matchId: vars.matchId,
@@ -841,10 +846,9 @@ export function useStartTwoTruthsGame() {
         statements: vars.statements,
         lieIndex: vars.lieIndex,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -860,6 +864,7 @@ export function useStartIntuitionGame() {
       gameSessionId: string;
       options: [string, string];
       senderChoice: 0 | 1;
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startIntuitionGame({
         matchId: vars.matchId,
@@ -867,10 +872,9 @@ export function useStartIntuitionGame() {
         options: vars.options,
         senderChoice: vars.senderChoice,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -886,6 +890,7 @@ export function useStartRouletteGame() {
       gameSessionId: string;
       question: string;
       senderAnswer: string;
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startRouletteGame({
         matchId: vars.matchId,
@@ -893,10 +898,9 @@ export function useStartRouletteGame() {
         question: vars.question,
         senderAnswer: vars.senderAnswer,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -912,6 +916,7 @@ export function useStartCharadesGame() {
       gameSessionId: string;
       answer: string;
       emojis: string[];
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startCharadesGame({
         matchId: vars.matchId,
@@ -919,10 +924,9 @@ export function useStartCharadesGame() {
         answer: vars.answer,
         emojis: vars.emojis,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -938,6 +942,7 @@ export function useStartScavengerGame() {
       gameSessionId: string;
       prompt: string;
       senderPhotoUrl: string;
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startScavengerGame({
         matchId: vars.matchId,
@@ -945,10 +950,9 @@ export function useStartScavengerGame() {
         prompt: vars.prompt,
         senderPhotoUrl: vars.senderPhotoUrl,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -965,6 +969,7 @@ export function useStartWouldRatherGame() {
       optionA: string;
       optionB: string;
       senderVote: 'A' | 'B';
+      invalidateScope: ThreadInvalidateScope;
     }) =>
       startWouldRatherGame({
         matchId: vars.matchId,
@@ -973,10 +978,9 @@ export function useStartWouldRatherGame() {
         optionB: vars.optionB,
         senderVote: vars.senderVote,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -991,11 +995,11 @@ export function useSendWouldRatherChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       receiverVote: 'A' | 'B';
+      invalidateScope: ThreadInvalidateScope;
     }) => sendWouldRatherChoice(vars.view, vars.matchId, vars.receiverVote),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -1010,11 +1014,11 @@ export function useSendTwoTruthsChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       guessIndex: 0 | 1 | 2;
+      invalidateScope: ThreadInvalidateScope;
     }) => sendTwoTruthsChoice(vars.view, vars.matchId, vars.guessIndex),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -1029,11 +1033,11 @@ export function useSendIntuitionChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       result: 'correct' | 'wrong';
+      invalidateScope: ThreadInvalidateScope;
     }) => sendIntuitionChoice(vars.view, vars.matchId, vars.result),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -1048,11 +1052,11 @@ export function useSendRouletteChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       receiverAnswer: string;
+      invalidateScope: ThreadInvalidateScope;
     }) => sendRouletteChoice(vars.view, vars.matchId, vars.receiverAnswer),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -1067,11 +1071,11 @@ export function useSendCharadesChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       guess: string;
+      invalidateScope: ThreadInvalidateScope;
     }) => sendCharadesChoice(vars.view, vars.matchId, vars.guess),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
@@ -1086,28 +1090,28 @@ export function useSendScavengerChoice() {
       view: NativeHydratedGameSessionView;
       matchId: string;
       receiverPhotoUrl: string;
+      invalidateScope: ThreadInvalidateScope;
     }) => sendScavengerChoice(vars.view, vars.matchId, vars.receiverPhotoUrl),
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }
 
+export type SendGameEventMutationVars = SendGameEventInput & { invalidateScope: ThreadInvalidateScope };
+
 /**
  * TanStack mutation: `mutateAsync` resolves with `SendGameEventResult` (does not throw on
- * server rejections — check `result.ok`). On success only, invalidates the same query roots
- * as chat `send-message` flows (thread + match list preview). Omits `date-suggestions`.
+ * server rejections — check `result.ok`). On success, scoped thread invalidation only.
  */
 export function useSendGameEvent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: SendGameEventInput) => sendGameEvent(vars),
-    onSuccess: (result) => {
+    mutationFn: ({ invalidateScope: _s, ...input }: SendGameEventMutationVars) => sendGameEvent(input),
+    onSuccess: (result, vars) => {
       if (!result.ok) return;
-      qc.invalidateQueries({ queryKey: ['messages'] });
-      qc.invalidateQueries({ queryKey: ['matches'] });
+      invalidateAfterThreadMutation(qc, vars.invalidateScope);
     },
   });
 }

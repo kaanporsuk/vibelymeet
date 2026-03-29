@@ -38,10 +38,13 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
       ? "Answers revealed!"
       : "Answer to unlock";
 
+  const compact = isExpired || isUnlocked || hasSubmitted;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-cyan-500/20 to-teal-600/20",
@@ -50,30 +53,31 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
       )}
     >
       {/* Header */}
-      <div className="p-3 border-b border-cyan-500/20">
+      <div className={cn("border-b border-cyan-500/20", compact ? "px-2.5 py-2" : "p-3")}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🎡</span>
-          <div>
-            <h4 className="font-semibold text-sm text-foreground">Vibe Roulette</h4>
-            <p className="text-xs text-muted-foreground">{headerSub}</p>
+          <span className={compact ? "text-lg" : "text-2xl"}>🎡</span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm text-foreground leading-tight">Vibe Roulette</h4>
+            <p className="text-[11px] text-muted-foreground leading-snug">{headerSub}</p>
           </div>
         </div>
       </div>
 
       {/* Question */}
-      <div className="p-4 border-b border-cyan-500/20">
-        <p className="text-sm font-medium text-foreground text-center italic">
+      <div className={cn("border-b border-cyan-500/20", compact ? "px-2.5 py-2" : "p-4")}>
+        <p className="text-sm font-medium text-foreground text-center italic leading-snug">
           "{payload.data.question}"
         </p>
       </div>
 
       {/* Answers */}
-      <div className="p-3 space-y-3">
+      <div className={cn(compact ? "p-2.5 space-y-2" : "p-3 space-y-3")}>
         {/* Sender's Answer */}
         <div className="relative">
           <div
             className={cn(
-              "p-3 rounded-xl border",
+              "rounded-xl border",
+              compact ? "p-2" : "p-3",
               isUnlocked
                 ? "bg-neon-violet/10 border-neon-violet/30"
                 : "bg-secondary/50 border-border/50"
@@ -106,7 +110,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
           {isExpired ? (
             <p className="text-sm text-muted-foreground text-center px-2 py-2">This challenge expired</p>
           ) : isUnlocked && hasSubmitted ? (
-            <div className="p-3 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30">
+            <div className={cn("rounded-xl bg-neon-cyan/10 border border-neon-cyan/30", compact ? "p-2" : "p-3")}>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs text-neon-cyan font-medium">
                   {isOwn ? "Their answer" : "Your answer"}
@@ -121,7 +125,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
               </motion.p>
             </div>
           ) : hasSubmitted ? (
-            <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-center">
+            <div className={cn("rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-center", compact ? "p-2" : "p-3")}>
               <Eye className="w-5 h-5 text-cyan-400 mx-auto mb-1" />
               <p className="text-xs text-cyan-400">Your answer submitted!</p>
               <p className="text-xs text-muted-foreground mt-1">Waiting for reveal...</p>
@@ -147,7 +151,7 @@ export const RouletteGame = ({ payload, isOwn, sessionCreatedAt, onAnswer }: Rou
               </button>
             </div>
           ) : (
-            <div className="p-3 rounded-xl bg-secondary/30 border border-border/30 text-center">
+            <div className={cn("rounded-xl bg-secondary/30 border border-border/30 text-center", compact ? "p-2" : "p-3")}>
               <p className="text-xs text-muted-foreground">Waiting for their answer...</p>
             </div>
           )}

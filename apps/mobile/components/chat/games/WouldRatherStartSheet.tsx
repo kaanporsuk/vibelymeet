@@ -6,16 +6,22 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { randomWouldRatherPrompt, type WouldRatherPromptPair } from '@/lib/wouldRatherPrompts';
-import { formatSendGameEventError, newVibeGameSessionId, useStartWouldRatherGame } from '@/lib/gamesApi';
+import {
+  formatSendGameEventError,
+  newVibeGameSessionId,
+  useStartWouldRatherGame,
+  type ThreadInvalidateScope,
+} from '@/lib/gamesApi';
 
 type Props = {
   visible: boolean;
   onClose: () => void;
   matchId: string;
   partnerName: string;
+  invalidateScope: ThreadInvalidateScope;
 };
 
-export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }: Props) {
+export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const insets = useSafeAreaInsets();
   const { mutateAsync, isPending } = useStartWouldRatherGame();
@@ -57,6 +63,7 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
         optionA: pair.option_a,
         optionB: pair.option_b,
         senderVote,
+        invalidateScope,
       });
       if (!result.ok) {
         setError(formatSendGameEventError(result.error));

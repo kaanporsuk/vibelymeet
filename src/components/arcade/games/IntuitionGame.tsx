@@ -36,10 +36,13 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
     onRespond?.(res);
   };
 
+  const compact = !!response;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "bg-gradient-to-br from-indigo-500/20 to-blue-600/20",
@@ -47,12 +50,12 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
       )}
     >
       {/* Header */}
-      <div className="p-3 border-b border-indigo-500/20">
+      <div className={cn("border-b border-indigo-500/20", compact ? "px-2.5 py-2" : "p-3")}>
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🔮</span>
-          <div>
-            <h4 className="font-semibold text-sm text-foreground">Intuition Test</h4>
-            <p className="text-xs text-muted-foreground">
+          <span className={compact ? "text-lg" : "text-2xl"}>🔮</span>
+          <div className="min-w-0">
+            <h4 className="font-semibold text-sm text-foreground leading-tight">Intuition Test</h4>
+            <p className="text-[11px] text-muted-foreground leading-snug">
               {response ? (response === 'correct' ? 'Mind reader!' : 'Not quite...') : 'Are they right?'}
             </p>
           </div>
@@ -60,22 +63,23 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
       </div>
 
       {/* Prediction */}
-      <div className="p-4 text-center">
-        <p className="text-xs text-muted-foreground mb-2">
+      <div className={cn("text-center", compact ? "px-2.5 py-2" : "p-4")}>
+        <p className={cn("text-[11px] text-muted-foreground", compact ? "mb-1" : "mb-2")}>
           {isOwn ? 'You think they prefer...' : `${matchName} thinks you prefer...`}
         </p>
         <motion.div
           initial={{ scale: 0.9 }}
           animate={{ scale: 1 }}
           className={cn(
-            "inline-block px-6 py-3 rounded-xl",
+            "inline-block rounded-xl",
             "bg-gradient-to-r from-indigo-500/30 to-blue-500/30",
-            "border border-indigo-500/50"
+            "border border-indigo-500/50",
+            compact ? "px-4 py-2" : "px-6 py-3"
           )}
         >
-          <p className="font-semibold text-lg text-foreground">{prediction}</p>
+          <p className={cn("font-semibold text-foreground", compact ? "text-base" : "text-lg")}>{prediction}</p>
         </motion.div>
-        <p className="text-xs text-muted-foreground mt-2">
+        <p className={cn("text-[11px] text-muted-foreground", compact ? "mt-1" : "mt-2")}>
           (vs. {payload.data.options[payload.data.senderChoice === 0 ? 1 : 0]})
         </p>
       </div>
@@ -111,19 +115,19 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
             key="buttons"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="p-3 flex gap-2"
+            className="flex gap-2 px-2.5 pb-2"
           >
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => handleRespond('correct')}
-              className="flex-1 py-3 rounded-xl bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 font-medium text-sm transition-colors"
+              className="flex-1 py-2 rounded-xl bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 font-medium text-sm transition-colors"
             >
               ✅ Correct!
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.95 }}
               onClick={() => handleRespond('wrong')}
-              className="flex-1 py-3 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-medium text-sm transition-colors"
+              className="flex-1 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-medium text-sm transition-colors"
             >
               ❌ Wrong!
             </motion.button>
@@ -133,9 +137,9 @@ export const IntuitionGame = ({ payload, isOwn, matchName = "They", onRespond }:
             key="waiting"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="px-3 pb-3"
+            className="px-2.5 pb-2"
           >
-            <div className="p-3 rounded-xl bg-secondary/30 text-center">
+            <div className="p-2 rounded-xl bg-secondary/30 text-center">
               <p className="text-xs text-muted-foreground">Waiting for their response...</p>
             </div>
           </motion.div>
