@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Alert, Pressable } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import {
 } from '@/lib/revenuecat';
 import type { PurchasesOfferings, PurchasesPackage } from 'react-native-purchases';
 import { format } from 'date-fns';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 export default function PremiumScreen() {
   const insets = useSafeAreaInsets();
@@ -39,6 +40,7 @@ export default function PremiumScreen() {
   const [purchaseLoading, setPurchaseLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     initRevenueCat();
@@ -93,7 +95,12 @@ export default function PremiumScreen() {
       const result = await restorePurchases();
       await refetch();
       if (result.success) {
-        Alert.alert('Restored', 'Your Premium subscription is restored.');
+        showDialog({
+          title: "You're Premium again",
+          message: 'Your subscription was restored successfully.',
+          variant: 'success',
+          primaryAction: { label: 'Great', onPress: () => {} },
+        });
       } else if (result.error) {
         setError(result.error);
       }
@@ -104,9 +111,12 @@ export default function PremiumScreen() {
 
   if (subLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Checking subscription…" message="Just a sec…" />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Checking subscription…" message="Just a sec…" />
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
@@ -115,6 +125,7 @@ export default function PremiumScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Pressable
           onPress={() => router.back()}

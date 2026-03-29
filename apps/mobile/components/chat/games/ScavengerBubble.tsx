@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
-import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,6 +10,7 @@ import type { NativeHydratedGameSessionView } from '@/lib/chatGameSessions';
 import type { ScavengerSnapshot } from '@/lib/vibelyGamesTypes';
 import { buildScavengerPhotoParams, formatSendGameEventError, useSendScavengerChoice } from '@/lib/gamesApi';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 type Props = {
   view: NativeHydratedGameSessionView;
@@ -45,26 +46,38 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 
 export function ScavengerBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
-  const snap = view.foldedSnapshot;
-  if (snap.game_type !== 'scavenger') return null;
-
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { mutateAsync, isPending } = useSendScavengerChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [selectedPhotoUrl, setSelectedPhotoUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const tapGuard = useRef(false);
 
+  const snap = view.foldedSnapshot;
+  const scavengerSnap = snap.game_type === 'scavenger' ? snap : null;
+
+  useEffect(() => {
+    if (!scavengerSnap) return;
+    setSubmitError(null);
+    setSelectedPhotoUrl(null);
+  }, [
+    view.gameSessionId,
+    view.latestMessageId,
+    view.updatedAt,
+    scavengerSnap?.status,
+    scavengerSnap?.receiver_photo_url,
+    scavengerSnap?.is_unlocked,
+  ]);
+
+  if (!scavengerSnap) return null;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = scavengerSnap.status === 'complete';
+
   const canBuild = selectedPhotoUrl ? buildScavengerPhotoParams(view, matchId, selectedPhotoUrl) != null : false;
   const actionable = !complete && view.canCurrentUserActNext;
   const canSubmit = actionable && canBuild && !isPending && !uploading;
-  const phase = derivePhase(snap, complete, isPending || uploading, actionable, canBuild, view.canCurrentUserActNext, isStarter);
-
-  useEffect(() => {
-    setSubmitError(null);
-    setSelectedPhotoUrl(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.status, snap.receiver_photo_url, snap.is_unlocked]);
+  const phase = derivePhase(scavengerSnap, complete, isPending || uploading, actionable, canBuild, view.canCurrentUserActNext, isStarter);
 
   const pickAndUpload = async (fromCamera: boolean) => {
     if (isPending || uploading || !actionable) return;
@@ -73,13 +86,23 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
       if (fromCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+          showDialog({
+            title: 'Camera access',
+            message: 'Allow camera access so you can snap your reply.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Allow photo library access to choose a photo.');
+          showDialog({
+            title: 'Photos access',
+            message: 'Allow photo library access to pick your reply.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
       }
@@ -114,6 +137,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
   };
 
   return (
+    <>
     <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
       <LinearGradient colors={['#22c55e', '#14b8a6']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.accentBar} />
       <View style={styles.inner}>
@@ -135,21 +159,21 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
 
         <View style={[styles.promptCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
           <Text style={[styles.promptLabel, { color: theme.textSecondary }]}>Prompt</Text>
-          <Text style={[styles.promptText, { color: theme.text }]}>{snap.prompt}</Text>
+          <Text style={[styles.promptText, { color: theme.text }]}>{scavengerSnap.prompt}</Text>
         </View>
 
         <View style={styles.photoGrid}>
           <PhotoCard
             theme={theme}
             title={isStarter ? 'Your photo' : `${partnerName}'s photo`}
-            uri={snap.sender_photo_url}
+            uri={scavengerSnap.sender_photo_url}
             hidden={!complete}
             placeholder={isStarter ? 'Waiting to unlock both photos' : 'Unlock by replying with your photo'}
           />
           <PhotoCard
             theme={theme}
             title={isStarter ? `${partnerName}'s photo` : 'Your photo'}
-            uri={complete ? (snap.receiver_photo_url ?? null) : selectedPhotoUrl}
+            uri={complete ? (scavengerSnap.receiver_photo_url ?? null) : selectedPhotoUrl}
             hidden={!complete && !selectedPhotoUrl}
             placeholder={
               isStarter
@@ -221,6 +245,8 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
         <Text style={[styles.time, { color: theme.textSecondary }]}>{timeLabel}</Text>
       </View>
     </View>
+    {dialogEl}
+    </>
   );
 }
 

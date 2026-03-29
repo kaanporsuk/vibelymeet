@@ -7,7 +7,6 @@ import {
   Pressable,
   View as RNView,
   Modal,
-  Alert,
   Platform,
   Linking,
   TextInput,
@@ -64,6 +63,7 @@ import { getEmojiForVibeLabel } from '@/lib/vibeTagTaxonomy';
 import type { VibeScoreActionId } from '@/lib/vibeScoreIncompleteActions';
 import VibeScoreCircle from '@/components/profile/VibeScoreCircle';
 import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
@@ -201,6 +201,8 @@ export default function ProfileStudio() {
       setMeetingPref(stored);
     }
   }, [profile]);
+
+  const { show, dialog } = useVibelyDialog();
 
   // ═══════════════════════════════════════════════
   // End of hooks — only plain values / handlers below until loading/error early returns.
@@ -358,7 +360,12 @@ export default function ProfileStudio() {
   const handleAddPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow access to your photos to add a profile photo.');
+      show({
+        title: 'Photos need access',
+        message: 'Allow your photo library to add a profile photo.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -370,7 +377,12 @@ export default function ProfileStudio() {
     if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
     const currentCount = profile?.photos?.length ?? 0;
     if (currentCount >= MAX_PHOTOS) {
-      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos.`);
+      show({
+        title: 'Gallery full',
+        message: `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setPhotoUploading(true);
@@ -390,7 +402,12 @@ export default function ProfileStudio() {
       await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Upload failed',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setPhotoUploading(false);
     }
@@ -399,7 +416,12 @@ export default function ProfileStudio() {
   const handleTakePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow camera access to take a profile photo.');
+      show({
+        title: 'Camera access',
+        message: 'Allow camera access to take a profile photo.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -410,7 +432,12 @@ export default function ProfileStudio() {
     if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
     const currentCount = profile?.photos?.length ?? 0;
     if (currentCount >= MAX_PHOTOS) {
-      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos.`);
+      show({
+        title: 'Gallery full',
+        message: `You can have up to ${MAX_PHOTOS} photos.`,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setPhotoUploading(true);
@@ -430,7 +457,12 @@ export default function ProfileStudio() {
       await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Upload failed',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setPhotoUploading(false);
     }
@@ -442,22 +474,34 @@ export default function ProfileStudio() {
       copyToCacheDirectory: true,
     });
     if (result === null) {
-      Alert.alert(
-        'Choose File unavailable',
-        'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
-      );
+      show({
+        title: 'Choose File unavailable',
+        message: 'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
     const a = result.assets[0];
     const mime = a.mimeType ?? 'image/jpeg';
     if (!mime.startsWith('image/')) {
-      Alert.alert('Not an image', 'Please choose a JPEG, PNG, or WebP file.');
+      show({
+        title: 'Not an image',
+        message: 'Please choose a JPEG, PNG, or WebP file.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const currentCount = profile?.photos?.length ?? 0;
     if (currentCount >= MAX_PHOTOS) {
-      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos.`);
+      show({
+        title: 'Gallery full',
+        message: `You can have up to ${MAX_PHOTOS} photos.`,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setPhotoUploading(true);
@@ -476,7 +520,12 @@ export default function ProfileStudio() {
       await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Upload failed',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setPhotoUploading(false);
     }
@@ -504,7 +553,12 @@ export default function ProfileStudio() {
       setShowPromptSheet(false);
       setPromptEditIndex(null);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save prompt');
+      show({
+        title: 'Couldn’t save prompt',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -520,7 +574,12 @@ export default function ProfileStudio() {
       setShowPromptSheet(false);
       setPromptEditIndex(null);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to remove prompt');
+      show({
+        title: 'Couldn’t remove prompt',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -539,7 +598,12 @@ export default function ProfileStudio() {
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowIntentDrawer(false);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
+      show({
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -555,7 +619,12 @@ export default function ProfileStudio() {
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowBioDrawer(false);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
+      show({
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -583,7 +652,12 @@ export default function ProfileStudio() {
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowTaglineSheet(false);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
+      show({
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -602,7 +676,12 @@ export default function ProfileStudio() {
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowDetailsDrawer(false);
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'Failed to save');
+      show({
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
@@ -612,46 +691,55 @@ export default function ProfileStudio() {
 
   if (isLoading && !profile) {
     return (
-      <View style={[s.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading profile…" message="Just a sec…" />
-      </View>
+      <>
+        <View style={[s.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading profile…" message="Just a sec…" />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (isError && !profile) {
     return (
-      <View style={[s.centered, { backgroundColor: theme.background, flex: 1 }]}>
-        <ErrorState
-          message={error instanceof Error ? error.message : "We couldn't load your profile."}
-          onActionPress={() => {
-            void refetch().catch((e) => {
-              if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
-            });
-            void refetchLiveCounts().catch((e) => {
-              if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
-            });
-          }}
-        />
-      </View>
+      <>
+        <View style={[s.centered, { backgroundColor: theme.background, flex: 1 }]}>
+          <ErrorState
+            message={error instanceof Error ? error.message : "We couldn't load your profile."}
+            onActionPress={() => {
+              void refetch().catch((e) => {
+                if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
+              });
+              void refetchLiveCounts().catch((e) => {
+                if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
+              });
+            }}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
   /** Network/offline or missing row — fetchMyProfile returned null without throwing */
   if (!isLoading && user?.id && !profile) {
     return (
-      <View style={[s.centered, { backgroundColor: theme.background, flex: 1 }]}>
-        <ErrorState
-          message="We couldn't load your profile. Check your connection and try again."
-          onActionPress={() => {
-            void refetch().catch((e) => {
-              if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
-            });
-            void refetchLiveCounts().catch((e) => {
-              if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
-            });
-          }}
-        />
-      </View>
+      <>
+        <View style={[s.centered, { backgroundColor: theme.background, flex: 1 }]}>
+          <ErrorState
+            message="We couldn't load your profile. Check your connection and try again."
+            onActionPress={() => {
+              void refetch().catch((e) => {
+                if (__DEV__) console.warn('[ProfileStudio] refetch failed:', e);
+              });
+              void refetchLiveCounts().catch((e) => {
+                if (__DEV__) console.warn('[ProfileStudio] refetchLiveCounts failed:', e);
+              });
+            }}
+          />
+        </View>
+        {dialog}
+      </>
     );
   }
 
@@ -2018,7 +2106,12 @@ export default function ProfileStudio() {
           } catch (e) {
             const msg =
               e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
-            Alert.alert('Error', msg);
+            show({
+              title: 'Couldn’t delete video',
+              message: msg,
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
             throw e;
           }
         }}
@@ -2046,6 +2139,7 @@ export default function ProfileStudio() {
       chooseFileSupported={chooseFileSupported}
       useRootModal
     />
+    {dialog}
     </>
   );
 }

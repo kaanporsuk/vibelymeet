@@ -2,14 +2,15 @@
  * After login, if profile.account_paused (deactivate / break), offer one reactivation prompt per session.
  */
 import { useEffect, useRef } from 'react';
-import { Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 export function DeactivatedAccountReactivationPrompt() {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { show, dialog } = useVibelyDialog();
   /** Cleared on logout; reset in effect cleanup so React Strict Mode remount can run again. */
   const reactivationHandledRef = useRef(false);
 
@@ -46,14 +47,14 @@ export function DeactivatedAccountReactivationPrompt() {
 
         const firstName = (data.name as string | null)?.trim()?.split(/\s+/)[0] ?? 'there';
 
-        Alert.alert(
-          `Welcome back, ${firstName}!`,
-          'Your account is currently deactivated. Would you like to reactivate and appear in discovery again?',
-          [
-            { text: 'Stay deactivated', style: 'cancel' },
-            {
-              text: 'Reactivate',
-              onPress: async () => {
+        show({
+          title: `Welcome back, ${firstName}!`,
+          message: 'Your account is paused. Want to show up in discovery again?',
+          variant: 'info',
+          primaryAction: {
+            label: 'Reactivate',
+            onPress: () => {
+              void (async () => {
                 const { error: upErr } = await supabase
                   .from('profiles')
                   .update({
@@ -67,16 +68,22 @@ export function DeactivatedAccountReactivationPrompt() {
                   })
                   .eq('id', userId);
                 if (upErr) {
-                  Alert.alert('Couldn’t reactivate', upErr.message);
+                  show({
+                    title: 'Couldn’t reactivate',
+                    message: upErr.message,
+                    variant: 'warning',
+                    primaryAction: { label: 'OK', onPress: () => {} },
+                  });
                   return;
                 }
                 await qc.invalidateQueries({ queryKey: ['my-profile'] });
                 await qc.invalidateQueries({ queryKey: ['profile-account', userId] });
                 await qc.invalidateQueries({ queryKey: ['privacy-profile', userId] });
-              },
+              })();
             },
-          ]
-        );
+          },
+          secondaryAction: { label: 'Stay paused', onPress: () => {} },
+        });
       })();
     }, 2000);
 
@@ -85,7 +92,7 @@ export function DeactivatedAccountReactivationPrompt() {
       clearTimeout(timer);
       reactivationHandledRef.current = false;
     };
-  }, [user?.id, qc]);
+  }, [user?.id, qc, show]);
 
-  return null;
+  return <>{dialog}</>;
 }

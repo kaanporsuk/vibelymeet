@@ -2,7 +2,7 @@
  * Settings — web parity: stateful Premium card, dynamic Credits, native delete, Support & Feedback, legal links.
  */
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, Linking } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import Constants from 'expo-constants';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -57,17 +58,28 @@ export default function SettingsScreen() {
   const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
   const { tierLabel } = useEntitlements();
   const { data: credits } = useCredits(user?.id);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const handleManageSubscription = async () => {
     try {
       const { data, error } = await supabase.functions.invoke('create-portal-session');
       if (error || !data?.success) {
-        Alert.alert('Couldn\'t open billing', 'The billing portal couldn\'t be opened. Try again.');
+        showDialog({
+          title: 'Billing portal unavailable',
+          message: "We couldn't open the billing page. Try again in a moment.",
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       if (data?.url) await Linking.openURL(data.url);
     } catch {
-      Alert.alert('Couldn\'t open billing', 'Something went wrong. Try again.');
+      showDialog({
+        title: 'Something went wrong',
+        message: "We couldn't reach billing. Check your connection and try again.",
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -75,6 +87,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]} accessibilityLabel="Back">

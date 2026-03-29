@@ -9,7 +9,6 @@ import {
   ListRenderItem,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
   Image,
   Vibration,
@@ -25,6 +24,7 @@ import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecording
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { LoadingState, ErrorState } from '@/components/ui';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
@@ -389,6 +389,7 @@ export default function ChatThreadScreen() {
   const [voiceReplyHint, setVoiceReplyHint] = useState(false);
   const listRef = useRef<FlatList>(null);
   const [sendingPhoto, setSendingPhoto] = useState(false);
+  const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
   const outboxForMatch = useMemo(() => {
     if (!data?.matchId) return [];
@@ -618,13 +619,23 @@ export default function ChatThreadScreen() {
         (e.message.toLowerCase().includes('permission') || e.message.toLowerCase().includes('denied'));
       if (isPerm) {
         setVoiceError(null);
-        Alert.alert('Recording', 'Microphone access is needed for voice messages.');
+        showAppDialog({
+          title: 'Microphone needed',
+          message: 'Allow mic access so you can send voice messages.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       const msg = chatFriendlyErrorFromUnknown(e);
       setVoiceError(msg);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        Alert.alert('Recording', msg);
+        showAppDialog({
+          title: 'Recording issue',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     }
   };
@@ -656,7 +667,12 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        Alert.alert('Voice message failed', msg);
+        showAppDialog({
+          title: 'Voice message failed',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     }
   };
@@ -681,7 +697,12 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(VIBE_CLIP_PERM_LIBRARY_TITLE, VIBE_CLIP_PERM_LIBRARY_MESSAGE);
+        showAppDialog({
+          title: VIBE_CLIP_PERM_LIBRARY_TITLE,
+          message: VIBE_CLIP_PERM_LIBRARY_MESSAGE,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       trackVibeClipEvent('clip_record_started', {
@@ -729,7 +750,12 @@ export default function ChatThreadScreen() {
       const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
       if (!(isOffline && isLikelyNetworkFailure(e))) {
         setVideoError(msg);
-        Alert.alert('Vibe Clip', msg);
+        showAppDialog({
+          title: 'Vibe Clip',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       } else {
         setVideoError(null);
       }
@@ -743,7 +769,12 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(VIBE_CLIP_PERM_CAMERA_TITLE, VIBE_CLIP_PERM_CAMERA_MESSAGE);
+        showAppDialog({
+          title: VIBE_CLIP_PERM_CAMERA_TITLE,
+          message: VIBE_CLIP_PERM_CAMERA_MESSAGE,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       trackVibeClipEvent('clip_record_started', {
@@ -790,7 +821,12 @@ export default function ChatThreadScreen() {
       const msg = chatFriendlyErrorFromUnknown(e, { isVibeClip: true });
       if (!(isOffline && isLikelyNetworkFailure(e))) {
         setVideoError(msg);
-        Alert.alert('Vibe Clip', msg);
+        showAppDialog({
+          title: 'Vibe Clip',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       } else {
         setVideoError(null);
       }
@@ -815,7 +851,12 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        Alert.alert('Photo', msg);
+        showAppDialog({
+          title: 'Photo',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     } finally {
       setSendingPhoto(false);
@@ -827,7 +868,12 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your photos to send a picture.');
+        showAppDialog({
+          title: 'Photos access',
+          message: 'Allow access to your photos to send a picture.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -839,7 +885,12 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        Alert.alert('Photo', msg);
+        showAppDialog({
+          title: 'Photo',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     }
   };
@@ -849,7 +900,12 @@ export default function ChatThreadScreen() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+        showAppDialog({
+          title: 'Camera access',
+          message: 'Allow camera access to take a photo.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       const result = await ImagePicker.launchCameraAsync({ quality: 0.85 });
@@ -858,17 +914,24 @@ export default function ChatThreadScreen() {
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
-        Alert.alert('Photo', msg);
+        showAppDialog({
+          title: 'Photo',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     }
   };
 
   const openPhotoOptions = () => {
-    Alert.alert('Send photo', undefined, [
-      { text: 'Take photo', onPress: () => void takePhotoWithCamera() },
-      { text: 'Choose from library', onPress: () => void pickPhotoFromLibrary() },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    showAppDialog({
+      title: 'Send a photo',
+      message: 'Choose how you’d like to add your picture.',
+      variant: 'info',
+      primaryAction: { label: 'Take photo', onPress: () => void takePhotoWithCamera() },
+      secondaryAction: { label: 'Choose from library', onPress: () => void pickPhotoFromLibrary() },
+    });
   };
 
   const openGamesWebInBrowser = async () => {
@@ -880,7 +943,12 @@ export default function ChatThreadScreen() {
         controlsColor: '#ffffff',
       });
     } catch {
-      Alert.alert('Games', 'Could not open the browser. Try again.');
+      showAppDialog({
+        title: 'Games',
+        message: 'Could not open the browser. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -970,48 +1038,60 @@ export default function ChatThreadScreen() {
 
   if (!otherUserId || !user?.id) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Invalid chat"
-          message="This conversation could not be loaded."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="Invalid chat"
+            message="This conversation could not be loaded."
+            actionLabel="Go back"
+            onActionPress={() => router.back()}
+          />
+        </View>
+        {appDialog}
+      </>
     );
   }
 
   if (isLoading && !data) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <LoadingState title="Loading conversation…" />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <LoadingState title="Loading conversation…" />
+        </View>
+        {appDialog}
+      </>
     );
   }
 
   if (error || !data) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="Could not load conversation"
-          message="Check your connection and try again."
-          actionLabel="Retry"
-          onActionPress={() => refetch()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="Could not load conversation"
+            message="Check your connection and try again."
+            actionLabel="Retry"
+            onActionPress={() => refetch()}
+          />
+        </View>
+        {appDialog}
+      </>
     );
   }
 
   if (!data.matchId) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ErrorState
-          title="No conversation found"
-          message="This match may have been removed."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="No conversation found"
+            message="This match may have been removed."
+            actionLabel="Go back"
+            onActionPress={() => router.back()}
+          />
+        </View>
+        {appDialog}
+      </>
     );
   }
 
@@ -1398,7 +1478,12 @@ export default function ChatThreadScreen() {
               <Pressable
                 onPress={() => {
                   if (isOffline) {
-                    Alert.alert("Can't start a call", 'Check your connection.');
+                    showAppDialog({
+                      title: 'Can’t start a call',
+                      message: 'Check your connection and try again.',
+                      variant: 'warning',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
                     return;
                   }
                   if (data?.matchId) startCall('voice');
@@ -1415,7 +1500,12 @@ export default function ChatThreadScreen() {
               <Pressable
                 onPress={() => {
                   if (isOffline) {
-                    Alert.alert("Can't start a call", 'Check your connection.');
+                    showAppDialog({
+                      title: 'Can’t start a call',
+                      message: 'Check your connection and try again.',
+                      variant: 'warning',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    });
                     return;
                   }
                   if (data?.matchId) startCall('video');
@@ -1508,23 +1598,27 @@ export default function ChatThreadScreen() {
               }
             }}
             onUnmatch={() => {
-              Alert.alert('Unmatch?', `Remove ${matchForActions.name} from your matches? This cannot be undone.`, [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Unmatch',
-                  style: 'destructive',
-                  onPress: async () => {
-                    setActionLoading('unmatch');
-                    try {
-                      await unmatch({ matchId: matchForActions.matchId });
-                      setShowActions(false);
-                      router.back();
-                    } finally {
-                      setActionLoading(null);
-                    }
+              showAppDialog({
+                title: 'Unmatch?',
+                message: `Remove ${matchForActions.name} from your matches? This can’t be undone.`,
+                variant: 'destructive',
+                primaryAction: {
+                  label: 'Unmatch',
+                  onPress: () => {
+                    void (async () => {
+                      setActionLoading('unmatch');
+                      try {
+                        await unmatch({ matchId: matchForActions.matchId });
+                        setShowActions(false);
+                        router.back();
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    })();
                   },
                 },
-              ]);
+                secondaryAction: { label: 'Cancel', onPress: () => {} },
+              });
             }}
             onArchive={async () => {
               setActionLoading('archive');
@@ -1536,23 +1630,27 @@ export default function ChatThreadScreen() {
               }
             }}
             onBlock={() => {
-              Alert.alert('Block?', `Block ${matchForActions.name}? They won't be able to contact you.`, [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Block',
-                  style: 'destructive',
-                  onPress: async () => {
-                    setActionLoading('block');
-                    try {
-                      await blockUser({ blockedId: matchForActions.id, matchId: matchForActions.matchId });
-                      setShowActions(false);
-                      router.back();
-                    } finally {
-                      setActionLoading(null);
-                    }
+              showAppDialog({
+                title: 'Block this person?',
+                message: `${matchForActions.name} won’t be able to contact you.`,
+                variant: 'destructive',
+                primaryAction: {
+                  label: 'Block',
+                  onPress: () => {
+                    void (async () => {
+                      setActionLoading('block');
+                      try {
+                        await blockUser({ blockedId: matchForActions.id, matchId: matchForActions.matchId });
+                        setShowActions(false);
+                        router.back();
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    })();
                   },
                 },
-              ]);
+                secondaryAction: { label: 'Cancel', onPress: () => {} },
+              });
             }}
             onMute={async () => {
               setActionLoading('mute');
@@ -1770,7 +1868,12 @@ export default function ChatThreadScreen() {
             setReactionPickerMessageId(null);
             await queryClient.invalidateQueries({ queryKey: ['message-reactions', data.matchId] });
           } catch {
-            Alert.alert('Reaction', 'Could not send reaction. Try again.');
+            showAppDialog({
+              title: 'Reaction',
+              message: 'Could not send reaction. Try again.',
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
           }
         }}
         anchorRight={
@@ -1897,6 +2000,7 @@ export default function ChatThreadScreen() {
           partnerName={otherName ?? 'Them'}
         />
       ) : null}
+      {appDialog}
     </View>
   );
 }

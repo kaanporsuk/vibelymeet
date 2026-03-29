@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, Modal, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { spacing, radius } from '@/constants/theme';
 import { randomScavengerPrompt } from '@/lib/scavengerPrompts';
 import { uploadChatImageMessage } from '@/lib/chatMediaUpload';
 import { formatSendGameEventError, newVibeGameSessionId, useStartScavengerGame } from '@/lib/gamesApi';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 type Props = {
   visible: boolean;
@@ -26,6 +27,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submitGuard = useRef(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     if (!visible) return;
@@ -43,13 +45,23 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
       if (fromCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+          showDialog({
+            title: 'Camera access',
+            message: 'Allow camera access so you can snap your scavenger photo.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Permission needed', 'Allow photo library access to choose a photo.');
+          showDialog({
+            title: 'Photos access',
+            message: 'Allow photo library access to pick your scavenger image.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
       }
@@ -103,7 +115,8 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
   const canSend = !!senderPhotoUrl && !uploading && !isPending;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending || uploading ? undefined : onClose}>
+    <>
+      <Modal visible={visible} animationType="slide" transparent onRequestClose={isPending || uploading ? undefined : onClose}>
       <View style={styles.modalRoot}>
         <Pressable style={styles.backdrop} onPress={isPending || uploading ? undefined : onClose} accessibilityLabel="Dismiss" />
         <View
@@ -200,6 +213,8 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName }: 
         </View>
       </View>
     </Modal>
+    {dialogEl}
+    </>
   );
 }
 

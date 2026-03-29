@@ -1,6 +1,6 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { View, Text, Pressable, StyleSheet, Share, Alert } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Share } from 'react-native';
 import * as Sentry from '@sentry/react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -16,6 +16,7 @@ import {
 } from '@/lib/dateSuggestionCopy';
 import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -79,6 +80,7 @@ export function DateSuggestionChatCard({
   const queryClient = useQueryClient();
   const cancelInFlightRef = useRef(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const markedRef = useRef(false);
   const revs = suggestion.revisions;
   const current = useMemo(() => {
@@ -115,10 +117,20 @@ export function DateSuggestionChatCard({
   const handleAccept = async () => {
     try {
       await dateSuggestionApply('accept', { suggestion_id: suggestion.id });
-      Alert.alert("It's a date!", 'Enjoy planning together.');
+      showDialog({
+        title: "It's a date!",
+        message: 'Enjoy planning together.',
+        variant: 'success',
+        primaryAction: { label: 'Love it', onPress: () => {} },
+      });
       onUpdated();
     } catch {
-      Alert.alert('Error', 'Could not accept.');
+      showDialog({
+        title: 'Couldn’t accept',
+        message: 'Something went wrong. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -127,7 +139,12 @@ export function DateSuggestionChatCard({
       await dateSuggestionApply('decline', { suggestion_id: suggestion.id });
       onUpdated();
     } catch {
-      Alert.alert('Error', 'Could not decline.');
+      showDialog({
+        title: 'Couldn’t decline',
+        message: 'Something went wrong. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -136,7 +153,12 @@ export function DateSuggestionChatCard({
       await dateSuggestionApply('not_now', { suggestion_id: suggestion.id });
       onUpdated();
     } catch {
-      Alert.alert('Error', 'Could not update.');
+      showDialog({
+        title: 'Couldn’t update',
+        message: 'Something went wrong. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -158,24 +180,49 @@ export function DateSuggestionChatCard({
           ]);
           const row = list?.find((s) => s.id === suggestion.id);
           if (row?.status === 'cancelled') {
-            Alert.alert('Date suggestion', 'Already cancelled.');
+            showDialog({
+              title: 'Already cancelled',
+              message: 'This suggestion was already cancelled.',
+              variant: 'info',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
             onUpdated();
             return;
           }
-          Alert.alert('Date suggestion', 'This suggestion can no longer be cancelled.');
+          showDialog({
+            title: 'Can’t cancel',
+            message: 'This suggestion can no longer be cancelled.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           onUpdated();
           return;
         }
         if (code === 'forbidden') {
-          Alert.alert('Date suggestion', 'You can only cancel your own suggestions.');
+          showDialog({
+            title: 'Not allowed',
+            message: 'You can only cancel suggestions you created.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
         if (code === 'suggestion_id_required') {
-          Alert.alert('Date suggestion', 'Something went wrong. Try again.');
+          showDialog({
+            title: 'Something went wrong',
+            message: 'Please try again.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           return;
         }
         if (code === 'not_found') {
-          Alert.alert('Date suggestion', 'This suggestion is no longer available.');
+          showDialog({
+            title: 'Gone',
+            message: 'This suggestion is no longer available.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           onUpdated();
           return;
         }
@@ -192,12 +239,17 @@ export function DateSuggestionChatCard({
           status,
         },
       });
-      Alert.alert('Date suggestion', 'We couldn’t cancel that right now. Please try again.');
+      showDialog({
+        title: 'Couldn’t cancel',
+        message: 'Please try again in a moment.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       cancelInFlightRef.current = false;
       setCancelBusy(false);
     }
-  }, [onUpdated, queryClient, status, suggestion.id, suggestion.match_id]);
+  }, [onUpdated, queryClient, showDialog, status, suggestion.id, suggestion.match_id]);
 
   const handleShare = async () => {
     if (!current) return;
@@ -212,7 +264,12 @@ export function DateSuggestionChatCard({
     try {
       await Share.share({ title: 'Vibely date', message: body });
     } catch {
-      Alert.alert('Share', 'Could not open the share sheet.');
+      showDialog({
+        title: 'Share didn’t open',
+        message: 'We couldn’t open the share sheet. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -221,23 +278,41 @@ export function DateSuggestionChatCard({
     if (!planId) return;
     try {
       await dateSuggestionApply('plan_mark_complete', { plan_id: planId });
-      Alert.alert('Thanks', 'Good to know.');
+      showDialog({
+        title: 'Thanks!',
+        message: 'Good to know.',
+        variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       onUpdated();
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg.includes('awaiting_partner_confirm')) {
-        Alert.alert('Almost there', 'Waiting for your match to confirm.');
+        showDialog({
+          title: 'Almost there',
+          message: 'Waiting for your match to confirm.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       } else {
-        Alert.alert('Error', 'Could not update.');
+        showDialog({
+          title: 'Couldn’t update',
+          message: 'Something went wrong. Try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     }
   };
 
   if (!current && status !== 'draft') {
     return (
-      <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
-        <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Loading suggestion…</Text>
-      </View>
+      <>
+        <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+          <Text style={{ color: theme.textSecondary, fontSize: 13 }}>Loading suggestion…</Text>
+        </View>
+        {dialogEl}
+      </>
     );
   }
 
@@ -276,6 +351,7 @@ export function DateSuggestionChatCard({
   );
 
   return (
+    <>
     <View
       style={[
         styles.card,
@@ -446,6 +522,8 @@ export function DateSuggestionChatCard({
           btn('New suggestion', () => onOpenComposer({ mode: 'new' }))}
       </View>
     </View>
+    {dialogEl}
+    </>
   );
 }
 

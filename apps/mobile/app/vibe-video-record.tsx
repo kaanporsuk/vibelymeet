@@ -9,7 +9,6 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Alert,
   ActivityIndicator,
   TextInput,
   AppState,
@@ -43,6 +42,7 @@ import { fetchMyProfile } from '@/lib/profileApi';
 import { supabase } from '@/lib/supabase';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const MAX_DURATION_SEC = 15;
 const CAPTION_MAX = 50;
@@ -126,6 +126,7 @@ export default function VibeVideoRecordScreen() {
   const libraryParam = useLibraryUriParam();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { show, dialog } = useVibelyDialog();
 
   const { data: myProfile } = useQuery({ queryKey: ['my-profile'], queryFn: fetchMyProfile });
 
@@ -234,7 +235,12 @@ export default function VibeVideoRecordScreen() {
       }
     } catch (e) {
       setRecording(false);
-      Alert.alert('Recording failed', e instanceof Error ? e.message : 'Please try again.');
+      show({
+        title: 'Recording failed',
+        message: e instanceof Error ? e.message : 'Please try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     }
   };
 
@@ -258,7 +264,12 @@ export default function VibeVideoRecordScreen() {
   const pickFromLibrary = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to upload a video.');
+      show({
+        title: 'Library access',
+        message: 'Allow photo library access to upload a video.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -294,16 +305,21 @@ export default function VibeVideoRecordScreen() {
 
         if (result === 'ready') {
           safeSetStage('idle');
-          Alert.alert('Your Vibe Video is live!', 'It\u2019s now visible on your profile.', [
-            { text: 'OK', onPress: () => router.replace('/(tabs)/profile') },
-          ]);
+          show({
+            title: 'Your Vibe Video is live!',
+            message: 'It’s now visible on your profile.',
+            variant: 'success',
+            primaryAction: { label: 'View profile', onPress: () => router.replace('/(tabs)/profile') },
+          });
           return;
         }
         if (result === 'failed') {
-          Alert.alert(
-            'Video Processing Failed',
-            'Your video could not be processed. Please try again.',
-          );
+          show({
+            title: 'Processing didn’t finish',
+            message: 'We couldn’t process this video. Try uploading again.',
+            variant: 'destructive',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           safeSetStage('preview');
           return;
         }
@@ -316,19 +332,26 @@ export default function VibeVideoRecordScreen() {
           vibeVideoDiagVerbose('upload.poll_aborted', { expectedVideoId });
           return;
         }
-        Alert.alert(
-          'Still Processing',
-          'Your video is taking longer than expected. It will appear on your profile once ready. Pull down on Profile to refresh.',
-        );
-        router.replace('/(tabs)/profile');
+        show({
+          title: 'Still processing',
+          message:
+            'Your video is taking longer than usual. It’ll show on your profile when ready — pull to refresh on Profile.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => router.replace('/(tabs)/profile') },
+        });
       })();
     },
-    [qc, router, safeSetStage],
+    [qc, router, safeSetStage, show],
   );
 
   const doUpload = async () => {
     if (!recordedUri) {
-      Alert.alert('No video', 'Record or choose a video first.');
+      show({
+        title: 'No video yet',
+        message: 'Record a clip or choose one from your library first.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     if (uploadInFlightRef.current) return;
@@ -400,7 +423,12 @@ export default function VibeVideoRecordScreen() {
         vibeVideoDiagVerbose('upload.cancelled_or_unmounted');
         return;
       }
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Please try again.');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Please try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       safeSetStage('preview');
     } finally {
       uploadInFlightRef.current = false;
@@ -452,54 +480,67 @@ export default function VibeVideoRecordScreen() {
 
   if (!camPermission && !skipCameraPermission) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <Text style={{ color: theme.text }}>Requesting camera access…</Text>
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <Text style={{ color: theme.text }}>Requesting camera access…</Text>
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (!permission && !skipCameraPermission) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <Text style={[styles.copy, { color: theme.textSecondary }]}>
-          Camera and microphone permission are needed to record your vibe video.
-        </Text>
-        <Pressable style={[styles.btn, { backgroundColor: theme.tint }]} onPress={requestPermission}>
-          <Text style={styles.btnLabel}>Allow</Text>
-        </Pressable>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
-          <Text style={{ color: theme.tint }}>Back</Text>
-        </Pressable>
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <Text style={[styles.copy, { color: theme.textSecondary }]}>
+            Camera and microphone permission are needed to record your vibe video.
+          </Text>
+          <Pressable style={[styles.btn, { backgroundColor: theme.tint }]} onPress={requestPermission}>
+            <Text style={styles.btnLabel}>Allow</Text>
+          </Pressable>
+          <Pressable style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={{ color: theme.tint }}>Back</Text>
+          </Pressable>
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (stage === 'uploading') {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.background }]}>
-        <ActivityIndicator size="large" color={theme.tint} />
-        <Text style={[styles.copy, { color: theme.text, marginTop: 16 }]}>
-          Uploading… {uploadProgress}%
-        </Text>
-      </View>
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ActivityIndicator size="large" color={theme.tint} />
+          <Text style={[styles.copy, { color: theme.text, marginTop: 16 }]}>
+            Uploading… {uploadProgress}%
+          </Text>
+        </View>
+        {dialog}
+      </>
     );
   }
 
   if (stage === 'processing') {
     return (
-      <ProcessingScreen
-        theme={theme}
-        onGoBack={() => {
-          leftProcessingEarlyRef.current = true;
-          qc.refetchQueries({ queryKey: ['my-profile'] });
-          router.replace('/(tabs)/profile');
-        }}
-      />
+      <>
+        <ProcessingScreen
+          theme={theme}
+          onGoBack={() => {
+            leftProcessingEarlyRef.current = true;
+            qc.refetchQueries({ queryKey: ['my-profile'] });
+            router.replace('/(tabs)/profile');
+          }}
+        />
+        {dialog}
+      </>
     );
   }
 
   if (stage === 'preview' && recordedUri) {
     return (
+      <>
       <View style={styles.container}>
         <View style={styles.previewStageColumn}>
           <View style={styles.previewPlayerShell}>
@@ -512,10 +553,12 @@ export default function VibeVideoRecordScreen() {
               diagContext="record-preview"
               onPlayerFatalError={() => {
                 vibeVideoDiagVerbose('record-preview.playback_error', {});
-                Alert.alert(
-                  'Playback',
-                  'Could not play this clip on device. You can still upload — our servers may process it.',
-                );
+                show({
+                  title: 'Playback issue',
+                  message: 'We couldn’t play this clip here. You can still upload — our servers may process it fine.',
+                  variant: 'warning',
+                  primaryAction: { label: 'OK', onPress: () => {} },
+                });
               }}
             />
 
@@ -568,10 +611,13 @@ export default function VibeVideoRecordScreen() {
 
         {captionModalEl}
       </View>
+      {dialog}
+      </>
     );
   }
 
   return (
+    <>
     <View style={styles.container}>
       <CameraView
         ref={cameraRef}
@@ -631,6 +677,8 @@ export default function VibeVideoRecordScreen() {
 
       {captionModalEl}
     </View>
+    {dialog}
+    </>
   );
 }
 

@@ -10,7 +10,6 @@ import {
   Pressable,
   StyleSheet,
   Dimensions,
-  Alert,
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
@@ -21,6 +20,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius, fonts } from '@/constants/theme';
 import { DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import type { VibeVideoInfo } from '@/lib/vibeVideoState';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const SHEET_HEIGHT = Math.min(SCREEN_H * 0.72, 640);
@@ -45,29 +45,39 @@ export default function VibeVideoDrawer({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [thumbError, setThumbError] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     if (visible) setThumbError(false);
   }, [visible, videoInfo.uid]);
 
   const handleDelete = () => {
-    Alert.alert('Delete vibe video?', 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await onDelete();
-            onClose();
-          } catch (e) {
-            const msg =
-              e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
-            Alert.alert('Error', msg);
-          }
+    showDialog({
+      title: 'Delete vibe video?',
+      message: 'This cannot be undone.',
+      variant: 'destructive',
+      primaryAction: {
+        label: 'Delete',
+        onPress: () => {
+          void (async () => {
+            try {
+              await onDelete();
+              onClose();
+            } catch (e) {
+              const msg =
+                e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
+              showDialog({
+                title: 'Couldn’t delete',
+                message: msg,
+                variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
+            }
+          })();
         },
       },
-    ]);
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
   };
 
   const thumbnailUrl = videoInfo.thumbnailUrl;
@@ -246,6 +256,7 @@ export default function VibeVideoDrawer({
   };
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.backdrop}>
         <View style={s.modalRoot}>
@@ -276,6 +287,8 @@ export default function VibeVideoDrawer({
         </View>
       </View>
     </Modal>
+    {dialogEl}
+    </>
   );
 }
 

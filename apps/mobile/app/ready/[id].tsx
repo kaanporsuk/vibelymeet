@@ -1,13 +1,5 @@
 import { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  Pressable,
-  Image,
-  Alert,
-  ScrollView,
-} from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +12,7 @@ import { GlassHeaderBar, Card, VibelyButton, ErrorState } from '@/components/ui'
 import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const GATE_TIMEOUT_SEC = 30;
 
@@ -48,6 +41,7 @@ export default function ReadyGateScreen() {
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [snoozeTimeLeft, setSnoozeTimeLeft] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -117,15 +111,19 @@ export default function ReadyGateScreen() {
   }, [isSnoozed, forfeit]);
 
   const handleSkip = () => {
-    Alert.alert('Step away?', "You'll go back to the lobby. Your match can continue with others.", [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Step away', style: 'destructive', onPress: () => forfeit() },
-    ]);
+    showDialog({
+      title: 'Step away?',
+      message: "You'll return to the lobby. Your match can keep going with others.",
+      variant: 'destructive',
+      primaryAction: { label: 'Step away', onPress: () => forfeit() },
+      secondaryAction: { label: 'Stay', onPress: () => {} },
+    });
   };
 
   if (!sessionId || !user?.id) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        {dialogEl}
         <ErrorState
           title="Invalid session"
           message="This ready gate link may have expired or isn't valid."
@@ -139,6 +137,7 @@ export default function ReadyGateScreen() {
   if (transitioning) {
     return (
       <View style={[styles.transitioningWrap, { backgroundColor: theme.background }]}>
+        {dialogEl}
         <View style={[styles.transitioningIconWrap, { backgroundColor: theme.tintSoft }]}>
           <Ionicons name="sparkles" size={40} color={theme.tint} />
         </View>
@@ -158,6 +157,7 @@ export default function ReadyGateScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />

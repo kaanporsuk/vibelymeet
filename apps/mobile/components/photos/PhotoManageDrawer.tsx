@@ -6,7 +6,6 @@ import {
   Pressable,
   Image,
   StyleSheet,
-  Alert,
   BackHandler,
   Dimensions,
   ScrollView,
@@ -38,6 +37,7 @@ import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocum
 import { getImageUrl } from '@/lib/imageUrl';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { updateMyProfile } from '@/lib/profileApi';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const MAX_PHOTOS = 6;
@@ -485,6 +485,7 @@ export default function PhotoManageDrawer({
   initialFullscreenIndex = null,
 }: PhotoManageDrawerProps) {
   const insets = useSafeAreaInsets();
+  const { show, dialog } = useVibelyDialog();
   const chooseFileSupported = useMemo(() => isDocumentPickerAvailable(), []);
 
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos);
@@ -595,7 +596,12 @@ export default function PhotoManageDrawer({
   const pickFromLibrary = useCallback(async (replaceIndex?: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow access to your photos.');
+      show({
+        title: 'Photos need access',
+        message: 'Allow access to your photos to add or replace shots.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -606,12 +612,17 @@ export default function PhotoManageDrawer({
     });
     if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
     await uploadAndInsert(result.assets[0], replaceIndex);
-  }, [localPhotos]);
+  }, [localPhotos, show]);
 
   const takePhoto = useCallback(async (replaceIndex?: number) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow camera access.');
+      show({
+        title: 'Camera access',
+        message: 'Allow camera access to take a new photo.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -621,14 +632,19 @@ export default function PhotoManageDrawer({
     });
     if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
     await uploadAndInsert(result.assets[0], replaceIndex);
-  }, [localPhotos]);
+  }, [localPhotos, show]);
 
   const uploadAndInsert = useCallback(async (
     asset: { uri: string; mimeType?: string | null; fileName?: string | null },
     replaceIndex?: number,
   ) => {
     if (replaceIndex === undefined && filledCount >= MAX_PHOTOS) {
-      Alert.alert('Maximum photos', `You can have up to ${MAX_PHOTOS} photos.`);
+      show({
+        title: 'Gallery full',
+        message: `You can have up to ${MAX_PHOTOS} photos. Remove one to add another.`,
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setUploading(true);
@@ -652,11 +668,16 @@ export default function PhotoManageDrawer({
       });
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
-      Alert.alert('Upload failed', e instanceof Error ? e.message : 'Upload failed');
+      show({
+        title: 'Upload failed',
+        message: e instanceof Error ? e.message : 'Upload failed',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setUploading(false);
     }
-  }, [localPhotos, filledCount]);
+  }, [localPhotos, filledCount, show]);
 
   const pickFromDocument = useCallback(
     async (replaceIndex?: number) => {
@@ -665,17 +686,24 @@ export default function PhotoManageDrawer({
         copyToCacheDirectory: true,
       });
       if (result === null) {
-        Alert.alert(
-          'Choose File unavailable',
-          'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
-        );
+        show({
+          title: 'Choose File unavailable',
+          message: 'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
       const a = result.assets[0];
       const mime = a.mimeType ?? 'image/jpeg';
       if (!mime.startsWith('image/')) {
-        Alert.alert('Not an image', 'Please choose a JPEG, PNG, or WebP file.');
+        show({
+          title: 'Not an image',
+          message: 'Please choose a JPEG, PNG, or WebP file.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       await uploadAndInsert(
@@ -683,7 +711,7 @@ export default function PhotoManageDrawer({
         replaceIndex,
       );
     },
-    [uploadAndInsert],
+    [uploadAndInsert, show],
   );
 
   const openAddSourcePicker = useCallback((replaceIndex: number | undefined, anchor: AddPhotoAnchor | null) => {
@@ -732,21 +760,26 @@ export default function PhotoManageDrawer({
     setSelectedIndex(0);
   }, []);
 
-  const handleRemove = useCallback((index: number) => {
-    Alert.alert('Remove this photo?', 'This photo will be removed from your profile.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove',
-        style: 'destructive',
-        onPress: () => {
-          setLocalPhotos(prev => prev.filter((_, i) => i !== index));
-          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          setActiveTileIndex(null);
-          setSelectedIndex(0);
+  const handleRemove = useCallback(
+    (index: number) => {
+      show({
+        title: 'Remove this photo?',
+        message: 'It will disappear from your profile.',
+        variant: 'destructive',
+        primaryAction: {
+          label: 'Remove',
+          onPress: () => {
+            setLocalPhotos((prev) => prev.filter((_, i) => i !== index));
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setActiveTileIndex(null);
+            setSelectedIndex(0);
+          },
         },
-      },
-    ]);
-  }, []);
+        secondaryAction: { label: 'Keep', onPress: () => {} },
+      });
+    },
+    [show],
+  );
 
   const handleReplace = useCallback((index: number) => {
     setActiveTileIndex(null);
@@ -773,11 +806,16 @@ export default function PhotoManageDrawer({
       onPhotosChanged();
       onClose();
     } catch (e) {
-      Alert.alert('Save failed', e instanceof Error ? e.message : 'Could not save photos.');
+      show({
+        title: 'Save failed',
+        message: e instanceof Error ? e.message : 'Could not save photos.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setSaving(false);
     }
-  }, [hasChanges, localPhotos, onClose, onPhotosChanged]);
+  }, [hasChanges, localPhotos, onClose, onPhotosChanged, show]);
 
   const confirmDiscard = useCallback(() => {
     setActiveTileIndex(null);
@@ -785,11 +823,14 @@ export default function PhotoManageDrawer({
       onClose();
       return;
     }
-    Alert.alert('Discard changes?', 'Your photo changes will be lost.', [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Discard', style: 'destructive', onPress: onClose },
-    ]);
-  }, [hasChanges, onClose]);
+    show({
+      title: 'Discard changes?',
+      message: 'Your photo edits will be lost.',
+      variant: 'destructive',
+      primaryAction: { label: 'Discard', onPress: onClose },
+      secondaryAction: { label: 'Keep editing', onPress: () => {} },
+    });
+  }, [hasChanges, onClose, show]);
 
   // ── Render grid tile (inline actions on selected tile — web SortableTile hover overlay) ──
 
@@ -1337,10 +1378,16 @@ export default function PhotoManageDrawer({
   const dragPreviewRect = draggingIndex !== null ? dragStartRectRef.current : null;
 
   if (fullscreenOnly) {
-    return renderFullscreen();
+    return (
+      <>
+        {renderFullscreen()}
+        {dialog}
+      </>
+    );
   }
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={confirmDiscard}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardAvoidingView
@@ -1527,6 +1574,8 @@ export default function PhotoManageDrawer({
       {/* ── Fullscreen Viewer ── */}
       {renderFullscreen()}
     </Modal>
+    {dialog}
+    </>
   );
 }
 

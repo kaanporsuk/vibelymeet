@@ -9,7 +9,6 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  Alert,
   Switch,
   Platform,
 } from 'react-native';
@@ -44,6 +43,7 @@ import { supabase } from '@/lib/supabase';
 import { useFocusEffect } from '@react-navigation/native';
 import { getCalendars } from 'expo-localization';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const AMBER = '#F59E0B';
 
@@ -239,6 +239,7 @@ export default function NotificationsSettingsScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const { show, dialog } = useVibelyDialog();
   const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
   const { isGranted: oneSignalGranted, requestPermission, refresh, openSettings } = usePushPermission();
 
@@ -334,12 +335,17 @@ export default function NotificationsSettingsScreen() {
         setPauseModalVisible(false);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Something went wrong';
-        Alert.alert('Could not pause', msg);
+        show({
+          title: 'Couldn’t pause',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       } finally {
         setPauseBusy(false);
       }
     },
-    [user?.id, qc]
+    [user?.id, qc, show]
   );
 
   const handleResume = useCallback(async () => {
@@ -352,11 +358,16 @@ export default function NotificationsSettingsScreen() {
       setPauseModalVisible(false);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Something went wrong';
-      Alert.alert('Could not resume', msg);
+      show({
+        title: 'Couldn’t resume',
+        message: msg,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setPauseBusy(false);
     }
-  }, [user?.id, qc]);
+  }, [user?.id, qc, show]);
 
   const handleMasterSwitch = useCallback(
     async (val: boolean) => {
@@ -366,10 +377,15 @@ export default function NotificationsSettingsScreen() {
         await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Something went wrong';
-        Alert.alert('Could not update', msg);
+        show({
+          title: 'Couldn’t update',
+          message: msg,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     },
-    [user?.id, qc]
+    [user?.id, qc, show]
   );
 
   const saveQuietHoursPatch = useCallback(
@@ -379,12 +395,17 @@ export default function NotificationsSettingsScreen() {
         .from('notification_preferences')
         .upsert({ user_id: user.id, ...patch }, { onConflict: 'user_id' });
       if (error) {
-        Alert.alert('Could not save', error.message);
+        show({
+          title: 'Couldn’t save',
+          message: error.message,
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       await qc.invalidateQueries({ queryKey: ['notification-preferences'] });
     },
-    [user?.id, qc]
+    [user?.id, qc, show]
   );
 
   const handleQuietHoursToggle = useCallback(
@@ -480,6 +501,7 @@ export default function NotificationsSettingsScreen() {
   };
 
   return (
+    <>
     <View style={[{ flex: 1, backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerInner}>
@@ -766,6 +788,8 @@ export default function NotificationsSettingsScreen() {
         onResume={handleResume}
       />
     </View>
+    {dialog}
+    </>
   );
 }
 

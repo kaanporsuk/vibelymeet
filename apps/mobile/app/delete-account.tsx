@@ -2,7 +2,7 @@
  * Scheduled account deletion (30-day grace) — same contract as web.
  */
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 export default function DeleteAccountScreen() {
   const insets = useSafeAreaInsets();
@@ -23,10 +24,16 @@ export default function DeleteAccountScreen() {
   const email = user?.email ?? '';
   const [isDeleting, setIsDeleting] = useState(false);
   const { pendingDeletion, cancelDeletion, isCancelling, refetchDeletionState } = useDeletionRecovery(user?.id);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const requestAccountDeletion = async () => {
     if (!email?.includes('@')) {
-      Alert.alert('Error', 'We need your email to schedule deletion.');
+      showDialog({
+        title: 'Email needed',
+        message: 'We need a valid email on your account to schedule deletion.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
       return;
     }
     setIsDeleting(true);
@@ -35,30 +42,41 @@ export default function DeleteAccountScreen() {
         body: { email, reason: null, source: 'native' },
       });
       if (error || (data as { success?: boolean })?.success !== true) {
-        Alert.alert('Error', 'Could not schedule deletion. Try again.');
+        showDialog({
+          title: 'Couldn’t schedule deletion',
+          message: 'Something went wrong on our end. Try again in a moment.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
         return;
       }
       await refetchDeletionState();
     } catch {
-      Alert.alert('Error', 'Could not reach the server. Try again.');
+      showDialog({
+        title: 'Connection issue',
+        message: 'We couldn’t reach the server. Check your connection and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setIsDeleting(false);
     }
   };
 
   const confirmSchedule = () => {
-    Alert.alert(
-      'Delete your account?',
-      'Your account will be scheduled for deletion.\n\nYou have 30 days to change your mind.\n\nAfter 30 days, your data will be permanently deleted.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Schedule deletion', style: 'destructive', onPress: requestAccountDeletion },
-      ]
-    );
+    showDialog({
+      title: 'Delete your account?',
+      message:
+        'Your account will be scheduled for deletion. You have 30 days to change your mind — after that, your data is permanently removed.',
+      variant: 'destructive',
+      primaryAction: { label: 'Schedule deletion', onPress: () => void requestAccountDeletion() },
+      secondaryAction: { label: 'Not now', onPress: () => {} },
+    });
   };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
+      {dialogEl}
       <GlassHeaderBar insets={insets}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]} accessibilityLabel="Back">
