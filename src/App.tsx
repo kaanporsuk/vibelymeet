@@ -53,6 +53,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
+import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -108,6 +109,7 @@ const App = () => (
           >
             <BrowserRouter>
               <PostHogPageTracker />
+              <WebOnBreakBanner />
               <AppContent />
               <NotificationContainer />
               <NotificationManager />

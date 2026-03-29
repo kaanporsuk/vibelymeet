@@ -78,6 +78,7 @@ export function DeactivatedAccountReactivationPrompt() {
                   return;
                 }
                 await qc.invalidateQueries({ queryKey: ['my-profile'] });
+                await qc.invalidateQueries({ queryKey: ['account-pause-status'] });
                 await qc.invalidateQueries({ queryKey: ['profile-account', userId] });
                 await qc.invalidateQueries({ queryKey: ['privacy-profile', userId] });
               })();

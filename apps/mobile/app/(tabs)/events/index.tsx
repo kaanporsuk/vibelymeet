@@ -47,6 +47,7 @@ import EventFilterSheet, {
   countActiveFilters,
 } from '@/components/events/EventFilterSheet';
 import * as Location from 'expo-location';
+import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const TIME_FILTERS = [
   { key: 'tonight', label: 'Tonight' },
@@ -914,6 +915,7 @@ export default function EventsListScreen() {
 
       {/* Content — max width for tablet parity */}
       <View style={[styles.content, { maxWidth: layout.contentWidth, alignSelf: 'center', width: '100%' }]}>
+        <OnBreakBanner variant="compact" style={{ marginHorizontal: layout.containerPadding, marginBottom: 4 }} />
         {isLoading && !events.length ? (
           <EventsSkeleton />
         ) : isFiltering ? (

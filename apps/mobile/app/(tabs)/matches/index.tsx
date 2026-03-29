@@ -53,6 +53,7 @@ import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { getMatchSearchHitKind } from '@/lib/matchSearchHaystack';
 import {
@@ -831,6 +832,7 @@ export default function MatchesListScreen() {
           ListHeaderComponent={
             <RNView onTouchStart={dismissOpenConversationSwipe}>
             <>
+              <OnBreakBanner variant="compact" style={{ marginHorizontal: layout.containerPadding, marginBottom: 8 }} />
               {showNewVibesRail && newVibes.length > 0 && !canSeeLikedYou ? (
                 <WhoLikedYouGate count={newVibes.length} />
               ) : showNewVibesRail && newVibes.length > 0 && canSeeLikedYou ? (
@@ -904,7 +906,10 @@ export default function MatchesListScreen() {
           />
         </GestureHandlerRootView>
       ) : (
-        <DropsTabContent userId={user?.id} />
+        <RNView style={{ flex: 1 }}>
+          <OnBreakBanner variant="compact" style={{ marginHorizontal: layout.containerPadding, marginTop: 8, marginBottom: 4 }} />
+          <DropsTabContent userId={user?.id} />
+        </RNView>
       )}
 
       <MatchActionsSheet
