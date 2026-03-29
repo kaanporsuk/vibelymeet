@@ -108,6 +108,7 @@ export function CharadesBubble({ view, matchId, currentUserId, partnerName, time
   );
 
   const handleGuess = async () => {
+    if (isExpired) return;
     if (tapGuard.current || isPending) return;
     if (!canBuild) return;
     tapGuard.current = true;
