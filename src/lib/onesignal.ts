@@ -7,10 +7,6 @@ declare global {
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 
-const ONESIGNAL_APP_ID_FALLBACK = "97e52ea2-6a27-4486-a678-4dd8a0d49e94";
-const ONESIGNAL_APP_ID =
-  import.meta.env.VITE_ONESIGNAL_APP_ID || ONESIGNAL_APP_ID_FALLBACK;
-
 const PLAYER_ID_POLL_ATTEMPTS = 8;
 const PLAYER_ID_POLL_MS = 1000;
 
@@ -78,6 +74,13 @@ export async function waitForOneSignalInitResult(): Promise<{
 
 export const initOneSignal = () => {
   if (initEnqueued) return;
+
+  const appId = import.meta.env.VITE_ONESIGNAL_APP_ID as string | undefined;
+  if (!appId || String(appId).trim() === "") {
+    console.warn("OneSignal: VITE_ONESIGNAL_APP_ID not set, push disabled");
+    return;
+  }
+
   vibelyOsLog("onesignal:initOneSignal enqueue");
   initEnqueued = true;
   initFinished = new Promise<void>((resolve) => {
@@ -88,14 +91,14 @@ export const initOneSignal = () => {
   window.OneSignalDeferred!.push(async (OneSignal: any) => {
     try {
       await OneSignal.init({
-        appId: ONESIGNAL_APP_ID,
+        appId,
         notifyButton: { enable: false },
         allowLocalhostAsSecureOrigin: true,
         serviceWorkerParam: { scope: "/" },
       });
 
       sdkUsable = true;
-      vibelyOsLog("onesignal:init success", { appIdTail: ONESIGNAL_APP_ID.slice(-6) });
+      vibelyOsLog("onesignal:init success", { appIdTail: appId.slice(-6) });
 
       OneSignal.Notifications.addEventListener("click", (event: any) => {
         const url = event.notification?.data?.url;

@@ -210,22 +210,28 @@ export function useEventVibes(eventId: string) {
   };
 }
 
-// Helper function to notify the vibe receiver via edge function
+/** Real OneSignal push via send-notification (user JWT from invoke). */
 async function notifyVibeReceiver(receiverId: string, eventId: string, isMutual: boolean) {
   try {
-    // Call the vibe-notification edge function
-    const response = await supabase.functions.invoke("vibe-notification", {
+    const { error } = await supabase.functions.invoke("send-notification", {
       body: {
-        receiver_id: receiverId,
-        event_id: eventId,
-        is_mutual: isMutual,
+        user_id: receiverId,
+        category: isMutual ? "new_match" : "someone_vibed_you",
+        title: isMutual ? "It's a match! 🎉" : "Someone vibed you ✨",
+        body: isMutual
+          ? "You both vibed — start chatting now!"
+          : "Someone at the event is interested in you!",
+        data: {
+          url: isMutual ? "/matches" : `/event/${eventId}/lobby`,
+          event_id: eventId,
+        },
       },
     });
 
-    if (response.error) {
-      console.error("Vibe notification error:", response.error);
+    if (error) {
+      console.error("Vibe send-notification error:", error);
     }
   } catch (error) {
-    console.error("Failed to call vibe notification function:", error);
+    console.error("Failed to send vibe notification:", error);
   }
 }
