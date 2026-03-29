@@ -18,12 +18,14 @@ import { useBackendSubscription } from '@/lib/subscriptionApi';
 import {
   getOfferings,
   purchasePackage,
-  restorePurchases,
+  restorePurchasesWithCustomerInfo,
   initRevenueCat,
   setRevenueCatUserId,
   isRevenueCatConfigured,
   getRevenueCatApiKey,
 } from '@/lib/revenuecat';
+import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscriber';
+import { PURCHASES_ERROR_CODE } from 'react-native-purchases';
 import type { PurchasesOfferings, PurchasesPackage } from 'react-native-purchases';
 import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
@@ -92,17 +94,34 @@ export default function PremiumScreen() {
     setRestoreLoading(true);
     setError(null);
     try {
-      const result = await restorePurchases();
+      const result = await restorePurchasesWithCustomerInfo();
+      if (!result.ok) {
+        if (result.errorCode === PURCHASES_ERROR_CODE.NETWORK_ERROR) {
+          setError('Please check your internet connection and try again.');
+        } else {
+          setError(result.error instanceof Error ? result.error.message : 'Restore failed.');
+        }
+        return;
+      }
+      const hasActive = Object.keys(result.customerInfo.entitlements.active).length > 0;
+      if (user?.id) {
+        await syncRevenueCatSubscriberFromServer();
+      }
       await refetch();
-      if (result.success) {
+      if (hasActive) {
         showDialog({
           title: "You're Premium again",
           message: 'Your subscription was restored successfully.',
           variant: 'success',
           primaryAction: { label: 'Great', onPress: () => {} },
         });
-      } else if (result.error) {
-        setError(result.error);
+      } else {
+        showDialog({
+          title: 'No active purchases',
+          message: "We couldn't find any active subscriptions to restore.",
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
       }
     } finally {
       setRestoreLoading(false);

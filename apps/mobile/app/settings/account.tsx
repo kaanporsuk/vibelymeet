@@ -9,6 +9,7 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  Alert,
   Modal,
   Linking,
   Platform,
@@ -23,7 +24,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import Purchases from 'react-native-purchases';
+import Purchases, { type CustomerInfo, PURCHASES_ERROR_CODE } from 'react-native-purchases';
 
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, VibelyButton } from '@/components/ui';
@@ -37,7 +38,9 @@ import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBa
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { avatarUrl } from '@/lib/imageUrl';
-import { isRevenueCatConfigured } from '@/lib/revenuecat';
+import { isRevenueCatConfigured, restorePurchasesWithCustomerInfo } from '@/lib/revenuecat';
+import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscriber';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
@@ -117,6 +120,17 @@ function subscriptionManageUrl(): string {
   return 'https://apps.apple.com/account/subscriptions';
 }
 
+function deriveRcMembership(info: CustomerInfo): { tier: 'none' | 'premium' | 'vip'; expiry: string | null } {
+  const active = info.entitlements.active;
+  const vip = active['vip'];
+  const prem = active['premium'];
+  if (vip) return { tier: 'vip', expiry: vip.expirationDate ?? null };
+  if (prem) return { tier: 'premium', expiry: prem.expirationDate ?? null };
+  const first = Object.values(active)[0];
+  if (first) return { tier: 'premium', expiry: first.expirationDate ?? null };
+  return { tier: 'none', expiry: null };
+}
+
 function ValueChip({ label, accentColor }: { label: string; accentColor: string }) {
   return (
     <View
@@ -151,6 +165,7 @@ export default function AccountSettingsScreen() {
   const theme = Colors[useColorScheme()];
   const { show, dialog } = useVibelyDialog();
   const { user, signOut } = useAuth();
+  const { refetch: refetchEntitlements } = useEntitlements();
   const qc = useQueryClient();
   const email = user?.email ?? '';
 
@@ -173,8 +188,9 @@ export default function AccountSettingsScreen() {
   const [breakChip, setBreakChip] = useState<BreakChip | null>(null);
   const [breakBusy, setBreakBusy] = useState(false);
 
-  const [rcPremium, setRcPremium] = useState(false);
+  const [rcTier, setRcTier] = useState<'none' | 'premium' | 'vip'>('none');
   const [rcExpiry, setRcExpiry] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
 
@@ -223,12 +239,12 @@ export default function AccountSettingsScreen() {
       try {
         const info = await Purchases.getCustomerInfo();
         if (cancelled) return;
-        const ent = info.entitlements.active['premium'];
-        setRcPremium(!!ent);
-        setRcExpiry(ent?.expirationDate ?? null);
+        const { tier, expiry } = deriveRcMembership(info);
+        setRcTier(tier);
+        setRcExpiry(expiry);
       } catch {
         if (!cancelled) {
-          setRcPremium(false);
+          setRcTier('none');
           setRcExpiry(null);
         }
       }
@@ -400,7 +416,7 @@ export default function AccountSettingsScreen() {
   };
 
   const openDeleteFlow = () => {
-    const isPremium = rcPremium;
+    const isPremium = rcTier !== 'none';
     const msg = isPremium
       ? 'You have an active Vibely Premium subscription. Deleting your account does NOT automatically cancel your subscription. Cancel it in the App Store or Play Store first.'
       : 'Your account and all data will be permanently deleted.';
@@ -432,28 +448,63 @@ export default function AccountSettingsScreen() {
     }
   };
 
-  const restorePurchases = async () => {
+  const handleRestorePurchases = async () => {
+    if (!isRevenueCatConfigured()) {
+      Alert.alert('Unavailable', 'In-app purchases are not configured on this build.');
+      return;
+    }
+    setRestoring(true);
     try {
-      await Purchases.restorePurchases();
-      const info = await Purchases.getCustomerInfo();
-      const ent = info.entitlements.active['premium'];
-      setRcPremium(!!ent);
-      setRcExpiry(ent?.expirationDate ?? null);
-      show({
-        title: ent ? 'Purchases restored' : 'No active purchases',
-        message: ent
-          ? 'Your subscription is active again.'
-          : 'We couldn’t find any active subscriptions to restore.',
-        variant: ent ? 'success' : 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } catch (e) {
-      show({
-        title: 'Restore failed',
-        message: e instanceof Error ? e.message : 'Try again.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
+      const sdk = await restorePurchasesWithCustomerInfo();
+      if (!sdk.ok) {
+        if (sdk.errorCode === PURCHASES_ERROR_CODE.NETWORK_ERROR) {
+          Alert.alert(
+            'Connection Error',
+            'Please check your internet connection and try again.'
+          );
+        } else {
+          Alert.alert(
+            'Restore Failed',
+            'Something went wrong. Please try again or contact support.'
+          );
+        }
+        console.error('Restore purchases error:', sdk.error);
+        return;
+      }
+
+      const activeEntitlements = sdk.customerInfo.entitlements.active;
+      if (Object.keys(activeEntitlements).length > 0) {
+        const hasVip = activeEntitlements['vip'] !== undefined;
+        const hasPremium = activeEntitlements['premium'] !== undefined;
+        const newTier = hasVip ? 'vip' : hasPremium ? 'premium' : 'premium';
+
+        if (user?.id) {
+          await syncRevenueCatSubscriberFromServer();
+        }
+
+        const { tier, expiry } = deriveRcMembership(sdk.customerInfo);
+        setRcTier(tier);
+        setRcExpiry(expiry);
+
+        await refetchEntitlements();
+        qc.invalidateQueries({ queryKey: ['backend-subscription', user?.id] });
+        refreshProfile();
+
+        const label = newTier === 'vip' ? 'VIP' : 'Premium';
+        Alert.alert(
+          'Purchases Restored',
+          `Your ${label} membership has been restored.`
+        );
+      } else {
+        setRcTier('none');
+        setRcExpiry(null);
+        Alert.alert(
+          'No Active Purchases',
+          "We couldn't find any active subscriptions to restore."
+        );
+      }
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -662,18 +713,18 @@ export default function AccountSettingsScreen() {
                 theme={theme}
                 icon="star-outline"
                 iconColor={AMBER}
-                title="Vibely Premium"
+                title={rcTier === 'vip' ? 'Vibely VIP' : 'Vibely Premium'}
                 subtitle={
-                  rcPremium && rcExpiry
+                  rcTier !== 'none' && rcExpiry
                     ? `Active · Renews ${new Date(rcExpiry).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-                    : rcPremium
+                    : rcTier !== 'none'
                       ? 'Active'
                       : 'Unlock unlimited vibes and premium features'
                 }
                 right={
                   <View style={styles.rowRight}>
-                    {rcPremium ? (
-                      <ValueChip label="Active" accentColor={AMBER} />
+                    {rcTier !== 'none' ? (
+                      <ValueChip label={rcTier === 'vip' ? 'VIP' : 'Active'} accentColor={AMBER} />
                     ) : (
                       <>
                         <ValueChip label="Upgrade" accentColor={theme.tint} />
@@ -709,14 +760,23 @@ export default function AccountSettingsScreen() {
                 onPress={() => Linking.openURL(subscriptionManageUrl()).catch(() => {})}
               />
               <Hairline theme={theme} />
-              <AccountRow
-                theme={theme}
-                icon="refresh-outline"
-                iconColor={theme.mutedForeground}
-                title="Restore purchases"
-                subtitle="If you've reinstalled the app"
-                onPress={() => void restorePurchases()}
-              />
+              <View style={{ opacity: restoring ? 0.55 : 1 }}>
+                <AccountRow
+                  theme={theme}
+                  icon="refresh-outline"
+                  iconColor={theme.mutedForeground}
+                  title="Restore purchases"
+                  subtitle="If you've reinstalled the app"
+                  right={
+                    restoring ? (
+                      <ActivityIndicator size="small" color={theme.tint} />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                    )
+                  }
+                  onPress={restoring ? undefined : () => void handleRestorePurchases()}
+                />
+              </View>
             </CardShell>
 
             <SectionTitle theme={theme} text="TAKE A BREAK" />
