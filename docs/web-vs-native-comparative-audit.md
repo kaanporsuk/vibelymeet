@@ -70,8 +70,8 @@
 | useServiceWorker | src/hooks/useServiceWorker.ts | **MISSING** | — | N/A native |
 | useCredits | src/hooks/useCredits.ts | Inline in settings | apps/mobile/app/settings/index.tsx, credits.tsx | Native: inline useQuery for credits |
 | useEventVibes | src/hooks/useEventVibes.ts | **MISSING** | — | Web: event vibes for details |
-| useDropMatches | src/hooks/useDropMatches.ts | **MISSING** | — | Web: Daily Drop matches |
-| useEventNotifications | src/hooks/useEventNotifications.ts | **MISSING** | — | |
+| useDropMatches | *(deleted — session cleanup)* | — | — | Was obsolete; Daily Drop uses useDailyDrop |
+| useEventNotifications | *(removed — PR #143)* | — | — | Was web-only; deleted |
 | useVideoCall | src/hooks/useVideoCall.ts | Yes (different API) | apps/mobile/lib/videoDateApi.ts | Native: useVideoDateSession, getDailyRoomToken, enterHandshake, endVideoDate |
 | useEventStatus | src/hooks/useEventStatus.ts | **MISSING** | — | Web: lobby status; native lobby uses deck + ready gate only |
 | useAdminActivityLog | src/hooks/useAdminActivityLog.ts | **MISSING** | — | No admin in native |
@@ -100,13 +100,13 @@
 | useVisibleEvents | src/hooks/useVisibleEvents.ts | **MISSING** | — | Web: visible/other-city events; native uses useEvents only |
 | useLogout | src/hooks/useLogout.ts | N/A | AuthContext signOut | Native: signOut from context |
 | usePushNotifications | src/hooks/usePushNotifications.ts | Yes (different) | apps/mobile/lib/onesignal.ts, usePushPermission.ts | Native: OneSignal + usePushPermission |
-| useReengagementNotifications | src/hooks/useReengagementNotifications.ts | **MISSING** | — | |
+| useReengagementNotifications | *(removed — PR #143)* | — | — | Was web-only; deleted |
 | usePushNotificationEvents | src/hooks/usePushNotificationEvents.ts | **MISSING** | — | |
 | useRegistrations | src/hooks/useRegistrations.ts | Partial | eventsApi.ts (useRegisterForEvent, useIsRegisteredForEvent) | No useUserRegistrations equivalent |
 | useEventDetails | src/hooks/useEventDetails.ts | Yes | apps/mobile/lib/eventsApi.ts | useEventDetails, useIsRegisteredForEvent |
-| useMysteryMatch | src/hooks/useMysteryMatch.ts | **MISSING** | — | |
+| useMysteryMatch | *(deleted — session cleanup)* | — | apps/mobile/lib/useMysteryMatch.ts | Web copy removed |
 | useEventLifecycle | src/hooks/useEventLifecycle.ts | **MISSING** | — | Web: PostDateSurvey |
-| useNetworkStatus | src/hooks/useNetworkStatus.ts | **MISSING** | — | Web: OfflineBanner |
+| useNetworkStatus | *(deleted — session cleanup)* | — | apps/mobile/lib/useNetworkStatus.ts | Web copy removed |
 | useFaceVerification | src/hooks/useFaceVerification.ts | **MISSING** | — | |
 | use-toast | src/hooks/use-toast.ts | **MISSING** | — | Native: Alert / in-app toasts |
 | useAdminRealtime | src/hooks/useAdminRealtime.ts | **MISSING** | — | No admin |
@@ -114,7 +114,7 @@
 | useArchiveMatch | src/hooks/useArchiveMatch.ts | Yes | apps/mobile/lib/useArchiveMatch.ts | |
 | useEventReminders | src/hooks/useEventReminders.ts | **MISSING** | — | Web: NotificationManager |
 | useReadyGate | src/hooks/useReadyGate.ts | Yes | apps/mobile/lib/readyGateApi.ts | useReadyGate |
-| useInfiniteScroll | src/hooks/useInfiniteScroll.ts | **MISSING** | — | Native: FlatList/ScrollView |
+| useInfiniteScroll | *(deleted — session cleanup)* | — | — | Unused on web |
 | useUnmatch | src/hooks/useUnmatch.ts | Yes | apps/mobile/lib/useUnmatch.ts | Web: useUndoableUnmatch; native: useUnmatch (no undo) |
 | use-mobile (useIsMobile) | src/hooks/use-mobile.ts | N/A | — | Not applicable (native is always “mobile”) |
 
@@ -173,7 +173,7 @@
 
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
-| Hooks | useMatches, useDropMatches, useUndoableUnmatch, useArchiveMatch, useBlockUser, useMuteMatch, useSubscription | useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch | Native: no useDropMatches (Drops tab links to web); no useSubscription (WhoLikedYouGate); unmatch is immediate (no undo) |
+| Hooks | useMatches, useUndoableUnmatch, useArchiveMatch, useBlockUser, useMuteMatch, useSubscription | useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch | Native: no useSubscription (WhoLikedYouGate); unmatch is immediate (no undo) |
 | Components | NewVibesRail, SwipeableMatchCard, EmptyMatchesState, ProfileDetailDrawer, DropsTabContent, UnmatchDialog, ArchiveMatchDialog, BlockUserDialog, MuteOptionsSheet, ArchivedMatchesSection, ReportWizard, WhoLikedYouGate, Tabs (conversations/drops) | MatchListRow, MatchActionsSheet, ReportFlowModal, EmptyState, SettingsRow (Drops CTA) | Native: no NewVibesRail, no SwipeableMatchCard, no ProfileDetailDrawer, no DropsTabContent (link to web); MatchActionsSheet instead of separate dialogs; no WhoLikedYouGate |
 | Interactions | Search, sort, tabs (conversations/drops), unmatch (undo), archive, block, mute, report, open profile drawer, open chat | Search, sort, tabs (conversations/drops), unmatch (no undo), archive, block, mute, report, open chat | Native: no undo unmatch; no profile drawer; Drops = “use on web” CTA |
 | Data | Drop matches, subscription for gate | Matches only | Native: no drop matches data |
@@ -235,7 +235,7 @@
 
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
-| Hooks | useDailyDrop, useDropMatches | useDailyDrop | Native: useDailyDrop present; full drop flow may link to web |
+| Hooks | useDailyDrop | useDailyDrop | Native: useDailyDrop present; full drop flow may link to web |
 | Components | DailyDropSection, DropZoneWidget, VibeReplyModal, etc. | useDailyDrop state, list, pass/reveal actions | Native: simplified; some flows “use on web” |
 
 ### User profile (public) (Web: UserProfile.tsx | Native: user/[userId].tsx)

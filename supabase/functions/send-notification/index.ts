@@ -452,8 +452,15 @@ Deno.serve(async (req) => {
       body: JSON.stringify(osPayload),
     })
 
-    const osResult = await osResponse.text()
-    console.log('OneSignal response:', osResult)
+    const osResultText = await osResponse.text()
+    let notificationId: string | undefined
+    try {
+      const parsed = JSON.parse(osResultText) as { id?: string }
+      notificationId = typeof parsed?.id === 'string' ? parsed.id : undefined
+    } catch {
+      /* non-JSON body */
+    }
+    console.log('OneSignal:', osResponse.status, notificationId || 'no-id')
 
     // 12. Log success
     await logNotification(user_id, category, finalTitle, finalBody, data, true)
