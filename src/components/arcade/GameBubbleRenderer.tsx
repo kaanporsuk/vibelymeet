@@ -60,6 +60,7 @@ export const GameBubbleRenderer = ({
           <WouldRatherGame
             payload={payload}
             isOwn={isOwn}
+            sessionCreatedAt={sessionCreatedAt}
             onVote={(choice) => handleUpdate({ receiverVote: choice, isMatch: payload.data.senderVote === choice })}
           />
         );

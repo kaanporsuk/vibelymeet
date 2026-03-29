@@ -46,7 +46,7 @@ const IN_CHAT_GAMES: readonly GameRowDef[] = [
   },
   {
     id: 'would_rather',
-    title: 'Would You Rather',
+    title: 'Would You Rather?',
     description: 'Fast chemistry questions',
     icon: 'git-compare-outline',
     accent: 'pink',

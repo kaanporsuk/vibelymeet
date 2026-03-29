@@ -13,6 +13,8 @@ import {
   useSendWouldRatherChoice,
 } from '@/lib/gamesApi';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -23,6 +25,7 @@ type Props = {
 
 /** UI phases derived only from folded snapshot + hydration flags (no invented game rules). */
 type BubblePhase =
+  | 'expired'
   | 'complete_match'
   | 'complete_split'
   | 'submitting'
@@ -32,7 +35,7 @@ type BubblePhase =
   | 'ambiguous';
 
 type CompletePhase = Extract<BubblePhase, 'complete_match' | 'complete_split'>;
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting'>;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting' | 'expired'>;
 
 function derivePhase(
   snap: WouldRatherSnapshot,
@@ -42,8 +45,10 @@ function derivePhase(
   canBuildVote: boolean,
   canActNext: boolean,
   isStarter: boolean,
-  receiverPicked: boolean
+  receiverPicked: boolean,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) {
     const match = snap.is_match === true || (snap.receiver_vote != null && snap.sender_vote === snap.receiver_vote);
     return match ? 'complete_match' : 'complete_split';
@@ -66,41 +71,60 @@ function isCompletePhase(phase: BubblePhase): phase is CompletePhase {
 }
 
 function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete_match' && phase !== 'complete_split' && phase !== 'submitting';
+  return phase !== 'complete_match' && phase !== 'complete_split' && phase !== 'submitting' && phase !== 'expired';
 }
 
 export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (snap.game_type !== 'would_rather') return null;
+  const wouldRatherSnap = snap.game_type === 'would_rather' ? snap : null;
 
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
   const { mutateAsync, isPending } = useSendWouldRatherChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const tapGuard = useRef(false);
 
+  useEffect(() => {
+    if (!wouldRatherSnap) return;
+    setSubmitError(null);
+  }, [
+    view.gameSessionId,
+    view.latestMessageId,
+    view.updatedAt,
+    wouldRatherSnap?.receiver_vote,
+    wouldRatherSnap?.status,
+    wouldRatherSnap?.is_match,
+  ]);
+
+  if (!wouldRatherSnap) return null;
+
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    wouldRatherSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = wouldRatherSnap.status === 'complete';
+
   const canBuildVote = buildWouldRatherReceiverVoteParams(view, matchId, 'A') != null;
-  const actionable = canBuildVote && !complete;
+  const actionable = canBuildVote && !complete && !isExpired;
   const optionRowsDisabled = !actionable || isPending;
 
-  const receiverPicked = snap.receiver_vote != null;
+  const receiverPicked = wouldRatherSnap.receiver_vote != null;
   const phase = derivePhase(
-    snap,
+    wouldRatherSnap,
     complete,
     isPending,
     actionable,
     canBuildVote,
     view.canCurrentUserActNext,
     isStarter,
-    receiverPicked
+    receiverPicked,
+    isExpired
   );
 
-  useEffect(() => {
-    setSubmitError(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.receiver_vote, snap.status]);
-
   const handlePick = async (vote: 'A' | 'B') => {
+    if (isExpired) return;
     if (tapGuard.current || isPending) return;
     if (!canBuildVote) return;
     tapGuard.current = true;
@@ -123,13 +147,13 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
         phase={phase}
         partnerName={partnerName}
         theme={theme}
-        senderVote={snap.sender_vote}
+        senderVote={wouldRatherSnap.sender_vote}
       />
     ) : null;
 
   const completeHero = isCompletePhase(phase) ? (
     <CompleteOutcomeBlock
-      snap={snap}
+      snap={wouldRatherSnap}
       theme={theme}
       partnerName={partnerName}
       isStarter={isStarter}
@@ -144,6 +168,7 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
         {
           backgroundColor: theme.surface,
           borderColor: 'rgba(255,255,255,0.1)',
+          opacity: isExpired ? 0.5 : 1,
         },
       ]}
     >
@@ -160,7 +185,7 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
           </View>
           <View style={styles.titleTextCol}>
             <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Would you rather</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Would You Rather?</Text>
           </View>
         </View>
 
@@ -186,36 +211,64 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
           </View>
         ) : null}
 
-        <View style={styles.optionsBlock}>
-          <OptionRow
-            label="A"
-            text={snap.option_a}
-            theme={theme}
-            side="A"
-            snap={snap}
-            complete={complete}
-            isStarter={isStarter}
-            partnerName={partnerName}
-            interactive={actionable}
-            disabled={optionRowsDisabled}
-            phase={phase}
-            onPress={() => void handlePick('A')}
-          />
-          <OptionRow
-            label="B"
-            text={snap.option_b}
-            theme={theme}
-            side="B"
-            snap={snap}
-            complete={complete}
-            isStarter={isStarter}
-            partnerName={partnerName}
-            interactive={actionable}
-            disabled={optionRowsDisabled}
-            phase={phase}
-            onPress={() => void handlePick('B')}
-          />
-        </View>
+        {phase === 'expired' ? (
+          <>
+            <View style={styles.optionsBlock}>
+              <View style={[styles.optionRow, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.optionLetter, { backgroundColor: theme.muted }]}>
+                  <Text style={[styles.optionLetterText, { color: theme.text }]}>A</Text>
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={[styles.optionText, { color: theme.text }]} numberOfLines={4}>
+                    {wouldRatherSnap.option_a}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.optionRow, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+                <View style={[styles.optionLetter, { backgroundColor: theme.muted }]}>
+                  <Text style={[styles.optionLetterText, { color: theme.text }]}>B</Text>
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={[styles.optionText, { color: theme.text }]} numberOfLines={4}>
+                    {wouldRatherSnap.option_b}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
+          </>
+        ) : (
+          <View style={styles.optionsBlock}>
+            <OptionRow
+              label="A"
+              text={wouldRatherSnap.option_a}
+              theme={theme}
+              side="A"
+              snap={wouldRatherSnap}
+              complete={complete}
+              isStarter={isStarter}
+              partnerName={partnerName}
+              interactive={actionable}
+              disabled={optionRowsDisabled}
+              phase={phase}
+              onPress={() => void handlePick('A')}
+            />
+            <OptionRow
+              label="B"
+              text={wouldRatherSnap.option_b}
+              theme={theme}
+              side="B"
+              snap={wouldRatherSnap}
+              complete={complete}
+              isStarter={isStarter}
+              partnerName={partnerName}
+              interactive={actionable}
+              disabled={optionRowsDisabled}
+              phase={phase}
+              onPress={() => void handlePick('B')}
+            />
+          </View>
+        )}
 
         {phase === 'waiting_partner' ? (
           <View style={[styles.waitingFootnote, { borderColor: theme.border }]}>
@@ -458,9 +511,7 @@ function OptionRow({
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={`Choose option ${label}`}
-        style={({ pressed }) => [
-          { alignSelf: 'stretch', opacity: pressed && !disabled ? 0.88 : 1 },
-        ]}
+        style={({ pressed }) => [{ alignSelf: 'stretch', opacity: pressed && !disabled ? 0.88 : 1 }]}
       >
         {body}
       </Pressable>
@@ -510,6 +561,12 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginTop: 2,
+  },
+  expiredStatus: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: spacing.xs,
   },
   outcomeBlock: {
     borderRadius: radius.lg,

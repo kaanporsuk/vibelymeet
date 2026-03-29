@@ -87,7 +87,7 @@ export function WouldRatherStartSheet({ visible, onClose, matchId, partnerName }
           ]}
         >
           <View style={styles.sheetHeader}>
-            <Text style={[styles.sheetTitle, { color: theme.text }]}>Would You Rather</Text>
+            <Text style={[styles.sheetTitle, { color: theme.text }]}>Would You Rather?</Text>
             <Pressable
               onPress={onClose}
               disabled={isPending}

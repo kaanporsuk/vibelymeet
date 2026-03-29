@@ -1,50 +1,67 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { WouldRatherPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Zap } from "lucide-react";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 interface WouldRatherGameProps {
   payload: WouldRatherPayload;
   isOwn: boolean;
-  onVote?: (choice: 'A' | 'B') => void;
+  sessionCreatedAt?: string | null;
+  onVote?: (choice: "A" | "B") => void;
 }
 
-export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps) => {
-  const [myVote, setMyVote] = useState<'A' | 'B' | null>(
-    isOwn ? payload.data.senderVote || null : payload.data.receiverVote || null
-  );
+export const WouldRatherGame = ({ payload, isOwn, sessionCreatedAt, onVote }: WouldRatherGameProps) => {
   const { playFeedback } = useSoundEffects();
-  
-  const bothVoted = payload.data.senderVote && payload.data.receiverVote;
+
+  const myVote: "A" | "B" | null = isOwn
+    ? (payload.data.senderVote ?? null)
+    : (payload.data.receiverVote ?? null);
+
+  const bothVoted = !!(payload.data.senderVote && payload.data.receiverVote);
   const isMatch = payload.data.isMatch;
 
-  // Play match sound when both vote the same
+  const createdMs = sessionCreatedAt ? new Date(sessionCreatedAt).getTime() : NaN;
+  const isExpired =
+    payload.step !== "completed" &&
+    Number.isFinite(createdMs) &&
+    Date.now() - createdMs > EXPIRY_MS;
+
   useEffect(() => {
     if (isMatch && bothVoted) {
-      playFeedback('match');
+      playFeedback("match");
     }
   }, [isMatch, bothVoted, playFeedback]);
 
-  const handleVote = (choice: 'A' | 'B') => {
-    if (myVote) return;
-    setMyVote(choice);
-    playFeedback('click');
+  const handleVote = (choice: "A" | "B") => {
+    if (myVote || isOwn || isExpired) return;
+    playFeedback("click");
     onVote?.(choice);
   };
 
-  const getOptionState = (option: 'A' | 'B') => {
-    if (!myVote) return 'voting';
+  const getOptionState = (option: "A" | "B") => {
+    if (isExpired) return "default";
+    if (!myVote) return "voting";
     if (bothVoted) {
-      if (isMatch && payload.data.senderVote === option) return 'match';
-      if (payload.data.senderVote === option && payload.data.receiverVote === option) return 'match';
-      if (payload.data.senderVote === option) return 'sender';
-      if (payload.data.receiverVote === option) return 'receiver';
+      if (isMatch && payload.data.senderVote === option) return "match";
+      if (payload.data.senderVote === option && payload.data.receiverVote === option) return "match";
+      if (payload.data.senderVote === option) return "sender";
+      if (payload.data.receiverVote === option) return "receiver";
     }
-    if (myVote === option) return 'selected';
-    return 'default';
+    if (myVote === option) return "selected";
+    return "default";
   };
+
+  const headerSub = isExpired
+    ? "This challenge expired"
+    : !myVote
+      ? "Pick one!"
+      : bothVoted
+        ? "Results are in!"
+        : "Waiting for their vote...";
 
   return (
     <motion.div
@@ -53,7 +70,12 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
       className={cn(
         "w-full max-w-[280px] rounded-2xl overflow-hidden",
         "border backdrop-blur-sm",
-        isMatch ? "bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border-amber-500/50" : "bg-gradient-to-br from-amber-500/10 to-orange-600/10 border-amber-500/30"
+        isExpired && "opacity-50",
+        isExpired
+          ? "bg-gradient-to-br from-amber-500/10 to-orange-600/10 border-amber-500/30"
+          : isMatch
+            ? "bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border-amber-500/50"
+            : "bg-gradient-to-br from-amber-500/10 to-orange-600/10 border-amber-500/30"
       )}
     >
       {/* Header */}
@@ -62,9 +84,7 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
           <span className="text-2xl">⚡</span>
           <div>
             <h4 className="font-semibold text-sm text-foreground">Would You Rather?</h4>
-            <p className="text-xs text-muted-foreground">
-              {!myVote ? "Pick one!" : bothVoted ? "Results are in!" : "Waiting for their vote..."}
-            </p>
+            <p className="text-xs text-muted-foreground">{headerSub}</p>
           </div>
         </div>
       </div>
@@ -73,38 +93,43 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
       <div className="relative flex">
         {/* Option A */}
         <motion.button
-          whileTap={!myVote ? { scale: 0.98 } : undefined}
-          onClick={() => handleVote('A')}
-          disabled={!!myVote}
+          type="button"
+          whileTap={!myVote && !isExpired ? { scale: 0.98 } : undefined}
+          onClick={() => handleVote("A")}
+          disabled={!!myVote || isExpired}
           className={cn(
             "flex-1 p-4 text-center transition-all duration-300 border-r border-amber-500/20",
-            getOptionState('A') === 'voting' && "hover:bg-amber-500/10",
-            getOptionState('A') === 'selected' && "bg-amber-500/20",
-            getOptionState('A') === 'match' && "bg-amber-500/30",
-            getOptionState('A') === 'sender' && "bg-neon-violet/20",
-            getOptionState('A') === 'receiver' && "bg-neon-cyan/20"
+            getOptionState("A") === "voting" && "hover:bg-amber-500/10",
+            getOptionState("A") === "selected" && "bg-amber-500/20",
+            getOptionState("A") === "match" && "bg-amber-500/30",
+            getOptionState("A") === "sender" && "bg-neon-violet/20",
+            getOptionState("A") === "receiver" && "bg-neon-cyan/20"
           )}
         >
           <p className="text-sm font-medium text-foreground mb-2">{payload.data.optionA}</p>
           <AnimatePresence>
-            {bothVoted && payload.data.senderVote === 'A' && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-violet/30 text-neon-violet"
-              >
-                {isOwn ? 'You' : 'Them'}
-              </motion.div>
-            )}
-            {bothVoted && payload.data.receiverVote === 'A' && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-cyan/30 text-neon-cyan ml-1"
-              >
-                {isOwn ? 'Them' : 'You'}
-              </motion.div>
-            )}
+            {!isExpired &&
+              bothVoted &&
+              payload.data.senderVote === "A" && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-violet/30 text-neon-violet"
+                >
+                  {isOwn ? "You" : "Them"}
+                </motion.div>
+              )}
+            {!isExpired &&
+              bothVoted &&
+              payload.data.receiverVote === "A" && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-cyan/30 text-neon-cyan ml-1"
+                >
+                  {isOwn ? "Them" : "You"}
+                </motion.div>
+              )}
           </AnimatePresence>
         </motion.button>
 
@@ -117,48 +142,59 @@ export const WouldRatherGame = ({ payload, isOwn, onVote }: WouldRatherGameProps
 
         {/* Option B */}
         <motion.button
-          whileTap={!myVote ? { scale: 0.98 } : undefined}
-          onClick={() => handleVote('B')}
-          disabled={!!myVote}
+          type="button"
+          whileTap={!myVote && !isExpired ? { scale: 0.98 } : undefined}
+          onClick={() => handleVote("B")}
+          disabled={!!myVote || isExpired}
           className={cn(
             "flex-1 p-4 text-center transition-all duration-300",
-            getOptionState('B') === 'voting' && "hover:bg-amber-500/10",
-            getOptionState('B') === 'selected' && "bg-amber-500/20",
-            getOptionState('B') === 'match' && "bg-amber-500/30",
-            getOptionState('B') === 'sender' && "bg-neon-violet/20",
-            getOptionState('B') === 'receiver' && "bg-neon-cyan/20"
+            getOptionState("B") === "voting" && "hover:bg-amber-500/10",
+            getOptionState("B") === "selected" && "bg-amber-500/20",
+            getOptionState("B") === "match" && "bg-amber-500/30",
+            getOptionState("B") === "sender" && "bg-neon-violet/20",
+            getOptionState("B") === "receiver" && "bg-neon-cyan/20"
           )}
         >
           <p className="text-sm font-medium text-foreground mb-2">{payload.data.optionB}</p>
           <AnimatePresence>
-            {bothVoted && payload.data.senderVote === 'B' && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-violet/30 text-neon-violet"
-              >
-                {isOwn ? 'You' : 'Them'}
-              </motion.div>
-            )}
-            {bothVoted && payload.data.receiverVote === 'B' && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-cyan/30 text-neon-cyan ml-1"
-              >
-                {isOwn ? 'Them' : 'You'}
-              </motion.div>
-            )}
+            {!isExpired &&
+              bothVoted &&
+              payload.data.senderVote === "B" && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-violet/30 text-neon-violet"
+                >
+                  {isOwn ? "You" : "Them"}
+                </motion.div>
+              )}
+            {!isExpired &&
+              bothVoted &&
+              payload.data.receiverVote === "B" && (
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="inline-block text-xs px-2 py-0.5 rounded-full bg-neon-cyan/30 text-neon-cyan ml-1"
+                >
+                  {isOwn ? "Them" : "You"}
+                </motion.div>
+              )}
           </AnimatePresence>
         </motion.button>
       </div>
 
+      {isExpired ? (
+        <p className="text-xs text-muted-foreground text-center px-3 py-2 border-t border-amber-500/20">
+          This challenge expired
+        </p>
+      ) : null}
+
       {/* Match Banner */}
       <AnimatePresence>
-        {isMatch && (
+        {!isExpired && isMatch && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
+            animate={{ opacity: 1, height: "auto" }}
             className="bg-gradient-to-r from-amber-500/30 to-yellow-500/30 p-2 text-center"
           >
             <motion.div
