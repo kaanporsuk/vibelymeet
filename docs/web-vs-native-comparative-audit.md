@@ -316,7 +316,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | chat/MessageBubble | Inline message rendering | PARTIAL |
 | chat/MessageStatus | — | MISSING |
 | chat/ParticleBurst | — | MISSING |
-| chat/ReactionBadge | — | MISSING |
+| chat/ReactionBadge | Inline reaction display (e.g. `voiceReactionBadge` `Text` on voice rows) — not the web `ReactionBadge` component | PARTIAL |
 | chat/TypingIndicator | — | MISSING |
 | chat/VideoDateCard | **Removed / never in tree** — use date suggestion cards + Vibe Clip UI | Native: `VibeClipCard`, `DateSuggestionSheet` |
 | chat/VideoMessageBubble | VideoView in bubble | PARTIAL |

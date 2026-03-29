@@ -3,7 +3,7 @@
  * quiet older terminal date rows. Does not mutate message data or backend state.
  */
 
-export const STALE_DATE_TERMINAL_STATUSES = new Set([
+const STALE_DATE_TERMINAL_STATUSES = new Set([
   "declined",
   "expired",
   "cancelled",
