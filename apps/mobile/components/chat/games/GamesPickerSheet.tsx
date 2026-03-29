@@ -39,7 +39,7 @@ const IN_CHAT_GAMES: readonly GameRowDef[] = [
   },
   {
     id: 'two_truths',
-    title: 'Two Truths',
+    title: 'Two Truths & A Lie',
     description: 'Spot the lie and keep it playful',
     icon: 'layers-outline',
     accent: 'cyan',

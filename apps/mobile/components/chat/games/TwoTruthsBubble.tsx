@@ -14,6 +14,8 @@ import {
   type ThreadInvalidateScope,
 } from '@/lib/gamesApi';
 
+const EXPIRY_MS = 48 * 60 * 60 * 1000;
+
 type Props = {
   view: NativeHydratedGameSessionView;
   matchId: string;
@@ -24,6 +26,7 @@ type Props = {
 };
 
 type BubblePhase =
+  | 'expired'
   | 'complete_correct'
   | 'complete_wrong'
   | 'submitting'
@@ -33,7 +36,7 @@ type BubblePhase =
   | 'ambiguous';
 
 type CompletePhase = Extract<BubblePhase, 'complete_correct' | 'complete_wrong'>;
-type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting'>;
+type NonCompleteNonSubmittingPhase = Exclude<BubblePhase, CompletePhase | 'submitting' | 'expired'>;
 
 function derivePhase(
   snap: TwoTruthsSnapshot,
@@ -43,8 +46,10 @@ function derivePhase(
   canBuildGuess: boolean,
   canActNext: boolean,
   isStarter: boolean,
-  guessedIndex: number | undefined
+  guessedIndex: number | undefined,
+  isExpired: boolean
 ): BubblePhase {
+  if (isExpired) return 'expired';
   if (complete) {
     const isCorrect = snap.is_correct === true || (guessedIndex != null && guessedIndex === snap.lie_index);
     return isCorrect ? 'complete_correct' : 'complete_wrong';
@@ -65,39 +70,50 @@ function isCompletePhase(phase: BubblePhase): phase is CompletePhase {
 }
 
 function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonCompleteNonSubmittingPhase {
-  return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting';
+  return phase !== 'complete_correct' && phase !== 'complete_wrong' && phase !== 'submitting' && phase !== 'expired';
 }
 
 export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
-  if (snap.game_type !== '2truths') return null;
+  const twoTruthsSnap = snap.game_type === '2truths' ? snap : null;
 
-  const isStarter = view.starterUserId === currentUserId;
-  const complete = snap.status === 'complete';
   const { mutateAsync, isPending } = useSendTwoTruthsChoice();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const tapGuard = useRef(false);
 
+  useEffect(() => {
+    if (!twoTruthsSnap) return;
+    setSubmitError(null);
+  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, twoTruthsSnap?.guessed_index, twoTruthsSnap?.status]);
+
+  if (!twoTruthsSnap) return null;
+
+  const creationMs = view.createdAt ? new Date(view.createdAt).getTime() : NaN;
+  const isExpired =
+    twoTruthsSnap.status === 'active' &&
+    Number.isFinite(creationMs) &&
+    Date.now() - creationMs > EXPIRY_MS;
+
+  const isStarter = view.starterUserId === currentUserId;
+  const complete = twoTruthsSnap.status === 'complete';
   const canBuildGuess = buildTwoTruthsGuessParams(view, matchId, 0) != null;
-  const actionable = canBuildGuess && !complete;
-  const guessedIndex = snap.guessed_index;
+  const actionable = canBuildGuess && !complete && !isExpired;
+  const guessedIndex = twoTruthsSnap.guessed_index;
   const phase = derivePhase(
-    snap,
+    twoTruthsSnap,
     complete,
     isPending,
     actionable,
     canBuildGuess,
     view.canCurrentUserActNext,
     isStarter,
-    guessedIndex
+    guessedIndex,
+    isExpired
   );
 
-  useEffect(() => {
-    setSubmitError(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, snap.guessed_index, snap.status]);
-
   const handleGuess = async (guessIndex: 0 | 1 | 2) => {
+    if (isExpired) return;
     if (tapGuard.current || isPending) return;
     if (!canBuildGuess) return;
     tapGuard.current = true;
@@ -120,11 +136,22 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
     ) : null;
 
   const completeHero = isCompletePhase(phase) ? (
-    <CompleteOutcomeBlock snap={snap} theme={theme} partnerName={partnerName} isStarter={isStarter} phase={phase} />
+    <CompleteOutcomeBlock
+      snap={twoTruthsSnap}
+      theme={theme}
+      partnerName={partnerName}
+      isStarter={isStarter}
+      phase={phase}
+    />
   ) : null;
 
   return (
-    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' }]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)', opacity: isExpired ? 0.5 : 1 },
+      ]}
+    >
       <LinearGradient
         colors={[theme.neonPink, theme.neonViolet]}
         start={{ x: 0, y: 0 }}
@@ -138,12 +165,16 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
           </View>
           <View style={styles.titleTextCol}>
             <Text style={[styles.kicker, { color: theme.textSecondary }]}>Vibe Arcade</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Two Truths</Text>
+            <Text style={[styles.title, { color: theme.text }]}>Two Truths & A Lie</Text>
           </View>
         </View>
 
         {completeHero}
         {statusStrip}
+
+        {phase === 'expired' ? (
+          <Text style={[styles.expiredStatus, { color: theme.textSecondary }]}>This challenge expired</Text>
+        ) : null}
 
         {phase === 'submitting' ? (
           <View style={[styles.submittingRow, { backgroundColor: theme.secondary }]}>
@@ -165,13 +196,13 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
         ) : null}
 
         <View style={styles.statementsBlock}>
-          {snap.statements.map((statement, i) => (
+          {twoTruthsSnap.statements.map((statement, i) => (
             <StatementRow
               key={`${i}-${statement}`}
               index={i as 0 | 1 | 2}
               text={statement}
               theme={theme}
-              snap={snap}
+              snap={twoTruthsSnap}
               phase={phase}
               partnerName={partnerName}
               isStarter={isStarter}
@@ -182,7 +213,7 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
           ))}
         </View>
 
-        {phase === 'waiting_partner' ? (
+        {phase === 'waiting_partner' && !isExpired ? (
           <View style={[styles.waitingFootnote, { borderColor: theme.border }]}>
             <Ionicons name="ellipse-outline" size={14} color={theme.neonCyan} />
             <Text style={[styles.waitingFootnoteText, { color: theme.textSecondary }]}>
@@ -322,6 +353,29 @@ function StatementRow({
   disabled: boolean;
   onPress: () => void;
 }) {
+  if (phase === 'expired') {
+    return (
+      <View
+        style={[
+          styles.statementRow,
+          {
+            borderColor: theme.border,
+            backgroundColor: theme.surfaceSubtle,
+          },
+        ]}
+      >
+        <View style={[styles.statementIndex, { backgroundColor: theme.muted }]}>
+          <Text style={[styles.statementIndexText, { color: theme.text }]}>{statementLabel(index)}</Text>
+        </View>
+        <View style={styles.statementBody}>
+          <Text style={[styles.statementText, { color: theme.text }]} numberOfLines={4}>
+            {text}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   const isLie = snap.lie_index === index;
   const guessed = snap.guessed_index === index;
   const complete = phase === 'complete_correct' || phase === 'complete_wrong';
@@ -413,6 +467,7 @@ const styles = StyleSheet.create({
   titleTextCol: { flex: 1, minWidth: 0 },
   kicker: { fontSize: 10, fontWeight: '600', letterSpacing: 0.2 },
   title: { fontSize: 16, fontWeight: '700', marginTop: 2 },
+  expiredStatus: { textAlign: 'center', fontSize: 13, lineHeight: 18, paddingVertical: spacing.sm },
   statusStrip: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -121,7 +121,7 @@ export function TwoTruthsStartSheet({ visible, onClose, matchId, partnerName, in
       }
     >
       <View style={styles.sheetHeader}>
-        <Text style={[styles.sheetTitle, { color: theme.text }]}>Two Truths</Text>
+        <Text style={[styles.sheetTitle, { color: theme.text }]}>Two Truths & A Lie</Text>
         <Pressable
           onPress={onClose}
           disabled={isPending}
