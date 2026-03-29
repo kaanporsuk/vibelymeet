@@ -155,6 +155,8 @@ export function collapseVibeGameMessageRows(
       text: '🎮 Game',
       sender: anchorRow.sender_id === currentUserId ? 'me' : 'them',
       time: new Date(anchorRow.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      /** Required for thread merge sort — without this, games sort to key 0 and appear above history / off latest viewport. */
+      sortAtMs: new Date(anchorRow.created_at).getTime(),
       read_at: anchorRow.read_at ?? undefined,
       status: messageStatusForRow(anchorRow, currentUserId),
       messageKind: 'vibe_game_session',
