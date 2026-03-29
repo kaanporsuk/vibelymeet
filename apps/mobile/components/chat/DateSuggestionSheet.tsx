@@ -13,8 +13,11 @@ import {
   ActivityIndicator,
   ScrollView,
   Modal,
+  useColorScheme as useRnColorScheme,
 } from 'react-native';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { startOfDay } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -39,6 +42,10 @@ import {
   type DateComposerLaunchSource,
 } from '../../../../shared/dateSuggestions/dateComposerLaunch';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import {
+  formatProposedDateTimeSummary,
+  mergeLocalDateAndTime,
+} from '../../../../shared/dateSuggestions/formatProposedDateTimeSummary';
 
 const STEPS = ['Type', 'When', 'Place', 'Message', 'Review'] as const;
 
@@ -108,21 +115,6 @@ function buildRevision(w: WizardState) {
   };
 }
 
-function formatPickDateTimeLabel(iso: string | null): string {
-  if (!iso) return 'No time selected yet';
-  try {
-    return new Date(iso).toLocaleString([], {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
 type CounterCtx = {
   suggestionId: string;
   previousRevision: DateSuggestionRevisionRow;
@@ -170,12 +162,14 @@ export function DateSuggestionSheet({
     visible && shareEnabled && !!counterContext
   );
 
-  const [pickOpen, setPickOpen] = useState(false);
-  const [androidPickMode, setAndroidPickMode] = useState<'date' | 'time'>('date');
-  const [tempPick, setTempPick] = useState(new Date());
-  const [iosPickOpen, setIosPickOpen] = useState(false);
-  const [iosTempPick, setIosTempPick] = useState(new Date());
+  /** Stacked above the bottom sheet so system pickers are not swallowed by scroll/touches. */
+  const [nativePickOpen, setNativePickOpen] = useState(false);
+  const [nativePickPhase, setNativePickPhase] = useState<'date' | 'time'>('date');
+  const [nativeDatePart, setNativeDatePart] = useState(() => startOfDay(new Date()));
+  const [nativeTimePart, setNativeTimePart] = useState(() => new Date());
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+  const rnScheme = useRnColorScheme();
+  const pickerTheme = rnScheme === 'dark' ? 'dark' : 'light';
 
   useEffect(() => {
     if (!visible) return;
@@ -220,6 +214,18 @@ export function DateSuggestionSheet({
     setStep(0);
     setDraftId(draftSuggestionId ?? null);
   }, [visible, counterContext, draftSuggestionId, draftFromParent]);
+
+  const openNativePickFlow = useCallback(() => {
+    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
+    setNativeDatePart(startOfDay(base));
+    setNativeTimePart(base);
+    setNativePickPhase('date');
+    setNativePickOpen(true);
+  }, [w.pickStartIso]);
+
+  useEffect(() => {
+    if (w.timeChoiceKey !== 'pick_a_time') setNativePickOpen(false);
+  }, [w.timeChoiceKey]);
 
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
@@ -276,40 +282,7 @@ export function DateSuggestionSheet({
     return true;
   }, [step, w, shareEnabled, counterContext]);
 
-  const onDtChange = (event: DateTimePickerEvent, date?: Date) => {
-    if (Platform.OS === 'android') {
-      if (event.type === 'dismissed') {
-        setPickOpen(false);
-        setAndroidPickMode('date');
-        return;
-      }
-      setPickOpen(false);
-      if (!date) return;
-      if (androidPickMode === 'date') {
-        setTempPick(date);
-        setAndroidPickMode('time');
-        setTimeout(() => setPickOpen(true), 120);
-      } else {
-        const merged = new Date(tempPick);
-        merged.setHours(date.getHours(), date.getMinutes(), 0, 0);
-        setW((p) => ({ ...p, pickStartIso: merged.toISOString() }));
-        setAndroidPickMode('date');
-      }
-      return;
-    }
-    if (date) setW((p) => ({ ...p, pickStartIso: date.toISOString() }));
-  };
-
-  const openIosPicker = () => {
-    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
-    setIosTempPick(base);
-    setIosPickOpen(true);
-  };
-
-  const confirmIosPicker = () => {
-    setW((p) => ({ ...p, pickStartIso: iosTempPick.toISOString() }));
-    setIosPickOpen(false);
-  };
+  const todayStart = startOfDay(new Date());
 
   const stepContent = (
     <ScrollView
@@ -388,6 +361,9 @@ export function DateSuggestionSheet({
                     ...p,
                     timeChoiceKey: o.key,
                     scheduleShareEnabled: o.key === 'share_schedule',
+                    ...(o.key !== 'pick_a_time'
+                      ? { pickStartIso: null, pickEndIso: null }
+                      : {}),
                   }))
                 }
                 style={({ pressed }) => [
@@ -421,71 +397,35 @@ export function DateSuggestionSheet({
           {w.timeChoiceKey === 'pick_a_time' && (
             <View style={styles.pickTimeBlock}>
               <View style={[styles.whenSectionDivider, { backgroundColor: theme.border }]} />
-              <Text style={[styles.pickerSectionOverline, { color: theme.textSecondary }]}>
-                Choose date & time
-              </Text>
-              {Platform.OS === 'android' && (
+              <View
+                style={[
+                  styles.pickSummaryCard,
+                  { borderColor: theme.border, backgroundColor: theme.surfaceSubtle },
+                ]}
+              >
+                <Text style={[styles.iosPickCardValue, { color: theme.text }]}>
+                  {w.pickStartIso
+                    ? formatProposedDateTimeSummary(w.pickStartIso)
+                    : 'Choose a date, then a time.'}
+                </Text>
                 <Pressable
-                  onPress={() => {
-                    const base = w.pickStartIso ? new Date(w.pickStartIso) : new Date();
-                    setTempPick(base);
-                    setAndroidPickMode('date');
-                    setPickOpen(true);
-                  }}
+                  onPress={openNativePickFlow}
                   style={({ pressed }) => [
-                    styles.androidPickerTrigger,
+                    styles.iosPickBtn,
                     {
-                      borderColor: 'rgba(255,255,255,0.12)',
-                      backgroundColor: 'hsl(240, 9%, 17%)',
+                      borderColor: 'rgba(139,92,246,0.55)',
+                      backgroundColor: 'rgba(139,92,246,0.2)',
                       opacity: pressed ? 0.9 : 1,
+                      marginTop: spacing.sm,
                     },
                   ]}
                 >
-                  <Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />
-                  <Text style={[styles.androidPickerTriggerText, { color: theme.text }]}>
-                    {w.pickStartIso
-                      ? new Date(w.pickStartIso).toLocaleString()
-                      : 'Tap to choose date & time'}
+                  <Ionicons name="calendar-outline" size={16} color={theme.neonViolet} />
+                  <Text style={[styles.iosPickBtnText, { color: theme.text }]}>
+                    {w.pickStartIso ? 'Change date & time' : 'Choose date & time'}
                   </Text>
-                  <Ionicons name="chevron-forward" size={18} color={theme.textSecondary} />
                 </Pressable>
-              )}
-              {Platform.OS === 'ios' && (
-                <View style={[styles.iosPickCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
-                >
-                  <View style={styles.iosPickCardHeader}>
-                    <Ionicons name="time-outline" size={18} color={theme.neonCyan} />
-                    <Text style={[styles.iosPickCardTitle, { color: theme.textSecondary }]}>Selected time</Text>
-                  </View>
-                  <Text style={[styles.iosPickCardValue, { color: theme.text }]}>
-                    {formatPickDateTimeLabel(w.pickStartIso)}
-                  </Text>
-                  <Pressable
-                    onPress={openIosPicker}
-                    style={({ pressed }) => [
-                      styles.iosPickBtn,
-                      {
-                        borderColor: 'rgba(139,92,246,0.55)',
-                        backgroundColor: 'rgba(139,92,246,0.2)',
-                        opacity: pressed ? 0.9 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons name="calendar-outline" size={16} color={theme.neonViolet} />
-                    <Text style={[styles.iosPickBtnText, { color: theme.text }]}>
-                      {w.pickStartIso ? 'Change date & time' : 'Choose date & time'}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
-              {pickOpen && Platform.OS === 'android' && (
-                <DateTimePicker
-                  value={tempPick}
-                  mode={androidPickMode}
-                  display="default"
-                  onChange={onDtChange}
-                />
-              )}
+              </View>
             </View>
           )}
           {shareEnabled && !counterContext && (
@@ -603,7 +543,9 @@ export function DateSuggestionSheet({
           </Text>
           <Text style={{ color: theme.text, fontSize: 14, marginTop: 6 }}>
             <Text style={{ color: theme.textSecondary }}>When: </Text>
-            {TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
+            {w.timeChoiceKey === 'pick_a_time' && w.pickStartIso
+              ? formatProposedDateTimeSummary(w.pickStartIso)
+              : TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
           </Text>
           <Text style={{ color: theme.text, fontSize: 14, marginTop: 6 }}>
             <Text style={{ color: theme.textSecondary }}>Place: </Text>
@@ -691,41 +633,109 @@ export function DateSuggestionSheet({
         ) : null}
         {stepContent}
       </KeyboardAwareBottomSheetModal>
-      <Modal visible={iosPickOpen} transparent animationType="fade" onRequestClose={() => setIosPickOpen(false)}>
-        <View style={styles.iosModalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIosPickOpen(false)} accessibilityLabel="Close picker" />
-          <View style={[styles.iosModalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.iosModalTitle, { color: theme.text }]}>Pick a time</Text>
-            <Text style={[styles.iosModalValue, { color: theme.textSecondary }]}>
-              {formatPickDateTimeLabel(iosTempPick.toISOString())}
+      <Modal
+        visible={nativePickOpen}
+        transparent
+        animationType="slide"
+        presentationStyle="formSheet"
+        onRequestClose={() => setNativePickOpen(false)}
+      >
+        <View style={styles.nativePickRoot}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setNativePickOpen(false)}
+            accessibilityLabel="Close picker"
+          />
+          <SafeAreaView
+            edges={['bottom']}
+            style={[styles.nativePickSheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          >
+            <View style={styles.nativePickHandle} />
+            <Text style={[styles.iosModalTitle, { color: theme.text }]}>
+              {nativePickPhase === 'date' ? 'Pick a date' : 'Pick a time'}
             </Text>
-            <View style={styles.iosWheelWrap}>
+            <Text style={[styles.iosModalValue, { color: theme.textSecondary, marginBottom: spacing.sm }]}>
+              {formatProposedDateTimeSummary(
+                mergeLocalDateAndTime(nativeDatePart, nativeTimePart).toISOString(),
+              )}
+            </Text>
+            {nativePickPhase === 'date' ? (
               <DateTimePicker
-                value={iosTempPick}
-                mode="datetime"
-                display="spinner"
+                value={nativeDatePart}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
                 onChange={(_, date) => {
-                  if (date) setIosTempPick(date);
+                  if (date) setNativeDatePart(startOfDay(date));
                 }}
-                themeVariant="light"
-                style={styles.iosPickerWheel}
+                minimumDate={todayStart}
+                themeVariant={pickerTheme}
+                style={Platform.OS === 'ios' ? styles.iosInlineCalendar : styles.androidInlineCalendar}
               />
-            </View>
-            <View style={styles.iosModalActions}>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => setNativePickPhase('date')}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.75 : 1, alignSelf: 'center', marginBottom: spacing.sm })}
+                >
+                  <Text style={{ color: theme.tint, fontSize: 15, fontFamily: fonts.bodySemiBold }}>
+                    ← Change date
+                  </Text>
+                </Pressable>
+                <DateTimePicker
+                  value={nativeTimePart}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_, date) => {
+                    if (date) setNativeTimePart(date);
+                  }}
+                  minuteInterval={5}
+                  themeVariant={pickerTheme}
+                  style={styles.iosPickerWheel}
+                />
+              </>
+            )}
+            <View style={styles.nativePickActions}>
               <Pressable
-                onPress={() => setIosPickOpen(false)}
-                style={({ pressed }) => [styles.iosActionBtn, { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 }]}
+                onPress={() => setNativePickOpen(false)}
+                style={({ pressed }) => [
+                  styles.iosActionBtn,
+                  { backgroundColor: theme.muted, opacity: pressed ? 0.9 : 1 },
+                ]}
               >
                 <Text style={[styles.iosActionText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
-              <Pressable
-                onPress={confirmIosPicker}
-                style={({ pressed }) => [styles.iosActionBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 }]}
-              >
-                <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Done</Text>
-              </Pressable>
+              {nativePickPhase === 'date' ? (
+                <Pressable
+                  onPress={() => setNativePickPhase('time')}
+                  style={({ pressed }) => [
+                    styles.iosActionBtn,
+                    { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Next</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    const merged = mergeLocalDateAndTime(nativeDatePart, nativeTimePart);
+                    setW((p) => ({
+                      ...p,
+                      pickStartIso: merged.toISOString(),
+                      pickEndIso: merged.toISOString(),
+                    }));
+                    setNativePickOpen(false);
+                    setNativePickPhase('date');
+                  }}
+                  style={({ pressed }) => [
+                    styles.iosActionBtn,
+                    { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.iosActionText, { color: theme.primaryForeground }]}>Save</Text>
+                </Pressable>
+              )}
             </View>
-          </View>
+          </SafeAreaView>
         </View>
       </Modal>
       {dialogEl}
@@ -800,6 +810,49 @@ const styles = StyleSheet.create({
   },
   pickTimeBlock: {
     marginTop: spacing.sm,
+  },
+  pickSummaryCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
+    ...shadows.card,
+  },
+  nativePickRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  nativePickSheet: {
+    borderTopLeftRadius: radius['2xl'],
+    borderTopRightRadius: radius['2xl'],
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    maxHeight: '92%',
+  },
+  nativePickHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(128,128,128,0.45)',
+    marginBottom: spacing.md,
+  },
+  nativePickActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  iosInlineCalendar: {
+    width: '100%',
+    height: 360,
+    alignSelf: 'center',
+  },
+  androidInlineCalendar: {
+    width: '100%',
+    minHeight: 320,
+    alignSelf: 'center',
   },
   whenSectionDivider: {
     height: 1,
