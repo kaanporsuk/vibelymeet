@@ -108,6 +108,7 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
   );
 
   const handleSubmit = async () => {
+    if (isExpired) return;
     if (tapGuard.current || isPending) return;
     if (!canBuild) return;
     tapGuard.current = true;
