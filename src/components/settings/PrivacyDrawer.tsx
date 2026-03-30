@@ -29,12 +29,14 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
 type DiscoveryMode = "visible" | "snoozed" | "hidden";
+type DiscoveryAudience = "everyone" | "event_based" | "hidden";
 type ActivityVis = "matches" | "event_connections" | "nobody";
 type EventAttVis = "attendees" | "matches_only" | "hidden";
 
 type PrivacyProfile = {
   discovery_mode: DiscoveryMode | null;
   discovery_snooze_until: string | null;
+  discovery_audience: DiscoveryAudience | null;
   activity_status_visibility: ActivityVis | null;
   event_attendance_visibility: EventAttVis | null;
   distance_visibility: "approximate" | "hidden" | null;
@@ -44,6 +46,7 @@ type PrivacyProfile = {
 const DEFAULTS: PrivacyProfile = {
   discovery_mode: "visible",
   discovery_snooze_until: null,
+  discovery_audience: "everyone",
   activity_status_visibility: "matches",
   event_attendance_visibility: "attendees",
   distance_visibility: "approximate",
@@ -68,6 +71,12 @@ function eventAttChip(v: EventAttVis | null): string {
   return "Everyone";
 }
 
+function audienceChip(v: DiscoveryAudience | null): string {
+  if (v === "event_based") return "Event-based";
+  if (v === "hidden") return "Hidden";
+  return "Everyone";
+}
+
 interface PrivacyDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -81,7 +90,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
   const [loading, setLoading] = useState(true);
   const [geoState, setGeoState] = useState<PermissionState | "unsupported">("prompt");
 
-  const [view, setView] = useState<"main" | "discovery" | "activity" | "event_att" | "blocked">("main");
+  const [view, setView] = useState<"main" | "discovery" | "audience" | "activity" | "event_att" | "blocked">("main");
   const [blockedProfiles, setBlockedProfiles] = useState<Record<string, { name: string }>>({});
 
   useEffect(() => {
@@ -94,7 +103,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
     const { data, error } = await supabase
       .from("profiles")
       .select(
-        "discovery_mode, discovery_snooze_until, activity_status_visibility, event_attendance_visibility, distance_visibility, show_distance",
+        "discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, event_attendance_visibility, distance_visibility, show_distance",
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -107,6 +116,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       setProfile({
         discovery_mode: (data.discovery_mode as DiscoveryMode) ?? "visible",
         discovery_snooze_until: data.discovery_snooze_until ?? null,
+        discovery_audience: (data.discovery_audience as DiscoveryAudience) ?? "everyone",
         activity_status_visibility: (data.activity_status_visibility as ActivityVis) ?? "matches",
         event_attendance_visibility: (data.event_attendance_visibility as EventAttVis) ?? "attendees",
         distance_visibility: (data.distance_visibility as "approximate" | "hidden") ?? "approximate",
@@ -151,20 +161,18 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       });
   }, [blockedUsers]);
 
-  const save = async (patch: Partial<PrivacyProfile> & { show_online_status?: boolean }) => {
+  const save = async (patch: Partial<PrivacyProfile>) => {
     if (!user?.id) return;
-    const { show_online_status, ...rest } = patch;
-    const next = { ...profile, ...rest };
+    const next = { ...profile, ...patch };
     setProfile(next);
     const body: Record<string, unknown> = {
       discovery_mode: next.discovery_mode,
       discovery_snooze_until: next.discovery_snooze_until,
+      discovery_audience: next.discovery_audience,
       activity_status_visibility: next.activity_status_visibility,
       event_attendance_visibility: next.event_attendance_visibility,
       distance_visibility: next.distance_visibility,
-      show_distance: next.show_distance,
     };
-    if (show_online_status !== undefined) body.show_online_status = show_online_status;
     const { error } = await supabase.from("profiles").update(body).eq("id", user.id);
     if (error) toast.error(error.message);
     else toast.success("Saved");
@@ -242,6 +250,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
             <Shield className="h-5 w-5 text-neon-cyan" />
             {view === "main" && "Privacy & Visibility"}
             {view === "discovery" && "Discovery mode"}
+            {view === "audience" && "Who can discover me"}
             {view === "activity" && "Activity status"}
             {view === "event_att" && "Event attendance"}
             {view === "blocked" && "Blocked users"}
@@ -249,6 +258,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
           <DrawerDescription>
             {view === "main" && "Control who can see you and how"}
             {view === "discovery" && "Choose how discoverable you are"}
+            {view === "audience" && "Choose who can discover your profile"}
             {view === "activity" && "Who can see when you are online"}
             {view === "event_att" && "Who can see events you join"}
             {view === "blocked" && "They cannot message you or see your profile"}
@@ -280,6 +290,18 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   {profile.discovery_mode === "snoozed" && snoozeRemaining ? (
                     <p className="text-xs text-amber-500">Snoozed · {snoozeRemaining} remaining</p>
                   ) : null}
+                  <Row
+                    icon={Eye}
+                    title="Who can discover me"
+                    subtitle="Everyone, event-based only, or hidden"
+                    onClick={() => setView("audience")}
+                    right={
+                      <>
+                        <Chip>{audienceChip(profile.discovery_audience)}</Chip>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </>
+                    }
+                  />
                   <Row
                     icon={Activity}
                     title="Activity Status"
@@ -344,7 +366,6 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                       onCheckedChange={(on) => {
                         void save({
                           distance_visibility: on ? "approximate" : "hidden",
-                          show_distance: on,
                         });
                       }}
                     />
@@ -417,6 +438,31 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                 </div>
               </Button>
             </div>
+          ) : view === "audience" ? (
+            <div className="space-y-2">
+              {(
+                [
+                  ["everyone", "Everyone", "Standard discovery across Vibely"],
+                  ["event_based", "Event-based only", "Only people at events you join can find you"],
+                  ["hidden", "Hidden", "No passive discovery"],
+                ] as const
+              ).map(([value, title, desc]) => (
+                <Button
+                  key={value}
+                  variant={profile.discovery_audience === value ? "default" : "outline"}
+                  className="h-auto w-full justify-start py-3"
+                  onClick={() => {
+                    void save({ discovery_audience: value });
+                    setView("main");
+                  }}
+                >
+                  <div className="text-left">
+                    <p className="font-medium">{title}</p>
+                    <p className="text-xs opacity-80">{desc}</p>
+                  </div>
+                </Button>
+              ))}
+            </div>
           ) : view === "activity" ? (
             <div className="space-y-2">
               {(
@@ -433,7 +479,6 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   onClick={() => {
                     void save({
                       activity_status_visibility: value,
-                      show_online_status: value !== "nobody",
                     });
                     setView("main");
                   }}
