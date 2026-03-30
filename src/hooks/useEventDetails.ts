@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { filterVisibleProfileIds } from "@/lib/profileVisibility";
 
 export interface EventDetails {
   id: string;
@@ -175,39 +174,35 @@ export const useEventAttendees = (eventId: string | undefined) => {
     queryFn: async (): Promise<EventAttendee[]> => {
       if (!eventId) return [];
 
-      // Fetch registrations with profile data
-      const { data: registrations, error } = await supabase
-        .from("event_registrations")
-        .select(
-          `
-          profile_id,
-          profiles:profile_id (
-            id,
-            name,
-            age,
-            avatar_url,
-            about_me,
-            photos,
-            photo_verified
-          )
-        `
-        )
-        .eq("event_id", eventId);
+      if (!user?.id) return [];
 
-      if (error) {
-        console.error("Error fetching attendees:", error);
+      const { data: visibleIds, error: visibleError } = await supabase.rpc(
+        "get_event_visible_attendees",
+        {
+          p_event_id: eventId,
+          p_viewer_id: user.id,
+        }
+      );
+
+      if (visibleError) {
+        console.error("Error fetching visible attendees:", visibleError);
         return [];
       }
 
-      if (!registrations?.length) return [];
+      const profileIds = (visibleIds ?? []).filter(Boolean) as string[];
+      if (!profileIds.length) return [];
 
-      const allIds = registrations.map((r) => r.profile_id);
-      const visibleSet = await filterVisibleProfileIds(allIds);
-      const filteredRegs = registrations.filter((r) => visibleSet.has(r.profile_id));
-      if (!filteredRegs.length) return [];
+      const { data: profilesData, error } = await supabase
+        .from("profiles")
+        .select("id, name, age, avatar_url, about_me, photos, photo_verified")
+        .in("id", profileIds);
+      if (error) {
+        console.error("Error fetching attendee profiles:", error);
+        return [];
+      }
+      if (!profilesData?.length) return [];
 
       // Fetch vibes for visible attendees only
-      const profileIds = filteredRegs.map((r) => r.profile_id);
       const { data: vibesData } = await supabase
         .from("profile_vibes")
         .select("profile_id, vibe_tags(label)")
@@ -263,47 +258,33 @@ export const useEventAttendees = (eventId: string | undefined) => {
 
       // Process each attendee with signed URLs
       const attendees = await Promise.all(
-        filteredRegs
-          .filter((r) => r.profiles)
-          .map(async (r) => {
-            const rawProfile = Array.isArray(r.profiles)
-              ? r.profiles[0]
-              : r.profiles;
-            const profile = rawProfile as {
-              id: string;
-              name: string;
-              age: number;
-              avatar_url: string | null;
-              about_me: string | null;
-              photos: string[] | null;
-              photo_verified: boolean | null;
-            };
+        profilesData.map(async (profile) => {
             const profileVibes = vibesByProfile[profile.id] || [];
 
             // Resolve photo URLs via centralized utility
             const avatarPath = profile.avatar_url || profile.photos?.[0] || "";
             const resolvedAvatar = resolvePhotoUrl(avatarPath);
 
-            const resolvedPhotos = (profile.photos || []).map((p) => resolvePhotoUrl(p));
+            const resolvedPhotos = (profile.photos || []).map((p: string) => resolvePhotoUrl(p));
 
             // Calculate STABLE match percentage
             const matchPercent = user?.id
               ? calculateVibeScoreStable(user.id, profile.id, userVibes, profileVibes, eventId)
               : 75;
 
-            return {
-              id: profile.id,
-              name: profile.name,
-              age: profile.age,
-              avatar: resolvedAvatar,
-              vibeTag: profileVibes[0] || "New Vibe",
-              matchPercent,
-              about_me: profile.about_me || "",
-              photos: resolvedPhotos,
-              vibeTags: profileVibes.slice(0, 2),
-              photoVerified: profile.photo_verified || false,
-            };
-          })
+          return {
+            id: profile.id,
+            name: profile.name,
+            age: profile.age,
+            avatar: resolvedAvatar,
+            vibeTag: profileVibes[0] || "New Vibe",
+            matchPercent,
+            about_me: profile.about_me || "",
+            photos: resolvedPhotos,
+            vibeTags: profileVibes.slice(0, 2),
+            photoVerified: profile.photo_verified || false,
+          };
+        })
       );
 
       return attendees;

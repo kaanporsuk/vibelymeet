@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { filterVisibleProfileIds } from '@/lib/profileVisibility';
+import { useUserProfile } from '@/contexts/AuthContext';
 
 export interface EventAttendee {
   id: string;
@@ -10,28 +10,27 @@ export interface EventAttendee {
 }
 
 export function useEventAttendees(eventId: string, limit: number = 5) {
+  const { user } = useUserProfile();
+
   return useQuery({
-    queryKey: ['event-attendees', eventId, limit],
-    enabled: !!eventId,
+    queryKey: ['event-attendees', eventId, user?.id, limit],
+    enabled: !!eventId && !!user?.id,
     staleTime: 30000, // Cache for 30 seconds
     queryFn: async (): Promise<EventAttendee[]> => {
-      // First get registrations for this event
-      const { data: registrations, error: regError } = await supabase
-        .from('event_registrations')
-        .select('profile_id')
-        .eq('event_id', eventId)
-        .limit(Math.max(limit * 5, 25));
+      if (!eventId || !user?.id) return [];
 
-      if (regError) {
-        console.error('Error fetching registrations:', regError);
+      const { data: visibleIds, error: visibleError } = await supabase.rpc(
+        'get_event_visible_attendees',
+        {
+          p_event_id: eventId,
+          p_viewer_id: user.id,
+        }
+      );
+      if (visibleError) {
+        console.error('Error fetching visible attendees:', visibleError);
         return [];
       }
-
-      if (!registrations?.length) return [];
-
-      const orderedIds = registrations.map((r) => r.profile_id);
-      const visibleSet = await filterVisibleProfileIds(orderedIds);
-      const visibleOrdered = orderedIds.filter((id) => visibleSet.has(id)).slice(0, limit);
+      const visibleOrdered = ((visibleIds ?? []).filter(Boolean) as string[]).slice(0, Math.max(limit, 0));
       if (visibleOrdered.length === 0) return [];
 
       const { data: profiles, error: profilesError } = await supabase

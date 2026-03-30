@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { filterVisibleProfileIds } from '@/lib/profileVisibility';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 
 const GRACE_HOURS = 6;
@@ -583,14 +582,21 @@ export function useEventAttendees(eventId: string | undefined) {
     enabled: !!eventId,
     queryFn: async (): Promise<EventAttendee[]> => {
       if (!eventId) return [];
-      const { data: regs, error: regError } = await supabase
-        .from('event_registrations')
-        .select('profile_id')
-        .eq('event_id', eventId);
-      if (regError || !regs?.length) return [];
-      const profileIds = [...new Set(regs.map((r) => r.profile_id).filter(Boolean))];
-      const visibleIds = await filterVisibleProfileIds(profileIds);
-      const visibleIdList = profileIds.filter((id) => visibleIds.has(id));
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return [];
+
+      const { data: visibleIds, error: visibleError } = await supabase.rpc(
+        'get_event_visible_attendees',
+        {
+          p_event_id: eventId,
+          p_viewer_id: user.id,
+        }
+      );
+      if (visibleError) return [];
+      const visibleIdList = (visibleIds ?? []).filter(Boolean) as string[];
+
       if (visibleIdList.length === 0) return [];
       const { data: profiles, error: profError } = await supabase
         .from('profiles')

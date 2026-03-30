@@ -2970,6 +2970,10 @@ export type Database = {
           tagline: string
         }[]
       }
+      get_event_visible_attendees: {
+        Args: { p_event_id: string; p_viewer_id: string }
+        Returns: string[]
+      }
       get_other_city_events: {
         Args: { p_user_id: string; p_user_lat?: number; p_user_lng?: number }
         Returns: {
@@ -3056,6 +3060,10 @@ export type Database = {
         Args: { user1_id: string; user2_id: string }
         Returns: boolean
       }
+      is_profile_discoverable: {
+        Args: { p_target_id: string; p_viewer_id?: string }
+        Returns: boolean
+      }
       is_profile_hidden: { Args: { p_profile_id: string }; Returns: boolean }
       is_registered_for_event: {
         Args: { _event_id: string; _user_id: string }
@@ -3083,6 +3091,7 @@ export type Database = {
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      replenish_monthly_credits: { Args: never; Returns: Json }
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
         Returns: undefined
