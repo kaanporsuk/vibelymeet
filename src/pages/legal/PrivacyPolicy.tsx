@@ -3,18 +3,21 @@ import { ArrowLeft } from "lucide-react";
 
 const PrivacyPolicy = () => {
   const navigate = useNavigate();
+  const canGoBack = window.history.length > 1 && document.referrer.includes(window.location.origin);
 
   return (
   <div className="min-h-screen bg-background text-foreground">
     {/* Sticky Nav Header */}
     <header className="sticky top-0 z-40 glass-card border-b border-border/50 px-4 py-4">
       <div className="flex items-center gap-3 max-w-3xl mx-auto">
-        <button
-          onClick={() => navigate(-1)}
-          className="p-2 -ml-2 rounded-xl hover:bg-secondary transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-foreground" />
-        </button>
+        {canGoBack && (
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 -ml-2 rounded-xl hover:bg-secondary transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 text-foreground" />
+          </button>
+        )}
         <h1 className="text-xl font-display font-bold text-foreground">Privacy Policy</h1>
       </div>
     </header>

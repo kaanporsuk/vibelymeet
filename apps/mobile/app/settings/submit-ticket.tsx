@@ -105,12 +105,22 @@ export default function SubmitTicketScreen() {
             return `**${label}:** ${v}`;
           })
           .join('\n');
-        await supabase.from('support_ticket_replies').insert({
-          ticket_id: ticket.id,
-          sender_type: 'user',
-          sender_id: user.id,
-          message: body,
-        });
+        try {
+          await supabase.from('support_ticket_replies').insert({
+            ticket_id: ticket.id,
+            sender_type: 'user',
+            sender_id: user.id,
+            message: body,
+          });
+        } catch (smartFieldError) {
+          // Fallback: persist smart field context directly on the ticket so admins still see it
+          console.warn('Smart field reply insert failed, updating ticket subject', smartFieldError);
+          await supabase
+            .from('support_tickets')
+            .update({ subject: body })
+            .eq('id', ticket.id)
+            .eq('user_id', user.id);
+        }
       }
 
       router.replace({

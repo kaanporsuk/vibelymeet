@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -37,7 +38,14 @@ export default function SupportScreen() {
   const theme = Colors[colorScheme];
   const { user } = useAuth();
 
-  const { data: tickets = [], isLoading } = useQuery({
+  const [refreshing, setRefreshing] = useState(false);
+
+  const {
+    data: tickets = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['support_tickets', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -77,6 +85,15 @@ export default function SupportScreen() {
 
   const primaryTypes: PrimaryType[] = ['support', 'feedback', 'safety'];
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <GlassHeaderBar insets={insets}>
@@ -98,6 +115,9 @@ export default function SupportScreen() {
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+        }
       >
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
           Get help, share ideas, or report concerns.
@@ -143,6 +163,14 @@ export default function SupportScreen() {
 
         {isLoading ? (
           <ActivityIndicator color={theme.tint} style={{ marginTop: spacing.lg }} />
+        ) : isError ? (
+          <View style={[styles.empty, { borderColor: withAlpha(theme.border, 0.4) }]}>
+            <Ionicons name="warning-outline" size={40} color={theme.mutedForeground} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>Couldn&apos;t load requests</Text>
+            <Text style={[styles.emptySub, { color: theme.mutedForeground }]}>
+              Check your connection and pull down to refresh.
+            </Text>
+          </View>
         ) : tickets.length === 0 ? (
           <View style={[styles.empty, { borderColor: withAlpha(theme.border, 0.4) }]}>
             <Ionicons name="chatbubble-ellipses-outline" size={40} color={theme.mutedForeground} />

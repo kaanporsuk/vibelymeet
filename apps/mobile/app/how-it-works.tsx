@@ -4,7 +4,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -15,22 +15,22 @@ const STEPS = [
   {
     icon: 'calendar-outline' as const,
     title: 'Join an Event',
-    body: 'Browse curated speed dating events and pick one that matches your vibe. Each event has a unique theme and audience.',
+    body: 'Browse curated social and dating events — each with a unique theme, audience, and vibe. You can only discover and match with people attending the same event.',
   },
   {
     icon: 'videocam-outline' as const,
-    title: '5-Minute Video Dates',
-    body: 'Connect with matches through quick video calls. No endless swiping — just real conversations with real people.',
+    title: 'Video Dates',
+    body: "When there's mutual interest, connect through consent-gated video dates. Both people confirm they're ready before the call begins. The blur fades as you talk — real chemistry, not just photos.",
   },
   {
     icon: 'heart-outline' as const,
     title: 'Match by Vibes',
-    body: 'After each date, decide if you felt a connection. When both of you say yes, it’s a match! Start chatting instantly.',
+    body: "After each video date, both of you decide. When it's mutual, it's a match. No endless swiping — just genuine connections through face-to-face conversations.",
   },
   {
     icon: 'chatbubble-outline' as const,
-    title: 'Continue the Conversation',
-    body: 'Keep the spark alive through chat. Send messages, voice notes, and play fun games to get to know each other better.',
+    title: 'Keep the Connection',
+    body: 'Continue the conversation through chat, voice messages, and video clips. Plan your next date with Vibe Schedule to find a time that works for both of you.',
   },
 ];
 
@@ -38,17 +38,30 @@ const FEATURES = [
   {
     emoji: '💧',
     title: 'Daily Drops',
-    body: 'One curated match each day after the scheduled batch (18:00 UTC when cron is enabled).',
+    body: "Every day at 6 PM, Vibely pairs you with one specially selected person. It's mutual — both of you are chosen for each other.",
   },
-  { emoji: '🎮', title: 'Vibe Arcade', body: 'Play games in chat to break the ice' },
-  { emoji: '📅', title: 'Vibe Sync', body: 'Schedule dates that work for both of you' },
-  { emoji: '🎬', title: 'Vibe Videos', body: 'Short intro videos to show your personality' },
+  {
+    emoji: '📅',
+    title: 'Vibe Schedule',
+    body: "Set your weekly availability so matches know when you're free for a video date. No more back-and-forth scheduling.",
+  },
+  {
+    emoji: '🎬',
+    title: 'Vibe Video',
+    body: 'Record a short video introduction for your profile. Let people see the real you before matching.',
+  },
+  {
+    emoji: '⭐',
+    title: 'Vibe Score',
+    body: 'Complete your profile to boost your Vibe Score. Higher scores get more visibility in events and discovery.',
+  },
 ];
 
 export default function HowItWorksScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const appRouter = useRouter();
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -105,6 +118,15 @@ export default function HowItWorksScreen() {
             </Card>
           ))}
         </View>
+        <Pressable
+          onPress={() => appRouter.push('/(tabs)/events')}
+          style={({ pressed }) => [
+            styles.ctaBtn,
+            { backgroundColor: '#8B5CF6', opacity: pressed ? 0.92 : 1 },
+          ]}
+        >
+          <Text style={styles.ctaLabel}>Browse Events</Text>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -150,4 +172,17 @@ const styles = StyleSheet.create({
   featureEmoji: { fontSize: 28, marginBottom: spacing.sm },
   featureTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   featureBody: { fontSize: 13, lineHeight: 18 },
+  ctaBtn: {
+    marginTop: 24,
+    marginHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaLabel: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
