@@ -87,47 +87,57 @@ serve(async (req) => {
     const { data: prof } = await service.from("profiles").select("name").eq("id", ticket.user_id).maybeSingle();
     const displayName = prof?.name ?? "there";
 
-    const notifyRes = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${serviceKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        user_id: ticket.user_id,
-        category: "support_reply",
-        title: "Vibely Support",
-        body: `We've replied to your request ${ticket.reference_id}`,
-        data: {
-          type: "support_reply",
-          ticket_id: ticket.id,
-          reference_id: ticket.reference_id,
-          url: `/settings/ticket/${ticket.id}`,
-        },
-        bypass_preferences: true,
-      }),
-    });
+    let notificationWarning: string | null = null;
+    let emailWarning: string | null = null;
 
-    if (!notifyRes.ok) {
-      const txt = await notifyRes.text();
-      console.error("send-notification failed:", notifyRes.status, txt);
+    try {
+      const notifyRes = await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: ticket.user_id,
+          category: "support_reply",
+          title: "Vibely Support",
+          body: `We've replied to your request ${ticket.reference_id}`,
+          data: {
+            type: "support_reply",
+            ticket_id: ticket.id,
+            reference_id: ticket.reference_id,
+            url: `/settings/ticket/${ticket.id}`,
+          },
+          bypass_preferences: true,
+        }),
+      });
+
+      if (!notifyRes.ok) {
+        const txt = await notifyRes.text();
+        console.error("send-notification failed:", notifyRes.status, txt);
+        notificationWarning = "Reply saved but push notification could not be delivered.";
+      }
+    } catch (notifyError) {
+      console.error("send-notification error for support reply:", notifyError);
+      notificationWarning = "Reply saved but push notification could not be delivered.";
     }
 
     if (send_email && ticket.user_email) {
       const resendKey = Deno.env.get("RESEND_API_KEY");
       if (resendKey) {
         const safeBody = escapeHtml(reply_message).replace(/\n/g, "<br/>");
-        await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${resendKey}`,
-          },
-          body: JSON.stringify({
-            from: "Vibely Support <support@vibelymeet.com>",
-            to: ticket.user_email,
-            subject: `Re: Your request ${ticket.reference_id}`,
-            html: `
+        try {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${resendKey}`,
+            },
+            body: JSON.stringify({
+              from: "Vibely Support <support@vibelymeet.com>",
+              to: ticket.user_email,
+              subject: `Re: Your request ${ticket.reference_id}`,
+              html: `
           <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto;">
             <h2 style="color: #8B5CF6;">Vibely Support</h2>
             <p>Hi ${escapeHtml(displayName)},</p>
@@ -143,15 +153,26 @@ serve(async (req) => {
             </p>
           </div>
         `,
-          }),
-        });
+            }),
+          });
+        } catch (emailError) {
+          console.error("Resend email failed for support reply:", emailError);
+          emailWarning = "Reply saved but email notification could not be sent.";
+        }
       }
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
+    return new Response(
+      JSON.stringify({
+        success: true,
+        notification_warning: notificationWarning,
+        email_warning: emailWarning,
+      }),
+      {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      },
+    );
   } catch (e) {
     console.error("send-support-reply:", e);
     return new Response(JSON.stringify({ error: String(e) }), {

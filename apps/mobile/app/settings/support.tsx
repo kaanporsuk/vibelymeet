@@ -58,6 +58,8 @@ export default function SupportScreen() {
       return (data ?? []) as TicketRow[];
     },
     enabled: !!user?.id,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
   });
 
   const ticketIds = useMemo(() => tickets.map((t) => t.id), [tickets]);
@@ -81,6 +83,8 @@ export default function SupportScreen() {
       return map;
     },
     enabled: ticketIds.length > 0,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
   });
 
   const primaryTypes: PrimaryType[] = ['support', 'feedback', 'safety'];

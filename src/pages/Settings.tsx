@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -59,6 +59,14 @@ const Settings = () => {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+
+  const { id: deepLinkTicketId } = useParams<{ id?: string }>();
+
+  useEffect(() => {
+    if (deepLinkTicketId) {
+      setShowFeedback(true);
+    }
+  }, [deepLinkTicketId]);
 
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);
@@ -290,7 +298,7 @@ const Settings = () => {
       />
 
       {/* Support & Feedback Drawer */}
-      <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} />
+      <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} initialTicketId={deepLinkTicketId} />
 
       {/* Logout Confirmation */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>

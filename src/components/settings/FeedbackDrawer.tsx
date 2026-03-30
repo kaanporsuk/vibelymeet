@@ -28,6 +28,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 interface FeedbackDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialTicketId?: string;
 }
 
 type TicketListRow = {
@@ -43,7 +44,7 @@ type TicketListRow = {
 const WEB_VERSION =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_VERSION) || "1.0.0";
 
-export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
+export const FeedbackDrawer = ({ open, onOpenChange, initialTicketId }: FeedbackDrawerProps) => {
   const { user } = useUserProfile();
   const [view, setView] = useState<"home" | "compose" | "success">("home");
   const [primaryType, setPrimaryType] = useState<PrimaryType>("support");
@@ -80,6 +81,15 @@ export const FeedbackDrawer = ({ open, onOpenChange }: FeedbackDrawerProps) => {
       void loadTickets();
     }
   }, [open, user?.id]);
+
+  useEffect(() => {
+    if (!open || !initialTicketId || ticketRows.length === 0) return;
+    const match = ticketRows.find((t) => t.id === initialTicketId);
+    if (match) {
+      setThreadTicket(match);
+      setThreadOpen(true);
+    }
+  }, [open, initialTicketId, ticketRows]);
 
   const isValid =
     subcategory !== null &&
