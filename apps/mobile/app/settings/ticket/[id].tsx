@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -80,6 +80,8 @@ export default function TicketThreadScreen() {
       return { ticket: ticket as TicketRow, replies: (replies ?? []) as ReplyRow[] };
     },
     enabled: !!ticketId && !!user?.id,
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
   });
 
   const ticket = data?.ticket;
@@ -88,6 +90,7 @@ export default function TicketThreadScreen() {
   const stCfg = status ? STATUS_CONFIG[status] ?? STATUS_CONFIG.submitted : STATUS_CONFIG.submitted;
   const resolved = ticket?.status === 'resolved';
   const [refreshing, setRefreshing] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -157,6 +160,18 @@ export default function TicketThreadScreen() {
   const pt = ticket?.primary_type as PrimaryType | undefined;
   const cat = pt ? SUPPORT_CATEGORIES[pt] : null;
 
+  const scrollToEnd = useCallback(() => {
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, []);
+
+  useEffect(() => {
+    if (listData.length > 1) {
+      scrollToEnd();
+    }
+  }, [listData.length, scrollToEnd]);
+
   if (isLoading || error || !ticket) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -198,6 +213,7 @@ export default function TicketThreadScreen() {
       ) : null}
 
       <FlatList
+        ref={flatListRef}
         data={listData}
         keyExtractor={(item) => ('kind' in item && item.kind === 'summary' ? 'summary' : (item as ReplyRow).id)}
         contentContainerStyle={[styles.listContent, { paddingBottom: resolved ? spacing.md : 100 }]}

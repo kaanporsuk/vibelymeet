@@ -1,3 +1,6 @@
+// NOTE: support_ticket_attachments table exists in DB schema but
+// is not yet wired in any app flow. Reserved for future screenshot/
+// media attachment support in ticket submissions.
 export type PrimaryType = 'support' | 'feedback' | 'safety';
 
 export interface CategoryConfig {
@@ -12,7 +15,7 @@ export interface CategoryConfig {
 export interface SmartField {
   key: string;
   label: string;
-  type: 'text' | 'select' | 'boolean';
+  type: 'text' | 'select';
   options?: string[];
   placeholder?: string;
 }
@@ -26,10 +29,12 @@ export const SUPPORT_CATEGORIES: Record<PrimaryType, CategoryConfig> = {
     subcategories: [
       'Account & login',
       'Billing & premium',
+      'Payment failed or refund',
       'Events & tickets',
       'Matches & messages',
       'Notifications',
       'Profile & media',
+      'Photo or verification issue',
       'Video dates & calls',
       'Other support',
     ],
@@ -89,7 +94,9 @@ export const SUPPORT_CATEGORIES: Record<PrimaryType, CategoryConfig> = {
     subcategories: [
       'Harassment or abusive behavior',
       'Fake profile or scam',
+      'Matched with someone I know',
       'Inappropriate content',
+      'Underage user',
       'Unsafe in-person experience',
       'Moderation / appeal',
       'Other safety issue',

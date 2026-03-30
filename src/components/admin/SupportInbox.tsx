@@ -204,7 +204,7 @@ export default function SupportInbox() {
 
   const sendReplyMutation = useMutation({
     mutationFn: async () => {
-      if (!selected || !replyText.trim()) return;
+      if (!selected || !replyText.trim()) return null;
       const { error: insErr } = await supabase.from("support_ticket_replies").insert({
         ticket_id: selected.id,
         sender_type: "admin",
@@ -217,20 +217,48 @@ export default function SupportInbox() {
       if (Object.keys(updates).length) {
         await supabase.from("support_tickets").update(updates).eq("id", selected.id);
       }
-      const { error: fnErr } = await supabase.functions.invoke("send-support-reply", {
-        body: {
-          ticket_id: selected.id,
-          reply_message: replyText.trim(),
-          send_email: sendEmail,
-        },
-      });
-      if (fnErr) throw fnErr;
+      let warningPayload: { notification_warning?: string | null; email_warning?: string | null } | null = null;
+      try {
+        const fnRes = await supabase.functions.invoke("send-support-reply", {
+          body: {
+            ticket_id: selected.id,
+            reply_message: replyText.trim(),
+            send_email: sendEmail,
+          },
+        });
+        if (fnRes.data) {
+          warningPayload = {
+            notification_warning: fnRes.data.notification_warning,
+            email_warning: fnRes.data.email_warning,
+          };
+        } else if (fnRes.error) {
+          console.error("send-support-reply error:", fnRes.error);
+          warningPayload = {
+            notification_warning:
+              "Reply saved but notification delivery may have failed. The user will see it when they open the app.",
+          };
+        }
+      } catch (err) {
+        console.error("send-support-reply invoke error:", err);
+        warningPayload = {
+          notification_warning:
+            "Reply saved but notification delivery may have failed. The user will see it when they open the app.",
+        };
+      }
+      return warningPayload;
     },
-    onSuccess: () => {
+    onSuccess: (warnings) => {
       setReplyText("");
       queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
       queryClient.invalidateQueries({ queryKey: ["admin-support-thread", selectedId] });
-      toast.success("Reply sent");
+      const notificationWarning = warnings?.notification_warning ?? null;
+      const emailWarning = warnings?.email_warning ?? null;
+      if (notificationWarning || emailWarning) {
+        const description = [notificationWarning, emailWarning].filter(Boolean).join(" ");
+        toast.warning("Reply sent with warnings", { description });
+      } else {
+        toast.success("Reply sent");
+      }
     },
     onError: () => toast.error("Failed to send reply"),
   });
