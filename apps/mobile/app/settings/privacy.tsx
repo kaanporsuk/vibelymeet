@@ -11,8 +11,6 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
-  Platform,
-  PermissionsAndroid,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +23,7 @@ import {
   getCameraPermissionsAsync,
   getMediaLibraryPermissionsAsync,
 } from 'expo-image-picker';
+import { Camera } from 'expo-camera';
 import { format, formatDistanceStrict } from 'date-fns';
 
 import Colors from '@/constants/Colors';
@@ -84,11 +83,12 @@ type NormalizedPrivacyProfile = {
 };
 
 async function getMicPermissionStatus(): Promise<'granted' | 'denied' | 'undetermined'> {
-  if (Platform.OS === 'android') {
-    const result = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-    return result ? 'granted' : 'denied';
+  try {
+    const { status } = await Camera.getMicrophonePermissionsAsync();
+    return status as 'granted' | 'denied' | 'undetermined';
+  } catch {
+    return 'undetermined';
   }
-  return 'undetermined';
 }
 
 function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPrivacyProfile {
@@ -354,7 +354,7 @@ export default function PrivacySettingsScreen() {
 
   const micPermLabel = (status: string | null) => {
     if (status === 'granted') return { text: 'Allowed', color: theme.success };
-    if (status === 'undetermined') return { text: 'Manage in Settings', color: theme.mutedForeground };
+    if (status === 'undetermined') return { text: 'Not set', color: theme.mutedForeground };
     return { text: 'Not allowed', color: theme.danger };
   };
 
@@ -715,7 +715,6 @@ export default function PrivacySettingsScreen() {
             .from('profiles')
             .update({
               activity_status_visibility: v,
-              show_online_status: v !== 'nobody',
             })
             .eq('id', user.id);
           if (error) {
@@ -746,7 +745,6 @@ export default function PrivacySettingsScreen() {
             .from('profiles')
             .update({
               distance_visibility: v,
-              show_distance: v === 'approximate',
             })
             .eq('id', user.id);
           if (error) {
@@ -993,7 +991,6 @@ function DiscoveryModeSheet({
         .update({
           discovery_mode: mode,
           discovery_snooze_until: mode === 'snoozed' ? until : null,
-          discoverable: mode === 'visible',
         })
         .eq('id', userId);
       if (error) {
