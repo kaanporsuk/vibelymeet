@@ -13,6 +13,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="privacy" options={{ title: 'Privacy' }} />
       <Stack.Screen name="blocked-users" options={{ title: 'Blocked users' }} />
       <Stack.Screen name="support" options={{ title: 'Support & Feedback' }} />
+      <Stack.Screen name="safety-center" options={{ title: 'Safety Center' }} />
       <Stack.Screen name="submit-ticket" options={{ title: 'New request' }} />
       <Stack.Screen name="ticket-submitted" options={{ title: 'Request sent' }} />
       <Stack.Screen name="ticket/[id]" options={{ title: 'Request' }} />

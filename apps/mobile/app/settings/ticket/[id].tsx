@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -55,7 +57,12 @@ export default function TicketThreadScreen() {
   const queryClient = useQueryClient();
   const [composer, setComposer] = useState('');
 
-  const { data, isLoading, error } = useQuery({
+  const {
+    data,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['support_ticket_thread', ticketId, user?.id],
     queryFn: async () => {
       const { data: ticket, error: tErr } = await supabase
@@ -80,6 +87,7 @@ export default function TicketThreadScreen() {
   const status = ticket?.status as SupportStatus | undefined;
   const stCfg = status ? STATUS_CONFIG[status] ?? STATUS_CONFIG.submitted : STATUS_CONFIG.submitted;
   const resolved = ticket?.status === 'resolved';
+  const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,7 +125,23 @@ export default function TicketThreadScreen() {
       setComposer('');
       queryClient.invalidateQueries({ queryKey: ['support_ticket_thread', ticketId] });
     },
+    onError: () => {
+      Alert.alert(
+        'Message not sent',
+        "Your reply couldn't be delivered. Please check your connection and try again.",
+        [{ text: 'OK' }],
+      );
+    },
   });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   const listData = useMemo(() => {
     if (!ticket) return [];
@@ -177,6 +201,9 @@ export default function TicketThreadScreen() {
         data={listData}
         keyExtractor={(item) => ('kind' in item && item.kind === 'summary' ? 'summary' : (item as ReplyRow).id)}
         contentContainerStyle={[styles.listContent, { paddingBottom: resolved ? spacing.md : 100 }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.tint} />
+        }
         renderItem={({ item }) => {
           if ('kind' in item && item.kind === 'summary') {
             const t = item.ticket;

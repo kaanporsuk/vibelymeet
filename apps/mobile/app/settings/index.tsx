@@ -6,6 +6,7 @@ import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-na
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import { useQuery } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
 import {
@@ -172,18 +173,20 @@ export default function SettingsScreen() {
 
           <Text style={[styles.sectionHeader, { color: theme.mutedForeground }]}>Preferences</Text>
           <Card variant="glass" style={styles.navCard}>
-            <SettingsRow
-              icon={<Ionicons name="notifications-outline" size={20} color={theme.tint} />}
-              title="Notifications"
-              subtitle="Manage alerts and sounds"
-              onPress={() => router.push('/settings/notifications')}
-            />
-            <SettingsRow
-              icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
-              title="Privacy & Visibility"
-              subtitle="Who finds you, what they see, how you stay protected"
-              onPress={() => router.push('/settings/privacy')}
-            />
+            <View style={styles.quickSection}>
+              <SettingsRow
+                icon={<Ionicons name="notifications-outline" size={20} color={theme.tint} />}
+                title="Notifications"
+                subtitle="Manage alerts and sounds"
+                onPress={() => router.push('/settings/notifications')}
+              />
+              <SettingsRow
+                icon={<Ionicons name="shield-outline" size={20} color={theme.neonCyan} />}
+                title="Privacy & Visibility"
+                subtitle="Who finds you, what they see, how you stay protected"
+                onPress={() => router.push('/settings/privacy')}
+              />
+            </View>
           </Card>
 
           <Text style={[styles.sectionHeader, { color: theme.mutedForeground }]}>Support</Text>
@@ -192,33 +195,38 @@ export default function SettingsScreen() {
               <SettingsRow
                 icon={<Ionicons name="chatbubble-outline" size={18} color={theme.tint} />}
                 title="Support & Feedback"
+                subtitle="Get help, share ideas, or report concerns"
                 onPress={() => router.push('/settings/support')}
               />
               <SettingsRow
                 icon={<Ionicons name="people-outline" size={18} color={theme.textSecondary} />}
                 title="Community Guidelines"
-                onPress={() => Linking.openURL('https://vibelymeet.com/community-guidelines').catch(() => {})}
+                subtitle="How we keep Vibely safe and respectful"
+                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/community-guidelines').catch(() => {})}
               />
               <SettingsRow
                 icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
                 title="How Vibely Works"
+                subtitle="Events, video dates, and matching explained"
                 onPress={() => router.push('/how-it-works' as Href)}
               />
               <SettingsRow
                 icon={<Ionicons name="shield-checkmark" size={20} color={theme.neonCyan} />}
                 title="Safety Center"
                 subtitle="Report, tips, emergency resources"
-                onPress={() => Linking.openURL('https://vibelymeet.com/settings').catch(() => {})}
+                onPress={() => router.push('/settings/safety-center')}
               />
               <SettingsRow
                 icon={<Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />}
                 title="Privacy Policy"
-                onPress={() => Linking.openURL('https://vibelymeet.com/privacy').catch(() => {})}
+                subtitle="How we collect, use, and protect your data"
+                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy').catch(() => {})}
               />
               <SettingsRow
                 icon={<Ionicons name="document-text-outline" size={18} color={theme.textSecondary} />}
                 title="Terms of Service"
-                onPress={() => Linking.openURL('https://vibelymeet.com/terms').catch(() => {})}
+                subtitle="Rules and agreements for using Vibely"
+                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/terms').catch(() => {})}
               />
             </View>
           </Card>

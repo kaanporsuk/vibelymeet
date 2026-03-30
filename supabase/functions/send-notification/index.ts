@@ -61,8 +61,8 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   credits_subscription: 'notify_credits_subscription',
 }
 
-// Categories that bypass quiet hours (time-critical / safety)
-const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety']
+// Categories that bypass quiet hours (time-critical / safety / support)
+const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply']
 
 // Title/body templates for P0 notification types (used when caller omits title or body)
 const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) => string }> = {
@@ -247,7 +247,7 @@ Deno.serve(async (req) => {
     // The safety_alerts category ALWAYS bypasses pause gates.
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 4. Check account-level pause (legacy is_paused + account_paused)
-    if (category !== 'safety_alerts') {
+    if (category !== 'safety_alerts' && category !== 'support_reply') {
       const { data: profileRow } = await supabase
         .from('profiles')
         .select('is_paused, paused_until, account_paused, account_paused_until')
@@ -271,7 +271,7 @@ Deno.serve(async (req) => {
     }
 
     // 5. Check notification-prefs pause (paused_until on notification_preferences)
-    if (category !== 'safety_alerts' && prefs.paused_until) {
+    if (category !== 'safety_alerts' && category !== 'support_reply' && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
         await logNotification(user_id, category, title, body, data, false, 'paused')
         return new Response(JSON.stringify({ success: false, reason: 'paused' }), {
@@ -289,7 +289,7 @@ Deno.serve(async (req) => {
     }
 
     // 7. Check category toggle (notify_* columns only — matches settings UI)
-    if (category !== 'safety_alerts') {
+    if (category !== 'safety_alerts' && category !== 'support_reply') {
       const col = CATEGORY_TO_COLUMN[category]
       if (col && prefs[col] === false) {
         await logNotification(user_id, category, title, body, data, false, 'user_disabled')
