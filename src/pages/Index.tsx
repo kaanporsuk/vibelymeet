@@ -8,9 +8,9 @@ const Index = () => {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useAuth();
 
-  // Redirect authenticated users to dashboard
+  // Redirect authenticated users to Now
   if (!isLoading && isAuthenticated) {
-    navigate("/dashboard");
+    navigate("/home");
     return null;
   }
 

@@ -10,8 +10,8 @@ interface CelebrationStepProps {
   onRetry: () => void;
   vibeScore: number;
   vibeScoreLabel: string;
+  onGoNow: () => void;
   onExploreEvents: () => void;
-  onDashboard: () => void;
 }
 
 function ConfettiParticle({ delay }: { delay: number }) {
@@ -43,8 +43,8 @@ export const CelebrationStep = ({
   onRetry,
   vibeScore,
   vibeScoreLabel,
+  onGoNow,
   onExploreEvents,
-  onDashboard,
 }: CelebrationStepProps) => {
   const [showConfetti, setShowConfetti] = useState(false);
   const confettiShown = useRef(false);
@@ -161,17 +161,17 @@ export const CelebrationStep = ({
         transition={{ delay: 0.8 }}
       >
         <Button
-          onClick={onExploreEvents}
+          onClick={onGoNow}
           className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
         >
           <PartyPopper className="w-4 h-4 mr-2" />
-          Explore events
+          Go to Now
         </Button>
         <button
-          onClick={onDashboard}
+          onClick={onExploreEvents}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors w-full text-center"
         >
-          Go to dashboard
+          Explore events
         </button>
       </motion.div>
     </div>

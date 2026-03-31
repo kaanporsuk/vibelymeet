@@ -151,7 +151,7 @@ const Auth = () => {
         }
       }
 
-      navigate(needsOnboarding ? "/onboarding" : "/dashboard", { replace: true });
+      navigate(needsOnboarding ? "/onboarding" : "/home", { replace: true });
     };
 
     const delay = view === "success" ? 1500 : 0;

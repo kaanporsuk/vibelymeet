@@ -32,6 +32,22 @@ async function canUsePremiumGeocode(
   return !!premium;
 }
 
+async function canUseOnboardingGeocode(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("onboarding_complete")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.error("profiles onboarding check (forward-geocode):", error);
+    return false;
+  }
+  return data?.onboarding_complete !== true;
+}
+
 type NominatimItem = {
   lat: string;
   lon: string;
@@ -164,8 +180,17 @@ Deno.serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+    const body = await req.json();
+    const query = typeof body?.query === "string" ? body.query : "";
+    const onboardingSearch =
+      body?.onboarding === true || body?.context === "onboarding";
+
     const allowed = await canUsePremiumGeocode(supabaseAdmin, user.id);
-    if (!allowed) {
+    let onboardingAllowed = false;
+    if (!allowed && onboardingSearch) {
+      onboardingAllowed = await canUseOnboardingGeocode(supabaseAdmin, user.id);
+    }
+    if (!allowed && !onboardingAllowed) {
       return new Response(JSON.stringify({ error: "Premium subscription required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -180,8 +205,6 @@ Deno.serve(async (req) => {
     if (!rateResult.allowed) {
       return createRateLimitResponse(rateResult, corsHeaders);
     }
-
-    const { query } = await req.json();
 
     if (!query || query.trim().length < 2) {
       return new Response(JSON.stringify([]), {

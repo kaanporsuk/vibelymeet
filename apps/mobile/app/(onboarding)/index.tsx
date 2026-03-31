@@ -283,10 +283,10 @@ export default function OnboardingV2Screen() {
         if (needsEmailCollection) {
           return <VibeVideoStep onMarkedRecorded={(videoUid) => { updateField('vibeVideoRecorded', true); updateField('bunnyVideoUid', videoUid); }} onNext={goNext} />;
         }
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onExploreEvents={() => router.replace('/(tabs)/events')} onDashboard={() => router.replace('/(tabs)')} />;
+        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
       case 14:
       default:
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onExploreEvents={() => router.replace('/(tabs)/events')} onDashboard={() => router.replace('/(tabs)')} />;
+        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
     }
   }, [
     currentStep,

@@ -43,7 +43,9 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
     if (!search.trim()) return;
     setLoading(true);
     try {
-      const { data } = await supabase.functions.invoke('forward-geocode', { body: { query: search.trim() } });
+      const { data } = await supabase.functions.invoke('forward-geocode', {
+        body: { query: search.trim(), context: 'onboarding' },
+      });
       const list: GeoResult[] = Array.isArray(data?.results) ? data.results : (Array.isArray(data) ? data : []);
       setResults(list);
     } finally {

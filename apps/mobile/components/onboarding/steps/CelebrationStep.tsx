@@ -12,8 +12,8 @@ export default function CelebrationStep({
   onRetry,
   vibeScore,
   vibeScoreLabel,
+  onGoNow,
   onExploreEvents,
-  onDashboard,
 }: {
   submitting: boolean;
   completed: boolean;
@@ -21,8 +21,8 @@ export default function CelebrationStep({
   onRetry: () => void;
   vibeScore: number;
   vibeScoreLabel: string;
+  onGoNow: () => void;
   onExploreEvents: () => void;
-  onDashboard: () => void;
 }) {
   const theme = Colors[useColorScheme()];
 
@@ -50,8 +50,8 @@ export default function CelebrationStep({
       <Text style={styles.party}>🎉</Text>
       <Text style={[styles.h1, { color: theme.text }]}>You're in!</Text>
       <Text style={[styles.sub, { color: theme.textSecondary }]}>Your Vibe Score: {vibeScore} · {vibeScoreLabel}</Text>
-      <VibelyButton label="Explore events" onPress={onExploreEvents} variant="gradient" />
-      <VibelyButton label="Go to dashboard" onPress={onDashboard} variant="secondary" />
+      <VibelyButton label="Go to Now" onPress={onGoNow} variant="gradient" />
+      <VibelyButton label="Explore events" onPress={onExploreEvents} variant="secondary" />
     </View>
   );
 }
