@@ -40,6 +40,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const ensureProfileExists = useCallback(async (user: User) => {
+    try {
+      const { data: existing } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
+      if (existing) return;
+      const md = user.user_metadata ?? {};
+      await supabase.from('profiles').insert({
+        id: user.id,
+        name: md.full_name || md.name || '',
+      });
+    } catch {
+      // non-blocking
+    }
+  }, []);
+
   useEffect(() => {
     supabase.auth
       .getSession()
@@ -47,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(s);
         setUser(s?.user ?? null);
         if (s?.user) {
+          void ensureProfileExists(s.user);
           resolveOnboarding(s.user.id);
         } else {
           setOnboardingComplete(null);
@@ -66,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
+        void ensureProfileExists(s.user);
         resolveOnboarding(s.user.id);
       } else {
         setOnboardingComplete(null);
@@ -73,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, [resolveOnboarding]);
+  }, [resolveOnboarding, ensureProfileExists]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
