@@ -59,7 +59,7 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     setSearching(true);
     try {
       const { data } = await supabase.functions.invoke("forward-geocode", {
-        body: { query: searchQuery.trim() },
+        body: { query: searchQuery.trim(), context: "onboarding" },
       });
       const items = Array.isArray(data) ? data : data?.results ?? [];
       setResults(

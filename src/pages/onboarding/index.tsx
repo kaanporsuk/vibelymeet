@@ -517,8 +517,8 @@ const Onboarding = () => {
           }}
           vibeScore={vibeScore}
           vibeScoreLabel={vibeScoreLabel}
+          onGoNow={() => navigate("/home")}
           onExploreEvents={() => navigate("/events")}
-          onDashboard={() => navigate("/dashboard")}
         />
       );
     }
@@ -550,8 +550,8 @@ const Onboarding = () => {
         }}
         vibeScore={vibeScore}
         vibeScoreLabel={vibeScoreLabel}
+        onGoNow={() => navigate("/home")}
         onExploreEvents={() => navigate("/events")}
-        onDashboard={() => navigate("/dashboard")}
       />
     );
   };
