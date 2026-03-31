@@ -100,6 +100,8 @@ const Onboarding = () => {
 
   const submitOnceRef = useRef(false);
   const startedAtRef = useRef(Date.now());
+  const currentStepRef = useRef(currentStep);
+  const completedRef = useRef(completed);
 
   const needsEmailCollection = !session?.user?.email;
   const totalSteps = needsEmailCollection ? STEPS_WITH_EMAIL : STEPS_WITHOUT_EMAIL;
@@ -168,6 +170,9 @@ const Onboarding = () => {
     );
   }, [session?.user?.id, currentStep, data, completed]);
 
+  useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
+  useEffect(() => { completedRef.current = completed; }, [completed]);
+
   // Track step views
   useEffect(() => {
     const name = stepNames[currentStep] ?? stepNames[0];
@@ -181,11 +186,11 @@ const Onboarding = () => {
   // Track abandonment on unmount
   useEffect(() => {
     return () => {
-      if (!completed) {
+      if (!completedRef.current) {
         trackEvent("onboarding_abandoned", {
           platform: "web",
-          last_step: currentStep,
-          last_step_name: stepNames[currentStep] ?? stepNames[0],
+          last_step: currentStepRef.current,
+          last_step_name: stepNames[currentStepRef.current] ?? stepNames[0],
           total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
         });
       }
@@ -277,6 +282,7 @@ const Onboarding = () => {
         city: data.city || null,
         country: data.country || null,
         bunny_video_uid: data.bunnyVideoUid || null,
+        community_agreed_at: data.communityAgreed ? new Date().toISOString() : null,
       });
       if (upsertError) throw upsertError;
 

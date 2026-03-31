@@ -197,6 +197,7 @@ const AdminExportPanel = () => {
         location,
         height_cm,
         looking_for,
+        relationship_intent,
         email_verified,
         photo_verified,
         is_suspended,
@@ -232,14 +233,14 @@ const AdminExportPanel = () => {
     });
 
     const headers = [
-      "ID", "Name", "Age", "Gender", "Location", "Height (cm)", "Looking For",
+      "ID", "Name", "Age", "Gender", "Location", "Height (cm)", "Relationship Intent",
       "Email Verified", "Photo Verified", "Suspended", "Total Matches",
       "Total Conversations", "Events Attended", "Vibes", "Created At", "Updated At",
     ];
 
     const rows = data?.map((user) => [
       user.id, user.name, user.age, user.gender, user.location || "",
-      user.height_cm || "", user.looking_for || "",
+      user.height_cm || "", user.relationship_intent || user.looking_for || "",
       user.email_verified ? "Yes" : "No", user.photo_verified ? "Yes" : "No",
       user.is_suspended ? "Yes" : "No", user.total_matches || 0,
       user.total_conversations || 0, user.events_attended || 0,

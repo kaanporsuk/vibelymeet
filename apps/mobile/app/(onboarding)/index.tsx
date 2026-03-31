@@ -39,7 +39,7 @@ function calculateAge(dateIso: string): number {
 function getStageForStep(step: number): string | null {
   if (step <= 0) return 'auth_complete';
   if (step <= 4) return 'identity';
-  if (step <= 9) return 'details';
+  if (step <= 8) return 'details';
   if (step <= 12) return 'media';
   return null;
 }
@@ -57,6 +57,8 @@ export default function OnboardingV2Screen() {
   const [vibeScoreLabel, setVibeScoreLabel] = useState('Rising');
   const submitOnceRef = useRef(false);
   const startedAtRef = useRef<number>(Date.now());
+  const currentStepRef = useRef(currentStep);
+  const completedRef = useRef(completed);
 
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -114,6 +116,9 @@ export default function OnboardingV2Screen() {
   const stepNames = needsEmailCollection
     ? ONBOARDING_STEP_NAMES
     : ONBOARDING_STEP_NAMES.filter((n) => n !== 'email_collection');
+
+  useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
+  useEffect(() => { completedRef.current = completed; }, [completed]);
 
   useEffect(() => {
     const stepName = stepNames[currentStep] ?? stepNames[0];
@@ -173,6 +178,7 @@ export default function OnboardingV2Screen() {
         city: data.city || null,
         country: data.country || null,
         bunny_video_uid: data.bunnyVideoUid || null,
+        community_agreed_at: data.communityAgreed ? new Date().toISOString() : null,
       });
       if (upsertError) throw upsertError;
 
@@ -232,16 +238,17 @@ export default function OnboardingV2Screen() {
 
   useEffect(() => {
     return () => {
-      if (!completed) {
+      if (!completedRef.current) {
         trackEvent('onboarding_abandoned', {
           platform: 'native',
-          last_step: currentStep,
-          last_step_name: stepNames[currentStep] ?? stepNames[0],
+          last_step: currentStepRef.current,
+          last_step_name: stepNames[currentStepRef.current] ?? stepNames[0],
           total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
         });
       }
     };
-  }, [completed, currentStep, stepNames]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const content = useMemo(() => {
     switch (currentStep) {
