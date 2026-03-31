@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { FlatList, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
@@ -35,6 +35,9 @@ const CARDS = [
 export default function ValuePropStep({ onNext }: { onNext: () => void }) {
   const theme = Colors[useColorScheme()];
   const [index, setIndex] = useState(0);
+  const { width: screenWidth } = useWindowDimensions();
+  const horizontalPadding = 24;
+  const cardWidth = Math.max(280, screenWidth - horizontalPadding * 2);
   const dots = useMemo(() => Array.from({ length: CARDS.length }), []);
 
   return (
@@ -42,16 +45,19 @@ export default function ValuePropStep({ onNext }: { onNext: () => void }) {
       <FlatList
         data={CARDS}
         horizontal
-        pagingEnabled
         showsHorizontalScrollIndicator={false}
+        decelerationRate="fast"
+        snapToInterval={cardWidth}
+        snapToAlignment="start"
         keyExtractor={(item) => item.solution}
+        contentContainerStyle={{ paddingHorizontal: horizontalPadding }}
+        getItemLayout={(_, i) => ({ length: cardWidth, offset: cardWidth * i, index: i })}
         onMomentumScrollEnd={(e) => {
-          const w = e.nativeEvent.layoutMeasurement.width;
           const x = e.nativeEvent.contentOffset.x;
-          setIndex(Math.round(x / Math.max(1, w)));
+          setIndex(Math.round(x / Math.max(1, cardWidth)));
         }}
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth }]}>
             <Text style={styles.icon}>{item.icon}</Text>
             <Text style={[styles.pain, { color: theme.textSecondary }]}>{item.pain}</Text>
             <Text style={[styles.solution, { color: theme.text }]}>{item.solution}</Text>
@@ -66,11 +72,11 @@ export default function ValuePropStep({ onNext }: { onNext: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 14 },
-  card: { width: 320, alignSelf: 'center', paddingVertical: 12, gap: 8 },
+  root: { gap: 14, overflow: 'hidden' },
+  card: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 16, gap: 8 },
   icon: { fontSize: 38, textAlign: 'center' },
   pain: { textAlign: 'center', fontStyle: 'italic', fontSize: 14 },
-  solution: { textAlign: 'center', fontSize: 22, fontWeight: '700', lineHeight: 28 },
+  solution: { textAlign: 'center', fontSize: 20, fontWeight: '700', lineHeight: 27 },
   detail: { textAlign: 'center', fontSize: 14, lineHeight: 20 },
   dots: { flexDirection: 'row', alignSelf: 'center', gap: 6, marginBottom: 6 },
   dot: { width: 8, height: 8, borderRadius: 4 },

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,47 @@ import { VibelyButton } from '@/components/ui';
 
 type AuthView = 'welcome' | 'otp' | 'email_signin' | 'email_signup' | 'success';
 
-const COUNTRY_CODES = ['+31', '+49', '+33', '+44', '+34', '+39', '+48', '+90', '+46', '+351', '+1'];
+type Country = { name: string; code: string; flag: string; suggested?: boolean };
+
+const COUNTRIES: Country[] = [
+  { name: 'Netherlands', code: '+31', flag: '🇳🇱', suggested: true },
+  { name: 'Germany', code: '+49', flag: '🇩🇪', suggested: true },
+  { name: 'France', code: '+33', flag: '🇫🇷', suggested: true },
+  { name: 'United Kingdom', code: '+44', flag: '🇬🇧', suggested: true },
+  { name: 'Spain', code: '+34', flag: '🇪🇸', suggested: true },
+  { name: 'Italy', code: '+39', flag: '🇮🇹', suggested: true },
+  { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
+  { name: 'Türkiye', code: '+90', flag: '🇹🇷', suggested: true },
+  { name: 'Sweden', code: '+46', flag: '🇸🇪', suggested: true },
+  { name: 'Portugal', code: '+351', flag: '🇵🇹', suggested: true },
+  { name: 'United States', code: '+1', flag: '🇺🇸' },
+  { name: 'Canada', code: '+1', flag: '🇨🇦' },
+  { name: 'Ireland', code: '+353', flag: '🇮🇪' },
+  { name: 'Norway', code: '+47', flag: '🇳🇴' },
+  { name: 'Denmark', code: '+45', flag: '🇩🇰' },
+  { name: 'Belgium', code: '+32', flag: '🇧🇪' },
+  { name: 'Austria', code: '+43', flag: '🇦🇹' },
+  { name: 'Switzerland', code: '+41', flag: '🇨🇭' },
+  { name: 'Finland', code: '+358', flag: '🇫🇮' },
+  { name: 'Czechia', code: '+420', flag: '🇨🇿' },
+  { name: 'Greece', code: '+30', flag: '🇬🇷' },
+  { name: 'Hungary', code: '+36', flag: '🇭🇺' },
+  { name: 'Romania', code: '+40', flag: '🇷🇴' },
+  { name: 'Bulgaria', code: '+359', flag: '🇧🇬' },
+  { name: 'Croatia', code: '+385', flag: '🇭🇷' },
+  { name: 'Slovakia', code: '+421', flag: '🇸🇰' },
+  { name: 'Slovenia', code: '+386', flag: '🇸🇮' },
+  { name: 'Australia', code: '+61', flag: '🇦🇺' },
+  { name: 'New Zealand', code: '+64', flag: '🇳🇿' },
+  { name: 'Brazil', code: '+55', flag: '🇧🇷' },
+  { name: 'Mexico', code: '+52', flag: '🇲🇽' },
+  { name: 'Argentina', code: '+54', flag: '🇦🇷' },
+  { name: 'Chile', code: '+56', flag: '🇨🇱' },
+  { name: 'India', code: '+91', flag: '🇮🇳' },
+  { name: 'Pakistan', code: '+92', flag: '🇵🇰' },
+  { name: 'Bangladesh', code: '+880', flag: '🇧🇩' },
+  { name: 'South Africa', code: '+27', flag: '🇿🇦' },
+];
 
 export default function SignInScreen() {
   const theme = Colors[useColorScheme()];
@@ -24,6 +64,8 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [countryCode, setCountryCode] = useState('+31');
+  const [showCountryModal, setShowCountryModal] = useState(false);
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
   const [phoneForOtp, setPhoneForOtp] = useState('');
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
@@ -37,6 +79,27 @@ export default function SignInScreen() {
 
   const phoneDigits = useMemo(() => phoneInput.replace(/\D/g, ''), [phoneInput]);
   const phoneValid = phoneDigits.length >= 7;
+  const selectedCountry = useMemo(
+    () => COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[0],
+    [countryCode]
+  );
+  const filteredCountries = useMemo(() => {
+    const query = countrySearchQuery.trim().toLowerCase();
+    return COUNTRIES.filter((c) => {
+      if (!query) return true;
+      return c.name.toLowerCase().includes(query) || c.code.includes(query.replace(/\s/g, ''));
+    });
+  }, [countrySearchQuery]);
+  const countrySections = useMemo(() => {
+    const suggested = filteredCountries.filter((c) => c.suggested);
+    const others = filteredCountries
+      .filter((c) => !c.suggested)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [
+      { title: 'Suggested', data: suggested },
+      { title: 'All countries', data: others },
+    ].filter((section) => section.data.length > 0);
+  }, [filteredCountries]);
 
   useEffect(() => {
     trackEvent('auth_page_viewed', { platform: 'native' });
@@ -249,15 +312,15 @@ export default function SignInScreen() {
 
         {view === 'welcome' ? (
           <View style={styles.block}>
-            <View style={styles.row}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.codes}>
-                {COUNTRY_CODES.map((code) => (
-                  <Pressable key={code} onPress={() => setCountryCode(code)} style={[styles.codeChip, { borderColor: countryCode === code ? theme.tint : theme.border }]}>
-                    <Text style={{ color: countryCode === code ? theme.tint : theme.textSecondary }}>{code}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
+            <Pressable
+              onPress={() => setShowCountryModal(true)}
+              style={[styles.codeSelector, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+            >
+              <Text style={{ color: theme.text }}>
+                {selectedCountry.flag} {selectedCountry.code}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
+            </Pressable>
             <TextInput value={phoneInput} onChangeText={(v) => setPhoneInput(v)} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
@@ -316,6 +379,50 @@ export default function SignInScreen() {
         {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
         {loading ? <ActivityIndicator color={theme.tint} style={{ marginTop: 12 }} /> : null}
       </ScrollView>
+
+      <Modal visible={showCountryModal} animationType="slide" onRequestClose={() => setShowCountryModal(false)}>
+        <View style={[styles.modalRoot, { backgroundColor: theme.background }]}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Select country code</Text>
+            <Pressable onPress={() => setShowCountryModal(false)}>
+              <Text style={{ color: theme.tint }}>Close</Text>
+            </Pressable>
+          </View>
+          <TextInput
+            value={countrySearchQuery}
+            onChangeText={setCountrySearchQuery}
+            placeholder="Search country or code"
+            placeholderTextColor={theme.textSecondary}
+            style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+          />
+          <SectionList
+            sections={countrySections}
+            keyExtractor={(item) => `${item.code}-${item.name}`}
+            keyboardShouldPersistTaps="handled"
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => (
+              <Text style={[styles.sectionHeader, { color: theme.textSecondary }]}>{section.title}</Text>
+            )}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => {
+                  setCountryCode(item.code);
+                  setShowCountryModal(false);
+                }}
+                style={[styles.countryItem, { borderColor: theme.border }]}
+              >
+                <Text style={{ color: theme.text }}>{item.flag} {item.name}</Text>
+                <Text style={{ color: theme.textSecondary }}>{item.code}</Text>
+              </Pressable>
+            )}
+            ListEmptyComponent={
+              <Text style={{ color: theme.textSecondary, textAlign: 'center', marginTop: 16 }}>
+                No countries found.
+              </Text>
+            }
+          />
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -328,9 +435,15 @@ const styles = StyleSheet.create({
   brandTitle: { fontSize: 34, fontWeight: '800' },
   brandSub: { marginTop: 6, fontSize: 14 },
   block: { gap: 10 },
-  row: { flexDirection: 'row' },
-  codes: { gap: 6 },
-  codeChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  codeSelector: {
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   input: { borderWidth: 1, borderRadius: 14, minHeight: 48, paddingHorizontal: 12 },
   or: { textAlign: 'center', marginVertical: 4 },
   h2: { fontSize: 26, fontWeight: '700' },
@@ -339,4 +452,18 @@ const styles = StyleSheet.create({
   success: { alignItems: 'center', gap: 10, marginTop: 30 },
   emoji: { fontSize: 48 },
   error: { textAlign: 'center', fontSize: 13 },
+  modalRoot: { flex: 1, padding: 16 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  modalTitle: { fontSize: 20, fontWeight: '700' },
+  sectionHeader: { marginTop: 14, marginBottom: 8, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  countryItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 46,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
 });

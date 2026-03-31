@@ -140,15 +140,10 @@ export default function OnboardingV2Screen() {
     }
   }, [currentStep, submitting, stepNames]);
 
-  // Age gate
-  useEffect(() => {
-    if (!data.birthDate) return;
-    const age = calculateAge(data.birthDate);
-    if (Number.isFinite(age) && age < 18) {
-      void signOut();
-      router.replace('/(auth)/sign-in');
-    }
-  }, [data.birthDate, signOut]);
+  const handleAgeBlocked = useCallback(() => {
+    void signOut();
+    router.replace('/(auth)/sign-in');
+  }, [signOut]);
 
   const completeOnboarding = useCallback(async () => {
     if (!session?.user?.id || submitOnceRef.current) return;
@@ -257,7 +252,7 @@ export default function OnboardingV2Screen() {
       case 1:
         return <NameStep value={data.name} onChange={(v) => updateField('name', v)} onNext={goNext} />;
       case 2:
-        return <BirthdayStep value={data.birthDate} onChange={(v) => updateField('birthDate', v)} onNext={goNext} />;
+        return <BirthdayStep value={data.birthDate} onChange={(v) => updateField('birthDate', v)} onNext={goNext} onAgeBlocked={handleAgeBlocked} />;
       case 3:
         return <GenderStep value={data.gender} customValue={data.genderCustom} onChange={(v) => updateField('gender', v)} onChangeCustom={(v) => updateField('genderCustom', v)} showOnProfile={genderVisible} onToggleShow={setGenderVisible} onNext={goNext} />;
       case 4:
@@ -297,6 +292,7 @@ export default function OnboardingV2Screen() {
     currentStep,
     data,
     goNext,
+    handleAgeBlocked,
     completeOnboarding,
     needsEmailCollection,
     completionError,
