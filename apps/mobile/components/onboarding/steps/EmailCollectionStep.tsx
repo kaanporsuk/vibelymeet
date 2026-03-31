@@ -13,17 +13,21 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const valid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const submit = async () => {
     if (!valid || loading) return;
     setLoading(true);
+    setErrorMessage(null);
     try {
       const { error } = await supabase.auth.updateUser({ email: email.trim() });
       if (error) throw error;
       setMessage(`We sent a confirmation link to ${email.trim()}. You can verify it anytime.`);
       setTimeout(onNext, 2000);
+    } catch (error: any) {
+      setErrorMessage(String(error?.message || 'Could not save email. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -36,6 +40,7 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
       <TextInput
         value={email}
         onChangeText={setEmail}
+        onChange={() => setErrorMessage(null)}
         keyboardType="email-address"
         autoCapitalize="none"
         placeholder="you@example.com"
@@ -43,6 +48,7 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
         style={[styles.input, { borderColor: theme.border, color: theme.text }]}
       />
       {message ? <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{message}</Text> : null}
+      {errorMessage ? <Text style={{ color: theme.danger, fontSize: 12 }}>{errorMessage}</Text> : null}
       <VibelyButton label={loading ? 'Saving...' : 'Continue'} onPress={submit} disabled={!valid || loading} variant="gradient" />
       <Pressable onPress={onSkip}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Skip for now</Text></Pressable>
     </View>

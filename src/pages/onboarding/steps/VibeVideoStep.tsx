@@ -37,18 +37,28 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoUploaded, userId }: VibeV
         }
       );
       const creds = await credRes.json().catch(() => ({}));
+      if (!credRes.ok) {
+        throw new Error(creds?.error || creds?.message || "Failed to get upload credentials");
+      }
+      if (creds?.success === false) {
+        throw new Error(creds?.error || creds?.message || "Failed to get upload credentials");
+      }
       if (!creds.uploadUrl || !creds.videoId) throw new Error("Failed to get upload credentials");
 
-      await fetch(creds.uploadUrl, {
+      const uploadRes = await fetch(creds.uploadUrl, {
         method: "PUT",
         headers: { "Content-Type": file.type || "video/mp4" },
         body: file,
       });
+      if (!uploadRes.ok) {
+        throw new Error("Video upload failed.");
+      }
 
-      await supabase
+      const { error: profileUpdateError } = await supabase
         .from("profiles")
         .update({ bunny_video_uid: creds.videoId, bunny_video_status: "processing" })
         .eq("id", userId);
+      if (profileUpdateError) throw profileUpdateError;
 
       onVideoUploaded(creds.videoId);
       toast.success("Your Vibe Video is processing!");
