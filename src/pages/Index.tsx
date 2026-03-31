@@ -15,11 +15,11 @@ const Index = () => {
   }
 
   const handleGetStarted = () => {
-    navigate("/auth?mode=signup");
+    navigate("/auth");
   };
 
   const handleSignIn = () => {
-    navigate("/auth?mode=signin");
+    navigate("/auth");
   };
 
   return (

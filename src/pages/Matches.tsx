@@ -548,7 +548,7 @@ const Matches = () => {
                     >
                       <button
                         onClick={async () => {
-                          const link = `https://vibelymeet.com/auth?mode=signup&ref=${user?.id || ""}`;
+                          const link = `https://vibelymeet.com/auth?ref=${user?.id || ""}`;
                           try {
                             await navigator.share({
                               title: "Join me on Vibely!",

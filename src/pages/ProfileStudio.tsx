@@ -764,7 +764,7 @@ const ProfileStudio = () => {
   };
 
   const handleInviteFriends = async () => {
-    const link = `https://vibelymeet.com/auth?mode=signup&ref=${profile.id}`;
+    const link = `https://vibelymeet.com/auth?ref=${profile.id}`;
     try {
       await navigator.share({ title: "Join me on Vibely!", text: "I'm using Vibely for video dates — come find your vibe! 💜", url: link });
     } catch {

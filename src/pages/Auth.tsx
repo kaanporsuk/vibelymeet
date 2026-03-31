@@ -28,6 +28,9 @@ type AuthView =
 
 const PHONE_MIN_DIGITS = 7;
 
+const ACCOUNT_CONFLICT_HINT =
+  "This account may already exist with another sign-in method. Try the method you used before.";
+
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -181,7 +184,7 @@ const Auth = () => {
     } catch (err: any) {
       const message = String(err?.message || "");
       if (/already|exists|linked|identity/i.test(message)) {
-        setError("This phone number is linked to an existing account. Try signing in with email.");
+        setError(ACCOUNT_CONFLICT_HINT);
       } else {
         setError(message || "Something went wrong. Please try again.");
       }
@@ -241,7 +244,6 @@ const Auth = () => {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
-    trackEvent("auth_social_completed", { provider: "google", platform: "web" });
   };
 
   const handleApple = async () => {
@@ -253,7 +255,6 @@ const Auth = () => {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
-    trackEvent("auth_social_completed", { provider: "apple", platform: "web" });
   };
 
   const handleEmailSignIn = async () => {
@@ -272,8 +273,8 @@ const Auth = () => {
       setView("success");
     } catch (err: any) {
       const message = String(err?.message || "");
-      if (/already.*exists|identity|provider/i.test(message)) {
-        setError("An account with this email already exists. Try signing in with your password.");
+      if (/already.*exists|identity|provider|linked/i.test(message)) {
+        setError(ACCOUNT_CONFLICT_HINT);
       } else {
         setError(message || "Invalid email or password");
       }
@@ -321,7 +322,7 @@ const Auth = () => {
       setView("email_signin");
     } catch (err: any) {
       if (err?.message?.includes("already registered")) {
-        setError("This email is already registered. Try signing in.");
+        setError(ACCOUNT_CONFLICT_HINT);
       } else {
         setError(err?.message || "Sign up failed. Please try again.");
       }
