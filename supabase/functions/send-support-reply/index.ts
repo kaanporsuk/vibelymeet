@@ -127,7 +127,7 @@ serve(async (req) => {
       if (resendKey) {
         const safeBody = escapeHtml(reply_message).replace(/\n/g, "<br/>");
         try {
-          await fetch("https://api.resend.com/emails", {
+          const emailRes = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -155,6 +155,12 @@ serve(async (req) => {
         `,
             }),
           });
+
+          if (!emailRes.ok) {
+            const body = await emailRes.text();
+            console.error("Resend email non-OK response for support reply:", emailRes.status, body);
+            emailWarning = "Reply saved but email notification could not be sent.";
+          }
         } catch (emailError) {
           console.error("Resend email failed for support reply:", emailError);
           emailWarning = "Reply saved but email notification could not be sent.";
