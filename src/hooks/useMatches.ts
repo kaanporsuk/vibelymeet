@@ -202,7 +202,10 @@ export const useMatches = () => {
 
       const viewerProfile = profiles.find((p) => p.id === userId);
       const viewerVibes = vibesByProfile[userId] ?? [];
-      const viewerLookingFor = (viewerProfile as any)?.looking_for ?? null;
+      const viewerLookingFor =
+        (viewerProfile as any)?.relationship_intent ??
+        (viewerProfile as any)?.looking_for ??
+        null;
 
       const eventsById: Record<string, string> = {};
       events.forEach((e: any) => {
@@ -220,7 +223,10 @@ export const useMatches = () => {
           viewerVibeLabels: viewerVibes,
           otherVibeLabels: otherVibes,
           viewerLookingFor,
-          otherLookingFor: (profile as any)?.looking_for ?? null,
+          otherLookingFor:
+            (profile as any)?.relationship_intent ??
+            (profile as any)?.looking_for ??
+            null,
           hasSharedEventContext: !!match.event_id,
         };
         const bestMatchScore = bestMatchSortKey(scoreInput);
@@ -277,7 +283,10 @@ export const useMatches = () => {
             ? !lastMsg.read_at && lastMsg.sender_id !== userId
             : false,
           vibes: otherVibes,
-          looking_for: ((profile as any)?.looking_for as string | null | undefined) ?? null,
+          looking_for:
+            ((profile as any)?.relationship_intent as string | null | undefined) ??
+            ((profile as any)?.looking_for as string | null | undefined) ??
+            null,
           isNew,
           matchId: match.id,
           photoVerified: !!(profile as any)?.photo_verified,

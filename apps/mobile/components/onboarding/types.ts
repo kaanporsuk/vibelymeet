@@ -14,6 +14,7 @@ export interface OnboardingData {
   city: string;
   country: string;
   vibeVideoRecorded: boolean;
+  bunnyVideoUid: string | null;
   communityAgreed: boolean;
 }
 
@@ -33,5 +34,6 @@ export const DEFAULT_ONBOARDING_DATA: OnboardingData = {
   city: '',
   country: '',
   vibeVideoRecorded: false,
+  bunnyVideoUid: null,
   communityAgreed: false,
 };

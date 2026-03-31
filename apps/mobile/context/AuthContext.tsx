@@ -45,9 +45,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data: existing } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
       if (existing) return;
       const md = user.user_metadata ?? {};
+      const isPhoneAuth = !!user.phone;
       await supabase.from('profiles').insert({
         id: user.id,
         name: md.full_name || md.name || '',
+        phone_number: isPhoneAuth ? user.phone : null,
+        phone_verified: isPhoneAuth ? true : false,
+        phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
       });
     } catch {
       // non-blocking

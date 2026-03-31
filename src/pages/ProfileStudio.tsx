@@ -459,9 +459,11 @@ const ProfileStudio = () => {
     (): VibeScoreProfileSnapshot => ({
       photos: profile.photos,
       bunnyVideoUid: profile.bunnyVideoUid,
+      vibes: profile.vibes,
       prompts: profile.prompts,
       aboutMe: profile.aboutMe,
       tagline: profile.tagline,
+      relationshipIntent: (profile as any).relationshipIntent ?? null,
       lookingFor: profile.lookingFor,
       job: profile.job,
       heightCm: profile.heightCm,
@@ -684,6 +686,11 @@ const ProfileStudio = () => {
       case "vibe_video":
         if (profile.bunnyVideoUid?.trim()) setActiveDrawer("vibe-video");
         else setShowVibeStudio(true);
+        break;
+      case "vibes":
+        setEditForm({ ...profile });
+        setActiveDrawer("vibes");
+        scrollToSection("prompts");
         break;
       case "prompts":
         scrollToSection("prompts");

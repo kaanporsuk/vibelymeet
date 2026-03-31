@@ -393,7 +393,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       </div>
                       <div>
                         <p className="text-muted-foreground">Looking For</p>
-                        <p className="text-foreground">{profile.looking_for || 'N/A'}</p>
+                        <p className="text-foreground">{profile.relationship_intent || profile.looking_for || 'N/A'}</p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">Job</p>

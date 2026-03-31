@@ -8,6 +8,8 @@ import { useColorScheme } from '@/components/useColorScheme';
 export default function CelebrationStep({
   submitting,
   completed,
+  errorMessage,
+  onRetry,
   vibeScore,
   vibeScoreLabel,
   onExploreEvents,
@@ -15,6 +17,8 @@ export default function CelebrationStep({
 }: {
   submitting: boolean;
   completed: boolean;
+  errorMessage: string | null;
+  onRetry: () => void;
   vibeScore: number;
   vibeScoreLabel: string;
   onExploreEvents: () => void;
@@ -27,6 +31,16 @@ export default function CelebrationStep({
       <View style={styles.root}>
         <Text style={[styles.h1, { color: theme.text }]}>Finishing your profile...</Text>
         <Text style={{ color: theme.textSecondary }}>One sec while we lock it in.</Text>
+      </View>
+    );
+  }
+
+  if (errorMessage && !completed) {
+    return (
+      <View style={styles.root}>
+        <Text style={[styles.h1, { color: theme.text }]}>Couldn't save your profile.</Text>
+        <Text style={{ color: theme.textSecondary }}>{errorMessage}</Text>
+        <VibelyButton label="Retry" onPress={onRetry} variant="gradient" />
       </View>
     );
   }

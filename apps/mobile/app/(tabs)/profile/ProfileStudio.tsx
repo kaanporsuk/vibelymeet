@@ -191,7 +191,7 @@ export default function ProfileStudio() {
   // Sync edit forms when profile loads
   useEffect(() => {
     if (!profile) return;
-    setLookingForEdit(profile.looking_for ?? '');
+    setLookingForEdit(profile.relationship_intent ?? profile.looking_for ?? '');
     setAboutMeEdit(profile.about_me ?? '');
     setNameEdit(profile.name ?? '');
     setJobEdit(profile.job ?? '');
@@ -318,6 +318,10 @@ export default function ProfileStudio() {
 
   const handleVibeScoreDrawerAction = (action: VibeScoreActionId) => {
     switch (action) {
+      case 'vibes':
+        setShowVibePicker(true);
+        scrollToSection('prompts');
+        break;
       case 'photos':
         setShowPhotoDrawer(true);
         break;
@@ -756,7 +760,7 @@ export default function ProfileStudio() {
   const thumbnailUrl = videoInfo.thumbnailUrl;
   const caption = videoInfo.caption ?? '';
   const profilePhotos = profile?.photos ?? [];
-  const lookingForDisplay = getLookingForDisplay(profile?.looking_for);
+  const lookingForDisplay = getLookingForDisplay(profile?.relationship_intent ?? profile?.looking_for);
   const storedMeetingPref = (profile?.lifestyle as Record<string, string> | null)?.meeting_preference ?? 'both';
   const promptList = profile?.prompts ?? [];
   const filledPromptCount = promptList.filter(p => p.question?.trim() && p.answer?.trim()).length;

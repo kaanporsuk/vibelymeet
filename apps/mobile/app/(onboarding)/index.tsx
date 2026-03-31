@@ -18,16 +18,14 @@ import AboutMeStep from '@/components/onboarding/steps/AboutMeStep';
 import LocationStep from '@/components/onboarding/steps/LocationStep';
 import NotificationStep from '@/components/onboarding/steps/NotificationStep';
 import CommunityStep from '@/components/onboarding/steps/CommunityStep';
+import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionStep';
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
+import { ONBOARDING_STEP_NAMES } from '@/components/onboarding/constants';
 
 const STORAGE_KEY = 'vibely_onboarding_v2';
-const TOTAL_STEPS = 14;
-
-const STEP_NAMES = [
-  'value_prop', 'name', 'birthday', 'gender', 'interested_in', 'intent', 'basics', 'photos',
-  'about_me', 'location', 'notifications', 'community', 'vibe_video', 'celebration',
-];
+const TOTAL_STEPS_WITH_EMAIL = 15;
+const TOTAL_STEPS_NO_EMAIL = 14;
 
 function calculateAge(dateIso: string): number {
   const d = new Date(dateIso);
@@ -54,9 +52,11 @@ export default function OnboardingV2Screen() {
   const [interestedVisible, setInterestedVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
   const [vibeScore, setVibeScore] = useState(0);
   const [vibeScoreLabel, setVibeScoreLabel] = useState('Rising');
   const submitOnceRef = useRef(false);
+  const startedAtRef = useRef<number>(Date.now());
 
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -66,6 +66,7 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id) return;
     const load = async () => {
       try {
+        await AsyncStorage.removeItem('vibely_onboarding_progress');
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (!raw) return;
         const parsed = JSON.parse(raw);
@@ -82,6 +83,19 @@ export default function OnboardingV2Screen() {
 
   useEffect(() => {
     if (!session?.user?.id) return;
+    const loadExistingPhotos = async () => {
+      if (data.photos.length > 0) return;
+      const { data: profile } = await supabase.from('profiles').select('photos').eq('id', session.user.id).maybeSingle();
+      const existingPhotos = (profile?.photos as string[] | null) ?? [];
+      if (existingPhotos.length > 0) {
+        updateField('photos', existingPhotos);
+      }
+    };
+    void loadExistingPhotos();
+  }, [session?.user?.id, data.photos.length, updateField]);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
     void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ userId: session.user.id, step: currentStep, data, updatedAt: Date.now() }));
   }, [session?.user?.id, currentStep, data]);
 
@@ -95,17 +109,31 @@ export default function OnboardingV2Screen() {
     }
   }, [session?.user?.id]);
 
+  const needsEmailCollection = !session?.user?.email;
+  const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
+  const stepNames = needsEmailCollection
+    ? ONBOARDING_STEP_NAMES
+    : ONBOARDING_STEP_NAMES.filter((n) => n !== 'email_collection');
+
+  useEffect(() => {
+    const stepName = stepNames[currentStep] ?? stepNames[0];
+    trackEvent('onboarding_step_viewed', { step: currentStep, step_name: stepName, platform: 'native' });
+  }, [currentStep, stepNames]);
+
   const goNext = useCallback(() => {
-    if (currentStep >= TOTAL_STEPS - 1) return;
+    if (currentStep >= totalSteps - 1) return;
     const next = currentStep + 1;
     setCurrentStep(next);
-    trackEvent('onboarding_step_completed', { step: currentStep, step_name: STEP_NAMES[currentStep] });
+    trackEvent('onboarding_step_completed', { step: currentStep, step_name: stepNames[currentStep], platform: 'native' });
     void updateStageIfNeeded(next);
-  }, [currentStep, updateStageIfNeeded]);
+  }, [currentStep, updateStageIfNeeded, totalSteps, stepNames]);
 
   const goBack = useCallback(() => {
-    if (currentStep > 0 && !submitting) setCurrentStep((s) => s - 1);
-  }, [currentStep, submitting]);
+    if (currentStep > 0 && !submitting) {
+      trackEvent('onboarding_step_skipped', { step: currentStep, step_name: stepNames[currentStep], platform: 'native' });
+      setCurrentStep((s) => s - 1);
+    }
+  }, [currentStep, submitting, stepNames]);
 
   // Age gate
   useEffect(() => {
@@ -144,6 +172,7 @@ export default function OnboardingV2Screen() {
         location_data: data.locationData || null,
         city: data.city || null,
         country: data.country || null,
+        bunny_video_uid: data.bunnyVideoUid || null,
       });
       if (upsertError) throw upsertError;
 
@@ -170,30 +199,49 @@ export default function OnboardingV2Screen() {
 
       await AsyncStorage.removeItem(STORAGE_KEY);
       trackEvent('onboarding_completed', {
+        platform: 'native',
+        auth_method: session?.user?.phone ? 'phone' : (session?.user?.app_metadata?.provider ?? 'email'),
         has_vibe_video: data.vibeVideoRecorded,
         photo_count: data.photos.length,
         has_about_me: !!data.aboutMe.trim(),
         has_height: !!data.heightCm,
         has_job: !!data.job.trim(),
         relationship_intent: normalizedIntent,
+        total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
+        vibe_score: Number(rpcResult?.vibe_score ?? 0),
       });
 
       setVibeScore(Number(rpcResult?.vibe_score ?? 0));
       setVibeScoreLabel(String(rpcResult?.vibe_score_label ?? 'Rising'));
       setCompleted(true);
+      setCompletionError(null);
       await refreshOnboarding();
     } catch {
       submitOnceRef.current = false;
+      setCompletionError("Couldn't save your profile. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
-  }, [session?.user?.id, data, refreshOnboarding]);
+  }, [session?.user?.id, session?.user?.phone, session?.user?.app_metadata?.provider, data, refreshOnboarding]);
 
   useEffect(() => {
-    if (currentStep === TOTAL_STEPS - 1) {
+    if (currentStep === totalSteps - 1) {
       void completeOnboarding();
     }
-  }, [currentStep, completeOnboarding]);
+  }, [currentStep, completeOnboarding, totalSteps]);
+
+  useEffect(() => {
+    return () => {
+      if (!completed) {
+        trackEvent('onboarding_abandoned', {
+          platform: 'native',
+          last_step: currentStep,
+          last_step_name: stepNames[currentStep] ?? stepNames[0],
+          total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
+        });
+      }
+    };
+  }, [completed, currentStep, stepNames]);
 
   const content = useMemo(() => {
     switch (currentStep) {
@@ -222,15 +270,30 @@ export default function OnboardingV2Screen() {
       case 11:
         return <CommunityStep onAgree={() => { updateField('communityAgreed', true); goNext(); }} />;
       case 12:
-        return <VibeVideoStep onMarkedRecorded={() => updateField('vibeVideoRecorded', true)} onNext={goNext} />;
+        if (needsEmailCollection) {
+          return <EmailCollectionStep onNext={goNext} onSkip={() => {
+            trackEvent('onboarding_step_skipped', { step: currentStep, step_name: 'email_collection', platform: 'native' });
+            goNext();
+          }} />;
+        }
+        return <VibeVideoStep onMarkedRecorded={(videoUid) => { updateField('vibeVideoRecorded', true); updateField('bunnyVideoUid', videoUid); }} onNext={goNext} />;
       case 13:
+        if (needsEmailCollection) {
+          return <VibeVideoStep onMarkedRecorded={(videoUid) => { updateField('vibeVideoRecorded', true); updateField('bunnyVideoUid', videoUid); }} onNext={goNext} />;
+        }
+        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onExploreEvents={() => router.replace('/(tabs)/events')} onDashboard={() => router.replace('/(tabs)')} />;
+      case 14:
       default:
-        return <CelebrationStep submitting={submitting} completed={completed} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onExploreEvents={() => router.replace('/(tabs)/events')} onDashboard={() => router.replace('/(tabs)')} />;
+        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onExploreEvents={() => router.replace('/(tabs)/events')} onDashboard={() => router.replace('/(tabs)')} />;
     }
   }, [
     currentStep,
     data,
     goNext,
+    completeOnboarding,
+    needsEmailCollection,
+    completionError,
+    totalSteps,
     genderVisible,
     interestedVisible,
     session?.user?.id,
@@ -244,9 +307,9 @@ export default function OnboardingV2Screen() {
   return (
     <OnboardingLayout
       currentStep={currentStep}
-      totalSteps={TOTAL_STEPS}
-      onBack={currentStep > 0 && currentStep < TOTAL_STEPS - 1 ? goBack : undefined}
-      showProgress={currentStep !== TOTAL_STEPS - 1}
+      totalSteps={totalSteps}
+      onBack={currentStep > 0 && currentStep < totalSteps - 1 ? goBack : undefined}
+      showProgress={currentStep !== totalSteps - 1}
     >
       {content}
     </OnboardingLayout>

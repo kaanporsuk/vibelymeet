@@ -118,7 +118,7 @@ export const ProfileDetailDrawer = ({
   };
 
   const tagline = fetchedProfile?.tagline?.trim() ?? "";
-  const lookingFor = fetchedProfile?.looking_for?.trim() ?? "";
+  const lookingFor = (fetchedProfile?.relationship_intent?.trim() || fetchedProfile?.looking_for?.trim()) ?? "";
   const aboutTrim = (profileData.aboutMe ?? "").trim();
   const showAboutMe = aboutTrim.length > 10;
   

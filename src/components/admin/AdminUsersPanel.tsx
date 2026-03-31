@@ -73,6 +73,7 @@ const AdminUsersPanel = () => {
           location,
           height_cm,
           looking_for,
+          relationship_intent,
           avatar_url,
           photos,
           
@@ -383,7 +384,7 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <span className="truncate max-w-[80px] text-sm">
-                        {user.looking_for || 'N/A'}
+                        {user.relationship_intent || user.looking_for || 'N/A'}
                       </span>
                     </TableCell>
                     <TableCell>
