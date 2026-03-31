@@ -10,6 +10,11 @@ import { trackEvent } from '@/lib/analytics';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
+import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
+
+/** Shown when Supabase reports an existing identity / linked provider (not necessarily email). */
+const ACCOUNT_CONFLICT_HINT =
+  'This account may already exist with another sign-in method. Try the method you used before.';
 
 type AuthView = 'welcome' | 'otp' | 'email_signin' | 'email_signup' | 'success';
 
@@ -161,7 +166,7 @@ export default function SignInScreen() {
     } catch (e: any) {
       const msg = String(e?.message ?? '');
       if (/already|exists|linked|identity/i.test(msg)) {
-        setError('This phone number is linked to an existing account. Try signing in with email.');
+        setError(ACCOUNT_CONFLICT_HINT);
       } else {
         setError(msg || 'Something went wrong. Try again.');
       }
@@ -230,8 +235,8 @@ export default function SignInScreen() {
       setView('success');
     } catch (e: any) {
       const msg = String(e?.message ?? '');
-      if (/already|exists|identity|provider/i.test(msg)) {
-        setError('An account with this email already exists. Try signing in with your password.');
+      if (/already|exists|identity|provider|linked/i.test(msg)) {
+        setError(ACCOUNT_CONFLICT_HINT);
       } else {
         setError(msg || 'Sign in failed');
       }
@@ -265,22 +270,26 @@ export default function SignInScreen() {
 
   const handleGoogleSignIn = async () => {
     setError(null);
+    setLoading(true);
     trackEvent('auth_method_selected', { method: 'google', platform: 'native' });
     trackEvent('auth_social_started', { provider: 'google' });
-    const { error: e } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: 'com.vibelymeet.vibely://auth/callback' },
-    });
-    if (e) {
-      const msg = String(e.message ?? '');
-      if (/already|exists|identity|provider|linked/i.test(msg)) {
-        setError('An account with this email already exists. Try signing in with your password.');
-      } else {
-        setError(msg);
+    try {
+      const { cancelled, error: oauthErr } = await startNativeGoogleOAuth(supabase);
+      if (cancelled) return;
+      if (oauthErr) {
+        const msg = String(oauthErr.message ?? '');
+        if (/already|exists|identity|provider|linked/i.test(msg)) {
+          setError(ACCOUNT_CONFLICT_HINT);
+        } else {
+          setError(msg || 'Google sign-in failed.');
+        }
+        return;
       }
-      return;
+      trackEvent('auth_social_completed', { provider: 'google', platform: 'native' });
+      setView('success');
+    } finally {
+      setLoading(false);
     }
-    trackEvent('auth_social_completed', { provider: 'google', platform: 'native' });
   };
 
   const handleAppleSignIn = async () => {
@@ -328,8 +337,8 @@ export default function SignInScreen() {
             <TextInput value={phoneInput} onChangeText={(v) => setPhoneInput(v)} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
-            <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" />
-            <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" />
+            <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" disabled={loading} />
+            <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />
             <Pressable onPress={() => { setView('email_signin'); setError(null); }}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use email instead</Text></Pressable>
           </View>
         ) : null}

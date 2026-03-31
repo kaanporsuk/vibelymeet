@@ -15,6 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
@@ -180,6 +181,7 @@ function RootLayoutNav() {
   useEffect(() => {
     initRevenueCat();
     connectivityService.init();
+    WebBrowser.maybeCompleteAuthSession();
   }, []);
 
   useEffect(() => {

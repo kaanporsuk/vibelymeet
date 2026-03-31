@@ -2,7 +2,7 @@
  * Premium invite flow — bottom sheet with personalized preview + quick-send channels.
  *
  * Share URLs (web source of truth):
- * - General: https://vibelymeet.com/invite?ref= → redirects to /auth?mode=signup&ref=
+ * - General: https://vibelymeet.com/invite?ref= → redirects to /auth?ref=
  * - Event:   https://vibelymeet.com/events/:id?ref= (canonical; /event/:id?ref= also redirects on web)
  *
  * Deep links: Opening these in a browser is the supported path. iOS/Android universal links

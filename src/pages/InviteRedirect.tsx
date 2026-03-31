@@ -4,8 +4,6 @@ import { Navigate, useSearchParams } from "react-router-dom";
 export default function InviteRedirect() {
   const [searchParams] = useSearchParams();
   const ref = searchParams.get("ref");
-  const next = ref
-    ? `/auth?mode=signup&ref=${encodeURIComponent(ref)}`
-    : "/auth?mode=signup";
+  const next = ref ? `/auth?ref=${encodeURIComponent(ref)}` : "/auth";
   return <Navigate to={next} replace />;
 }
