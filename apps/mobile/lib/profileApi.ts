@@ -1,5 +1,13 @@
 import { supabase } from '@/lib/supabase';
 
+export type OnboardingStage =
+  | 'none'
+  | 'auth_complete'
+  | 'identity'
+  | 'details'
+  | 'media'
+  | 'complete';
+
 export type ProfileRow = {
   id: string;
   name: string | null;
@@ -12,7 +20,11 @@ export type ProfileRow = {
   location: string | null;
   job: string | null;
   about_me: string | null;
+  /** @deprecated Prefer relationship_intent for new reads */
   looking_for: string | null;
+  relationship_intent: string | null;
+  onboarding_complete: boolean | null;
+  onboarding_stage: OnboardingStage | null;
   photos: string[] | null;
   avatar_url: string | null;
   bunny_video_uid: string | null;
@@ -136,10 +148,10 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST; vibe columns omitted on retry if schema lags migration. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
 
 const PROFILE_SELECT_BASE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -199,6 +211,9 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
 
     return {
       ...row,
+      relationship_intent: (row.relationship_intent as string | null) ?? null,
+      onboarding_complete: (row.onboarding_complete as boolean | null) ?? null,
+      onboarding_stage: (row.onboarding_stage as OnboardingStage | null) ?? null,
       events_attended: counts.events,
       total_matches: counts.matches,
       total_conversations: counts.convos,
@@ -252,7 +267,10 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.job !== undefined) db.job = updates.job;
   if (updates.company !== undefined) db.company = updates.company;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
-  if (updates.looking_for !== undefined) db.looking_for = updates.looking_for;
+  if (updates.looking_for !== undefined) {
+    db.looking_for = updates.looking_for;
+    db.relationship_intent = updates.looking_for;
+  }
   if (updates.photos !== undefined) db.photos = updates.photos;
   if (updates.avatar_url !== undefined) db.avatar_url = updates.avatar_url;
   if (updates.prompts !== undefined) db.prompts = updates.prompts;
@@ -362,6 +380,7 @@ export async function createProfile(data: {
         ? data.height_cm
         : null,
     looking_for: lookingFor,
+    relationship_intent: lookingFor,
     photos: data.photos?.length ? data.photos : null,
     avatar_url: data.photos?.[0] ?? null,
   });

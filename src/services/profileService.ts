@@ -1,5 +1,13 @@
 import { supabase } from "@/integrations/supabase/client";
 
+export type OnboardingStage =
+  | "none"
+  | "auth_complete"
+  | "identity"
+  | "details"
+  | "media"
+  | "complete";
+
 // Frontend profile interface (camelCase)
 export interface ProfileData {
   id: string;
@@ -16,7 +24,9 @@ export interface ProfileData {
   job: string | null;
   company: string | null;
   aboutMe: string | null;
+  /** @deprecated Use relationshipIntent instead */
   lookingFor: string | null;
+  relationshipIntent: string | null;
   vibes: string[];
   lifestyle: Record<string, string>;
   prompts: { question: string; answer: string }[];
@@ -37,6 +47,8 @@ export interface ProfileData {
   /** Server-computed profile completeness (0–100). Read-only from DB. */
   vibeScore: number;
   vibeScoreLabel: string;
+  onboardingComplete?: boolean;
+  onboardingStage?: OnboardingStage;
 }
 
 // Database profile interface (snake_case)
@@ -54,7 +66,11 @@ interface DbProfile {
   job: string | null;
   company: string | null;
   about_me: string | null;
+  /** @deprecated Use relationship_intent instead */
   looking_for: string | null;
+  relationship_intent: string | null;
+  onboarding_complete?: boolean | null;
+  onboarding_stage?: string | null;
   lifestyle: Record<string, string> | null;
   prompts: { question: string; answer: string }[] | null;
   photos: string[] | null;
@@ -140,7 +156,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     job: dbProfile.job,
     company: dbProfile.company,
     aboutMe: dbProfile.about_me,
-    lookingFor: dbProfile.looking_for,
+    lookingFor: dbProfile.relationship_intent ?? dbProfile.looking_for,
+    relationshipIntent: dbProfile.relationship_intent ?? dbProfile.looking_for ?? null,
     vibes,
     lifestyle: (dbProfile.lifestyle as Record<string, string>) || {},
     prompts: (dbProfile.prompts as { question: string; answer: string }[]) || [],
@@ -160,6 +177,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     },
     vibeScore: dbProfile.vibe_score ?? 0,
     vibeScoreLabel: dbProfile.vibe_score_label ?? "New",
+    onboardingComplete: dbProfile.onboarding_complete ?? undefined,
+    onboardingStage: (dbProfile.onboarding_stage as OnboardingStage | null | undefined) ?? undefined,
   };
 };
 
@@ -184,7 +203,11 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.job !== undefined) dbData.job = profile.job;
   if (profile.company !== undefined) dbData.company = profile.company;
   if (profile.aboutMe !== undefined) dbData.about_me = profile.aboutMe;
-  if (profile.lookingFor !== undefined) dbData.looking_for = profile.lookingFor;
+  if (profile.lookingFor !== undefined || profile.relationshipIntent !== undefined) {
+    const intent = profile.relationshipIntent ?? profile.lookingFor ?? null;
+    dbData.looking_for = intent;
+    dbData.relationship_intent = intent;
+  }
   if (profile.lifestyle !== undefined) dbData.lifestyle = profile.lifestyle;
   if (profile.prompts !== undefined) dbData.prompts = profile.prompts;
   if (profile.photos !== undefined) dbData.photos = profile.photos;
@@ -202,7 +225,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (!user) return null;
 
   const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
-    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, vibe_video_status, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, vibe_video_status, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),

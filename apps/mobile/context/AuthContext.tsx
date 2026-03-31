@@ -31,10 +31,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('id')
+        .select('onboarding_complete')
         .eq('id', userId)
         .maybeSingle();
-      setOnboardingComplete(!!data);
+      setOnboardingComplete(data?.onboarding_complete === true);
     } catch {
       setOnboardingComplete(false);
     }

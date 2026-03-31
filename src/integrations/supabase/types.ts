@@ -1769,8 +1769,11 @@ export type Database = {
           lifestyle: Json | null
           location: string | null
           location_data: Json | null
+          /** @deprecated Use relationship_intent instead */
           looking_for: string | null
           name: string
+          onboarding_complete: boolean
+          onboarding_stage: string
           pause_reason: string | null
           paused_at: string | null
           paused_until: string | null
@@ -1787,6 +1790,7 @@ export type Database = {
           prompts: Json | null
           proof_selfie_url: string | null
           referred_by: string | null
+          relationship_intent: string | null
           show_distance: boolean
           show_online_status: boolean
           subscription_tier: string
@@ -1836,8 +1840,11 @@ export type Database = {
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
+          /** @deprecated Use relationship_intent instead */
           looking_for?: string | null
           name: string
+          onboarding_complete?: boolean
+          onboarding_stage?: string
           pause_reason?: string | null
           paused_at?: string | null
           paused_until?: string | null
@@ -1854,6 +1861,7 @@ export type Database = {
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
+          relationship_intent?: string | null
           show_distance?: boolean
           show_online_status?: boolean
           subscription_tier?: string
@@ -1903,8 +1911,11 @@ export type Database = {
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
+          /** @deprecated Use relationship_intent instead */
           looking_for?: string | null
           name?: string
+          onboarding_complete?: boolean
+          onboarding_stage?: string
           pause_reason?: string | null
           paused_at?: string | null
           paused_until?: string | null
@@ -1921,6 +1932,7 @@ export type Database = {
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
+          relationship_intent?: string | null
           show_distance?: boolean
           show_online_status?: boolean
           subscription_tier?: string
@@ -2888,6 +2900,7 @@ export type Database = {
       }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
       clear_expired_pauses: { Args: never; Returns: number }
+      complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
       daily_drop_transition: {
         Args: { p_action: string; p_drop_id: string; p_text?: string }
         Returns: Json
@@ -3099,6 +3112,10 @@ export type Database = {
       send_event_reminders: { Args: never; Returns: undefined }
       set_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string; p_value: Json }
+        Returns: undefined
+      }
+      update_onboarding_stage: {
+        Args: { p_stage: string; p_user_id: string }
         Returns: undefined
       }
       update_participant_status: {

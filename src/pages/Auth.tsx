@@ -48,12 +48,11 @@ const Auth = () => {
 
         const { data: profile } = await supabase
           .from("profiles")
-          .select("gender, photos")
+          .select("onboarding_complete")
           .eq("id", user.id)
           .maybeSingle();
 
-        const photosCount = (profile?.photos as string[] | null)?.length ?? 0;
-        const needsOnboarding = !profile || profile.gender === "prefer_not_to_say" || photosCount < 2;
+        const needsOnboarding = !profile || profile.onboarding_complete !== true;
 
         // Clear any stale onboarding data from different users
         const savedOnboarding = localStorage.getItem("vibely_onboarding_progress");
