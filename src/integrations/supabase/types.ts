@@ -1745,6 +1745,7 @@ export type Database = {
           birth_date: string | null
           bunny_video_status: string
           bunny_video_uid: string | null
+          community_agreed_at: string | null
           company: string | null
           country: string | null
           created_at: string
@@ -1816,6 +1817,7 @@ export type Database = {
           birth_date?: string | null
           bunny_video_status?: string
           bunny_video_uid?: string | null
+          community_agreed_at?: string | null
           company?: string | null
           country?: string | null
           created_at?: string
@@ -1887,6 +1889,7 @@ export type Database = {
           birth_date?: string | null
           bunny_video_status?: string
           bunny_video_uid?: string | null
+          community_agreed_at?: string | null
           company?: string | null
           country?: string | null
           created_at?: string

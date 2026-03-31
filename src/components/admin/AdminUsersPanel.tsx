@@ -100,7 +100,7 @@ const AdminUsersPanel = () => {
       }
 
       if (lookingForFilter !== 'all') {
-        query = query.eq('looking_for', lookingForFilter);
+        query = query.or(`relationship_intent.eq.${lookingForFilter},looking_for.eq.${lookingForFilter}`);
       }
 
       if (searchQuery) {
