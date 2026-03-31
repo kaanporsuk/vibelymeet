@@ -61,7 +61,7 @@ const Auth = () => {
 
   // Track auth page view + preserve referral
   useEffect(() => {
-    trackEvent("auth_page_viewed", {});
+    trackEvent("auth_page_viewed", { platform: "web" });
     const ref = searchParams.get("ref");
     if (ref) {
       localStorage.setItem("vibely_referrer_id", ref);
@@ -73,7 +73,7 @@ const Auth = () => {
     const params = new URLSearchParams(location.search);
     if (params.get("provider_callback") === "true") {
       setView("success");
-      trackEvent("auth_method_selected", { method: "oauth_callback" });
+      trackEvent("auth_method_selected", { method: "oauth_callback", platform: "web" });
     }
   }, [location.search]);
 
@@ -102,10 +102,14 @@ const Auth = () => {
         const referrerId = localStorage.getItem("vibely_referrer_id");
 
         try {
+          const isPhoneAuth = !!session.user.phone;
           await supabase.from("profiles").insert({
             id: session.user.id,
             name: metadata.full_name || metadata.name || "",
             referred_by: referrerId || null,
+            phone_number: isPhoneAuth ? session.user.phone : null,
+            phone_verified: isPhoneAuth ? true : false,
+            phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
           });
         } finally {
           if (referrerId) {
@@ -131,15 +135,16 @@ const Auth = () => {
 
       const needsOnboarding = !profile || profile.onboarding_complete !== true;
 
-      const savedOnboarding = localStorage.getItem("vibely_onboarding_progress");
+      localStorage.removeItem("vibely_onboarding_progress");
+      const savedOnboarding = localStorage.getItem("vibely_onboarding_v2");
       if (savedOnboarding) {
         try {
           const parsed = JSON.parse(savedOnboarding);
           if (parsed.userId && parsed.userId !== session.user.id) {
-            localStorage.removeItem("vibely_onboarding_progress");
+            localStorage.removeItem("vibely_onboarding_v2");
           }
         } catch {
-          localStorage.removeItem("vibely_onboarding_progress");
+          localStorage.removeItem("vibely_onboarding_v2");
         }
       }
 
@@ -158,8 +163,8 @@ const Auth = () => {
     setLoading(true);
     setError(null);
     setOtpError(null);
-    trackEvent("auth_method_selected", { method: "phone" });
-    trackEvent("auth_phone_submitted", {});
+    trackEvent("auth_method_selected", { method: "phone", platform: "web" });
+    trackEvent("auth_phone_submitted", { platform: "web" });
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
@@ -171,7 +176,12 @@ const Auth = () => {
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (err: any) {
-      setError(err?.message || "Something went wrong. Please try again.");
+      const message = String(err?.message || "");
+      if (/already|exists|linked|identity/i.test(message)) {
+        setError("This phone number is linked to an existing account. Try signing in with email.");
+      } else {
+        setError(message || "Something went wrong. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -189,7 +199,7 @@ const Auth = () => {
         type: "sms",
       });
       if (error) throw error;
-      trackEvent("auth_otp_verified", {});
+      trackEvent("auth_otp_verified", { platform: "web" });
       setView("success");
     } catch (err: any) {
       setOtpError("Invalid code. Please try again.");
@@ -220,7 +230,7 @@ const Auth = () => {
   };
 
   const handleGoogle = async () => {
-    trackEvent("auth_method_selected", { method: "google" });
+    trackEvent("auth_method_selected", { method: "google", platform: "web" });
     trackEvent("auth_social_started", { provider: "google" });
     await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -228,10 +238,11 @@ const Auth = () => {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
+    trackEvent("auth_social_completed", { provider: "google", platform: "web" });
   };
 
   const handleApple = async () => {
-    trackEvent("auth_method_selected", { method: "apple" });
+    trackEvent("auth_method_selected", { method: "apple", platform: "web" });
     trackEvent("auth_social_started", { provider: "apple" });
     await supabase.auth.signInWithOAuth({
       provider: "apple",
@@ -239,6 +250,7 @@ const Auth = () => {
         redirectTo: `${window.location.origin}/auth?provider_callback=true`,
       },
     });
+    trackEvent("auth_social_completed", { provider: "apple", platform: "web" });
   };
 
   const handleEmailSignIn = async () => {
@@ -248,15 +260,20 @@ const Auth = () => {
     }
     setLoading(true);
     setError(null);
-    trackEvent("auth_method_selected", { method: "email" });
-    trackEvent("auth_email_signin", {});
+    trackEvent("auth_method_selected", { method: "email", platform: "web" });
+    trackEvent("auth_email_signin", { platform: "web" });
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       setView("success");
     } catch (err: any) {
-      setError(err?.message || "Invalid email or password");
+      const message = String(err?.message || "");
+      if (/already.*exists|identity|provider/i.test(message)) {
+        setError("An account with this email already exists. Try signing in with your password.");
+      } else {
+        setError(message || "Invalid email or password");
+      }
     } finally {
       setLoading(false);
     }
@@ -297,7 +314,7 @@ const Auth = () => {
           localStorage.removeItem("vibely_referrer_id");
         }
       }
-      trackEvent("auth_email_signup", {});
+      trackEvent("auth_email_signup", { platform: "web" });
       setView("email_signin");
     } catch (err: any) {
       if (err?.message?.includes("already registered")) {

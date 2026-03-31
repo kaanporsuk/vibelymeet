@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { ProfileRow } from '@/lib/profileApi';
 
 export type VibeScoreActionId =
+  | 'vibes'
   | 'photos'
   | 'vibe_video'
   | 'prompts'
@@ -69,6 +70,16 @@ export function getNextTierLine(score: number): { name: string; at: number } | n
 export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreIncompleteAction[] {
   const out: VibeScoreIncompleteAction[] = [];
 
+  const vibeCount = (profile.vibes ?? []).filter((v) => (v ?? '').trim().length > 0).length;
+  if (vibeCount === 0) {
+    out.push({
+      id: 'vibes',
+      label: 'Select your vibes',
+      points: 12,
+      icon: 'sparkles-outline',
+    });
+  }
+
   const photoCount = countNonEmptyPhotos(profile.photos);
   if (photoCount < 6) {
     const need = 6 - photoCount;
@@ -130,7 +141,8 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
     });
   }
 
-  if (!(profile.looking_for?.trim())) {
+  const intentValue = profile.relationship_intent?.trim() || profile.looking_for?.trim() || '';
+  if (!intentValue) {
     out.push({
       id: 'looking_for',
       label: 'Set looking for',

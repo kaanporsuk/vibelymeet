@@ -16,6 +16,7 @@ import {
   Mail,
   Camera,
   User,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -50,6 +51,7 @@ const ICON_MAP: Record<VibeScoreActionIcon, LucideIcon> = {
   mail: Mail,
   camera: Camera,
   user: User,
+  sparkles: Sparkles,
 };
 
 export type VibeScoreDrawerProps = {

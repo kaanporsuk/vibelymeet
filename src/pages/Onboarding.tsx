@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -31,6 +31,7 @@ import {
 } from "@/services/profileService";
 import { persistPhotos } from "@/services/storageService";
 import { trackEvent } from "@/lib/analytics";
+import { ONBOARDING_STEP_NAMES } from "@/pages/onboarding.constants";
 
 const genderOptions = [
   { label: "Woman", value: "woman" },
@@ -63,13 +64,15 @@ interface OnboardingFormData {
   hasVibeVideo: boolean;
 }
 
-const STORAGE_KEY = "vibely_onboarding_progress";
+const STORAGE_KEY = "vibely_onboarding_v2";
+const LEGACY_STORAGE_KEY = "vibely_onboarding_progress";
 
 const Onboarding = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const onboardingStartRef = useRef(Date.now());
   
   // Clear any stored onboarding data for new users
   useEffect(() => {
@@ -78,6 +81,7 @@ const Onboarding = () => {
       if (!user) return;
       
       // Check if this user has stored data from a different user ID
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         try {
@@ -119,6 +123,14 @@ const Onboarding = () => {
 
   const totalSteps = 8;
 
+  useEffect(() => {
+    trackEvent("onboarding_step_viewed", {
+      step,
+      step_name: ONBOARDING_STEP_NAMES[Math.min(step, ONBOARDING_STEP_NAMES.length - 1)],
+      platform: "web",
+    });
+  }, [step]);
+
   // Save progress to localStorage with user ID
   useEffect(() => {
     const saveWithUserId = async () => {
@@ -159,6 +171,11 @@ const Onboarding = () => {
       }
     }
     if (step < totalSteps - 1) {
+      trackEvent("onboarding_step_completed", {
+        step,
+        step_name: ONBOARDING_STEP_NAMES[Math.min(step, ONBOARDING_STEP_NAMES.length - 1)],
+        platform: "web",
+      });
       setStep(step + 1);
     } else {
       handleComplete();
@@ -186,6 +203,11 @@ const Onboarding = () => {
 
   const prevStep = () => {
     if (step > 0) {
+      trackEvent("onboarding_step_skipped", {
+        step,
+        step_name: ONBOARDING_STEP_NAMES[Math.min(step, ONBOARDING_STEP_NAMES.length - 1)],
+        platform: "web",
+      });
       setStep(step - 1);
     }
   };
@@ -257,11 +279,17 @@ const Onboarding = () => {
       // Clear saved progress
       localStorage.removeItem(STORAGE_KEY);
       
-      trackEvent('onboarding_completed', {
-        has_photo: uploadedPhotos.length > 0,
-        has_bio: !!formData.aboutMe,
-        has_vibes: formData.vibes.length > 0,
-        vibe_count: formData.vibes.length,
+      trackEvent("onboarding_completed", {
+        platform: "web",
+        auth_method: user.phone ? "phone" : (user.app_metadata?.provider ?? "email"),
+        has_vibe_video: !!formData.hasVibeVideo,
+        photo_count: uploadedPhotos.length,
+        has_about_me: !!formData.aboutMe,
+        has_height: !!formData.heightCm,
+        has_job: !!formData.job,
+        relationship_intent: formData.lookingFor || null,
+        total_time_seconds: Math.round((Date.now() - onboardingStartRef.current) / 1000),
+        vibe_score: 0,
       });
       
       toast.success("Welcome to Vibely! 🎉");
@@ -273,6 +301,17 @@ const Onboarding = () => {
       setIsSubmitting(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      trackEvent("onboarding_abandoned", {
+        platform: "web",
+        last_step: step,
+        last_step_name: ONBOARDING_STEP_NAMES[Math.min(step, ONBOARDING_STEP_NAMES.length - 1)],
+        total_time_seconds: Math.round((Date.now() - onboardingStartRef.current) / 1000),
+      });
+    };
+  }, [step]);
 
   const handleLocationDetect = async () => {
     setIsDetectingLocation(true);

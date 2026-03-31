@@ -74,7 +74,7 @@ const ProfilePreview = () => {
       photos: (data.photos ?? []).filter(Boolean),
       vibes: data.vibes ?? [],
       prompts: (data.prompts ?? []).filter((p) => p.question?.trim() && p.answer?.trim()),
-      lookingFor: data.looking_for ?? null,
+      lookingFor: data.relationship_intent ?? data.looking_for ?? null,
       lifestyle: data.lifestyle ?? {},
       photoVerified: data.photo_verified === true,
       phoneVerified: data.phone_verified === true,

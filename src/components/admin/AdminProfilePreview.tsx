@@ -283,10 +283,10 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                       <span>{profile.height_cm} cm</span>
                     </div>
                   )}
-                  {profile.looking_for && (
+                  {(profile.relationship_intent || profile.looking_for) && (
                     <div className="flex items-center gap-2">
                       <Heart className="w-4 h-4 text-muted-foreground" />
-                      <span>{intentLabels[profile.looking_for] || profile.looking_for}</span>
+                      <span>{intentLabels[profile.relationship_intent || profile.looking_for] || profile.relationship_intent || profile.looking_for}</span>
                     </div>
                   )}
                 </div>

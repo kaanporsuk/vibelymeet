@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,10 +55,14 @@ export default function SignInScreen() {
       if (existing) return;
       const metadata = session.user.user_metadata ?? {};
       const referrerId = null;
+      const isPhoneAuth = !!session.user.phone;
       await supabase.from('profiles').insert({
         id: session.user.id,
         name: metadata.full_name || metadata.name || '',
         referred_by: referrerId,
+        phone_number: isPhoneAuth ? session.user.phone : null,
+        phone_verified: isPhoneAuth ? true : false,
+        phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
       });
     };
     void ensureProfileExists();
@@ -76,8 +80,8 @@ export default function SignInScreen() {
     if (!phoneValid) return;
     setLoading(true);
     setError(null);
-    trackEvent('auth_method_selected', { method: 'phone' });
-    trackEvent('auth_phone_submitted', {});
+    trackEvent('auth_method_selected', { method: 'phone', platform: 'native' });
+    trackEvent('auth_phone_submitted', { platform: 'native' });
     try {
       const phone = `${countryCode}${phoneDigits}`;
       const { error: e } = await supabase.auth.signInWithOtp({ phone });
@@ -88,7 +92,12 @@ export default function SignInScreen() {
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (e: any) {
-      setError(e?.message ?? 'Something went wrong. Try again.');
+      const msg = String(e?.message ?? '');
+      if (/already|exists|linked|identity/i.test(msg)) {
+        setError('This phone number is linked to an existing account. Try signing in with email.');
+      } else {
+        setError(msg || 'Something went wrong. Try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -100,7 +109,7 @@ export default function SignInScreen() {
     try {
       const { error: e } = await supabase.auth.verifyOtp({ phone: phoneForOtp, token: code, type: 'sms' });
       if (e) throw e;
-      trackEvent('auth_otp_verified', {});
+      trackEvent('auth_otp_verified', { platform: 'native' });
       setView('success');
     } catch {
       setError('Invalid code. Please try again.');
@@ -146,14 +155,19 @@ export default function SignInScreen() {
     if (!email.trim() || !password) return;
     setLoading(true);
     setError(null);
-    trackEvent('auth_method_selected', { method: 'email' });
-    trackEvent('auth_email_signin', {});
+    trackEvent('auth_method_selected', { method: 'email', platform: 'native' });
+    trackEvent('auth_email_signin', { platform: 'native' });
     try {
       const { error: e } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (e) throw e;
       setView('success');
     } catch (e: any) {
-      setError(e?.message ?? 'Sign in failed');
+      const msg = String(e?.message ?? '');
+      if (/already|exists|identity|provider/i.test(msg)) {
+        setError('An account with this email already exists. Try signing in with your password.');
+      } else {
+        setError(msg || 'Sign in failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -173,7 +187,7 @@ export default function SignInScreen() {
       if (data.user) {
         await supabase.from('profiles').insert({ id: data.user.id, name: name.trim(), gender: 'prefer_not_to_say' });
       }
-      trackEvent('auth_email_signup', {});
+      trackEvent('auth_email_signup', { platform: 'native' });
       setView('email_signin');
     } catch (e: any) {
       setError(e?.message ?? 'Sign up failed');
@@ -184,18 +198,27 @@ export default function SignInScreen() {
 
   const handleGoogleSignIn = async () => {
     setError(null);
-    trackEvent('auth_method_selected', { method: 'google' });
+    trackEvent('auth_method_selected', { method: 'google', platform: 'native' });
     trackEvent('auth_social_started', { provider: 'google' });
     const { error: e } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: 'com.vibelymeet.vibely://auth/callback' },
     });
-    if (e) setError(e.message);
+    if (e) {
+      const msg = String(e.message ?? '');
+      if (/already|exists|identity|provider|linked/i.test(msg)) {
+        setError('An account with this email already exists. Try signing in with your password.');
+      } else {
+        setError(msg);
+      }
+      return;
+    }
+    trackEvent('auth_social_completed', { provider: 'google', platform: 'native' });
   };
 
   const handleAppleSignIn = async () => {
     setError(null);
-    trackEvent('auth_method_selected', { method: 'apple' });
+    trackEvent('auth_method_selected', { method: 'apple', platform: 'native' });
     trackEvent('auth_social_started', { provider: 'apple' });
     try {
       if (Platform.OS !== 'ios') {
@@ -208,6 +231,7 @@ export default function SignInScreen() {
       if (!credential.identityToken) throw new Error('Missing Apple token');
       const { error: e } = await supabase.auth.signInWithIdToken({ provider: 'apple', token: credential.identityToken });
       if (e) throw e;
+      trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
     } catch (e: any) {
       if (e?.code !== 'ERR_REQUEST_CANCELED') setError('Apple Sign In failed. Try another method.');

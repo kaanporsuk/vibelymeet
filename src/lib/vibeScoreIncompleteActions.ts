@@ -4,6 +4,7 @@
  */
 
 export type VibeScoreActionId =
+  | "vibes"
   | "photos"
   | "vibe_video"
   | "prompts"
@@ -28,6 +29,7 @@ export type VibeScoreIncompleteAction = {
 };
 
 export type VibeScoreActionIcon =
+  | "sparkles"
   | "images"
   | "video"
   | "message"
@@ -46,9 +48,11 @@ export type VibeScoreActionIcon =
 export type VibeScoreProfileSnapshot = {
   photos: string[];
   bunnyVideoUid: string | null;
+  vibes?: string[] | null;
   prompts: { question?: string | null; answer?: string | null }[];
   aboutMe: string | null;
   tagline: string | null;
+  relationshipIntent?: string | null;
   lookingFor: string | null;
   job: string | null;
   heightCm: number | null;
@@ -97,6 +101,16 @@ export function getNextTierLine(score: number): { name: string; at: number } | n
 
 export function getIncompleteVibeScoreActions(profile: VibeScoreProfileSnapshot): VibeScoreIncompleteAction[] {
   const out: VibeScoreIncompleteAction[] = [];
+
+  const vibeCount = (profile.vibes ?? []).filter((v) => (v ?? "").trim().length > 0).length;
+  if (vibeCount === 0) {
+    out.push({
+      id: "vibes",
+      label: "Select your vibes",
+      points: 12,
+      icon: "sparkles",
+    });
+  }
 
   const photoCount = countNonEmptyPhotos(profile.photos);
   if (photoCount < 6) {
@@ -159,7 +173,8 @@ export function getIncompleteVibeScoreActions(profile: VibeScoreProfileSnapshot)
     });
   }
 
-  if (!profile.lookingFor?.trim()) {
+  const intentValue = profile.relationshipIntent?.trim() || profile.lookingFor?.trim() || "";
+  if (!intentValue) {
     out.push({
       id: "looking_for",
       label: "Set looking for",

@@ -7,7 +7,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { getCreateVideoUploadCredentials, uploadVibeVideoToBunny, saveVibeVideoToProfile } from '@/lib/vibeVideoApi';
 
-export default function VibeVideoStep({ onNext, onMarkedRecorded }: { onNext: () => void; onMarkedRecorded: () => void }) {
+export default function VibeVideoStep({ onNext, onMarkedRecorded }: { onNext: () => void; onMarkedRecorded: (videoUid: string) => void }) {
   const theme = Colors[useColorScheme()];
   const [loading, setLoading] = useState(false);
 
@@ -17,7 +17,7 @@ export default function VibeVideoStep({ onNext, onMarkedRecorded }: { onNext: ()
       const creds = await getCreateVideoUploadCredentials();
       await uploadVibeVideoToBunny(uri, creds);
       await saveVibeVideoToProfile(creds.videoId);
-      onMarkedRecorded();
+      onMarkedRecorded(creds.videoId);
     } finally {
       setLoading(false);
       onNext();
