@@ -111,16 +111,15 @@ const Auth = () => {
             phone_verified: isPhoneAuth ? true : false,
             phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
           });
+        } catch {
+          localStorage.removeItem("vibely_onboarding_progress");
         } finally {
           if (referrerId) {
             localStorage.removeItem("vibely_referrer_id");
           }
-        } catch {
-          localStorage.removeItem("vibely_onboarding_progress");
         }
       }
 
-      navigate(needsOnboarding ? "/onboarding" : "/dashboard", { replace: true });
     };
 
     void ensureProfileExists();
