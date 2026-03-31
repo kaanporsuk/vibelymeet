@@ -115,8 +115,12 @@ const Auth = () => {
           if (referrerId) {
             localStorage.removeItem("vibely_referrer_id");
           }
+        } catch {
+          localStorage.removeItem("vibely_onboarding_progress");
         }
       }
+
+      navigate(needsOnboarding ? "/onboarding" : "/dashboard", { replace: true });
     };
 
     void ensureProfileExists();
