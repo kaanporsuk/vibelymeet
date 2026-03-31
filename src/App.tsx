@@ -10,7 +10,7 @@ import { OfflineBanner } from "@/components/connectivity/OfflineBanner";
 import { useEffect } from "react";
 import posthog from 'posthog-js';
 import Index from "./pages/Index";
-import Onboarding from "./pages/Onboarding";
+import Onboarding from "./pages/onboarding";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Events from "./pages/Events";
