@@ -4,31 +4,7 @@ import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-
-function calculateAge(dateIso: string): number | null {
-  if (!dateIso) return null;
-  const parts = dateIso.slice(0, 10).split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
-  const [year, month, day] = parts;
-  const t = new Date();
-  let age = t.getFullYear() - year;
-  const m = t.getMonth() + 1 - month;
-  if (m < 0 || (m === 0 && t.getDate() < day)) age -= 1;
-  return age;
-}
-
-function parseDateParts(value: string): { year: number; month: number; day: number } | null {
-  if (!value) return null;
-  const parts = value.slice(0, 10).split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
-  const [year, month, day] = parts;
-  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return { year, month, day };
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
-}
+import { calculateAgeFromIsoDate, daysInMonth, formatIsoDate, parseDateParts } from '@/components/onboarding/dateUtils';
 
 type PickerType = 'day' | 'month' | 'year' | null;
 
@@ -77,7 +53,7 @@ export default function BirthdayStep({
     day && month && year
       ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
       : '';
-  const age = calculateAge(fullDateValue || value);
+  const age = calculateAgeFromIsoDate(fullDateValue || value);
 
   useEffect(() => {
     const next = parseDateParts(value);
@@ -98,9 +74,7 @@ export default function BirthdayStep({
       onChange('');
       return;
     }
-    const mm = String(m).padStart(2, '0');
-    const dd = String(safeDay).padStart(2, '0');
-    onChange(`${y}-${mm}-${dd}`);
+    onChange(formatIsoDate({ year: y, month: m, day: safeDay }));
   };
 
   const applySelection = (next: { day?: number; month?: number; year?: number }) => {

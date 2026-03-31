@@ -3,7 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
-import { ONBOARDING_STEP_NAMES } from "@/pages/onboarding.constants";
+import {
+  getOnboardingStageForStep,
+  ONBOARDING_STEP_NAMES,
+  TOTAL_STEPS_NO_EMAIL,
+  TOTAL_STEPS_WITH_EMAIL,
+} from "@/pages/onboarding.constants";
 
 import { OnboardingLayout } from "./OnboardingLayout";
 import { ValuePropStep } from "./steps/ValuePropStep";
@@ -65,9 +70,6 @@ const DEFAULT_DATA: OnboardingData = {
 const STORAGE_KEY = "vibely_onboarding_v2";
 const LEGACY_STORAGE_KEY = "vibely_onboarding_progress";
 
-const STEPS_WITHOUT_EMAIL = 14;
-const STEPS_WITH_EMAIL = 15;
-
 function calculateAge(iso: string): number {
   const birth = new Date(iso);
   const today = new Date();
@@ -75,14 +77,6 @@ function calculateAge(iso: string): number {
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return age;
-}
-
-function getStageForStep(step: number): string | null {
-  if (step <= 0) return "auth_complete";
-  if (step <= 4) return "identity";
-  if (step <= 8) return "details";
-  if (step <= 12) return "media";
-  return null;
 }
 
 const Onboarding = () => {
@@ -104,7 +98,7 @@ const Onboarding = () => {
   const completedRef = useRef(completed);
 
   const needsEmailCollection = !session?.user?.email;
-  const totalSteps = needsEmailCollection ? STEPS_WITH_EMAIL : STEPS_WITHOUT_EMAIL;
+  const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
   const stepNames = needsEmailCollection
     ? ONBOARDING_STEP_NAMES
     : ONBOARDING_STEP_NAMES.filter((n) => n !== "email_collection");
@@ -207,7 +201,7 @@ const Onboarding = () => {
 
   const updateStageIfNeeded = useCallback(
     async (step: number) => {
-      const stage = getStageForStep(step);
+      const stage = getOnboardingStageForStep(step);
       if (stage && session?.user?.id) {
         try {
           await supabase.rpc("update_onboarding_stage", {
