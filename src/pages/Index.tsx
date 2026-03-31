@@ -10,7 +10,7 @@ const Index = () => {
 
   // Redirect authenticated users to Now
   if (!isLoading && isAuthenticated) {
-    navigate("/home");
+    navigate("/home", { replace: true });
     return null;
   }
 
