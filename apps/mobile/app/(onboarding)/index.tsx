@@ -28,11 +28,12 @@ const TOTAL_STEPS_WITH_EMAIL = 15;
 const TOTAL_STEPS_NO_EMAIL = 14;
 
 function calculateAge(dateIso: string): number {
-  const d = new Date(dateIso);
+  const [year, month, day] = dateIso.slice(0, 10).split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return 0;
   const t = new Date();
-  let age = t.getFullYear() - d.getFullYear();
-  const m = t.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < d.getDate())) age -= 1;
+  let age = t.getFullYear() - year;
+  const m = t.getMonth() + 1 - month;
+  if (m < 0 || (m === 0 && t.getDate() < day)) age -= 1;
   return age;
 }
 
@@ -220,9 +221,11 @@ export default function OnboardingV2Screen() {
       setCompleted(true);
       setCompletionError(null);
       await refreshOnboarding();
-    } catch {
+    } catch (error: any) {
       submitOnceRef.current = false;
-      setCompletionError("Couldn't save your profile. Check your connection and try again.");
+      setCompletionError(
+        String(error?.message || "Couldn't save your profile. Check your connection and try again.")
+      );
     } finally {
       setSubmitting(false);
     }
