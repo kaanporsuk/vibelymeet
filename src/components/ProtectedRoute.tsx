@@ -67,15 +67,11 @@ export function ProtectedRoute({
       try {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('gender, photos')
+          .select('onboarding_complete')
           .eq('id', session.user.id)
           .maybeSingle();
 
-        const photosCount = (profile?.photos as string[] | null)?.length ?? 0;
-        const needsOnboarding = !profile || 
-          !profile.gender || 
-          profile.gender === 'prefer_not_to_say' || 
-          photosCount < 1;
+        const needsOnboarding = !profile || profile.onboarding_complete !== true;
 
         setProfileStatus(needsOnboarding ? 'incomplete' : 'complete');
       } catch {
