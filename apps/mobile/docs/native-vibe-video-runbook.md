@@ -54,7 +54,6 @@ No invented hostnames in code.
 
 - `app/(tabs)/profile/ProfileStudio.tsx` (`USE_PROFILE_STUDIO === true`)
 - `app/(tabs)/profile/index.tsx` — legacy branch (`USE_PROFILE_STUDIO === false`)
-- `app/(tabs)/profile/index.legacy.tsx` — same
 - `app/vibe-video-record.tsx` — post-capture preview
 
 On iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration.

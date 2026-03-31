@@ -53,9 +53,9 @@ Until that hook exists in this branch, use **`useSubscription().isPremium`** (St
 | Account drawer | `src/components/settings/AccountSettingsDrawer.tsx` (~L79, L440, L461–474) | `usePremium()` | Same split | MEDIUM |
 | Profile badge (web) | `src/pages/Profile.tsx` (~L282, L680) | `usePremium().isPremium` | `useEntitlements().hasBadge` + `getUserBadge` / tier | MEDIUM |
 | Profile Studio | `src/pages/ProfileStudio.tsx` (~L324, L858) | `usePremium().isPremium` | Feature-gated studio tools → capability flags | MEDIUM |
-| Profile (legacy) | `src/pages/Profile.legacy.tsx` | `usePremium()` | Same as Profile | LOW |
+| Profile (legacy) | Removed in onboarding/auth closure (PR #163) | N/A | N/A | LOW |
 | Account settings (native) | `apps/mobile/app/settings/account.tsx` | RevenueCat + copy | Billing vs tier display | MEDIUM |
-| Profile tab legacy | `apps/mobile/app/(tabs)/profile/index.legacy.tsx` | `is_premium` / `premium_until` | `useEntitlements()` + subscription | LOW |
+| Profile tab legacy | Removed in onboarding/auth closure (PR #163) | N/A | N/A | LOW |
 
 ### LOW — admin / analytics / bootstrap
 

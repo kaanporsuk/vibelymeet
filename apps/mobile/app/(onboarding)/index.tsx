@@ -21,29 +21,15 @@ import CommunityStep from '@/components/onboarding/steps/CommunityStep';
 import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionStep';
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
-import { ONBOARDING_STEP_NAMES } from '@/components/onboarding/constants';
+import {
+  getOnboardingStageForStep,
+  ONBOARDING_STEP_NAMES,
+  TOTAL_STEPS_NO_EMAIL,
+  TOTAL_STEPS_WITH_EMAIL,
+} from '@/components/onboarding/constants';
+import { calculateAgeFromIsoDate } from '@/components/onboarding/dateUtils';
 
 const STORAGE_KEY = 'vibely_onboarding_v2';
-const TOTAL_STEPS_WITH_EMAIL = 15;
-const TOTAL_STEPS_NO_EMAIL = 14;
-
-function calculateAge(dateIso: string): number {
-  const [year, month, day] = dateIso.slice(0, 10).split('-').map(Number);
-  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return 0;
-  const t = new Date();
-  let age = t.getFullYear() - year;
-  const m = t.getMonth() + 1 - month;
-  if (m < 0 || (m === 0 && t.getDate() < day)) age -= 1;
-  return age;
-}
-
-function getStageForStep(step: number): string | null {
-  if (step <= 0) return 'auth_complete';
-  if (step <= 4) return 'identity';
-  if (step <= 8) return 'details';
-  if (step <= 12) return 'media';
-  return null;
-}
 
 export default function OnboardingV2Screen() {
   const { session, signOut, refreshOnboarding } = useAuth();
@@ -103,7 +89,7 @@ export default function OnboardingV2Screen() {
   }, [session?.user?.id, currentStep, data]);
 
   const updateStageIfNeeded = useCallback(async (step: number) => {
-    const stage = getStageForStep(step);
+    const stage = getOnboardingStageForStep(step);
     if (!stage || !session?.user?.id) return;
     try {
       await supabase.rpc('update_onboarding_stage', { p_user_id: session.user.id, p_stage: stage });
@@ -152,7 +138,7 @@ export default function OnboardingV2Screen() {
     setSubmitting(true);
     try {
       const userId = session.user.id;
-      const age = calculateAge(data.birthDate);
+      const age = calculateAgeFromIsoDate(data.birthDate) ?? 0;
       const normalizedIntent = data.relationshipIntent === 'open' ? 'figuring-out' : data.relationshipIntent;
 
       const { error: upsertError } = await supabase.from('profiles').upsert({
