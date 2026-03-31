@@ -64,6 +64,7 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const [countryCode, setCountryCode] = useState('+31');
+  const [countryName, setCountryName] = useState('Netherlands');
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
@@ -80,8 +81,11 @@ export default function SignInScreen() {
   const phoneDigits = useMemo(() => phoneInput.replace(/\D/g, ''), [phoneInput]);
   const phoneValid = phoneDigits.length >= 7;
   const selectedCountry = useMemo(
-    () => COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[0],
-    [countryCode]
+    () =>
+      COUNTRIES.find((c) => c.code === countryCode && c.name === countryName) ??
+      COUNTRIES.find((c) => c.code === countryCode) ??
+      COUNTRIES[0],
+    [countryCode, countryName]
   );
   const filteredCountries = useMemo(() => {
     const query = countrySearchQuery.trim().toLowerCase();
@@ -407,6 +411,7 @@ export default function SignInScreen() {
               <Pressable
                 onPress={() => {
                   setCountryCode(item.code);
+                  setCountryName(item.name);
                   setShowCountryModal(false);
                 }}
                 style={[styles.countryItem, { borderColor: theme.border }]}

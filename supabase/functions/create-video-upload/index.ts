@@ -64,6 +64,21 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // Onboarding can reach vibe-video before profile insert settles.
+    // Ensure a canonical profile row exists so upload state update can match exactly one row.
+    const { error: ensureProfileError } = await adminSupabase
+      .from("profiles")
+      .upsert({ id: user.id }, { onConflict: "id", ignoreDuplicates: true });
+    if (ensureProfileError) {
+      console.error(
+        `[create-video-upload] ensure profile failed userId=${user.id} projectRef=${projectRef} err=${ensureProfileError.message}`,
+      );
+      return json(
+        { success: false, error: "Failed to prepare profile for upload", code: "profile_ensure_failed" },
+        500,
+      );
+    }
+
     const { data: profile } = await adminSupabase
       .from("profiles")
       .select("bunny_video_uid")

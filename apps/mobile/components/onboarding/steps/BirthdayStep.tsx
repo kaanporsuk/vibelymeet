@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
@@ -7,13 +7,27 @@ import { useColorScheme } from '@/components/useColorScheme';
 
 function calculateAge(dateIso: string): number | null {
   if (!dateIso) return null;
-  const d = new Date(dateIso);
-  if (Number.isNaN(d.getTime())) return null;
+  const parts = dateIso.slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [year, month, day] = parts;
   const t = new Date();
-  let age = t.getFullYear() - d.getFullYear();
-  const m = t.getMonth() - d.getMonth();
-  if (m < 0 || (m === 0 && t.getDate() < d.getDate())) age -= 1;
+  let age = t.getFullYear() - year;
+  const m = t.getMonth() + 1 - month;
+  if (m < 0 || (m === 0 && t.getDate() < day)) age -= 1;
   return age;
+}
+
+function parseDateParts(value: string): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const parts = value.slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [year, month, day] = parts;
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
 }
 
 type PickerType = 'day' | 'month' | 'year' | null;
@@ -45,10 +59,13 @@ export default function BirthdayStep({
   onAgeBlocked: () => void;
 }) {
   const theme = Colors[useColorScheme()];
-  const date = value ? new Date(value) : null;
-  const day = date ? date.getDate() : 0;
-  const month = date ? date.getMonth() + 1 : 0;
-  const year = date ? date.getFullYear() : 0;
+  const parsed = parseDateParts(value);
+  const [selectedDay, setSelectedDay] = useState(parsed?.day ?? 0);
+  const [selectedMonth, setSelectedMonth] = useState(parsed?.month ?? 0);
+  const [selectedYear, setSelectedYear] = useState(parsed?.year ?? 0);
+  const day = selectedDay;
+  const month = selectedMonth;
+  const year = selectedYear;
   const [activePicker, setActivePicker] = useState<PickerType>(null);
   const years = useMemo(() => {
     const max = new Date().getFullYear() - 18;
@@ -56,17 +73,53 @@ export default function BirthdayStep({
     for (let y = max; y >= 1940; y -= 1) out.push(y);
     return out;
   }, []);
-  const age = calculateAge(value);
+  const fullDateValue =
+    day && month && year
+      ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      : '';
+  const age = calculateAge(fullDateValue || value);
 
-  const setDate = (d: number, m: number, y: number) => {
-    if (!d || !m || !y) return onChange('');
-    const candidate = new Date(y, m - 1, d);
-    if (candidate.getDate() !== d || candidate.getMonth() !== m - 1 || candidate.getFullYear() !== y) return;
-    onChange(candidate.toISOString().split('T')[0]);
+  useEffect(() => {
+    const next = parseDateParts(value);
+    setSelectedDay(next?.day ?? 0);
+    setSelectedMonth(next?.month ?? 0);
+    setSelectedYear(next?.year ?? 0);
+  }, [value]);
+
+  const commitDate = (d: number, m: number, y: number) => {
+    if (!d || !m || !y) {
+      onChange('');
+      return;
+    }
+    const maxDay = daysInMonth(y, m);
+    const safeDay = Math.min(d, maxDay);
+    const candidate = new Date(y, m - 1, safeDay);
+    if (candidate.getDate() !== safeDay || candidate.getMonth() !== m - 1 || candidate.getFullYear() !== y) {
+      onChange('');
+      return;
+    }
+    const mm = String(m).padStart(2, '0');
+    const dd = String(safeDay).padStart(2, '0');
+    onChange(`${y}-${mm}-${dd}`);
+  };
+
+  const applySelection = (next: { day?: number; month?: number; year?: number }) => {
+    const rawDay = next.day ?? day;
+    const rawMonth = next.month ?? month;
+    const rawYear = next.year ?? year;
+    const clampedDay =
+      rawDay && rawMonth && rawYear
+        ? Math.min(rawDay, daysInMonth(rawYear, rawMonth))
+        : rawDay;
+
+    setSelectedDay(clampedDay);
+    setSelectedMonth(rawMonth);
+    setSelectedYear(rawYear);
+    commitDate(clampedDay, rawMonth, rawYear);
   };
 
   const handleContinue = () => {
-    if (!value) return;
+    if (!fullDateValue) return;
     if (age != null && age < 18) {
       Alert.alert('Age restriction', 'Vibely is for adults 18 and over.', [
         { text: 'OK', onPress: onAgeBlocked },
@@ -99,7 +152,7 @@ export default function BirthdayStep({
         </Pressable>
       </View>
       {age != null ? <Text style={{ color: theme.textSecondary }}>You're {age}</Text> : null}
-      <VibelyButton label="Continue" onPress={handleContinue} disabled={!value} variant="gradient" />
+      <VibelyButton label="Continue" onPress={handleContinue} disabled={!fullDateValue} variant="gradient" />
 
       <Modal visible={!!activePicker} transparent animationType="fade" onRequestClose={() => setActivePicker(null)}>
         <Pressable style={styles.overlay} onPress={() => setActivePicker(null)}>
@@ -112,9 +165,9 @@ export default function BirthdayStep({
                 <Pressable
                   key={`${activePicker}-${item.value}`}
                   onPress={() => {
-                    if (activePicker === 'day') setDate(item.value, month, year);
-                    if (activePicker === 'month') setDate(day, item.value, year);
-                    if (activePicker === 'year') setDate(day, month, item.value);
+                    if (activePicker === 'day') applySelection({ day: item.value });
+                    if (activePicker === 'month') applySelection({ month: item.value });
+                    if (activePicker === 'year') applySelection({ year: item.value });
                     setActivePicker(null);
                   }}
                   style={[styles.sheetItem, { borderColor: theme.border }]}

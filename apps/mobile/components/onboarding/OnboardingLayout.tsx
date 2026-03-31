@@ -12,6 +12,7 @@ interface OnboardingLayoutProps {
   totalSteps: number;
   onBack?: () => void;
   showProgress?: boolean;
+  backgroundVariant?: 'default' | 'muted';
 }
 
 export default function OnboardingLayout({
@@ -20,15 +21,17 @@ export default function OnboardingLayout({
   totalSteps,
   onBack,
   showProgress = true,
+  backgroundVariant = 'default',
 }: OnboardingLayoutProps) {
   const theme = Colors[useColorScheme()];
   const progressPct = Math.max(0, Math.min(100, ((currentStep + 1) / totalSteps) * 100));
+  const isMuted = backgroundVariant === 'muted';
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]}>
       <View style={styles.bgLayer}>
-        <View style={[styles.glowOne, { backgroundColor: 'rgba(139,92,246,0.16)' }]} />
-        <View style={[styles.glowTwo, { backgroundColor: 'rgba(232,67,147,0.12)' }]} />
+        <View style={[styles.glowOne, { backgroundColor: isMuted ? 'rgba(139,92,246,0.11)' : 'rgba(139,92,246,0.16)' }]} />
+        <View style={[styles.glowTwo, { backgroundColor: isMuted ? 'rgba(232,67,147,0.07)' : 'rgba(232,67,147,0.12)' }]} />
       </View>
 
       {showProgress ? (
