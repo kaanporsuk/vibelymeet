@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
@@ -10,17 +10,23 @@ import { getCreateVideoUploadCredentials, uploadVibeVideoToBunny, saveVibeVideoT
 export default function VibeVideoStep({ onNext, onMarkedRecorded }: { onNext: () => void; onMarkedRecorded: (videoUid: string) => void }) {
   const theme = Colors[useColorScheme()];
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const uploadVideo = async (uri: string) => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const creds = await getCreateVideoUploadCredentials();
       await uploadVibeVideoToBunny(uri, creds);
       await saveVibeVideoToProfile(creds.videoId);
       onMarkedRecorded(creds.videoId);
+      onNext();
+    } catch (error: any) {
+      const message = String(error?.message || 'Video upload failed. Please try again.');
+      setErrorMessage(message);
+      Alert.alert('Upload failed', message);
     } finally {
       setLoading(false);
-      onNext();
     }
   };
 
@@ -41,6 +47,7 @@ export default function VibeVideoStep({ onNext, onMarkedRecorded }: { onNext: ()
       <View style={[styles.mock, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
         <Text style={{ color: theme.textSecondary }}>▶ Preview your vibe intro here</Text>
       </View>
+      {errorMessage ? <Text style={{ color: theme.danger, fontSize: 12 }}>{errorMessage}</Text> : null}
       <VibelyButton label={loading ? 'Uploading...' : 'Record a Vibe Video'} onPress={record} variant="gradient" disabled={loading} />
       <VibelyButton label="Upload from library" onPress={pick} variant="secondary" disabled={loading} />
       <Pressable onPress={onNext}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>I'll do this later</Text></Pressable>

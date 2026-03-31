@@ -181,8 +181,11 @@ export default function OnboardingV2Screen() {
       if (rpcError) throw rpcError;
       if (!rpcResult?.success) {
         submitOnceRef.current = false;
-        setCurrentStep(0);
-        return;
+        throw new Error(
+          Array.isArray(rpcResult?.errors)
+            ? rpcResult.errors.join(', ')
+            : "Couldn't save your profile. Check your connection and try again."
+        );
       }
 
       await supabase.from('user_credits').upsert({ user_id: userId, extra_time_credits: 0, extended_vibe_credits: 0 }, { onConflict: 'user_id' });
