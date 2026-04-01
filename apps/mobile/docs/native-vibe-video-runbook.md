@@ -72,7 +72,7 @@ On iOS silent mode, audio may be muted until a future native rebuild adds audio-
 
 | Function | Success | Hard failures |
 |----------|---------|----------------|
-| `create-video-upload` | **200** + `{ success: true, videoId, libraryId, expirationTime, signature, cdnHostname }` | **401** auth, **503** Bunny env missing, **502** Bunny create failed, **500** internal — body includes `{ success: false, error, code? }` |
+| `create-video-upload` | **200** + `{ success: true, videoId, libraryId, expirationTime, signature, cdnHostname }` | **401** auth, **503** `missing_bunny_secret`, **409** `profile_missing`/`profile_incomplete`, **502** Bunny create failed, **500** `profile_row_mismatch`/`profile_update_failed`/internal — body includes `{ success: false, error, code? }` |
 | `delete-vibe-video` | **200** + `{ success: true, hadVideoToDelete, dbProfileCleared, bunnyRemoteDeleteOk, bunnyRemoteDeleteHttpStatus, possibleBunnyOrphan? }` | **401**, **503**, **500** with `{ success: false, error, code? }` |
 
 - **Web** `VibeStudioModal` uses `!credResponse.ok || !creds.success` so both legacy 200-errors and new status codes work.

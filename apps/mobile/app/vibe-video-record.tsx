@@ -74,12 +74,28 @@ function useLibraryUriParam(): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
+function useOnboardingFlowParam(): boolean {
+  const params = useLocalSearchParams();
+  const raw = params.onboardingFlow;
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return v === '1';
+}
+
+function useSourceIntentParam(): 'record' | 'library' {
+  const params = useLocalSearchParams();
+  const raw = params.sourceIntent;
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return v === 'library' ? 'library' : 'record';
+}
+
 function ProcessingScreen({
   theme,
   onGoBack,
+  ctaLabel,
 }: {
   theme: typeof Colors.light;
   onGoBack: () => void;
+  ctaLabel?: string;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -113,7 +129,7 @@ function ProcessingScreen({
         style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
         onPress={onGoBack}
       >
-        <Text style={styles.btnLabel}>Back to profile</Text>
+        <Text style={styles.btnLabel}>{ctaLabel ?? 'Back to profile'}</Text>
       </Pressable>
     </View>
   );
@@ -124,6 +140,8 @@ export default function VibeVideoRecordScreen() {
   const qc = useQueryClient();
   const insets = useSafeAreaInsets();
   const libraryParam = useLibraryUriParam();
+  const onboardingFlow = useOnboardingFlowParam();
+  const sourceIntent = useSourceIntentParam();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { show, dialog } = useVibelyDialog();
@@ -143,6 +161,8 @@ export default function VibeVideoRecordScreen() {
   const uploadInFlightRef = useRef(false);
   const leftProcessingEarlyRef = useRef(false);
   const uploadSourceRef = useRef<'camera' | 'library' | 'unknown'>('unknown');
+  const sourceIntentHandledRef = useRef(false);
+  const lastUploadedVideoIdRef = useRef<string | null>(null);
 
   const [stage, setStage] = useState<Stage>('idle');
   const [facing, setFacing] = useState<CameraType>('front');
@@ -219,6 +239,17 @@ export default function VibeVideoRecordScreen() {
     await requestMicPermission();
   };
 
+  const returnToOnboarding = useCallback((videoId: string) => {
+    router.replace({
+      pathname: '/(onboarding)',
+      params: {
+        onboardingVideoUid: videoId,
+        onboardingVideoRecorded: '1',
+        onboardingVideoToken: `${Date.now()}`,
+      },
+    });
+  }, [router]);
+
   const startRecording = async () => {
     if (!cameraRef.current || !permission) return;
     if (stage !== 'idle') return;
@@ -283,6 +314,14 @@ export default function VibeVideoRecordScreen() {
     setStage('preview');
   };
 
+  useEffect(() => {
+    if (!onboardingFlow || sourceIntent !== 'library') return;
+    if (sourceIntentHandledRef.current) return;
+    if (stage !== 'idle') return;
+    sourceIntentHandledRef.current = true;
+    void pickFromLibrary();
+  }, [onboardingFlow, sourceIntent, stage]);
+
   const runPostUploadPoll = useCallback(
     (expectedVideoId: string, runId: number, pollSignal: AbortSignal) => {
       void (async () => {
@@ -304,6 +343,10 @@ export default function VibeVideoRecordScreen() {
         }
 
         if (result === 'ready') {
+          if (onboardingFlow) {
+            returnToOnboarding(expectedVideoId);
+            return;
+          }
           safeSetStage('idle');
           show({
             title: 'Your Vibe Video is live!',
@@ -325,6 +368,10 @@ export default function VibeVideoRecordScreen() {
         }
         if (result === 'superseded') {
           vibeVideoDiagVerbose('upload.poll_superseded_navigate', { expectedVideoId });
+          if (onboardingFlow) {
+            returnToOnboarding(expectedVideoId);
+            return;
+          }
           router.replace('/(tabs)/profile');
           return;
         }
@@ -337,11 +384,20 @@ export default function VibeVideoRecordScreen() {
           message:
             'Your video is taking longer than usual. It’ll show on your profile when ready — pull to refresh on Profile.',
           variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => router.replace('/(tabs)/profile') },
+          primaryAction: {
+            label: 'OK',
+            onPress: () => {
+              if (onboardingFlow) {
+                returnToOnboarding(expectedVideoId);
+                return;
+              }
+              router.replace('/(tabs)/profile');
+            },
+          },
         });
       })();
     },
-    [qc, router, safeSetStage, show],
+    [onboardingFlow, qc, returnToOnboarding, router, safeSetStage, show],
   );
 
   const doUpload = async () => {
@@ -408,6 +464,7 @@ export default function VibeVideoRecordScreen() {
       await saveVibeVideoToProfile(creds.videoId, {
         vibeCaption: vibeCaption.trim() || null,
       });
+      lastUploadedVideoIdRef.current = creds.videoId;
       vibeVideoDiagVerbose('upload.pipeline.profile_saved', {
         userId: user?.id ?? null,
         projectRef: SUPABASE_PROJECT_REF,
@@ -528,10 +585,19 @@ export default function VibeVideoRecordScreen() {
         <ProcessingScreen
           theme={theme}
           onGoBack={() => {
+            if (onboardingFlow) {
+              if (lastUploadedVideoIdRef.current) {
+                returnToOnboarding(lastUploadedVideoIdRef.current);
+                return;
+              }
+              router.back();
+              return;
+            }
             leftProcessingEarlyRef.current = true;
             qc.refetchQueries({ queryKey: ['my-profile'] });
             router.replace('/(tabs)/profile');
           }}
+          ctaLabel={onboardingFlow ? 'Continue onboarding' : 'Back to profile'}
         />
         {dialog}
       </>

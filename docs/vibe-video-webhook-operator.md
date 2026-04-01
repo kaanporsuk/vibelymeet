@@ -7,7 +7,7 @@ This document closes the **webhook / operator readiness** gap for Vibe Video (we
 1. Client calls **`create-video-upload`** (JWT) → Bunny Stream video object + TUS credentials; profile set to `uploading` then client finishes TUS upload.
 2. Client calls **`saveVibeVideoToProfile`** (or equivalent) → profile `bunny_video_uid` + `processing`.
 3. Bunny transcodes → sends **HTTP POST** to your **`video-webhook`** Edge Function.
-4. **`video-webhook`** updates `profiles.bunny_video_status` to `ready` (Bunny status `3`) or `failed` (`4`).
+4. **`video-webhook`** updates `profiles.bunny_video_status` to `ready` (Bunny status `3` or `4`) or `failed` (`5`).
 
 If step 3–4 never happens, native and web stay on **`processing`** until timeout/poll gives up or an operator fixes the webhook.
 
@@ -41,7 +41,7 @@ https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/video-webhook?token=<BUN
 | Field         | Meaning |
 |---------------|---------|
 | `VideoGuid`   | Bunny video GUID — matched to `profiles.bunny_video_uid` |
-| `Status`      | Bunny numeric status — **3** = transcoding complete → DB `ready`; **4** → DB `failed` |
+| `Status`      | Bunny numeric status — **3** or **4** → DB `ready`; **5** → DB `failed` |
 
 Other statuses leave row as **`processing`** (until a later event or manual fix).
 

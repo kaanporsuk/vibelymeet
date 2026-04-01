@@ -11,6 +11,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
+import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
 
 /** Shown when Supabase reports an existing identity / linked provider (not necessarily email). */
 const ACCOUNT_CONFLICT_HINT =
@@ -123,19 +124,13 @@ export default function SignInScreen() {
   useEffect(() => {
     const ensureProfileExists = async () => {
       if (!session?.user?.id) return;
-      const { data: existing } = await supabase.from('profiles').select('id').eq('id', session.user.id).maybeSingle();
-      if (existing) return;
-      const metadata = session.user.user_metadata ?? {};
-      const referrerId = null;
-      const isPhoneAuth = !!session.user.phone;
-      await supabase.from('profiles').insert({
-        id: session.user.id,
-        name: metadata.full_name || metadata.name || '',
-        referred_by: referrerId,
-        phone_number: isPhoneAuth ? session.user.phone : null,
-        phone_verified: isPhoneAuth ? true : false,
-        phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
-      });
+      const result = await ensureBootstrapProfileExists(session.user, 'sign_in_screen_effect');
+      if (!result.ok) {
+        console.warn('[sign-in] bootstrap profile ensure failed', {
+          userId: session.user.id,
+          failure: result.reason,
+        });
+      }
     };
     void ensureProfileExists();
   }, [session?.user?.id]);
@@ -257,7 +252,11 @@ export default function SignInScreen() {
       const { data, error: e } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
       if (e) throw e;
       if (data.user) {
-        await supabase.from('profiles').insert({ id: data.user.id, name: name.trim(), gender: 'prefer_not_to_say' });
+        const ensured = await ensureBootstrapProfileExists(data.user, 'email_signup');
+        if (!ensured.ok) {
+          setError('Account created, but profile bootstrap needs a retry. Please sign in again.');
+          return;
+        }
       }
       trackEvent('auth_email_signup', { platform: 'native' });
       setView('email_signin');

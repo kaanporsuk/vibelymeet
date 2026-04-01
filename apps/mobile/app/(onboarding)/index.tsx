@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
@@ -32,6 +32,11 @@ import { calculateAgeFromIsoDate } from '@/components/onboarding/dateUtils';
 const STORAGE_KEY = 'vibely_onboarding_v2';
 
 export default function OnboardingV2Screen() {
+  const params = useLocalSearchParams<{
+    onboardingVideoUid?: string | string[];
+    onboardingVideoRecorded?: string | string[];
+    onboardingVideoToken?: string | string[];
+  }>();
   const { session, signOut, refreshOnboarding } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>(DEFAULT_ONBOARDING_DATA);
@@ -46,6 +51,7 @@ export default function OnboardingV2Screen() {
   const startedAtRef = useRef<number>(Date.now());
   const currentStepRef = useRef(currentStep);
   const completedRef = useRef(completed);
+  const handledVideoTokenRef = useRef<string | null>(null);
 
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -119,6 +125,28 @@ export default function OnboardingV2Screen() {
     trackEvent('onboarding_step_completed', { step: currentStep, step_name: stepNames[currentStep], platform: 'native' });
     void updateStageIfNeeded(next);
   }, [currentStep, updateStageIfNeeded, totalSteps, stepNames]);
+
+  useEffect(() => {
+    const rawUid = Array.isArray(params.onboardingVideoUid) ? params.onboardingVideoUid[0] : params.onboardingVideoUid;
+    const rawRecorded = Array.isArray(params.onboardingVideoRecorded) ? params.onboardingVideoRecorded[0] : params.onboardingVideoRecorded;
+    const rawToken = Array.isArray(params.onboardingVideoToken) ? params.onboardingVideoToken[0] : params.onboardingVideoToken;
+
+    const videoUid = typeof rawUid === 'string' ? rawUid.trim() : '';
+    const videoRecorded = rawRecorded === '1';
+    const token = typeof rawToken === 'string' ? rawToken : null;
+
+    if (!videoRecorded || !videoUid || !token) return;
+    if (handledVideoTokenRef.current === token) return;
+    handledVideoTokenRef.current = token;
+
+    updateField('vibeVideoRecorded', true);
+    updateField('bunnyVideoUid', videoUid);
+
+    const vibeStepIndex = needsEmailCollection ? 13 : 12;
+    if (currentStep === vibeStepIndex) {
+      goNext();
+    }
+  }, [params.onboardingVideoUid, params.onboardingVideoRecorded, params.onboardingVideoToken, updateField, needsEmailCollection, currentStep, goNext]);
 
   const goBack = useCallback(() => {
     if (currentStep > 0 && !submitting) {
@@ -270,10 +298,10 @@ export default function OnboardingV2Screen() {
             goNext();
           }} />;
         }
-        return <VibeVideoStep onMarkedRecorded={(videoUid) => { updateField('vibeVideoRecorded', true); updateField('bunnyVideoUid', videoUid); }} onNext={goNext} />;
+        return <VibeVideoStep onNext={goNext} />;
       case 13:
         if (needsEmailCollection) {
-          return <VibeVideoStep onMarkedRecorded={(videoUid) => { updateField('vibeVideoRecorded', true); updateField('bunnyVideoUid', videoUid); }} onNext={goNext} />;
+          return <VibeVideoStep onNext={goNext} />;
         }
         return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
       case 14:
