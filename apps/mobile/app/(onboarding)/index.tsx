@@ -34,6 +34,7 @@ import CommunityStep from '@/components/onboarding/steps/CommunityStep';
 import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionStep';
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 import {
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
@@ -48,6 +49,7 @@ export default function OnboardingV2Screen() {
   }>();
   const { session, refreshOnboarding } = useAuth();
   const logout = useNativeLogout();
+  const { show, dialog } = useVibelyDialog();
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -194,6 +196,24 @@ export default function OnboardingV2Screen() {
     }
   }, [currentStep, submitting, stepNames]);
 
+  const confirmLeaveOnboarding = useCallback(() => {
+    show({
+      title: 'Leave onboarding?',
+      message: 'You can come back later, but you’ll need to sign in again to continue.',
+      variant: 'warning',
+      primaryAction: {
+        label: 'Return to sign in',
+        onPress: () => {
+          trackEvent('onboarding_exit_to_auth', { platform: 'native' });
+          void logout().catch((err) => {
+            if (__DEV__) console.warn('[onboarding] exit-to-auth logout failed:', err);
+          });
+        },
+      },
+      secondaryAction: { label: 'Stay', onPress: () => {} },
+    });
+  }, [show, logout]);
+
   const handleAgeBlocked = useCallback(() => {
     void logout().catch((err) => {
       if (__DEV__) console.warn('[onboarding] age-block logout failed:', err);
@@ -322,14 +342,24 @@ export default function OnboardingV2Screen() {
     updateField,
   ]);
 
+  const layoutOnBack =
+    currentStep === 0
+      ? confirmLeaveOnboarding
+      : currentStep > 0 && currentStep < totalSteps - 1
+        ? goBack
+        : undefined;
+
   return (
-    <OnboardingLayout
-      currentStep={currentStep}
-      totalSteps={totalSteps}
-      onBack={currentStep > 0 && currentStep < totalSteps - 1 ? goBack : undefined}
-      showProgress={currentStep !== totalSteps - 1}
-    >
-      {content}
-    </OnboardingLayout>
+    <>
+      <OnboardingLayout
+        currentStep={currentStep}
+        totalSteps={totalSteps}
+        onBack={layoutOnBack}
+        showProgress={currentStep !== totalSteps - 1}
+      >
+        {content}
+      </OnboardingLayout>
+      {dialog}
+    </>
   );
 }

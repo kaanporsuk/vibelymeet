@@ -13,10 +13,7 @@ import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
 import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
-
-/** Shown when Supabase reports an existing identity / linked provider (not necessarily email). */
-const ACCOUNT_CONFLICT_HINT =
-  'This account may already exist with another sign-in method. Try the method you used before.';
+import { mapAuthConflictError } from '@shared/authConflictMessages';
 
 function mapPhoneOtpSendError(e: { message?: string; status?: number; code?: string }): string {
   const msg = String(e?.message ?? '');
@@ -198,9 +195,9 @@ export default function SignInScreen() {
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (e: any) {
-      const msg = String(e?.message ?? '');
-      if (/already|exists|linked|identity/i.test(msg)) {
-        setError(ACCOUNT_CONFLICT_HINT);
+      const conflict = mapAuthConflictError(e, 'phone_otp_send');
+      if (conflict.message) {
+        setError(conflict.message);
       } else {
         setError(mapPhoneOtpSendError(e));
       }
@@ -257,7 +254,9 @@ export default function SignInScreen() {
       setResendAttempts(nextAttempts);
       setResendRemaining(nextAttempts === 1 ? 60 : nextAttempts === 2 ? 180 : 900);
     } catch (e: any) {
-      setError(mapPhoneOtpSendError(e));
+      const conflict = mapAuthConflictError(e, 'phone_otp_resend');
+      if (conflict.message) setError(conflict.message);
+      else setError(mapPhoneOtpSendError(e));
     } finally {
       setLoading(false);
     }
@@ -274,12 +273,9 @@ export default function SignInScreen() {
       if (e) throw e;
       setView('success');
     } catch (e: any) {
-      const msg = String(e?.message ?? '');
-      if (/already|exists|identity|provider|linked/i.test(msg)) {
-        setError(ACCOUNT_CONFLICT_HINT);
-      } else {
-        setError(msg || 'Sign in failed');
-      }
+      const conflict = mapAuthConflictError(e, 'email_sign_in');
+      if (conflict.message) setError(conflict.message);
+      else setError(String(e?.message ?? 'Sign in failed'));
     } finally {
       setLoading(false);
     }
@@ -306,7 +302,13 @@ export default function SignInScreen() {
       trackEvent('auth_email_signup', { platform: 'native' });
       setView('email_signin');
     } catch (e: any) {
-      setError(e?.message ?? 'Sign up failed');
+      const conflict = mapAuthConflictError(e, 'email_sign_up');
+      if (conflict.message) {
+        setError(conflict.message);
+        if (conflict.suggestEmailSignIn) setView('email_signin');
+      } else {
+        setError(e?.message ?? 'Sign up failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -321,12 +323,8 @@ export default function SignInScreen() {
       const { cancelled, error: oauthErr } = await startNativeGoogleOAuth(supabase);
       if (cancelled) return;
       if (oauthErr) {
-        const msg = String(oauthErr.message ?? '');
-        if (/already|exists|identity|provider|linked/i.test(msg)) {
-          setError(ACCOUNT_CONFLICT_HINT);
-        } else {
-          setError(msg || 'Google sign-in failed.');
-        }
+        const conflict = mapAuthConflictError(oauthErr, 'google');
+        setError(conflict.message || String(oauthErr.message || 'Google sign-in failed.'));
         return;
       }
       trackEvent('auth_social_completed', { provider: 'google', platform: 'native' });
@@ -354,7 +352,13 @@ export default function SignInScreen() {
       trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
     } catch (e: any) {
-      if (e?.code !== 'ERR_REQUEST_CANCELED') setError('Apple Sign In failed. Try another method.');
+      if (e?.code === 'ERR_REQUEST_CANCELED') return;
+      const conflict = mapAuthConflictError(e, 'apple');
+      if (conflict.message) {
+        setError(conflict.message);
+      } else {
+        setError(String(e?.message || 'Apple Sign In failed. Try another method.'));
+      }
     }
   };
 
