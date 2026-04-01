@@ -10,9 +10,14 @@ import {
   TOTAL_STEPS_WITH_EMAIL,
 } from "@/pages/onboarding.constants";
 import {
-  buildOnboardingProfileUpsert,
-  normalizeRelationshipIntent,
-} from "@shared/profileContracts";
+  type OnboardingData,
+  DEFAULT_ONBOARDING_DATA,
+  ONBOARDING_STORAGE_KEY,
+  ONBOARDING_LEGACY_STORAGE_KEY,
+  createDraftEnvelope,
+  parseDraftEnvelope,
+} from "@shared/onboardingTypes";
+import { executeOnboardingCompletion } from "@shared/onboardingCompletion";
 
 import { OnboardingLayout } from "./OnboardingLayout";
 import { ValuePropStep } from "./steps/ValuePropStep";
@@ -31,62 +36,12 @@ import { EmailCollectionStep } from "./steps/EmailCollectionStep";
 import { VibeVideoStep } from "./steps/VibeVideoStep";
 import { CelebrationStep } from "./steps/CelebrationStep";
 
-interface OnboardingData {
-  name: string;
-  birthDate: string;
-  gender: string;
-  genderCustom: string;
-  interestedIn: string;
-  relationshipIntent: string;
-  heightCm: number | null;
-  job: string;
-  photos: string[];
-  aboutMe: string;
-  location: string;
-  locationData: { lat: number; lng: number } | null;
-  country: string;
-  vibeVideoRecorded: boolean;
-  bunnyVideoUid: string | null;
-  communityAgreed: boolean;
-}
-
-const DEFAULT_DATA: OnboardingData = {
-  name: "",
-  birthDate: "",
-  gender: "",
-  genderCustom: "",
-  interestedIn: "",
-  relationshipIntent: "",
-  heightCm: null,
-  job: "",
-  photos: [],
-  aboutMe: "",
-  location: "",
-  locationData: null,
-  country: "",
-  vibeVideoRecorded: false,
-  bunnyVideoUid: null,
-  communityAgreed: false,
-};
-
-const STORAGE_KEY = "vibely_onboarding_v2";
-const LEGACY_STORAGE_KEY = "vibely_onboarding_progress";
-
-function calculateAge(iso: string): number {
-  const birth = new Date(iso);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
-
 const Onboarding = () => {
   const navigate = useNavigate();
 
   const [session, setSession] = useState<any>(null);
   const [currentStep, setCurrentStep] = useState(0);
-  const [data, setData] = useState<OnboardingData>(DEFAULT_DATA);
+  const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
 
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -105,7 +60,6 @@ const Onboarding = () => {
     ? ONBOARDING_STEP_NAMES
     : ONBOARDING_STEP_NAMES.filter((n) => n !== "email_collection");
 
-  // Load session
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
@@ -116,28 +70,19 @@ const Onboarding = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load persisted data + clear legacy key
   useEffect(() => {
     if (!session?.user?.id) return;
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.removeItem(ONBOARDING_LEGACY_STORAGE_KEY);
 
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(ONBOARDING_STORAGE_KEY);
     if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (
-          parsed.userId === session.user.id &&
-          Date.now() - parsed.updatedAt < 7 * 24 * 60 * 60 * 1000
-        ) {
-          setCurrentStep(parsed.step);
-          setData(parsed.data);
-        }
-      } catch {
-        // ignore corrupted data
+      const restored = parseDraftEnvelope(saved, session.user.id);
+      if (restored) {
+        setCurrentStep(restored.step);
+        setData(restored.data);
       }
     }
 
-    // Pre-populate photos from partial profile
     const loadExistingPhotos = async () => {
       const { data: profile } = await supabase
         .from("profiles")
@@ -152,24 +97,15 @@ const Onboarding = () => {
     loadExistingPhotos();
   }, [session?.user?.id]);
 
-  // Persist to localStorage
   useEffect(() => {
     if (!session?.user?.id || completed) return;
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        userId: session.user.id,
-        step: currentStep,
-        data,
-        updatedAt: Date.now(),
-      })
-    );
+    const envelope = createDraftEnvelope(session.user.id, currentStep, data);
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(envelope));
   }, [session?.user?.id, currentStep, data, completed]);
 
   useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
   useEffect(() => { completedRef.current = completed; }, [completed]);
 
-  // Track step views
   useEffect(() => {
     const name = stepNames[currentStep] ?? stepNames[0];
     trackEvent("onboarding_step_viewed", {
@@ -179,7 +115,6 @@ const Onboarding = () => {
     });
   }, [currentStep, stepNames]);
 
-  // Track abandonment on unmount
   useEffect(() => {
     return () => {
       if (!completedRef.current) {
@@ -242,7 +177,6 @@ const Onboarding = () => {
     navigate("/auth");
   }, [navigate]);
 
-  // --- Completion ---
   const completeOnboarding = useCallback(async () => {
     if (!session?.user?.id || submitOnceRef.current) return;
     submitOnceRef.current = true;
@@ -250,85 +184,29 @@ const Onboarding = () => {
     setCompletionError(null);
 
     try {
-      const userId = session.user.id;
-      const age = calculateAge(data.birthDate);
-      const normalizedIntent = normalizeRelationshipIntent(data.relationshipIntent);
-      const payload = buildOnboardingProfileUpsert({
-        userId,
-        name: data.name,
-        birthDate: data.birthDate,
-        age,
-        gender: data.gender,
-        genderCustom: data.genderCustom,
-        interestedIn: data.interestedIn,
-        relationshipIntent: data.relationshipIntent,
-        heightCm: data.heightCm,
-        job: data.job,
-        photos: data.photos,
-        aboutMe: data.aboutMe,
-        location: data.location,
-        locationData: data.locationData,
-        country: data.country,
-        bunnyVideoUid: data.bunnyVideoUid,
-        communityAgreed: data.communityAgreed,
-      });
-      const { error: upsertError } = await supabase.from("profiles").upsert(payload);
-      if (upsertError) throw upsertError;
-
-      const { data: rpcResult, error: rpcError } = await supabase.rpc(
-        "complete_onboarding",
-        { p_user_id: userId }
-      );
-      if (rpcError) throw rpcError;
-
-      if (!rpcResult?.success) {
-        submitOnceRef.current = false;
-        throw new Error(
-          rpcResult?.errors?.join(", ") || "Profile validation failed."
-        );
-      }
-
-      // Baseline credits
-      await supabase
-        .from("user_credits")
-        .upsert(
-          { user_id: userId, extra_time_credits: 0, extended_vibe_credits: 0 },
-          { onConflict: "user_id" }
-        );
-
-      // Welcome email
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData?.user?.email) {
-        await supabase.functions.invoke("send-email", {
-          body: {
-            to: userData.user.email,
-            template: "welcome",
-            data: { name: data.name.trim() },
-          },
-        });
-      }
-
-      localStorage.removeItem(STORAGE_KEY);
-
-      trackEvent("onboarding_completed", {
+      const result = await executeOnboardingCompletion({
+        supabase: supabase as any,
+        userId: session.user.id,
+        data,
+        clearDraftStorage: async () => {
+          localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+        },
+        trackEvent,
         platform: "web",
-        auth_method: session.user.phone
+        authMethod: session.user.phone
           ? "phone"
           : session.user.app_metadata?.provider ?? "email",
-        has_vibe_video: data.vibeVideoRecorded,
-        photo_count: data.photos.length,
-        has_about_me: !!data.aboutMe.trim(),
-        has_height: !!data.heightCm,
-        has_job: !!data.job.trim(),
-        relationship_intent: normalizedIntent,
-        total_time_seconds: Math.round(
-          (Date.now() - startedAtRef.current) / 1000
-        ),
-        vibe_score: Number(rpcResult?.vibe_score ?? 0),
+        startedAt: startedAtRef.current,
       });
 
-      setVibeScore(Number(rpcResult?.vibe_score ?? 0));
-      setVibeScoreLabel(String(rpcResult?.vibe_score_label ?? "New"));
+      if (!result.success) {
+        submitOnceRef.current = false;
+        setCompletionError(result.errors.join(", ") || "Profile validation failed.");
+        return;
+      }
+
+      setVibeScore(result.vibeScore);
+      setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
     } catch (e: any) {
       submitOnceRef.current = false;
@@ -340,21 +218,15 @@ const Onboarding = () => {
     }
   }, [session, data]);
 
-  // Trigger completion when reaching the last step
   useEffect(() => {
     if (currentStep === totalSteps - 1) {
       void completeOnboarding();
     }
   }, [currentStep, completeOnboarding, totalSteps]);
 
-  // --- Step rendering ---
-  // Build a logical step array. For phone-auth users (no email), inject email collection
-  // between community (step 11) and vibe video (step 12).
   const renderContent = () => {
-    // Map currentStep to the right component, accounting for conditional email step
     let logicalStep = currentStep;
 
-    // Steps 0-11 are always the same
     if (logicalStep <= 11) {
       switch (logicalStep) {
         case 0:
@@ -462,9 +334,7 @@ const Onboarding = () => {
       }
     }
 
-    // Steps 12+ depend on whether email collection is shown
     if (needsEmailCollection) {
-      // 12 = email, 13 = vibe video, 14 = celebration
       if (logicalStep === 12) {
         return (
           <EmailCollectionStep
@@ -493,7 +363,6 @@ const Onboarding = () => {
           />
         );
       }
-      // 14 = celebration
       return (
         <CelebrationStep
           submitting={submitting}
@@ -511,7 +380,6 @@ const Onboarding = () => {
       );
     }
 
-    // No email step: 12 = vibe video, 13 = celebration
     if (logicalStep === 12) {
       return (
         <VibeVideoStep
@@ -526,7 +394,6 @@ const Onboarding = () => {
       );
     }
 
-    // 13 (or final) = celebration
     return (
       <CelebrationStep
         submitting={submitting}

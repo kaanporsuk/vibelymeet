@@ -5,7 +5,15 @@ import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
 import OnboardingLayout from '@/components/onboarding/OnboardingLayout';
-import { DEFAULT_ONBOARDING_DATA, OnboardingData } from '@/components/onboarding/types';
+import {
+  type OnboardingData,
+  DEFAULT_ONBOARDING_DATA,
+  ONBOARDING_STORAGE_KEY,
+  createDraftEnvelope,
+  parseDraftEnvelope,
+  calculateAge as calculateAgeShared,
+} from '@shared/onboardingTypes';
+import { executeOnboardingCompletion } from '@shared/onboardingCompletion';
 import ValuePropStep from '@/components/onboarding/steps/ValuePropStep';
 import NameStep from '@/components/onboarding/steps/NameStep';
 import BirthdayStep from '@/components/onboarding/steps/BirthdayStep';
@@ -27,13 +35,6 @@ import {
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
 } from '@/components/onboarding/constants';
-import { calculateAgeFromIsoDate } from '@/components/onboarding/dateUtils';
-import {
-  buildOnboardingProfileUpsert,
-  normalizeRelationshipIntent,
-} from '@shared/profileContracts';
-
-const STORAGE_KEY = 'vibely_onboarding_v2';
 
 export default function OnboardingV2Screen() {
   const params = useLocalSearchParams<{
@@ -43,7 +44,7 @@ export default function OnboardingV2Screen() {
   }>();
   const { session, signOut, refreshOnboarding } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
-  const [data, setData] = useState<OnboardingData>(DEFAULT_ONBOARDING_DATA);
+  const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [genderVisible, setGenderVisible] = useState(true);
   const [interestedVisible, setInterestedVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -66,13 +67,13 @@ export default function OnboardingV2Screen() {
     const load = async () => {
       try {
         await AsyncStorage.removeItem('vibely_onboarding_progress');
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const raw = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
         if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed?.userId !== session.user.id) return;
-        if (Date.now() - (parsed?.updatedAt ?? 0) > 7 * 24 * 60 * 60 * 1000) return;
-        if (typeof parsed?.step === 'number') setCurrentStep(parsed.step);
-        if (parsed?.data) setData({ ...DEFAULT_ONBOARDING_DATA, ...parsed.data });
+        const restored = parseDraftEnvelope(raw, session.user.id);
+        if (restored) {
+          setCurrentStep(restored.step);
+          setData(restored.data);
+        }
       } catch {
         // ignore
       }
@@ -95,7 +96,8 @@ export default function OnboardingV2Screen() {
 
   useEffect(() => {
     if (!session?.user?.id) return;
-    void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ userId: session.user.id, step: currentStep, data, updatedAt: Date.now() }));
+    const envelope = createDraftEnvelope(session.user.id, currentStep, data);
+    void AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(envelope));
   }, [session?.user?.id, currentStep, data]);
 
   const updateStageIfNeeded = useCallback(async (step: number) => {
@@ -168,72 +170,29 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || submitOnceRef.current) return;
     submitOnceRef.current = true;
     setSubmitting(true);
+
     try {
-      const userId = session.user.id;
-      const age = calculateAgeFromIsoDate(data.birthDate) ?? 0;
-      const normalizedIntent = normalizeRelationshipIntent(data.relationshipIntent);
-      const payload = buildOnboardingProfileUpsert({
-        userId,
-        name: data.name,
-        birthDate: data.birthDate,
-        age,
-        gender: data.gender,
-        genderCustom: data.genderCustom,
-        interestedIn: data.interestedIn,
-        relationshipIntent: data.relationshipIntent,
-        heightCm: data.heightCm,
-        job: data.job,
-        photos: data.photos,
-        aboutMe: data.aboutMe,
-        location: data.location,
-        locationData: data.locationData,
-        country: data.country,
-        bunnyVideoUid: data.bunnyVideoUid,
-        communityAgreed: data.communityAgreed,
-      });
-      const { error: upsertError } = await supabase.from('profiles').upsert(payload);
-      if (upsertError) throw upsertError;
-
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('complete_onboarding', { p_user_id: userId });
-      if (rpcError) throw rpcError;
-      if (!rpcResult?.success) {
-        submitOnceRef.current = false;
-        throw new Error(
-          Array.isArray(rpcResult?.errors)
-            ? rpcResult.errors.join(', ')
-            : "Couldn't save your profile. Check your connection and try again."
-        );
-      }
-
-      await supabase.from('user_credits').upsert({ user_id: userId, extra_time_credits: 0, extended_vibe_credits: 0 }, { onConflict: 'user_id' });
-
-      const { data: userData } = await supabase.auth.getUser();
-      if (userData.user?.email) {
-        await supabase.functions.invoke('send-email', {
-          body: {
-            to: userData.user.email,
-            template: 'welcome',
-            data: { name: data.name.trim() },
-          },
-        });
-      }
-
-      await AsyncStorage.removeItem(STORAGE_KEY);
-      trackEvent('onboarding_completed', {
+      const result = await executeOnboardingCompletion({
+        supabase: supabase as any,
+        userId: session.user.id,
+        data,
+        clearDraftStorage: async () => {
+          await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
+        },
+        trackEvent,
         platform: 'native',
-        auth_method: session?.user?.phone ? 'phone' : (session?.user?.app_metadata?.provider ?? 'email'),
-        has_vibe_video: data.vibeVideoRecorded,
-        photo_count: data.photos.length,
-        has_about_me: !!data.aboutMe.trim(),
-        has_height: !!data.heightCm,
-        has_job: !!data.job.trim(),
-        relationship_intent: normalizedIntent,
-        total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
-        vibe_score: Number(rpcResult?.vibe_score ?? 0),
+        authMethod: session.user.phone ? 'phone' : (session.user.app_metadata?.provider ?? 'email'),
+        startedAt: startedAtRef.current,
       });
 
-      setVibeScore(Number(rpcResult?.vibe_score ?? 0));
-      setVibeScoreLabel(String(rpcResult?.vibe_score_label ?? 'Rising'));
+      if (!result.success) {
+        submitOnceRef.current = false;
+        setCompletionError(result.errors.join(', ') || "Couldn't save your profile. Check your connection and try again.");
+        return;
+      }
+
+      setVibeScore(result.vibeScore);
+      setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
       setCompletionError(null);
       await refreshOnboarding();
