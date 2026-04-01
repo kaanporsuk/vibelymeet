@@ -144,11 +144,18 @@ COMMENT ON FUNCTION public.save_onboarding_draft IS
 
 
 -- ─── finalize_onboarding ─────────────────────────────────────────────────────
--- Atomic finalization: reads draft → validates → writes to profiles → marks
+-- Atomic finalization: locks draft → validates → writes to profiles → marks
 -- onboarding_complete → creates credits → marks draft completed.
--- Fully server-side. Idempotent (re-calling on completed user returns success).
+-- Fully server-side. Concurrency-safe via FOR UPDATE on draft row.
+-- Idempotent: re-calling on completed user returns success.
+--
+-- Accepts optional p_final_data parameter so the client can submit its latest
+-- state atomically with finalization, avoiding stale-draft issues.
 
-CREATE OR REPLACE FUNCTION public.finalize_onboarding(p_user_id uuid)
+CREATE OR REPLACE FUNCTION public.finalize_onboarding(
+  p_user_id   uuid,
+  p_final_data jsonb DEFAULT NULL
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -187,11 +194,14 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'forbidden', 'errors', jsonb_build_array('Forbidden'));
   END IF;
 
-  -- Idempotent: if already onboarded, return success
-  IF EXISTS (
-    SELECT 1 FROM public.profiles
-    WHERE id = p_user_id AND onboarding_complete = true
-  ) THEN
+  -- ─── Idempotent early return ───────────────────────────────────────────
+  -- Check profiles under a FOR UPDATE lock to prevent two concurrent callers
+  -- from both seeing onboarding_complete = false.
+  PERFORM 1 FROM public.profiles
+  WHERE id = p_user_id AND onboarding_complete = true
+  FOR UPDATE;
+
+  IF FOUND THEN
     SELECT vibe_score, vibe_score_label INTO v_vibe_score, v_vibe_score_label
     FROM public.profiles WHERE id = p_user_id;
 
@@ -205,12 +215,29 @@ BEGIN
     );
   END IF;
 
-  -- Load draft
+  -- ─── Lock the draft row ────────────────────────────────────────────────
+  -- FOR UPDATE ensures only one concurrent finalize proceeds; the second
+  -- caller will block until the first commits, then see completed_at IS NOT
+  -- NULL and fall through to the idempotent profile check above on retry,
+  -- or see the draft is completed here.
   SELECT * INTO v_draft
   FROM public.onboarding_drafts
-  WHERE user_id = p_user_id AND completed_at IS NULL;
+  WHERE user_id = p_user_id AND completed_at IS NULL
+  FOR UPDATE;
 
   IF NOT FOUND THEN
+    -- Draft may have been completed by a concurrent call that committed
+    -- between our profile check and here. Re-check profiles.
+    IF EXISTS (SELECT 1 FROM public.profiles WHERE id = p_user_id AND onboarding_complete = true) THEN
+      SELECT vibe_score, vibe_score_label INTO v_vibe_score, v_vibe_score_label
+      FROM public.profiles WHERE id = p_user_id;
+      RETURN jsonb_build_object(
+        'success', true, 'error', NULL, 'errors', '[]'::jsonb,
+        'already_completed', true,
+        'vibe_score', v_vibe_score, 'vibe_score_label', v_vibe_score_label
+      );
+    END IF;
+
     RETURN jsonb_build_object(
       'success', false,
       'error', 'no_draft',
@@ -218,9 +245,20 @@ BEGIN
     );
   END IF;
 
-  v_data := v_draft.onboarding_data;
+  -- ─── Resolve final data ────────────────────────────────────────────────
+  -- If the client supplied p_final_data, use it (atomic save+finalize).
+  -- Otherwise fall back to whatever is stored in the draft row.
+  IF p_final_data IS NOT NULL AND p_final_data != 'null'::jsonb AND p_final_data != '{}'::jsonb THEN
+    v_data := p_final_data;
+    -- Also persist it to the draft row so the record is accurate
+    UPDATE public.onboarding_drafts
+    SET onboarding_data = p_final_data, updated_at = now()
+    WHERE user_id = p_user_id;
+  ELSE
+    v_data := v_draft.onboarding_data;
+  END IF;
 
-  -- Extract fields from JSONB
+  -- ─── Extract fields from JSONB ─────────────────────────────────────────
   v_name          := trim(COALESCE(v_data->>'name', ''));
   v_birth_date    := COALESCE(v_data->>'birthDate', '');
   v_gender        := COALESCE(v_data->>'gender', '');
@@ -236,12 +274,11 @@ BEGIN
   v_bunny_video_uid := v_data->>'bunnyVideoUid';
   v_community_agreed := COALESCE((v_data->>'communityAgreed')::boolean, false);
 
-  -- Parse photos array from JSONB
   SELECT COALESCE(array_agg(elem::text), ARRAY[]::text[])
   INTO v_photos
   FROM jsonb_array_elements_text(COALESCE(v_data->'photos', '[]'::jsonb)) AS elem;
 
-  -- Compute derived fields
+  -- ─── Compute derived fields ────────────────────────────────────────────
   IF v_birth_date != '' THEN
     v_age := EXTRACT(YEAR FROM age(v_birth_date::date));
   END IF;
@@ -294,6 +331,10 @@ BEGIN
   END IF;
 
   -- ─── Write to profiles (server-side, replaces client upsert) ───────────
+  -- SET LOCAL ROLE postgres is required: SECURITY DEFINER runs as
+  -- supabase_admin, but protect_sensitive_profile_columns trigger checks
+  -- current_user::regrole::text IN ('postgres','supabase_admin').
+  -- SET LOCAL ROLE makes current_user = postgres for this transaction only.
 
   SET LOCAL ROLE postgres;
 
@@ -328,7 +369,7 @@ BEGIN
 
   -- Mark draft as completed
   UPDATE public.onboarding_drafts
-  SET completed_at = now(), updated_at = now()
+  SET completed_at = now(), current_stage = 'complete', updated_at = now()
   WHERE user_id = p_user_id;
 
   -- Read back vibe score (computed by trigger)
@@ -348,8 +389,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.finalize_onboarding(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.finalize_onboarding(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.finalize_onboarding(uuid, jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.finalize_onboarding(uuid, jsonb) TO authenticated;
 
 COMMENT ON FUNCTION public.finalize_onboarding IS
-  'Atomic onboarding finalization: reads draft, validates, writes to profiles, sets onboarding_complete, creates baseline credits. Idempotent.';
+  'Atomic, concurrency-safe onboarding finalization. Locks draft row, validates, writes to profiles, sets onboarding_complete, creates baseline credits. Accepts optional p_final_data to atomically save+finalize. Idempotent on already-completed users.';

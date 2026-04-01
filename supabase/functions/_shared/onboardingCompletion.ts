@@ -155,11 +155,14 @@ export interface CompletionDeps {
 
 /**
  * Full server-owned finalization:
- * 1. Save final draft to backend (ensures latest data is persisted)
- * 2. Call finalize_onboarding RPC (validates, writes profiles, sets flags, creates credits)
- * 3. Welcome email (best-effort)
- * 4. Clear local cache
- * 5. Analytics
+ * 1. Call finalize_onboarding RPC with final data payload (atomic save+validate+write)
+ * 2. Welcome email (best-effort, only on fresh completion)
+ * 3. Clear local cache
+ * 4. Analytics (only on fresh completion)
+ *
+ * The RPC receives the client's latest OnboardingData directly via p_final_data,
+ * so the server always validates and writes the freshest state — no separate
+ * pre-save step required, no stale-draft risk.
  *
  * No client-side profiles.upsert. Server owns the write.
  */
@@ -168,18 +171,13 @@ export async function executeOnboardingCompletion(
 ): Promise<CompletionResult> {
   const { supabase, userId, data, platform, authMethod, startedAt } = deps;
 
-  // 1. Persist final draft state to server before finalization
-  const saveResult = await saveOnboardingDraft(supabase, userId, 99, data, platform);
-  if (!saveResult.success) {
-    console.warn("[onboarding] final draft save failed:", saveResult.error);
-    // Non-fatal: finalize may still succeed if a prior save captured the data
-  }
-
-  // 2. Server-side finalization (atomic: validate → write profiles → set flags → credits)
   try {
     const { data: rpcResult, error: rpcError } = await supabase.rpc(
       "finalize_onboarding",
-      { p_user_id: userId },
+      {
+        p_user_id: userId,
+        p_final_data: data as unknown as Record<string, unknown>,
+      },
     );
     if (rpcError) {
       return FAILED("finalize_rpc_error", [rpcError.message]);
@@ -197,7 +195,10 @@ export async function executeOnboardingCompletion(
     const vibeScoreLabel = String(r.vibe_score_label ?? "New");
     const alreadyCompleted = r.already_completed === true;
 
-    // 3. Welcome email (best-effort, skip if already completed to avoid duplicates)
+    // Welcome email: best-effort, only on fresh completion.
+    // The server's already_completed flag is authoritative — concurrent
+    // callers that lose the lock race will always get already_completed=true,
+    // preventing duplicate welcome emails.
     if (!alreadyCompleted) {
       try {
         const { data: userData } = await supabase.auth.getUser();
@@ -215,14 +216,16 @@ export async function executeOnboardingCompletion(
       }
     }
 
-    // 4. Clear local cache
+    // Clear local cache
     try {
       await deps.clearLocalDraft();
     } catch {
       console.warn("[onboarding] local draft cleanup failed (non-fatal)");
     }
 
-    // 5. Analytics (skip if already completed to avoid double-counting)
+    // Analytics: only on fresh completion to avoid double-counting.
+    // Same already_completed guard prevents concurrent callers from both
+    // firing analytics.
     if (!alreadyCompleted) {
       deps.trackEvent("onboarding_completed", {
         platform,
