@@ -132,6 +132,10 @@ BEGIN
     expires_at           = now() + interval '30 days'
   WHERE onboarding_drafts.completed_at IS NULL;
 
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'draft_completed');
+  END IF;
+
   RETURN jsonb_build_object('success', true);
 END;
 $$;
@@ -222,7 +226,7 @@ BEGIN
   -- or see the draft is completed here.
   SELECT * INTO v_draft
   FROM public.onboarding_drafts
-  WHERE user_id = p_user_id AND completed_at IS NULL
+  WHERE user_id = p_user_id AND completed_at IS NULL AND expires_at > now()
   FOR UPDATE;
 
   IF NOT FOUND THEN
@@ -265,7 +269,6 @@ BEGIN
   v_gender_custom := trim(COALESCE(v_data->>'genderCustom', ''));
   v_interested_in := COALESCE(v_data->>'interestedIn', '');
   v_rel_intent    := COALESCE(v_data->>'relationshipIntent', '');
-  v_height_cm     := (v_data->>'heightCm')::int;
   v_job           := trim(COALESCE(v_data->>'job', ''));
   v_about_me      := trim(COALESCE(v_data->>'aboutMe', ''));
   v_location      := COALESCE(v_data->>'location', '');
@@ -274,13 +277,24 @@ BEGIN
   v_bunny_video_uid := v_data->>'bunnyVideoUid';
   v_community_agreed := COALESCE((v_data->>'communityAgreed')::boolean, false);
 
+  -- Safe-cast heightCm (user-controlled input)
+  BEGIN
+    v_height_cm := (v_data->>'heightCm')::int;
+  EXCEPTION WHEN OTHERS THEN
+    v_height_cm := NULL;
+  END;
+
   SELECT COALESCE(array_agg(elem::text), ARRAY[]::text[])
   INTO v_photos
   FROM jsonb_array_elements_text(COALESCE(v_data->'photos', '[]'::jsonb)) AS elem;
 
   -- ─── Compute derived fields ────────────────────────────────────────────
   IF v_birth_date != '' THEN
-    v_age := EXTRACT(YEAR FROM age(v_birth_date::date));
+    BEGIN
+      v_age := EXTRACT(YEAR FROM age(v_birth_date::date));
+    EXCEPTION WHEN OTHERS THEN
+      v_errors := array_append(v_errors, 'Invalid birth date format');
+    END;
   END IF;
 
   IF v_gender = 'other' AND v_gender_custom != '' THEN
@@ -361,6 +375,14 @@ BEGIN
     onboarding_stage    = 'complete',
     updated_at          = now()
   WHERE id = p_user_id;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'profile_not_found',
+      'errors', jsonb_build_array('User profile row does not exist')
+    );
+  END IF;
 
   -- Baseline credits (idempotent)
   INSERT INTO public.user_credits (user_id, extra_time_credits, extended_vibe_credits)

@@ -44,12 +44,11 @@ export const ONBOARDING_STAGES = [
 
 export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 
-export function getOnboardingStageForStep(step: number): OnboardingStage | null {
+export function getOnboardingStageForStep(step: number): OnboardingStage {
   if (step <= 0) return "auth_complete";
   if (step <= 4) return "identity";
   if (step <= 8) return "details";
-  if (step <= 12) return "media";
-  return null;
+  return "media";
 }
 
 // ─── Draft data shape ────────────────────────────────────────────────────────

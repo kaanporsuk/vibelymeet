@@ -98,7 +98,7 @@ export async function saveOnboardingDraft(
   data: OnboardingData,
   platform: "web" | "native",
 ): Promise<SaveDraftResult> {
-  const stage: OnboardingStage = getOnboardingStageForStep(step) ?? "none";
+  const stage: OnboardingStage = getOnboardingStageForStep(step);
   try {
     const { data: result, error } = await supabase.rpc("save_onboarding_draft", {
       p_user_id: userId,
