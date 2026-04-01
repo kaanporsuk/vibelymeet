@@ -28,6 +28,10 @@ import {
   TOTAL_STEPS_WITH_EMAIL,
 } from '@/components/onboarding/constants';
 import { calculateAgeFromIsoDate } from '@/components/onboarding/dateUtils';
+import {
+  buildOnboardingProfileUpsert,
+  normalizeRelationshipIntent,
+} from '@shared/profileContracts';
 
 const STORAGE_KEY = 'vibely_onboarding_v2';
 
@@ -167,29 +171,27 @@ export default function OnboardingV2Screen() {
     try {
       const userId = session.user.id;
       const age = calculateAgeFromIsoDate(data.birthDate) ?? 0;
-      const normalizedIntent = data.relationshipIntent === 'open' ? 'figuring-out' : data.relationshipIntent;
-
-      const { error: upsertError } = await supabase.from('profiles').upsert({
-        id: userId,
-        name: data.name.trim(),
-        birth_date: data.birthDate,
+      const normalizedIntent = normalizeRelationshipIntent(data.relationshipIntent);
+      const payload = buildOnboardingProfileUpsert({
+        userId,
+        name: data.name,
+        birthDate: data.birthDate,
         age,
-        gender: data.gender === 'other' && data.genderCustom.trim() ? data.genderCustom.trim() : data.gender,
-        interested_in: [data.interestedIn],
-        relationship_intent: normalizedIntent,
-        looking_for: normalizedIntent,
-        height_cm: data.heightCm ?? null,
-        job: data.job.trim() || null,
+        gender: data.gender,
+        genderCustom: data.genderCustom,
+        interestedIn: data.interestedIn,
+        relationshipIntent: data.relationshipIntent,
+        heightCm: data.heightCm,
+        job: data.job,
         photos: data.photos,
-        avatar_url: data.photos[0] || null,
-        about_me: data.aboutMe.trim() || null,
-        location: data.location || null,
-        location_data: data.locationData || null,
-        city: data.city || null,
-        country: data.country || null,
-        bunny_video_uid: data.bunnyVideoUid || null,
-        community_agreed_at: data.communityAgreed ? new Date().toISOString() : null,
+        aboutMe: data.aboutMe,
+        location: data.location,
+        locationData: data.locationData,
+        country: data.country,
+        bunnyVideoUid: data.bunnyVideoUid,
+        communityAgreed: data.communityAgreed,
       });
+      const { error: upsertError } = await supabase.from('profiles').upsert(payload);
       if (upsertError) throw upsertError;
 
       const { data: rpcResult, error: rpcError } = await supabase.rpc('complete_onboarding', { p_user_id: userId });

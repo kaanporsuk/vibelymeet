@@ -318,13 +318,6 @@ const LegacyProfilePage = () => {
           if (phoneData?.phone_verified) {
             setPhoneVerified(true);
           }
-          // Auto-sync: user is logged in = email is confirmed by Supabase Auth
-          if (phoneData && !phoneData.email_verified && user.email) {
-            await supabase.from("profiles").update({
-              email_verified: true,
-              verified_email: user.email,
-            }).eq("id", user.id);
-          }
 
           // Determine photo verification status
           if (phoneData?.photo_verified) {
