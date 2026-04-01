@@ -72,11 +72,8 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoUploaded, userId }: VibeV
         upload.start();
       });
 
-      const { error: profileUpdateError } = await supabase
-        .from("profiles")
-        .update({ bunny_video_uid: videoId, bunny_video_status: "processing" })
-        .eq("id", userId);
-      if (profileUpdateError) throw profileUpdateError;
+      // Profile columns (bunny_video_uid, bunny_video_status) are already set
+      // server-side by create-video-upload. No client-side profile update needed.
 
       onVideoUploaded(videoId);
       toast.success("Your Vibe Video is processing!");

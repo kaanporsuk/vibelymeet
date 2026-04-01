@@ -72,7 +72,7 @@ CREATE POLICY "Service role full access"
 
 -- ─── Auto-update updated_at ──────────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.set_updated_at()
+CREATE OR REPLACE FUNCTION public.dms_set_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -85,12 +85,15 @@ $$;
 CREATE TRIGGER trg_dms_updated_at
   BEFORE UPDATE ON public.draft_media_sessions
   FOR EACH ROW
-  EXECUTE FUNCTION public.set_updated_at();
+  EXECUTE FUNCTION public.dms_set_updated_at();
 
 -- ─── RPC: create_media_session ───────────────────────────────────────────────
--- Called by create-video-upload (and later upload-image) to atomically create
--- a session row.  Returns the session id + any previous active session for the
--- same media_type so the caller can clean it up.
+-- Called by create-video-upload (service_role) to atomically create a session
+-- row.  Returns the session id + any previous active session for the same
+-- media_type so the caller can clean it up.
+--
+-- Callable by service_role only — Edge Functions authenticate the user
+-- themselves and pass the verified user id.
 
 CREATE OR REPLACE FUNCTION public.create_media_session(
   p_user_id     uuid,
@@ -111,10 +114,6 @@ DECLARE
   v_prev_provider text;
   v_new_id        uuid;
 BEGIN
-  IF p_user_id IS DISTINCT FROM auth.uid() THEN
-    RETURN jsonb_build_object('success', false, 'error', 'forbidden');
-  END IF;
-
   -- For vibe_video, find and abandon any active session (only one at a time)
   IF p_media_type = 'vibe_video' THEN
     SELECT id, provider_id INTO v_prev_id, v_prev_provider
@@ -150,11 +149,17 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.create_media_session FROM anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.create_media_session TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_media_session TO service_role;
 
 -- ─── RPC: update_media_session_status ────────────────────────────────────────
--- Called by video-webhook and clients to advance session state.
--- For webhook use, the function also accepts provider_id lookup.
+-- Called by video-webhook (service_role) to advance session state based on
+-- provider events.  Enforces a strict forward-only state machine:
+--
+--   created → uploading → processing → ready → (publish via separate RPC)
+--                                    → failed
+--
+-- Terminal states (published, deleted, abandoned, failed) are never re-entered
+-- by this function.  Duplicate/idempotent calls with the same status are safe.
 
 CREATE OR REPLACE FUNCTION public.update_media_session_status(
   p_provider_id  text,
@@ -167,14 +172,24 @@ SECURITY DEFINER
 SET search_path = public, pg_catalog
 AS $$
 DECLARE
-  v_session  public.draft_media_sessions%ROWTYPE;
+  v_session    public.draft_media_sessions%ROWTYPE;
+  v_allowed    boolean;
+  v_old_status text;
 BEGIN
-  -- Find session by provider_id (webhook path — no auth.uid() check needed,
-  -- webhook auth is handled at the Edge Function level)
+  -- Validate p_new_status is a known provider-driven status
+  IF p_new_status NOT IN ('uploading', 'processing', 'ready', 'failed') THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'invalid_transition',
+      'detail', format('Status %L is not settable via webhook', p_new_status)
+    );
+  END IF;
+
+  -- Find active session by provider_id (excludes all terminal states)
   SELECT * INTO v_session
   FROM public.draft_media_sessions
   WHERE provider_id = p_provider_id
-    AND status NOT IN ('published', 'deleted', 'abandoned')
+    AND status NOT IN ('published', 'deleted', 'abandoned', 'failed')
   ORDER BY created_at DESC
   LIMIT 1
   FOR UPDATE;
@@ -183,22 +198,52 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
   END IF;
 
+  v_old_status := v_session.status;
+
+  -- Idempotent: same status is a no-op success
+  IF v_old_status = p_new_status THEN
+    RETURN jsonb_build_object(
+      'success', true,
+      'session_id', v_session.id,
+      'user_id', v_session.user_id,
+      'previous_status', v_old_status,
+      'new_status', p_new_status,
+      'idempotent', true
+    );
+  END IF;
+
+  -- Enforce forward-only transitions:
+  -- created(0) → uploading(1) → processing(2) → ready(3)
+  -- Any state → failed is always allowed
+  v_allowed := false;
+  IF p_new_status = 'failed' THEN
+    v_allowed := true;
+  ELSIF p_new_status = 'uploading' AND v_old_status = 'created' THEN
+    v_allowed := true;
+  ELSIF p_new_status = 'processing' AND v_old_status IN ('created', 'uploading') THEN
+    v_allowed := true;
+  ELSIF p_new_status = 'ready' AND v_old_status IN ('created', 'uploading', 'processing') THEN
+    v_allowed := true;
+  END IF;
+
+  IF NOT v_allowed THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'invalid_transition',
+      'detail', format('Cannot transition from %L to %L', v_old_status, p_new_status)
+    );
+  END IF;
+
   UPDATE public.draft_media_sessions
   SET status       = p_new_status,
       error_detail = COALESCE(p_error_detail, error_detail)
   WHERE id = v_session.id;
 
-  -- When video becomes ready, also update profiles for backward compatibility
-  IF v_session.media_type = 'vibe_video' AND p_new_status = 'ready' THEN
+  -- Sync profile columns only when profile still points at this provider_id.
+  -- This prevents stale webhooks from corrupting the profile after a replace.
+  IF v_session.media_type = 'vibe_video' AND p_new_status IN ('ready', 'failed') THEN
     UPDATE public.profiles
-    SET bunny_video_status = 'ready'
-    WHERE id = v_session.user_id
-      AND bunny_video_uid = p_provider_id;
-  END IF;
-
-  IF v_session.media_type = 'vibe_video' AND p_new_status = 'failed' THEN
-    UPDATE public.profiles
-    SET bunny_video_status = 'failed'
+    SET bunny_video_status = p_new_status
     WHERE id = v_session.user_id
       AND bunny_video_uid = p_provider_id;
   END IF;
@@ -207,7 +252,7 @@ BEGIN
     'success', true,
     'session_id', v_session.id,
     'user_id', v_session.user_id,
-    'previous_status', v_session.status,
+    'previous_status', v_old_status,
     'new_status', p_new_status
   );
 END;
@@ -257,7 +302,6 @@ BEGIN
   END IF;
 
   IF v_session.media_type = 'vibe_video' THEN
-    -- Mark any previously published vibe_video session as replaced
     UPDATE public.draft_media_sessions
     SET status = 'deleted'
     WHERE user_id = v_session.user_id

@@ -36,6 +36,15 @@ serve(async (req) => {
       return json({ success: false, error: "No authorization header", code: "auth_header_missing" }, 401);
     }
 
+    // Parse body once (before auth, since body stream is single-consume)
+    let uploadContext: "onboarding" | "profile_studio" = "profile_studio";
+    try {
+      const body = await req.json();
+      if (body?.context === "onboarding") uploadContext = "onboarding";
+    } catch {
+      // No body or non-JSON — default to profile_studio
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -106,15 +115,6 @@ serve(async (req) => {
       );
     }
 
-    // ── Parse optional context from request body ─────────────────────────────
-    let uploadContext: "onboarding" | "profile_studio" = "profile_studio";
-    try {
-      const body = await req.json();
-      if (body?.context === "onboarding") uploadContext = "onboarding";
-    } catch {
-      // No body or non-JSON — default to profile_studio
-    }
-
     // ── Delete existing Bunny video if replacing ─────────────────────────────
     const existingVideoId = profileRow.bunny_video_uid;
 
@@ -183,6 +183,8 @@ serve(async (req) => {
     const signature = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
     // ── Create draft media session (server-owned upload tracking) ────────────
+    // Uses adminSupabase (service_role) — the RPC is granted to service_role
+    // only.  Edge Function authenticates the user; the RPC trusts the caller.
     const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
       "create_media_session",
       {
@@ -198,16 +200,20 @@ serve(async (req) => {
       console.error(
         `[create-video-upload] session creation failed userId=${user.id} videoId=${videoId} err=${sessionError.message}`,
       );
-      // Non-fatal: continue without session tracking for backward compatibility
     }
 
-    const sessionId = (sessionResult as Record<string, unknown>)?.session_id ?? null;
-    const replacedSessionId = (sessionResult as Record<string, unknown>)?.replaced_session_id ?? null;
-    const replacedProviderId = (sessionResult as Record<string, unknown>)?.replaced_provider_id ?? null;
+    const sr = sessionResult as Record<string, unknown> | null;
+    const sessionId = sr?.session_id ?? null;
+    const replacedSessionId = sr?.replaced_session_id ?? null;
+    const replacedProviderId = sr?.replaced_provider_id ?? null;
+
+    if (sr && sr.success !== true) {
+      console.error(
+        `[create-video-upload] session RPC returned failure userId=${user.id} videoId=${videoId} error=${sr.error}`,
+      );
+    }
 
     if (replacedProviderId && replacedProviderId !== existingVideoId) {
-      // There was a session-tracked video that wasn't the one in profiles.
-      // Attempt cleanup of the orphaned Bunny asset.
       try {
         await fetch(
           `https://video.bunnycdn.com/library/${libraryId}/videos/${replacedProviderId}`,

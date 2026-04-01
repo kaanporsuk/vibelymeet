@@ -439,7 +439,9 @@ export default function VibeVideoRecordScreen() {
         uriTail: recordedUri.slice(-96),
       });
 
-      const creds = await getCreateVideoUploadCredentials();
+      const creds = await getCreateVideoUploadCredentials({
+        context: onboardingFlow ? 'onboarding' : 'profile_studio',
+      });
       vibeVideoDiagVerbose('upload.pipeline.creds', {
         userId: user?.id ?? null,
         projectRef: SUPABASE_PROJECT_REF,
