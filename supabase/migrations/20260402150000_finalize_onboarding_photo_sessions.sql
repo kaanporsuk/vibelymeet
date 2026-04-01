@@ -1,160 +1,9 @@
--- Backend-owned onboarding draft table.
--- One active draft per user. Server is the source of truth for onboarding
--- state; client local storage is a non-authoritative cache only.
-
-CREATE TABLE IF NOT EXISTS public.onboarding_drafts (
-  user_id        uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  schema_version smallint NOT NULL DEFAULT 2,
-  current_step   smallint NOT NULL DEFAULT 0,
-  current_stage  text NOT NULL DEFAULT 'none'
-    CHECK (current_stage IN ('none','auth_complete','identity','details','media','complete')),
-  onboarding_data jsonb NOT NULL DEFAULT '{}'::jsonb,
-  last_client_platform text CHECK (last_client_platform IN ('web','native')),
-  completed_at   timestamptz,
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now(),
-  expires_at     timestamptz NOT NULL DEFAULT (now() + interval '30 days')
-);
-
-CREATE INDEX IF NOT EXISTS idx_onboarding_drafts_expires
-  ON public.onboarding_drafts (expires_at)
-  WHERE completed_at IS NULL;
-
-ALTER TABLE public.onboarding_drafts ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can read own onboarding draft"
-  ON public.onboarding_drafts FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own onboarding draft"
-  ON public.onboarding_drafts FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own onboarding draft"
-  ON public.onboarding_drafts FOR UPDATE
-  USING (auth.uid() = user_id);
-
-COMMENT ON TABLE public.onboarding_drafts IS
-  'Server-owned onboarding draft. One per user. Source of truth for in-progress onboarding.';
-
-
--- ─── get_onboarding_draft ────────────────────────────────────────────────────
--- Returns the active (non-expired, non-completed) draft for the calling user,
--- or null if none exists.
-
-CREATE OR REPLACE FUNCTION public.get_onboarding_draft(p_user_id uuid)
-RETURNS jsonb
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public, pg_catalog
-AS $$
-DECLARE
-  v_draft public.onboarding_drafts%ROWTYPE;
-BEGIN
-  IF p_user_id IS DISTINCT FROM auth.uid() THEN
-    RETURN jsonb_build_object('error', 'forbidden');
-  END IF;
-
-  SELECT * INTO v_draft
-  FROM public.onboarding_drafts
-  WHERE user_id = p_user_id
-    AND completed_at IS NULL
-    AND expires_at > now();
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('draft', NULL);
-  END IF;
-
-  RETURN jsonb_build_object(
-    'draft', jsonb_build_object(
-      'schema_version', v_draft.schema_version,
-      'current_step',   v_draft.current_step,
-      'current_stage',  v_draft.current_stage,
-      'onboarding_data', v_draft.onboarding_data,
-      'updated_at',     v_draft.updated_at
-    )
-  );
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.get_onboarding_draft(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_onboarding_draft(uuid) TO authenticated;
-
-COMMENT ON FUNCTION public.get_onboarding_draft IS
-  'Returns the active onboarding draft for the authenticated user, or null.';
-
-
--- ─── save_onboarding_draft ───────────────────────────────────────────────────
--- Upserts the onboarding draft. Idempotent. Step/stage are explicitly set by
--- the client (not monotonic-only) so the user can go back.
-
-CREATE OR REPLACE FUNCTION public.save_onboarding_draft(
-  p_user_id        uuid,
-  p_step           smallint,
-  p_stage          text,
-  p_data           jsonb,
-  p_schema_version smallint DEFAULT 2,
-  p_platform       text DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_catalog
-AS $$
-BEGIN
-  IF p_user_id IS DISTINCT FROM auth.uid() THEN
-    RETURN jsonb_build_object('success', false, 'error', 'forbidden');
-  END IF;
-
-  IF p_stage NOT IN ('none','auth_complete','identity','details','media') THEN
-    RETURN jsonb_build_object('success', false, 'error', 'invalid_stage');
-  END IF;
-
-  IF p_step < 0 OR p_step > 15 THEN
-    RETURN jsonb_build_object('success', false, 'error', 'invalid_step');
-  END IF;
-
-  INSERT INTO public.onboarding_drafts (
-    user_id, schema_version, current_step, current_stage,
-    onboarding_data, last_client_platform, updated_at, expires_at
-  ) VALUES (
-    p_user_id, p_schema_version, p_step, p_stage,
-    p_data, p_platform, now(), now() + interval '30 days'
-  )
-  ON CONFLICT (user_id) DO UPDATE SET
-    schema_version       = EXCLUDED.schema_version,
-    current_step         = EXCLUDED.current_step,
-    current_stage        = EXCLUDED.current_stage,
-    onboarding_data      = EXCLUDED.onboarding_data,
-    last_client_platform = EXCLUDED.last_client_platform,
-    updated_at           = now(),
-    expires_at           = now() + interval '30 days'
-  WHERE onboarding_drafts.completed_at IS NULL;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'draft_completed');
-  END IF;
-
-  RETURN jsonb_build_object('success', true);
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.save_onboarding_draft(uuid, smallint, text, jsonb, smallint, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.save_onboarding_draft(uuid, smallint, text, jsonb, smallint, text) TO authenticated;
-
-COMMENT ON FUNCTION public.save_onboarding_draft IS
-  'Upserts the onboarding draft. Idempotent. Rejects writes to completed drafts.';
-
-
--- ─── finalize_onboarding ─────────────────────────────────────────────────────
--- Atomic finalization: locks draft → validates → writes to profiles → marks
--- onboarding_complete → creates credits → marks draft completed.
--- Fully server-side. Concurrency-safe via FOR UPDATE on draft row.
--- Idempotent: re-calling on completed user returns success.
+-- Phase 2B: Add photo session publish/orphan logic to finalize_onboarding.
+-- This replaces the existing function (shipped in 20260402120000) with a
+-- version that marks draft_media_sessions rows for photos on completion.
 --
--- Accepts optional p_final_data parameter so the client can submit its latest
--- state atomically with finalization, avoiding stale-draft issues.
+-- Uses CREATE OR REPLACE so the function signature stays identical and
+-- existing grants are preserved.
 
 CREATE OR REPLACE FUNCTION public.finalize_onboarding(
   p_user_id   uuid,
@@ -199,8 +48,6 @@ BEGIN
   END IF;
 
   -- ─── Idempotent early return ───────────────────────────────────────────
-  -- Check profiles under a FOR UPDATE lock to prevent two concurrent callers
-  -- from both seeing onboarding_complete = false.
   PERFORM 1 FROM public.profiles
   WHERE id = p_user_id AND onboarding_complete = true
   FOR UPDATE;
@@ -220,18 +67,12 @@ BEGIN
   END IF;
 
   -- ─── Lock the draft row ────────────────────────────────────────────────
-  -- FOR UPDATE ensures only one concurrent finalize proceeds; the second
-  -- caller will block until the first commits, then see completed_at IS NOT
-  -- NULL and fall through to the idempotent profile check above on retry,
-  -- or see the draft is completed here.
   SELECT * INTO v_draft
   FROM public.onboarding_drafts
   WHERE user_id = p_user_id AND completed_at IS NULL AND expires_at > now()
   FOR UPDATE;
 
   IF NOT FOUND THEN
-    -- Draft may have been completed by a concurrent call that committed
-    -- between our profile check and here. Re-check profiles.
     IF EXISTS (SELECT 1 FROM public.profiles WHERE id = p_user_id AND onboarding_complete = true) THEN
       SELECT vibe_score, vibe_score_label INTO v_vibe_score, v_vibe_score_label
       FROM public.profiles WHERE id = p_user_id;
@@ -250,11 +91,8 @@ BEGIN
   END IF;
 
   -- ─── Resolve final data ────────────────────────────────────────────────
-  -- If the client supplied p_final_data, use it (atomic save+finalize).
-  -- Otherwise fall back to whatever is stored in the draft row.
   IF p_final_data IS NOT NULL AND p_final_data != 'null'::jsonb AND p_final_data != '{}'::jsonb THEN
     v_data := p_final_data;
-    -- Also persist it to the draft row so the record is accurate
     UPDATE public.onboarding_drafts
     SET onboarding_data = p_final_data, updated_at = now()
     WHERE user_id = p_user_id;
@@ -277,7 +115,6 @@ BEGIN
   v_bunny_video_uid := v_data->>'bunnyVideoUid';
   v_community_agreed := COALESCE((v_data->>'communityAgreed')::boolean, false);
 
-  -- Safe-cast heightCm (user-controlled input)
   BEGIN
     v_height_cm := (v_data->>'heightCm')::int;
   EXCEPTION WHEN OTHERS THEN
@@ -309,7 +146,7 @@ BEGIN
     v_normalized_intent := v_rel_intent;
   END IF;
 
-  -- ─── Validate (mirrors complete_onboarding rules exactly) ──────────────
+  -- ─── Validate ──────────────────────────────────────────────────────────
 
   IF v_name = '' THEN
     v_errors := array_append(v_errors, 'Name is required');
@@ -344,12 +181,7 @@ BEGIN
     );
   END IF;
 
-  -- ─── Write to profiles (server-side, replaces client upsert) ───────────
-  -- SET LOCAL ROLE postgres is required: SECURITY DEFINER runs as
-  -- supabase_admin, but protect_sensitive_profile_columns trigger checks
-  -- current_user::regrole::text IN ('postgres','supabase_admin').
-  -- SET LOCAL ROLE makes current_user = postgres for this transaction only.
-
+  -- ─── Write to profiles ─────────────────────────────────────────────────
   SET LOCAL ROLE postgres;
 
   UPDATE public.profiles SET
@@ -384,6 +216,28 @@ BEGIN
     );
   END IF;
 
+  -- ─── Publish photo sessions (Phase 2B) ──────────────────────────────────
+  -- Mark photo sessions whose storage_path is in the finalized photo set.
+  -- Mark stale photo sessions as abandoned.
+  -- Runs after SET LOCAL ROLE postgres, which is fine — these are
+  -- SECURITY DEFINER-context DML on draft_media_sessions (no RLS issue).
+  IF v_photo_count > 0 THEN
+    UPDATE public.draft_media_sessions
+    SET status       = 'published',
+        published_at = now()
+    WHERE user_id    = p_user_id
+      AND media_type = 'photo'
+      AND status IN ('created', 'ready')
+      AND storage_path = ANY(v_photos);
+  END IF;
+
+  UPDATE public.draft_media_sessions
+  SET status = 'abandoned'
+  WHERE user_id    = p_user_id
+    AND media_type = 'photo'
+    AND status IN ('published', 'ready', 'created')
+    AND (storage_path IS NULL OR NOT (storage_path = ANY(v_photos)));
+
   -- Baseline credits (idempotent)
   INSERT INTO public.user_credits (user_id, extra_time_credits, extended_vibe_credits)
   VALUES (p_user_id, 0, 0)
@@ -410,9 +264,3 @@ BEGIN
   );
 END;
 $$;
-
-REVOKE ALL ON FUNCTION public.finalize_onboarding(uuid, jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.finalize_onboarding(uuid, jsonb) TO authenticated;
-
-COMMENT ON FUNCTION public.finalize_onboarding IS
-  'Atomic, concurrency-safe onboarding finalization. Locks draft row, validates, writes to profiles, sets onboarding_complete, creates baseline credits. Accepts optional p_final_data to atomically save+finalize. Idempotent on already-completed users.';
