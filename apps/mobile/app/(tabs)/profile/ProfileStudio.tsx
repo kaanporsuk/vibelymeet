@@ -36,6 +36,7 @@ import {
   type ProfileRow,
 } from '@/lib/profileApi';
 import { getImageUrl, avatarUrl } from '@/lib/imageUrl';
+import { supabase } from '@/lib/supabase';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
@@ -404,7 +405,12 @@ export default function ProfileStudio() {
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
-      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
+      });
+      if (pubErr) throw pubErr;
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({
@@ -459,7 +465,12 @@ export default function ProfileStudio() {
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
-      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
+      });
+      if (pubErr) throw pubErr;
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({
@@ -522,7 +533,12 @@ export default function ProfileStudio() {
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
-      await updateMyProfile({ photos: newPhotos, avatar_url: primaryUrl });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
+      });
+      if (pubErr) throw pubErr;
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({

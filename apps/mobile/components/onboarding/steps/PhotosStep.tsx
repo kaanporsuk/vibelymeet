@@ -29,11 +29,15 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
     if (result.canceled || !result.assets?.[0]) return;
     setUploading(photos.length);
     try {
-      const path = await uploadProfilePhoto({
-        uri: result.assets[0].uri,
-        mimeType: result.assets[0].mimeType ?? 'image/jpeg',
-        fileName: `onboarding_${Date.now()}.jpg`,
-      });
+      const path = await uploadProfilePhoto(
+        {
+          uri: result.assets[0].uri,
+          mimeType: result.assets[0].mimeType ?? 'image/jpeg',
+          fileName: `onboarding_${Date.now()}.jpg`,
+        },
+        null,
+        'onboarding',
+      );
       onChange([...photos, path]);
     } finally {
       setUploading(null);

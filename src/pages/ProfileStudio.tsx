@@ -566,8 +566,14 @@ const ProfileStudio = () => {
           const { data: { user } } = await supabase.auth.getUser();
           if (!user) throw new Error("Not authenticated");
           const persisted = await persistPhotos(editForm.photos, editPhotoFiles, user.id);
-          updates.photos = persisted;
-          updates.avatarUrl = persisted[0] || null;
+          const { data: pubResult, error: pubError } = await supabase.rpc("publish_photo_set", {
+            p_user_id: user.id,
+            p_photos: persisted,
+            p_context: "profile_studio",
+          });
+          if (pubError) throw pubError;
+          const pr = pubResult as Record<string, unknown> | null;
+          if (pr && pr.success !== true) throw new Error(String(pr.error ?? "Photo save failed"));
           break;
         }
         case "prompt":
@@ -577,7 +583,9 @@ const ProfileStudio = () => {
           updates.tagline = editForm.tagline;
           break;
       }
-      await updateMyProfile(updates);
+      if (type !== "photos") {
+        await updateMyProfile(updates);
+      }
       setProfileRefreshKey((k) => k + 1);
       setActiveDrawer(null);
       setEditingPromptIndex(null);

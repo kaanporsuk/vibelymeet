@@ -124,11 +124,50 @@ export interface VibeVideoUploadCredentials {
   sessionId: string | null;
 }
 
-// ─── Photo session shape (Phase 2B placeholder) ─────────────────────────────
+// ─── Photo session types (Phase 2B) ──────────────────────────────────────────
 
-export interface PhotoUploadResult {
-  path: string;
-  sessionId: string | null;
+export type PhotoUploadResult =
+  | {
+    success: true;
+    path: string;
+    sessionId: string | null;
+    error?: string;
+  }
+  | {
+    success: false;
+    error: string;
+    sessionId?: string | null;
+  };
+
+export interface PublishPhotoSetResult {
+  success: boolean;
+  photos_count?: number | null;
+  avatar_url?: string | null;
+  sessions_published?: number;
+  sessions_orphaned?: number;
+  error?: string;
+}
+
+export interface PhotoSession {
+  id: string;
+  status: MediaSessionStatus;
+  storage_path: string | null;
+  context: MediaContext;
+  created_at: string;
+  published_at: string | null;
+  expires_at: string;
+}
+
+export interface GetPhotoSessionsResult {
+  success: boolean;
+  sessions?: PhotoSession[];
+  error?: string;
+}
+
+export interface MarkPhotoDeletedResult {
+  success: boolean;
+  sessions_marked?: number;
+  error?: string;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

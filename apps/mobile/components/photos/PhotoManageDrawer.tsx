@@ -36,7 +36,7 @@ import { fonts, radius } from '@/constants/theme';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { getImageUrl } from '@/lib/imageUrl';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
-import { updateMyProfile } from '@/lib/profileApi';
+import { supabase } from '@/lib/supabase';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -801,8 +801,20 @@ export default function PhotoManageDrawer({
     if (!hasChanges) { onClose(); return; }
     setSaving(true);
     try {
-      const primaryUrl = localPhotos[0] ?? null;
-      await updateMyProfile({ photos: localPhotos, avatar_url: primaryUrl });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data, error } = await supabase.rpc('publish_photo_set', {
+        p_user_id: user.id,
+        p_photos: localPhotos,
+        p_context: 'profile_studio',
+      });
+      if (error) throw error;
+      const result = data as Record<string, unknown> | null;
+      if (result && result.success !== true) {
+        throw new Error(String(result.error ?? 'Photo save failed'));
+      }
+
       onPhotosChanged();
       onClose();
     } catch (e) {

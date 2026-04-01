@@ -22,7 +22,8 @@ export interface ImagePickerAsset {
  */
 export async function uploadProfilePhoto(
   asset: ImagePickerAsset,
-  oldPath?: string | null
+  oldPath?: string | null,
+  context?: 'onboarding' | 'profile_studio',
 ): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
@@ -32,7 +33,6 @@ export async function uploadProfilePhoto(
   }
 
   const formData = new FormData();
-  // React Native FormData accepts { uri, type, name } for file uploads (not in TS lib)
   formData.append(
     'file',
     {
@@ -43,6 +43,9 @@ export async function uploadProfilePhoto(
   );
   if (oldPath) {
     formData.append('old_path', oldPath);
+  }
+  if (context) {
+    formData.append('context', context);
   }
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
