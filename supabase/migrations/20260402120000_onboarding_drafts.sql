@@ -384,6 +384,27 @@ BEGIN
     );
   END IF;
 
+  -- ─── Publish photo sessions (Phase 2B) ──────────────────────────────────
+  -- Mark photo sessions whose storage_path is in the published set.
+  -- Mark photo sessions whose path is no longer in the set as abandoned.
+  -- Inlined here because SET LOCAL ROLE postgres changes auth context.
+  IF v_photo_count > 0 THEN
+    UPDATE public.draft_media_sessions
+    SET status       = 'published',
+        published_at = now()
+    WHERE user_id    = p_user_id
+      AND media_type = 'photo'
+      AND status IN ('created', 'ready')
+      AND storage_path = ANY(v_photos);
+  END IF;
+
+  UPDATE public.draft_media_sessions
+  SET status = 'abandoned'
+  WHERE user_id    = p_user_id
+    AND media_type = 'photo'
+    AND status IN ('published', 'ready', 'created')
+    AND (storage_path IS NULL OR NOT (storage_path = ANY(v_photos)));
+
   -- Baseline credits (idempotent)
   INSERT INTO public.user_credits (user_id, extra_time_credits, extended_vibe_credits)
   VALUES (p_user_id, 0, 0)

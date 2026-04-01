@@ -36,7 +36,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { thumbnailUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { uploadImageToBunny } from "@/services/imageUploadService";
-import { updateMyProfile } from "@/services/profileService";
 import { supabase } from "@/integrations/supabase/client";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -618,7 +617,20 @@ export default function PhotoManageDrawer({
     if (!hasChanges) { onClose(); return; }
     setSaving(true);
     try {
-      await updateMyProfile({ photos: localPhotos, avatarUrl: localPhotos[0] ?? null });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data, error } = await supabase.rpc("publish_photo_set", {
+        p_user_id: user.id,
+        p_photos: localPhotos,
+        p_context: "profile_studio",
+      });
+      if (error) throw error;
+      const result = data as Record<string, unknown> | null;
+      if (result && result.success !== true) {
+        throw new Error(String(result.error ?? "Photo save failed"));
+      }
+
       onPhotosChanged();
       toast.success("Photos updated");
       onClose();
