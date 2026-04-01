@@ -11,7 +11,6 @@ export interface OnboardingData {
   aboutMe: string;
   location: string;
   locationData: { lat: number; lng: number } | null;
-  city: string;
   country: string;
   vibeVideoRecorded: boolean;
   bunnyVideoUid: string | null;
@@ -31,7 +30,6 @@ export const DEFAULT_ONBOARDING_DATA: OnboardingData = {
   aboutMe: '',
   location: '',
   locationData: null,
-  city: '',
   country: '',
   vibeVideoRecorded: false,
   bunnyVideoUid: null,

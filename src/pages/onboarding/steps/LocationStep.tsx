@@ -7,7 +7,6 @@ import { supabase } from "@/integrations/supabase/client";
 interface LocationPayload {
   location: string;
   locationData: { lat: number; lng: number } | null;
-  city: string;
   country: string;
 }
 
@@ -43,7 +42,6 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
         onLocationChange({
           location: `${data.city}, ${data.country}`,
           locationData: { lat, lng },
-          city: data.city,
           country: data.country,
         });
       }
@@ -66,7 +64,6 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
         items.slice(0, 5).map((r: any) => ({
           location: r.formatted || `${r.city}, ${r.country}`,
           locationData: r.lat && r.lng ? { lat: r.lat, lng: r.lng } : null,
-          city: r.city || "",
           country: r.country || "",
         }))
       );

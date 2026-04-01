@@ -9,7 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 
 type GeoResult = { formatted?: string; city?: string; country?: string; lat?: number; lng?: number };
 
-export default function LocationStep({ location, onLocationChange, onNext }: { location: string; onLocationChange: (payload: { location: string; city: string; country: string; locationData: { lat: number; lng: number } | null }) => void; onNext: () => void; }) {
+export default function LocationStep({ location, onLocationChange, onNext }: { location: string; onLocationChange: (payload: { location: string; country: string; locationData: { lat: number; lng: number } | null }) => void; onNext: () => void; }) {
   const theme = Colors[useColorScheme()];
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<GeoResult[]>([]);
@@ -29,7 +29,6 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       if (data) {
         onLocationChange({
           location: data.formatted ?? `${data.city ?? ''}, ${data.country ?? ''}`,
-          city: data.city ?? '',
           country: data.country ?? '',
           locationData: { lat: Number(data.lat ?? pos.coords.latitude), lng: Number(data.lng ?? pos.coords.longitude) },
         });
@@ -72,7 +71,6 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               <Pressable
                 onPress={() => onLocationChange({
                   location: item.formatted ?? `${item.city ?? ''}, ${item.country ?? ''}`,
-                  city: item.city ?? '',
                   country: item.country ?? '',
                   locationData: item.lat != null && item.lng != null ? { lat: Number(item.lat), lng: Number(item.lng) } : null,
                 })}

@@ -288,7 +288,7 @@ export default function OnboardingV2Screen() {
       case 8:
         return <AboutMeStep value={data.aboutMe} onChange={(v) => updateField('aboutMe', v)} onNext={goNext} />;
       case 9:
-        return <LocationStep location={data.location} onLocationChange={(loc) => { updateField('location', loc.location); updateField('locationData', loc.locationData); updateField('city', loc.city); updateField('country', loc.country); }} onNext={goNext} />;
+        return <LocationStep location={data.location} onLocationChange={(loc) => { updateField('location', loc.location); updateField('locationData', loc.locationData); updateField('country', loc.country); }} onNext={goNext} />;
       case 10:
         return <NotificationStep userId={session?.user?.id ?? ''} onNext={goNext} />;
       case 11:
