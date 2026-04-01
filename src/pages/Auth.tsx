@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +19,10 @@ import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
 import { buildBootstrapProfileInsert, pickBootstrapName } from "@shared/profileContracts";
+import {
+  mapAuthConflictError,
+  parseOAuthCallbackErrorDescription,
+} from "@shared/authConflictMessages";
 
 type AuthView =
   | "welcome"
@@ -29,14 +33,12 @@ type AuthView =
 
 const PHONE_MIN_DIGITS = 7;
 
-const ACCOUNT_CONFLICT_HINT =
-  "This account may already exist with another sign-in method. Try the method you used before.";
-
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { session } = useAuth();
+  const pendingOAuthProviderRef = useRef<"google" | "apple" | null>(null);
 
   const [view, setView] = useState<AuthView>("welcome");
   const [loading, setLoading] = useState(false);
@@ -72,14 +74,56 @@ const Auth = () => {
     }
   }, [searchParams]);
 
-  // Handle OAuth callback
+  // OAuth return: surface provider errors; confirm session after success redirect
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get("provider_callback") === "true") {
-      setView("success");
-      trackEvent("auth_method_selected", { method: "oauth_callback", platform: "web" });
+    const search = location.search || "";
+    const hash = location.hash || "";
+    const oauthErr = parseOAuthCallbackErrorDescription(search, hash);
+    if (oauthErr) {
+      const prov = pendingOAuthProviderRef.current ?? "google";
+      const ctx = prov === "apple" ? "apple" : "google";
+      const { message } = mapAuthConflictError({ message: oauthErr }, ctx);
+      setError(message || oauthErr);
+      setView("welcome");
+      setOtpError(null);
+      pendingOAuthProviderRef.current = null;
+      navigate("/auth", { replace: true });
+      return;
     }
-  }, [location.search]);
+
+    const params = new URLSearchParams(search);
+    if (params.get("provider_callback") !== "true") return;
+
+    let cancelled = false;
+    void (async () => {
+      await new Promise((r) => setTimeout(r, 100));
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      const oauthProv = pendingOAuthProviderRef.current;
+      pendingOAuthProviderRef.current = null;
+      if (s?.user) {
+        setView("success");
+        trackEvent("auth_method_selected", { method: "oauth_callback", platform: "web" });
+      } else {
+        const hashErr = parseOAuthCallbackErrorDescription("", hash);
+        if (hashErr) {
+          const ctx = oauthProv === "apple" ? "apple" : "google";
+          const { message } = mapAuthConflictError({ message: hashErr }, ctx);
+          setError(message || hashErr);
+        } else {
+          setError("Could not complete sign-in. Try again.");
+        }
+        setView("welcome");
+      }
+      if (search.includes("provider_callback") || hash.length > 1) {
+        navigate("/auth", { replace: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, location.hash, navigate]);
 
   // Countdown for resend
   useEffect(() => {
@@ -182,11 +226,11 @@ const Auth = () => {
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (err: any) {
-      const message = String(err?.message || "");
-      if (/already|exists|linked|identity/i.test(message)) {
-        setError(ACCOUNT_CONFLICT_HINT);
+      const conflict = mapAuthConflictError(err, "phone_otp_send");
+      if (conflict.message) {
+        setError(conflict.message);
       } else {
-        setError(message || "Something went wrong. Please try again.");
+        setError(String(err?.message || "Something went wrong. Please try again."));
       }
     } finally {
       setLoading(false);
@@ -229,13 +273,17 @@ const Auth = () => {
       const nextCooldown = attempt === 1 ? 60 : attempt === 2 ? 180 : 900;
       setResendRemaining(nextCooldown);
     } catch (err: any) {
-      setOtpError("Could not resend code. Please try again in a moment.");
+      const conflict = mapAuthConflictError(err, "phone_otp_resend");
+      setOtpError(
+        conflict.message || "Could not resend code. Please try again in a moment."
+      );
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogle = async () => {
+    pendingOAuthProviderRef.current = "google";
     trackEvent("auth_method_selected", { method: "google", platform: "web" });
     trackEvent("auth_social_started", { provider: "google" });
     await supabase.auth.signInWithOAuth({
@@ -247,6 +295,7 @@ const Auth = () => {
   };
 
   const handleApple = async () => {
+    pendingOAuthProviderRef.current = "apple";
     trackEvent("auth_method_selected", { method: "apple", platform: "web" });
     trackEvent("auth_social_started", { provider: "apple" });
     await supabase.auth.signInWithOAuth({
@@ -272,11 +321,11 @@ const Auth = () => {
       if (error) throw error;
       setView("success");
     } catch (err: any) {
-      const message = String(err?.message || "");
-      if (/already.*exists|identity|provider|linked/i.test(message)) {
-        setError(ACCOUNT_CONFLICT_HINT);
+      const conflict = mapAuthConflictError(err, "email_sign_in");
+      if (conflict.message) {
+        setError(conflict.message);
       } else {
-        setError(message || "Invalid email or password");
+        setError(String(err?.message || "Invalid email or password"));
       }
     } finally {
       setLoading(false);
@@ -323,8 +372,12 @@ const Auth = () => {
       trackEvent("auth_email_signup", { platform: "web" });
       setView("email_signin");
     } catch (err: any) {
-      if (err?.message?.includes("already registered")) {
-        setError(ACCOUNT_CONFLICT_HINT);
+      const conflict = mapAuthConflictError(err, "email_sign_up");
+      if (conflict.message) {
+        setError(conflict.message);
+        if (conflict.suggestEmailSignIn) {
+          setView("email_signin");
+        }
       } else {
         setError(err?.message || "Sign up failed. Please try again.");
       }
