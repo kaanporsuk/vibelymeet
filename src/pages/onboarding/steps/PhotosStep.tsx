@@ -41,7 +41,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, userId }: PhotosSte
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const path = await uploadImageToBunny(file, session.access_token);
+      const path = await uploadImageToBunny(file, session.access_token, null, "onboarding");
       const next = [...photos];
       next[slot] = path;
       const filtered = next.filter(Boolean);

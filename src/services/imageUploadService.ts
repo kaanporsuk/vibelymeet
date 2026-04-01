@@ -3,12 +3,16 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 export async function uploadImageToBunny(
   file: File,
   accessToken: string,
-  oldPath?: string | null
+  oldPath?: string | null,
+  context?: "onboarding" | "profile_studio",
 ): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
   if (oldPath) {
     formData.append("old_path", oldPath);
+  }
+  if (context) {
+    formData.append("context", context);
   }
 
   let data: any;
