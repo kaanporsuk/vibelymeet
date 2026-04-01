@@ -12,10 +12,37 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
+import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 
 /** Shown when Supabase reports an existing identity / linked provider (not necessarily email). */
 const ACCOUNT_CONFLICT_HINT =
   'This account may already exist with another sign-in method. Try the method you used before.';
+
+function mapPhoneOtpSendError(e: { message?: string; status?: number; code?: string }): string {
+  const msg = String(e?.message ?? '');
+  const lower = msg.toLowerCase();
+  if (/phone.*not.*enabled|sms.*not|provider|not supported/i.test(msg)) {
+    return 'Phone sign-in isn’t available on this app build. Try email or another method, or contact support.';
+  }
+  if (/invalid.*phone|malformed|format|e\.164/i.test(msg)) {
+    return 'That number doesn’t look valid for the selected country. Use digits only and skip the leading 0.';
+  }
+  if (/rate|too many|flood|429/i.test(lower) || e?.status === 429) {
+    return 'Too many attempts. Wait a few minutes, then try again.';
+  }
+  if ((/otp|sms|send|text/i.test(lower) && /fail|error|unable/i.test(lower)) || /confirmation/i.test(lower)) {
+    return 'We couldn’t send a code to this number. Check the number and your connection, then try again.';
+  }
+  return msg || 'Couldn’t send the code. Try again.';
+}
+
+/** Dev-only: never log full numbers; keep enough to verify country + length. */
+function logPhoneOtpDebug(label: string, e164: string, payload: Record<string, unknown>) {
+  if (!__DEV__) return;
+  const safe =
+    e164.length <= 8 ? `${e164.slice(0, 3)}…` : `${e164.slice(0, 4)}…${e164.slice(-2)} (${e164.replace(/\D/g, '').length} digits)`;
+  console.warn(`[sign-in] ${label}`, { normalizedPhone: safe, ...payload });
+}
 
 type AuthView = 'welcome' | 'otp' | 'email_signin' | 'email_signup' | 'success';
 
@@ -84,8 +111,8 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
 
-  const phoneDigits = useMemo(() => phoneInput.replace(/\D/g, ''), [phoneInput]);
-  const phoneValid = phoneDigits.length >= 7;
+  const phoneForSignIn = useMemo(() => isValidSignInPhone(countryCode, phoneInput), [countryCode, phoneInput]);
+  const phoneValid = phoneForSignIn.valid;
   const selectedCountry = useMemo(
     () =>
       COUNTRIES.find((c) => c.code === countryCode && c.name === countryName) ??
@@ -144,16 +171,28 @@ export default function SignInScreen() {
   }, [session?.user?.id, view]);
 
   const handlePhoneSubmit = async () => {
-    if (!phoneValid) return;
+    const { e164, valid } = isValidSignInPhone(countryCode, phoneInput);
+    if (!valid) {
+      setError('Enter a valid phone number for this country (digits only, no leading 0).');
+      return;
+    }
     setLoading(true);
     setError(null);
     trackEvent('auth_method_selected', { method: 'phone', platform: 'native' });
     trackEvent('auth_phone_submitted', { platform: 'native' });
     try {
-      const phone = `${countryCode}${phoneDigits}`;
-      const { error: e } = await supabase.auth.signInWithOtp({ phone });
-      if (e) throw e;
-      setPhoneForOtp(phone);
+      const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: e164 });
+      logPhoneOtpDebug('signInWithOtp response', e164, {
+        hasError: !!otpError,
+        errorMessage: otpError?.message ?? null,
+        errorCode: (otpError as { code?: string } | null)?.code ?? null,
+        errorStatus: (otpError as { status?: number } | null)?.status ?? null,
+        hasData: data != null,
+        dataUser: !!data?.user,
+        dataSession: !!data?.session,
+      });
+      if (otpError) throw otpError;
+      setPhoneForOtp(e164);
       setOtpDigits(['', '', '', '', '', '']);
       setView('otp');
       setResendAttempts(0);
@@ -163,7 +202,7 @@ export default function SignInScreen() {
       if (/already|exists|linked|identity/i.test(msg)) {
         setError(ACCOUNT_CONFLICT_HINT);
       } else {
-        setError(msg || 'Something went wrong. Try again.');
+        setError(mapPhoneOtpSendError(e));
       }
     } finally {
       setLoading(false);
@@ -206,13 +245,19 @@ export default function SignInScreen() {
     setLoading(true);
     setError(null);
     try {
-      const { error: e } = await supabase.auth.signInWithOtp({ phone: phoneForOtp });
-      if (e) throw e;
+      const { data, error: otpError } = await supabase.auth.signInWithOtp({ phone: phoneForOtp });
+      logPhoneOtpDebug('signInWithOtp resend', phoneForOtp, {
+        hasError: !!otpError,
+        errorMessage: otpError?.message ?? null,
+        errorCode: (otpError as { code?: string } | null)?.code ?? null,
+        hasData: data != null,
+      });
+      if (otpError) throw otpError;
       const nextAttempts = resendAttempts + 1;
       setResendAttempts(nextAttempts);
       setResendRemaining(nextAttempts === 1 ? 60 : nextAttempts === 2 ? 180 : 900);
-    } catch {
-      setError('Could not resend code. Please try again.');
+    } catch (e: any) {
+      setError(mapPhoneOtpSendError(e));
     } finally {
       setLoading(false);
     }
@@ -333,7 +378,14 @@ export default function SignInScreen() {
               </Text>
               <Ionicons name="chevron-down" size={14} color={theme.textSecondary} />
             </Pressable>
-            <TextInput value={phoneInput} onChangeText={(v) => setPhoneInput(v)} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
+            <TextInput
+              value={phoneInput}
+              onChangeText={(v) => setPhoneInput(v)}
+              keyboardType="phone-pad"
+              placeholder="Mobile number (no leading 0)"
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.input, { borderColor: theme.border, color: theme.text }]}
+            />
             <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
             <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" disabled={loading} />
