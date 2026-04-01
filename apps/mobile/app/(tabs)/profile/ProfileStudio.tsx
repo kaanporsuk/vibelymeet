@@ -26,6 +26,8 @@ import { spacing, radius, fonts, shadows, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text, View } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { useNativeLogout } from '@/hooks/useNativeLogout';
+import { presentNativeLogoutConfirm } from '@/lib/presentNativeLogoutConfirm';
 import { LoadingState, ErrorState, Card, Chip, SettingsRow, DestructiveRow } from '@/components/ui';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import {
@@ -88,7 +90,8 @@ const QUICK_ACTIONS = [
 
 export default function ProfileStudio() {
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
+  const logout = useNativeLogout();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -1913,8 +1916,8 @@ export default function ProfileStudio() {
         <RNView style={{ marginTop: spacing.lg }}>
           <DestructiveRow
             icon={<Ionicons name="log-out-outline" size={18} color={theme.danger} />}
-            label="Log Out"
-            onPress={() => signOut()}
+            label="Log out"
+            onPress={() => presentNativeLogoutConfirm(show, logout)}
           />
         </RNView>
       </RNView>

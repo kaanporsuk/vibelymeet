@@ -31,6 +31,8 @@ import { spacing, layout, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useAuth } from '@/context/AuthContext';
+import { useNativeLogout } from '@/hooks/useNativeLogout';
+import { presentNativeLogoutConfirm } from '@/lib/presentNativeLogoutConfirm';
 import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
@@ -165,7 +167,8 @@ export default function AccountSettingsScreen() {
   const theme = Colors[useColorScheme()];
   const { show, dialog } = useVibelyDialog();
   const { show: showPurchaseDialog, dialog: purchaseDialog } = useStatusDialog();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
+  const logout = useNativeLogout();
   const { refetch: refetchEntitlements } = useEntitlements();
   const qc = useQueryClient();
   const email = user?.email ?? '';
@@ -412,8 +415,7 @@ export default function AccountSettingsScreen() {
       });
       return;
     }
-    await signOut();
-    router.replace('/(auth)/sign-in');
+    await logout();
   };
 
   const openDeleteFlow = () => {
@@ -888,23 +890,7 @@ export default function AccountSettingsScreen() {
                 iconColor="#EF4444"
                 title="Log out"
                 destructive
-                onPress={() =>
-                  show({
-                    title: 'Log out?',
-                    message: 'You’ll need to sign back in to use Vibely.',
-                    variant: 'destructive',
-                    primaryAction: {
-                      label: 'Log out',
-                      onPress: () => {
-                        void (async () => {
-                          await signOut();
-                          router.replace('/(auth)/sign-in');
-                        })();
-                      },
-                    },
-                    secondaryAction: { label: 'Stay', onPress: () => {} },
-                  })
-                }
+                onPress={() => presentNativeLogoutConfirm(show, logout)}
               />
             </CardShell>
 

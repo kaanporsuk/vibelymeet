@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
+import { useNativeLogout } from '@/hooks/useNativeLogout';
 import OnboardingLayout from '@/components/onboarding/OnboardingLayout';
 import {
   type OnboardingData,
@@ -45,7 +46,8 @@ export default function OnboardingV2Screen() {
     onboardingVideoRecorded?: string | string[];
     onboardingVideoToken?: string | string[];
   }>();
-  const { session, signOut, refreshOnboarding } = useAuth();
+  const { session, refreshOnboarding } = useAuth();
+  const logout = useNativeLogout();
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -193,9 +195,10 @@ export default function OnboardingV2Screen() {
   }, [currentStep, submitting, stepNames]);
 
   const handleAgeBlocked = useCallback(() => {
-    void signOut();
-    router.replace('/(auth)/sign-in');
-  }, [signOut]);
+    void logout().catch((err) => {
+      if (__DEV__) console.warn('[onboarding] age-block logout failed:', err);
+    });
+  }, [logout]);
 
   const completeOnboarding = useCallback(async () => {
     if (!session?.user?.id || submitOnceRef.current) return;
