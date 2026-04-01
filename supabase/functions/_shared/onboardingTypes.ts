@@ -1,8 +1,9 @@
 /**
  * Canonical onboarding data shape, shared across web, native, and backend.
  *
- * Every field that the onboarding wizard collects lives here.
- * Platform screens read/write this shape; profileContracts.ts maps it to DB columns.
+ * The server (onboarding_drafts table + finalize_onboarding RPC) is the
+ * source of truth. These types are shared so both platforms and the backend
+ * speak the same shape.
  */
 
 import type { LocationData } from "./profileContracts";
@@ -43,12 +44,11 @@ export const ONBOARDING_STAGES = [
 
 export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 
-export function getOnboardingStageForStep(step: number): OnboardingStage | null {
+export function getOnboardingStageForStep(step: number): OnboardingStage {
   if (step <= 0) return "auth_complete";
   if (step <= 4) return "identity";
   if (step <= 8) return "details";
-  if (step <= 12) return "media";
-  return null;
+  return "media";
 }
 
 // ─── Draft data shape ────────────────────────────────────────────────────────
@@ -91,51 +91,48 @@ export const DEFAULT_ONBOARDING_DATA: Readonly<OnboardingData> = {
   communityAgreed: false,
 };
 
-// ─── Draft persistence envelope ──────────────────────────────────────────────
+// ─── Local cache helpers (non-authoritative) ─────────────────────────────────
+// Local storage / AsyncStorage is used only as an optimistic cache to reduce
+// latency on the current device. The server draft is always the source of truth.
 
-export const ONBOARDING_DRAFT_VERSION = 2;
-export const ONBOARDING_STORAGE_KEY = "vibely_onboarding_v2";
-export const ONBOARDING_LEGACY_STORAGE_KEY = "vibely_onboarding_progress";
-const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const ONBOARDING_STORAGE_KEY = "vibely_onboarding_v3";
+export const ONBOARDING_LEGACY_STORAGE_KEYS = [
+  "vibely_onboarding_v2",
+  "vibely_onboarding_progress",
+];
 
-export interface OnboardingDraftEnvelope {
-  version: number;
+export interface LocalDraftCache {
   userId: string;
   step: number;
   data: OnboardingData;
-  updatedAt: number;
+  ts: number;
 }
 
-export function createDraftEnvelope(
+export function writeLocalDraftCache(
+  storage: { setItem(key: string, value: string): void | Promise<void> },
   userId: string,
   step: number,
   data: OnboardingData,
-): OnboardingDraftEnvelope {
-  return {
-    version: ONBOARDING_DRAFT_VERSION,
-    userId,
-    step,
-    data,
-    updatedAt: Date.now(),
-  };
+): void {
+  try {
+    const cache: LocalDraftCache = { userId, step, data, ts: Date.now() };
+    void storage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(cache));
+  } catch {
+    // Best-effort
+  }
 }
 
-export function parseDraftEnvelope(
-  raw: string,
+export function readLocalDraftCache(
+  raw: string | null,
   currentUserId: string,
 ): { step: number; data: OnboardingData } | null {
+  if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     if (parsed.userId !== currentUserId) return null;
-
-    const version = parsed.version ?? 1;
-    if (version < ONBOARDING_DRAFT_VERSION) return null;
-
-    if (Date.now() - (parsed.updatedAt ?? 0) > DRAFT_TTL_MS) return null;
-
-    if (typeof parsed.step !== "number") return null;
-    if (!parsed.data || typeof parsed.data !== "object") return null;
+    if (Date.now() - (parsed.ts ?? 0) > 7 * 24 * 60 * 60 * 1000) return null;
+    if (typeof parsed.step !== "number" || !parsed.data) return null;
 
     const data: OnboardingData = { ...DEFAULT_ONBOARDING_DATA };
     const d = parsed.data;
@@ -165,6 +162,7 @@ export function parseDraftEnvelope(
 }
 
 // ─── Client-side pre-validation (mirrors server RPC checks) ─────────────────
+// Used for immediate UI feedback. Server is still the final authority.
 
 export interface OnboardingValidationResult {
   valid: boolean;
