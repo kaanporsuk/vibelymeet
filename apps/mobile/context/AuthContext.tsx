@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { resetAnalytics } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
+import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
 
 type AuthState = {
   user: User | null;
@@ -40,21 +41,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const ensureProfileExists = useCallback(async (user: User) => {
-    try {
-      const { data: existing } = await supabase.from('profiles').select('id').eq('id', user.id).maybeSingle();
-      if (existing) return;
-      const md = user.user_metadata ?? {};
-      const isPhoneAuth = !!user.phone;
-      await supabase.from('profiles').insert({
-        id: user.id,
-        name: md.full_name || md.name || '',
-        phone_number: isPhoneAuth ? user.phone : null,
-        phone_verified: isPhoneAuth ? true : false,
-        phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
+  const ensureProfileExists = useCallback(async (user: User, reason: 'auth_context_session' | 'auth_context_state_change') => {
+    const result = await ensureBootstrapProfileExists(user, reason);
+    if (!result.ok) {
+      console.warn('[auth] bootstrap profile ensure failed', {
+        reason,
+        userId: user.id,
+        failure: result.reason,
       });
-    } catch {
-      // non-blocking
     }
   }, []);
 
@@ -65,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(s);
         setUser(s?.user ?? null);
         if (s?.user) {
-          void ensureProfileExists(s.user);
+          void ensureProfileExists(s.user, 'auth_context_session');
           resolveOnboarding(s.user.id);
         } else {
           setOnboardingComplete(null);
@@ -85,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        void ensureProfileExists(s.user);
+        void ensureProfileExists(s.user, 'auth_context_state_change');
         resolveOnboarding(s.user.id);
       } else {
         setOnboardingComplete(null);

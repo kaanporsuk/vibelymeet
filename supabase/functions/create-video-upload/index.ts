@@ -52,9 +52,11 @@ serve(async (req) => {
     const cdnHostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME");
 
     if (!libraryId || !apiKey || !cdnHostname) {
-      console.error("[create-video-upload] missing Bunny env: libraryId/apiKey/cdnHostname");
+      console.error(
+        `[create-video-upload] missing_bunny_secret userId=${user.id} projectRef=${projectRef} hasLibraryId=${!!libraryId} hasApiKey=${!!apiKey} hasCdnHostname=${!!cdnHostname}`,
+      );
       return json(
-        { success: false, error: "Bunny credentials not configured", code: "bunny_config_missing" },
+        { success: false, error: "Bunny credentials not configured", code: "missing_bunny_secret" },
         503,
       );
     }
@@ -64,28 +66,46 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Onboarding can reach vibe-video before profile insert settles.
-    // Ensure a canonical profile row exists so upload state update can match exactly one row.
-    const { error: ensureProfileError } = await adminSupabase
+    const { data: profileRow, error: profileReadError } = await adminSupabase
       .from("profiles")
-      .upsert({ id: user.id }, { onConflict: "id", ignoreDuplicates: true });
-    if (ensureProfileError) {
+      .select("id,name,age,gender,bunny_video_uid")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profileReadError) {
       console.error(
-        `[create-video-upload] ensure profile failed userId=${user.id} projectRef=${projectRef} err=${ensureProfileError.message}`,
+        `[create-video-upload] profile lookup failed userId=${user.id} projectRef=${projectRef} err=${profileReadError.message}`,
       );
       return json(
-        { success: false, error: "Failed to prepare profile for upload", code: "profile_ensure_failed" },
+        { success: false, error: "Failed to read profile state", code: "profile_lookup_failed" },
         500,
       );
     }
 
-    const { data: profile } = await adminSupabase
-      .from("profiles")
-      .select("bunny_video_uid")
-      .eq("id", user.id)
-      .single();
+    if (!profileRow) {
+      console.error(
+        `[create-video-upload] profile_missing userId=${user.id} projectRef=${projectRef}`,
+      );
+      return json(
+        { success: false, error: "Profile is missing for current user", code: "profile_missing" },
+        409,
+      );
+    }
 
-    const existingVideoId = profile?.bunny_video_uid;
+    if (profileRow.name == null || profileRow.age == null || profileRow.gender == null) {
+      console.error(
+        `[create-video-upload] profile_incomplete userId=${user.id} projectRef=${projectRef} hasName=${profileRow.name != null} hasAge=${profileRow.age != null} hasGender=${profileRow.gender != null}`,
+      );
+      return json(
+        {
+          success: false,
+          error: "Profile is incomplete for video upload",
+          code: "profile_incomplete",
+        },
+        409,
+      );
+    }
+
+    const existingVideoId = profileRow.bunny_video_uid;
 
     if (existingVideoId) {
       try {
