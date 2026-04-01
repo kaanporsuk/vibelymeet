@@ -61,7 +61,6 @@ export default function OnboardingV2Screen() {
   const currentStepRef = useRef(currentStep);
   const completedRef = useRef(completed);
   const handledVideoTokenRef = useRef<string | null>(null);
-  const savePendingRef = useRef(false);
 
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -129,26 +128,18 @@ export default function OnboardingV2Screen() {
     writeLocalDraftCache(AsyncStorage, session.user.id, currentStep, data);
   }, [session?.user?.id, currentStep, data, completed]);
 
-  // Save to server on step changes (debounced)
+  // Save to server on data/step changes (debounced 500ms, always reschedules)
   useEffect(() => {
     if (!session?.user?.id || !draftLoaded || completed) return;
-    if (savePendingRef.current) return;
-    savePendingRef.current = true;
 
     const timer = setTimeout(() => {
       saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native')
         .catch(() => {
           console.warn('[onboarding] server draft save failed (non-fatal)');
-        })
-        .finally(() => {
-          savePendingRef.current = false;
         });
     }, 500);
 
-    return () => {
-      clearTimeout(timer);
-      savePendingRef.current = false;
-    };
+    return () => clearTimeout(timer);
   }, [session?.user?.id, currentStep, data, draftLoaded, completed]);
 
   const needsEmailCollection = !session?.user?.email;

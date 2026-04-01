@@ -57,7 +57,6 @@ const Onboarding = () => {
   const startedAtRef = useRef(Date.now());
   const currentStepRef = useRef(currentStep);
   const completedRef = useRef(completed);
-  const savePendingRef = useRef(false);
 
   const needsEmailCollection = !session?.user?.email;
   const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
@@ -132,26 +131,18 @@ const Onboarding = () => {
     writeLocalDraftCache(localStorage, session.user.id, currentStep, data);
   }, [session?.user?.id, currentStep, data, completed]);
 
-  // Save to server on step changes (debounced: skip if a save is already in flight)
+  // Save to server on data/step changes (debounced 500ms, always reschedules)
   useEffect(() => {
     if (!session?.user?.id || !draftLoaded || completed) return;
-    if (savePendingRef.current) return;
-    savePendingRef.current = true;
 
     const timer = setTimeout(() => {
       saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, "web")
         .catch(() => {
           console.warn("[onboarding] server draft save failed (non-fatal)");
-        })
-        .finally(() => {
-          savePendingRef.current = false;
         });
     }, 500);
 
-    return () => {
-      clearTimeout(timer);
-      savePendingRef.current = false;
-    };
+    return () => clearTimeout(timer);
   }, [session?.user?.id, currentStep, data, draftLoaded, completed]);
 
   useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
