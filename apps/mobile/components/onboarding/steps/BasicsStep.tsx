@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
@@ -44,6 +44,7 @@ function WheelColumn({
   formatValue,
   accentColor,
   borderColor,
+  containerStyle,
 }: {
   options: number[];
   selected: number;
@@ -51,6 +52,7 @@ function WheelColumn({
   formatValue: (value: number) => string;
   accentColor: string;
   borderColor: string;
+  containerStyle?: StyleProp<ViewStyle>;
 }) {
   const listRef = useRef<FlatList<number> | null>(null);
   const selectedIndex = Math.max(0, options.indexOf(selected));
@@ -61,7 +63,7 @@ function WheelColumn({
   }, [selectedIndex]);
 
   return (
-    <View style={styles.wheelColumn}>
+    <View style={[styles.wheelColumn, containerStyle]}>
       <FlatList
         ref={listRef}
         data={options}
@@ -111,6 +113,7 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
 
   const openPicker = () => {
     setDraftCm(clamp(heightCm ?? 170, MIN_CM, MAX_CM));
+    setUnit('cm');
     setPickerOpen(true);
   };
 
@@ -170,23 +173,23 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
               {formatHeightDisplay(clamp(draftCm, MIN_CM, MAX_CM))}
             </Text>
 
-            <View style={[styles.unitSwitch, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+            <View style={styles.unitSwitchRow}>
               <Pressable
                 onPress={() => setUnit('cm')}
-                style={[styles.unitChip, { backgroundColor: unit === 'cm' ? theme.tintSoft : 'transparent' }]}
+                style={[styles.unitPrimaryChip, { borderColor: theme.border, backgroundColor: unit === 'cm' ? theme.tintSoft : theme.surfaceSubtle }]}
               >
-                <Text style={{ color: unit === 'cm' ? theme.tint : theme.textSecondary, fontWeight: '600' }}>cm</Text>
+                <Text style={{ color: unit === 'cm' ? theme.tint : theme.textSecondary, fontWeight: '700' }}>cm (default)</Text>
               </Pressable>
               <Pressable
                 onPress={() => setUnit('ftin')}
-                style={[styles.unitChip, { backgroundColor: unit === 'ftin' ? theme.tintSoft : 'transparent' }]}
+                style={styles.unitSecondaryBtn}
               >
-                <Text style={{ color: unit === 'ftin' ? theme.tint : theme.textSecondary, fontWeight: '600' }}>ft/in</Text>
+                <Text style={{ color: unit === 'ftin' ? theme.tint : theme.textSecondary, fontWeight: '600', fontSize: 13 }}>Use ft/in</Text>
               </Pressable>
             </View>
 
             {unit === 'cm' ? (
-              <View style={styles.wheelSingle}>
+              <View style={styles.wheelSingle} key="cm-wheel">
                 <WheelColumn
                   options={CM_OPTIONS}
                   selected={clamp(draftCm, MIN_CM, MAX_CM)}
@@ -194,10 +197,11 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
                   formatValue={(value) => `${value} cm`}
                   accentColor={theme.text}
                   borderColor={theme.border}
+                  containerStyle={styles.wheelSingleCol}
                 />
               </View>
             ) : (
-              <View style={styles.wheelDouble}>
+              <View style={styles.wheelDouble} key="ftin-wheel">
                 <WheelColumn
                   options={FEET_OPTIONS}
                   selected={draftFeetInches.feet}
@@ -208,6 +212,7 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
                   formatValue={(value) => `${value} ft`}
                   accentColor={theme.text}
                   borderColor={theme.border}
+                  containerStyle={styles.wheelDoubleCol}
                 />
                 <WheelColumn
                   options={INCH_OPTIONS}
@@ -219,6 +224,7 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
                   formatValue={(value) => `${value} in`}
                   accentColor={theme.text}
                   borderColor={theme.border}
+                  containerStyle={styles.wheelDoubleCol}
                 />
               </View>
             )}
@@ -278,16 +284,18 @@ const styles = StyleSheet.create({
   sheetActions: { flexDirection: 'row', alignItems: 'center' },
   actionBtn: { minHeight: 34, justifyContent: 'center', paddingHorizontal: 6 },
   sheetValue: { marginTop: 4, marginBottom: 10, fontSize: 13 },
-  unitSwitch: { flexDirection: 'row', borderWidth: 1, borderRadius: 12, padding: 4, marginBottom: 10 },
-  unitChip: { flex: 1, minHeight: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  wheelSingle: { marginBottom: 8 },
+  unitSwitchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12 },
+  unitPrimaryChip: { flex: 1, minHeight: 36, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  unitSecondaryBtn: { minHeight: 30, justifyContent: 'center', paddingHorizontal: 2 },
+  wheelSingle: { marginBottom: 8, minHeight: WHEEL_VISIBLE_ROWS * WHEEL_ITEM_HEIGHT },
   wheelDouble: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   wheelColumn: {
-    flex: 1,
     height: WHEEL_VISIBLE_ROWS * WHEEL_ITEM_HEIGHT,
     borderRadius: 14,
     overflow: 'hidden',
   },
+  wheelSingleCol: { width: '100%' },
+  wheelDoubleCol: { flex: 1 },
   wheelContent: {
     paddingVertical: WHEEL_SIDE_PADDING,
   },
