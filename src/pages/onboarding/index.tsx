@@ -44,7 +44,6 @@ interface OnboardingData {
   aboutMe: string;
   location: string;
   locationData: { lat: number; lng: number } | null;
-  city: string;
   country: string;
   vibeVideoRecorded: boolean;
   bunnyVideoUid: string | null;
@@ -64,7 +63,6 @@ const DEFAULT_DATA: OnboardingData = {
   aboutMe: "",
   location: "",
   locationData: null,
-  city: "",
   country: "",
   vibeVideoRecorded: false,
   bunnyVideoUid: null,
@@ -438,7 +436,6 @@ const Onboarding = () => {
               onLocationChange={(payload) => {
                 updateField("location", payload.location);
                 updateField("locationData", payload.locationData);
-                updateField("city", payload.city);
                 updateField("country", payload.country);
               }}
               onNext={goNext}

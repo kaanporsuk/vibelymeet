@@ -356,7 +356,6 @@ export const createProfile = async (profileData: Partial<ProfileData>): Promise<
 export interface GeoLocation {
   lat: number;
   lng: number;
-  city: string;
   country: string;
   formatted: string;
 }
@@ -414,7 +413,6 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
     return {
       lat: data.lat,
       lng: data.lng,
-      city: data.city || "Unknown",
       country: data.country || "Unknown",
       formatted: data.formatted || `${data.city}, ${data.country}`,
     };
@@ -424,7 +422,6 @@ export const reverseGeocode = async (lat: number, lng: number): Promise<GeoLocat
     return {
       lat,
       lng,
-      city: "Unknown",
       country: "Unknown",
       formatted: "Location detected",
     };
