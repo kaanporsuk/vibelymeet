@@ -21,14 +21,14 @@ type Country = {
 };
 
 const COUNTRIES: Country[] = [
-  // Priority (EU + key markets)
+  // Priority (EU + key markets) — Poland first as product default for web auth
+  { name: "Poland", code: "+48", flag: "🇵🇱", priority: true },
   { name: "Netherlands", code: "+31", flag: "🇳🇱", priority: true },
   { name: "Germany", code: "+49", flag: "🇩🇪", priority: true },
   { name: "France", code: "+33", flag: "🇫🇷", priority: true },
   { name: "United Kingdom", code: "+44", flag: "🇬🇧", priority: true },
   { name: "Spain", code: "+34", flag: "🇪🇸", priority: true },
   { name: "Italy", code: "+39", flag: "🇮🇹", priority: true },
-  { name: "Poland", code: "+48", flag: "🇵🇱", priority: true },
   { name: "Türkiye", code: "+90", flag: "🇹🇷", priority: true },
   { name: "Sweden", code: "+46", flag: "🇸🇪", priority: true },
   { name: "Portugal", code: "+351", flag: "🇵🇹", priority: true },
@@ -75,12 +75,11 @@ function detectDefaultCode(): string {
     if (lower.includes("tr")) return "+90";
     if (lower.includes("sv") || lower.includes("se")) return "+46";
     if (lower.includes("pt")) return "+351";
-    if (lower.includes("en-gb") || lower.includes("gb")) return "+44";
     if (lower.includes("en-us") || lower.includes("us")) return "+1";
   } catch {
     // ignore
   }
-  return "+31";
+  return "+48";
 }
 
 export const CountryCodeSelector = ({ value, onChange }: CountryCodeSelectorProps) => {
