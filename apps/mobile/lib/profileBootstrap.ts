@@ -1,23 +1,12 @@
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-
-const DEFAULT_BOOTSTRAP_AGE = 18;
-const DEFAULT_BOOTSTRAP_GENDER = 'prefer_not_to_say';
+import { buildBootstrapProfileInsert, pickBootstrapName } from '@shared/profileContracts';
 
 export type EnsureProfileExistsReason =
   | 'auth_context_session'
   | 'auth_context_state_change'
   | 'sign_in_screen_effect'
   | 'email_signup';
-
-function pickBootstrapName(user: User): string {
-  const md = user.user_metadata ?? {};
-  const rawName =
-    (typeof md.full_name === 'string' && md.full_name) ||
-    (typeof md.name === 'string' && md.name) ||
-    '';
-  return rawName.trim();
-}
 
 export async function ensureBootstrapProfileExists(
   user: User,
@@ -40,17 +29,11 @@ export async function ensureBootstrapProfileExists(
     }
     if (existing) return { ok: true, created: false };
 
-    const isPhoneAuth = !!user.phone;
-    const payload = {
-      id: user.id,
-      name: pickBootstrapName(user),
-      age: DEFAULT_BOOTSTRAP_AGE,
-      gender: DEFAULT_BOOTSTRAP_GENDER,
-      birth_date: null as string | null,
-      phone_number: isPhoneAuth ? user.phone : null,
-      phone_verified: isPhoneAuth,
-      phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
-    };
+    const payload = buildBootstrapProfileInsert({
+      userId: user.id,
+      name: pickBootstrapName(user.user_metadata as Record<string, unknown> | undefined),
+      phoneNumber: user.phone ?? null,
+    });
 
     const { error: insertError } = await supabase.from('profiles').insert(payload);
     if (insertError) {

@@ -18,6 +18,7 @@ export type ProfileRow = {
   tagline: string | null;
   height_cm: number | null;
   location: string | null;
+  location_data: { lat: number; lng: number } | null;
   job: string | null;
   about_me: string | null;
   /** @deprecated Prefer relationship_intent for new reads */
@@ -29,6 +30,7 @@ export type ProfileRow = {
   avatar_url: string | null;
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
+  vibe_video_status: string | null;
   events_attended: number | null;
   total_matches: number | null;
   total_conversations: number | null;
@@ -148,10 +150,10 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST; vibe columns omitted on retry if schema lags migration. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
 
 const PROFILE_SELECT_BASE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_verified, email_verified, is_premium, premium_until';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -212,6 +214,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
     return {
       ...row,
       relationship_intent: (row.relationship_intent as string | null) ?? null,
+      location_data: (row.location_data as { lat: number; lng: number } | null) ?? null,
       onboarding_complete: (row.onboarding_complete as boolean | null) ?? null,
       onboarding_stage: (row.onboarding_stage as OnboardingStage | null) ?? null,
       events_attended: counts.events,
@@ -221,6 +224,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       vibes,
       lifestyle: (row.lifestyle as ProfileRow['lifestyle']) ?? null,
       vibe_caption: (row.vibe_caption as string) ?? null,
+      vibe_video_status: (row.vibe_video_status as string | null) ?? null,
       photo_verified: (row.photo_verified as boolean | null) ?? null,
       phone_verified: (row.phone_verified as boolean | null) ?? null,
       email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
@@ -244,6 +248,7 @@ export async function updateMyProfile(updates: Partial<{
   job: string;
   company: string;
   about_me: string;
+  relationship_intent: string;
   looking_for: string;
   photos: string[];
   avatar_url: string | null;
@@ -267,9 +272,11 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.job !== undefined) db.job = updates.job;
   if (updates.company !== undefined) db.company = updates.company;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
-  if (updates.looking_for !== undefined) {
-    db.looking_for = updates.looking_for;
-    db.relationship_intent = updates.looking_for;
+  if (updates.relationship_intent !== undefined || updates.looking_for !== undefined) {
+    const intent = updates.relationship_intent ?? updates.looking_for ?? null;
+    db.relationship_intent = intent;
+    // Compatibility mirror until all reads migrate to relationship_intent.
+    db.looking_for = intent;
   }
   if (updates.photos !== undefined) db.photos = updates.photos;
   if (updates.avatar_url !== undefined) db.avatar_url = updates.avatar_url;

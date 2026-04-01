@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { buildBootstrapProfileInsert } from "@shared/profileContracts";
 
 interface User {
   id: string;
@@ -159,14 +160,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (data.user) {
       const refId = localStorage.getItem("vibely_referrer_id");
-      
-      await supabase.from('profiles').insert({
-        id: data.user.id,
-        name,
-        age: 25,
-        gender: 'prefer_not_to_say',
-        ...(refId ? { referred_by: refId } : {}),
-      });
+
+      await supabase.from('profiles').insert(
+        buildBootstrapProfileInsert({
+          userId: data.user.id,
+          name: name.trim(),
+          phoneNumber: null,
+          referredBy: refId || null,
+        }),
+      );
 
       if (refId) localStorage.removeItem("vibely_referrer_id");
     }

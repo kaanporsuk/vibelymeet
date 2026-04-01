@@ -18,6 +18,7 @@ import { CountryCodeSelector, getDefaultCountryCode } from "@/components/Country
 import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
+import { buildBootstrapProfileInsert, pickBootstrapName } from "@shared/profileContracts";
 
 type AuthView =
   | "welcome"
@@ -105,15 +106,14 @@ const Auth = () => {
         const referrerId = localStorage.getItem("vibely_referrer_id");
 
         try {
-          const isPhoneAuth = !!session.user.phone;
-          await supabase.from("profiles").insert({
-            id: session.user.id,
-            name: metadata.full_name || metadata.name || "",
-            referred_by: referrerId || null,
-            phone_number: isPhoneAuth ? session.user.phone : null,
-            phone_verified: isPhoneAuth ? true : false,
-            phone_verified_at: isPhoneAuth ? new Date().toISOString() : null,
-          });
+          await supabase.from("profiles").insert(
+            buildBootstrapProfileInsert({
+              userId: session.user.id,
+              name: pickBootstrapName(metadata),
+              phoneNumber: session.user.phone ?? null,
+              referredBy: referrerId || null,
+            }),
+          );
         } catch {
           localStorage.removeItem("vibely_onboarding_progress");
         } finally {
@@ -308,12 +308,14 @@ const Auth = () => {
       if (error) throw error;
       if (data.user) {
         const refId = localStorage.getItem("vibely_referrer_id");
-        await supabase.from("profiles").insert({
-          id: data.user.id,
-          name,
-          gender: "prefer_not_to_say",
-          ...(refId ? { referred_by: refId } : {}),
-        });
+        await supabase.from("profiles").insert(
+          buildBootstrapProfileInsert({
+            userId: data.user.id,
+            name: name.trim(),
+            phoneNumber: null,
+            referredBy: refId || null,
+          }),
+        );
         if (refId) {
           localStorage.removeItem("vibely_referrer_id");
         }

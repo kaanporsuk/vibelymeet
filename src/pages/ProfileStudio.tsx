@@ -370,11 +370,7 @@ const ProfileStudio = () => {
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) setPhoneVerified(true);
-          let nextEmailVerified = !!phoneData?.email_verified;
-          if (phoneData && !phoneData.email_verified && user.email) {
-            await supabase.from("profiles").update({ email_verified: true, verified_email: user.email }).eq("id", user.id);
-            nextEmailVerified = true;
-          }
+          const nextEmailVerified = !!phoneData?.email_verified || !!user.email_confirmed_at;
           setEmailVerified(nextEmailVerified);
           if (phoneData?.photo_verified) {
             if (phoneData.photo_verification_expires_at && new Date(phoneData.photo_verification_expires_at) < new Date()) {
