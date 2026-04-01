@@ -1,5 +1,11 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  calculateAgeFromIsoDate,
+  daysInMonth,
+  formatIsoDate,
+  parseDateParts,
+} from "@/utils/onboardingDate";
 
 interface BirthdayStepProps {
   value: string;
@@ -13,28 +19,18 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-function calculateAge(iso: string): number | null {
-  if (!iso) return null;
-  const birth = new Date(iso);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
-
 export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: BirthdayStepProps) => {
   const parsed = useMemo(() => {
-    if (!value) return { day: "", month: "", year: "" };
-    const d = new Date(value);
+    const p = parseDateParts(value);
+    if (!p) return { day: "", month: "", year: "" };
     return {
-      day: String(d.getDate()),
-      month: String(d.getMonth() + 1),
-      year: String(d.getFullYear()),
+      day: String(p.day),
+      month: String(p.month),
+      year: String(p.year),
     };
   }, [value]);
 
-  const age = useMemo(() => calculateAge(value), [value]);
+  const age = useMemo(() => calculateAgeFromIsoDate(value), [value]);
   const currentYear = new Date().getFullYear();
 
   const setDate = (day: string, month: string, year: string) => {
@@ -45,18 +41,20 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
       onChange("");
       return;
     }
-    const date = new Date(y, m - 1, d);
-    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) {
+    const maxDay = daysInMonth(y, m);
+    const safeDay = Math.min(d, maxDay);
+    const date = new Date(y, m - 1, safeDay);
+    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== safeDay) {
       onChange("");
       return;
     }
-    onChange(date.toISOString().split("T")[0]);
+    onChange(formatIsoDate({ year: y, month: m, day: safeDay }));
   };
 
-  const valid = !!value && (age ?? 0) >= 18;
+  const valid = !!value && age != null && age >= 18;
 
   const handleContinue = () => {
-    if (age !== null && age < 18) {
+    if (age != null && age < 18) {
       onAgeBlocked();
       return;
     }
@@ -112,7 +110,7 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
         </select>
       </div>
 
-      {age !== null && (
+      {age != null && (
         <p className="text-muted-foreground text-sm">
           You're <span className="text-foreground font-semibold">{age}</span>
         </p>
