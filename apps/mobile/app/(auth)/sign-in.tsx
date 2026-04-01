@@ -22,13 +22,13 @@ type AuthView = 'welcome' | 'otp' | 'email_signin' | 'email_signup' | 'success';
 type Country = { name: string; code: string; flag: string; suggested?: boolean };
 
 const COUNTRIES: Country[] = [
+  { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
   { name: 'Netherlands', code: '+31', flag: '🇳🇱', suggested: true },
   { name: 'Germany', code: '+49', flag: '🇩🇪', suggested: true },
   { name: 'France', code: '+33', flag: '🇫🇷', suggested: true },
   { name: 'United Kingdom', code: '+44', flag: '🇬🇧', suggested: true },
   { name: 'Spain', code: '+34', flag: '🇪🇸', suggested: true },
   { name: 'Italy', code: '+39', flag: '🇮🇹', suggested: true },
-  { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
   { name: 'Türkiye', code: '+90', flag: '🇹🇷', suggested: true },
   { name: 'Sweden', code: '+46', flag: '🇸🇪', suggested: true },
   { name: 'Portugal', code: '+351', flag: '🇵🇹', suggested: true },
@@ -69,8 +69,8 @@ export default function SignInScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [countryCode, setCountryCode] = useState('+31');
-  const [countryName, setCountryName] = useState('Netherlands');
+  const [countryCode, setCountryCode] = useState('+48');
+  const [countryName, setCountryName] = useState('Poland');
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
