@@ -33,6 +33,7 @@ export type CreateVideoUploadCredentials = {
   expirationTime: number;
   signature: string;
   cdnHostname: string | undefined;
+  sessionId: string | null;
 };
 
 async function readJsonBody(res: Response): Promise<{ ok: boolean; data: unknown; rawText: string }> {
@@ -127,7 +128,9 @@ async function deleteLocalFileQuiet(uri: string): Promise<void> {
   }
 }
 
-export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUploadCredentials> {
+export async function getCreateVideoUploadCredentials(
+  options?: { context?: 'onboarding' | 'profile_studio' },
+): Promise<CreateVideoUploadCredentials> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
@@ -141,6 +144,7 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
         Authorization: `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ context: options?.context ?? 'profile_studio' }),
     });
   } catch (e) {
     vibeVideoDiagVerbose('create-upload.network', { message: e instanceof Error ? e.message : String(e) });
@@ -213,12 +217,15 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
     projectRef,
   });
 
+  const sessionId = pickString(data, 'sessionId') ?? null;
+
   return {
     videoId,
     libraryId,
     expirationTime,
     signature,
     cdnHostname,
+    sessionId,
   };
 }
 

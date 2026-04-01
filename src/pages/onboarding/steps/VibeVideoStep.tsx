@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
-import { Video, Upload, Loader2, Play } from "lucide-react";
+import { Video, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import * as tus from "tus-js-client";
 
 interface VibeVideoStepProps {
   onNext: () => void;
@@ -34,37 +35,52 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoUploaded, userId }: VibeV
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
+          body: JSON.stringify({ context: "onboarding" }),
         }
       );
       const creds = await credRes.json().catch(() => ({}));
-      if (!credRes.ok) {
+      if (!credRes.ok || creds?.success === false) {
         throw new Error(creds?.error || creds?.message || "Failed to get upload credentials");
       }
-      if (creds?.success === false) {
-        throw new Error(creds?.error || creds?.message || "Failed to get upload credentials");
-      }
-      if (!creds.uploadUrl || !creds.videoId) throw new Error("Failed to get upload credentials");
 
-      const uploadRes = await fetch(creds.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "video/mp4" },
-        body: file,
+      const { videoId, libraryId, expirationTime, signature } = creds;
+      if (!videoId || !signature) throw new Error("Failed to get upload credentials");
+
+      await new Promise<void>((resolve, reject) => {
+        const upload = new tus.Upload(file, {
+          endpoint: "https://video.bunnycdn.com/tusupload",
+          retryDelays: [0, 3000, 5000, 10000],
+          chunkSize: 5 * 1024 * 1024,
+          headers: {
+            AuthorizationSignature: signature,
+            AuthorizationExpire: String(expirationTime),
+            VideoId: videoId,
+            LibraryId: String(libraryId),
+          },
+          metadata: {
+            filetype: file.type || "video/mp4",
+            title: `vibe-onboarding-${Date.now()}`,
+          },
+          onError: (error) => {
+            console.error("[VibeVideoStep] tus upload error:", error);
+            reject(error instanceof Error ? error : new Error("Upload failed"));
+          },
+          onSuccess: () => {
+            resolve();
+          },
+        });
+        upload.start();
       });
-      if (!uploadRes.ok) {
-        throw new Error("Video upload failed.");
-      }
 
-      const { error: profileUpdateError } = await supabase
-        .from("profiles")
-        .update({ bunny_video_uid: creds.videoId, bunny_video_status: "processing" })
-        .eq("id", userId);
-      if (profileUpdateError) throw profileUpdateError;
+      // Profile columns (bunny_video_uid, bunny_video_status) are already set
+      // server-side by create-video-upload. No client-side profile update needed.
 
-      onVideoUploaded(creds.videoId);
+      onVideoUploaded(videoId);
       toast.success("Your Vibe Video is processing!");
       onNext();
-    } catch (err: any) {
-      toast.error(err?.message || "Video upload failed.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Video upload failed.";
+      toast.error(msg);
     } finally {
       setUploading(false);
     }

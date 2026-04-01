@@ -103,10 +103,26 @@ serve(async (req) => {
       console.error("[delete-vibe-video] Bunny delete network/error:", deleteErr);
     }
 
+    // ── Clear profile columns ────────────────────────────────────────────────
     await adminSupabase
       .from("profiles")
       .update({ bunny_video_uid: null, bunny_video_status: "none", vibe_caption: null })
       .eq("id", user.id);
+
+    // ── Mark all active/published sessions for this video as deleted ─────────
+    const { error: sessionError } = await adminSupabase
+      .from("draft_media_sessions")
+      .update({ status: "deleted" })
+      .eq("user_id", user.id)
+      .eq("media_type", "vibe_video")
+      .eq("provider_id", videoId)
+      .in("status", ["created", "uploading", "processing", "ready", "published"]);
+
+    if (sessionError) {
+      console.error(
+        `[delete-vibe-video] session cleanup error userId=${user.id} videoId=${videoId} err=${sessionError.message}`,
+      );
+    }
 
     console.log(
       `[delete-vibe-video] db_cleared userId=${user.id} hadVideoToDelete=true bunnyOk=${bunnyRemoteDeleteOk}`,
@@ -119,7 +135,6 @@ serve(async (req) => {
         dbProfileCleared: true,
         bunnyRemoteDeleteOk,
         bunnyRemoteDeleteHttpStatus,
-        /** True when profile row cleared but Bunny API did not return OK — possible orphan asset in Stream library. */
         possibleBunnyOrphan: !bunnyRemoteDeleteOk,
       },
       200,
