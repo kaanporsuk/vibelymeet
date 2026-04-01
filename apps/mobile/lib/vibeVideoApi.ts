@@ -33,6 +33,7 @@ export type CreateVideoUploadCredentials = {
   expirationTime: number;
   signature: string;
   cdnHostname: string | undefined;
+  sessionId: string | null;
 };
 
 async function readJsonBody(res: Response): Promise<{ ok: boolean; data: unknown; rawText: string }> {
@@ -213,12 +214,15 @@ export async function getCreateVideoUploadCredentials(): Promise<CreateVideoUplo
     projectRef,
   });
 
+  const sessionId = pickString(data, 'sessionId') ?? null;
+
   return {
     videoId,
     libraryId,
     expirationTime,
     signature,
     cdnHostname,
+    sessionId,
   };
 }
 

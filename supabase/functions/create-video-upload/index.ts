@@ -66,6 +66,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // ── Profile gate ─────────────────────────────────────────────────────────
     const { data: profileRow, error: profileReadError } = await adminSupabase
       .from("profiles")
       .select("id,name,age,gender,bunny_video_uid")
@@ -105,6 +106,16 @@ serve(async (req) => {
       );
     }
 
+    // ── Parse optional context from request body ─────────────────────────────
+    let uploadContext: "onboarding" | "profile_studio" = "profile_studio";
+    try {
+      const body = await req.json();
+      if (body?.context === "onboarding") uploadContext = "onboarding";
+    } catch {
+      // No body or non-JSON — default to profile_studio
+    }
+
+    // ── Delete existing Bunny video if replacing ─────────────────────────────
     const existingVideoId = profileRow.bunny_video_uid;
 
     if (existingVideoId) {
@@ -129,6 +140,7 @@ serve(async (req) => {
       }
     }
 
+    // ── Create new Bunny Stream video ────────────────────────────────────────
     const createResponse = await fetch(
       `https://video.bunnycdn.com/library/${libraryId}/videos`,
       {
@@ -161,6 +173,7 @@ serve(async (req) => {
       `[create-video-upload] created bunny video userId=${user.id} videoId=${videoId} libraryId=${libraryId} projectRef=${projectRef}`,
     );
 
+    // ── TUS signature ────────────────────────────────────────────────────────
     const expirationTime = Math.floor(Date.now() / 1000) + 3600;
     const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
     const encoder = new TextEncoder();
@@ -169,6 +182,52 @@ serve(async (req) => {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const signature = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
+    // ── Create draft media session (server-owned upload tracking) ────────────
+    const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
+      "create_media_session",
+      {
+        p_user_id: user.id,
+        p_media_type: "vibe_video",
+        p_provider_id: videoId,
+        p_provider_meta: { libraryId, expirationTime, signature, cdnHostname },
+        p_context: uploadContext,
+      },
+    );
+
+    if (sessionError) {
+      console.error(
+        `[create-video-upload] session creation failed userId=${user.id} videoId=${videoId} err=${sessionError.message}`,
+      );
+      // Non-fatal: continue without session tracking for backward compatibility
+    }
+
+    const sessionId = (sessionResult as Record<string, unknown>)?.session_id ?? null;
+    const replacedSessionId = (sessionResult as Record<string, unknown>)?.replaced_session_id ?? null;
+    const replacedProviderId = (sessionResult as Record<string, unknown>)?.replaced_provider_id ?? null;
+
+    if (replacedProviderId && replacedProviderId !== existingVideoId) {
+      // There was a session-tracked video that wasn't the one in profiles.
+      // Attempt cleanup of the orphaned Bunny asset.
+      try {
+        await fetch(
+          `https://video.bunnycdn.com/library/${libraryId}/videos/${replacedProviderId}`,
+          { method: "DELETE", headers: { "AccessKey": apiKey } },
+        );
+        console.log(
+          `[create-video-upload] cleaned orphan session video userId=${user.id} orphanVideoId=${replacedProviderId}`,
+        );
+      } catch {
+        console.error(
+          `[create-video-upload] orphan cleanup failed userId=${user.id} orphanVideoId=${replacedProviderId}`,
+        );
+      }
+    }
+
+    console.log(
+      `[create-video-upload] session created userId=${user.id} sessionId=${sessionId} replacedSessionId=${replacedSessionId} context=${uploadContext}`,
+    );
+
+    // ── Update profile (backward compat: clients still read profiles columns) ─
     const { data: updatedRows, error: profileUpdateError } = await adminSupabase
       .from("profiles")
       .update({ bunny_video_uid: videoId, bunny_video_status: "uploading" })
@@ -205,6 +264,7 @@ serve(async (req) => {
         expirationTime,
         signature,
         cdnHostname,
+        sessionId,
       },
       200,
     );
