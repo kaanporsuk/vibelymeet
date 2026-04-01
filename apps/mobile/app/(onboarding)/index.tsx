@@ -9,11 +9,15 @@ import {
   type OnboardingData,
   DEFAULT_ONBOARDING_DATA,
   ONBOARDING_STORAGE_KEY,
-  createDraftEnvelope,
-  parseDraftEnvelope,
-  calculateAge as calculateAgeShared,
+  ONBOARDING_LEGACY_STORAGE_KEYS,
+  writeLocalDraftCache,
+  readLocalDraftCache,
 } from '@shared/onboardingTypes';
-import { executeOnboardingCompletion } from '@shared/onboardingCompletion';
+import {
+  loadOnboardingDraft,
+  saveOnboardingDraft,
+  executeOnboardingCompletion,
+} from '@shared/onboardingCompletion';
 import ValuePropStep from '@/components/onboarding/steps/ValuePropStep';
 import NameStep from '@/components/onboarding/steps/NameStep';
 import BirthdayStep from '@/components/onboarding/steps/BirthdayStep';
@@ -30,7 +34,6 @@ import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionSt
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
 import {
-  getOnboardingStageForStep,
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
@@ -45,6 +48,7 @@ export default function OnboardingV2Screen() {
   const { session, signOut, refreshOnboarding } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const [genderVisible, setGenderVisible] = useState(true);
   const [interestedVisible, setInterestedVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -57,30 +61,55 @@ export default function OnboardingV2Screen() {
   const currentStepRef = useRef(currentStep);
   const completedRef = useRef(completed);
   const handledVideoTokenRef = useRef<string | null>(null);
+  const savePendingRef = useRef(false);
 
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
   }, []);
 
+  // Load draft: server is source of truth, local cache is fast fallback
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id || draftLoaded) return;
+    const userId = session.user.id;
+
     const load = async () => {
-      try {
-        await AsyncStorage.removeItem('vibely_onboarding_progress');
-        const raw = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
-        if (!raw) return;
-        const restored = parseDraftEnvelope(raw, session.user.id);
-        if (restored) {
-          setCurrentStep(restored.step);
-          setData(restored.data);
-        }
-      } catch {
-        // ignore
+      // Clean up legacy keys
+      for (const key of ONBOARDING_LEGACY_STORAGE_KEYS) {
+        try { await AsyncStorage.removeItem(key); } catch { /* noop */ }
       }
+
+      const applyDraft = (step: number, d: OnboardingData) => {
+        setCurrentStep(step);
+        setData(d);
+      };
+
+      // Show local cache immediately for perceived speed
+      try {
+        const localRaw = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
+        const localDraft = readLocalDraftCache(localRaw, userId);
+        if (localDraft) {
+          applyDraft(localDraft.step, localDraft.data);
+        }
+      } catch { /* noop */ }
+
+      // Then load authoritative server draft
+      const result = await loadOnboardingDraft(supabase as any, userId);
+      if (result.draft) {
+        const sd = result.draft;
+        const serverData: OnboardingData = {
+          ...DEFAULT_ONBOARDING_DATA,
+          ...(typeof sd.onboarding_data === 'object' && sd.onboarding_data
+            ? sd.onboarding_data
+            : {}),
+        };
+        applyDraft(sd.current_step, serverData);
+      }
+      setDraftLoaded(true);
     };
     void load();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, draftLoaded]);
 
+  // Load existing photos from partial profile
   useEffect(() => {
     if (!session?.user?.id) return;
     const loadExistingPhotos = async () => {
@@ -94,21 +123,33 @@ export default function OnboardingV2Screen() {
     void loadExistingPhotos();
   }, [session?.user?.id, data.photos.length, updateField]);
 
+  // Write local cache on every change (non-authoritative)
   useEffect(() => {
-    if (!session?.user?.id) return;
-    const envelope = createDraftEnvelope(session.user.id, currentStep, data);
-    void AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(envelope));
-  }, [session?.user?.id, currentStep, data]);
+    if (!session?.user?.id || completed) return;
+    writeLocalDraftCache(AsyncStorage, session.user.id, currentStep, data);
+  }, [session?.user?.id, currentStep, data, completed]);
 
-  const updateStageIfNeeded = useCallback(async (step: number) => {
-    const stage = getOnboardingStageForStep(step);
-    if (!stage || !session?.user?.id) return;
-    try {
-      await supabase.rpc('update_onboarding_stage', { p_user_id: session.user.id, p_stage: stage });
-    } catch {
-      // non-blocking
-    }
-  }, [session?.user?.id]);
+  // Save to server on step changes (debounced)
+  useEffect(() => {
+    if (!session?.user?.id || !draftLoaded || completed) return;
+    if (savePendingRef.current) return;
+    savePendingRef.current = true;
+
+    const timer = setTimeout(() => {
+      saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native')
+        .catch(() => {
+          console.warn('[onboarding] server draft save failed (non-fatal)');
+        })
+        .finally(() => {
+          savePendingRef.current = false;
+        });
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      savePendingRef.current = false;
+    };
+  }, [session?.user?.id, currentStep, data, draftLoaded, completed]);
 
   const needsEmailCollection = !session?.user?.email;
   const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
@@ -129,8 +170,7 @@ export default function OnboardingV2Screen() {
     const next = currentStep + 1;
     setCurrentStep(next);
     trackEvent('onboarding_step_completed', { step: currentStep, step_name: stepNames[currentStep], platform: 'native' });
-    void updateStageIfNeeded(next);
-  }, [currentStep, updateStageIfNeeded, totalSteps, stepNames]);
+  }, [currentStep, totalSteps, stepNames]);
 
   useEffect(() => {
     const rawUid = Array.isArray(params.onboardingVideoUid) ? params.onboardingVideoUid[0] : params.onboardingVideoUid;
@@ -176,7 +216,7 @@ export default function OnboardingV2Screen() {
         supabase: supabase as any,
         userId: session.user.id,
         data,
-        clearDraftStorage: async () => {
+        clearLocalDraft: async () => {
           await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
         },
         trackEvent,

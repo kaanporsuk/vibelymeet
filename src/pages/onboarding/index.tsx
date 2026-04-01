@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 import {
-  getOnboardingStageForStep,
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
@@ -13,11 +12,15 @@ import {
   type OnboardingData,
   DEFAULT_ONBOARDING_DATA,
   ONBOARDING_STORAGE_KEY,
-  ONBOARDING_LEGACY_STORAGE_KEY,
-  createDraftEnvelope,
-  parseDraftEnvelope,
+  ONBOARDING_LEGACY_STORAGE_KEYS,
+  writeLocalDraftCache,
+  readLocalDraftCache,
 } from "@shared/onboardingTypes";
-import { executeOnboardingCompletion } from "@shared/onboardingCompletion";
+import {
+  loadOnboardingDraft,
+  saveOnboardingDraft,
+  executeOnboardingCompletion,
+} from "@shared/onboardingCompletion";
 
 import { OnboardingLayout } from "./OnboardingLayout";
 import { ValuePropStep } from "./steps/ValuePropStep";
@@ -42,6 +45,7 @@ const Onboarding = () => {
   const [session, setSession] = useState<any>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
+  const [draftLoaded, setDraftLoaded] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -53,6 +57,7 @@ const Onboarding = () => {
   const startedAtRef = useRef(Date.now());
   const currentStepRef = useRef(currentStep);
   const completedRef = useRef(completed);
+  const savePendingRef = useRef(false);
 
   const needsEmailCollection = !session?.user?.email;
   const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
@@ -70,24 +75,48 @@ const Onboarding = () => {
     return () => subscription.unsubscribe();
   }, []);
 
+  // Load draft: server is source of truth, local cache is fast fallback
   useEffect(() => {
-    if (!session?.user?.id) return;
-    localStorage.removeItem(ONBOARDING_LEGACY_STORAGE_KEY);
+    if (!session?.user?.id || draftLoaded) return;
+    const userId = session.user.id;
 
-    const saved = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-    if (saved) {
-      const restored = parseDraftEnvelope(saved, session.user.id);
-      if (restored) {
-        setCurrentStep(restored.step);
-        setData(restored.data);
-      }
+    ONBOARDING_LEGACY_STORAGE_KEYS.forEach((k) => {
+      try { localStorage.removeItem(k); } catch { /* noop */ }
+    });
+
+    const applyDraft = (step: number, d: OnboardingData) => {
+      setCurrentStep(step);
+      setData(d);
+    };
+
+    // Show local cache immediately for perceived speed
+    const localRaw = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    const localDraft = readLocalDraftCache(localRaw, userId);
+    if (localDraft) {
+      applyDraft(localDraft.step, localDraft.data);
     }
 
+    // Then load authoritative server draft
+    loadOnboardingDraft(supabase as any, userId).then((result) => {
+      if (result.draft) {
+        const sd = result.draft;
+        const serverData: OnboardingData = {
+          ...DEFAULT_ONBOARDING_DATA,
+          ...(typeof sd.onboarding_data === "object" && sd.onboarding_data
+            ? sd.onboarding_data
+            : {}),
+        };
+        applyDraft(sd.current_step, serverData);
+      }
+      setDraftLoaded(true);
+    });
+
+    // Load existing photos from partial profile
     const loadExistingPhotos = async () => {
       const { data: profile } = await supabase
         .from("profiles")
         .select("photos")
-        .eq("id", session.user.id)
+        .eq("id", userId)
         .maybeSingle();
       const existing = (profile?.photos as string[] | null) ?? [];
       if (existing.length > 0) {
@@ -95,13 +124,35 @@ const Onboarding = () => {
       }
     };
     loadExistingPhotos();
-  }, [session?.user?.id]);
+  }, [session?.user?.id, draftLoaded]);
 
+  // Write local cache on every change (non-authoritative, for fast resume on same device)
   useEffect(() => {
     if (!session?.user?.id || completed) return;
-    const envelope = createDraftEnvelope(session.user.id, currentStep, data);
-    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(envelope));
+    writeLocalDraftCache(localStorage, session.user.id, currentStep, data);
   }, [session?.user?.id, currentStep, data, completed]);
+
+  // Save to server on step changes (debounced: skip if a save is already in flight)
+  useEffect(() => {
+    if (!session?.user?.id || !draftLoaded || completed) return;
+    if (savePendingRef.current) return;
+    savePendingRef.current = true;
+
+    const timer = setTimeout(() => {
+      saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, "web")
+        .catch(() => {
+          console.warn("[onboarding] server draft save failed (non-fatal)");
+        })
+        .finally(() => {
+          savePendingRef.current = false;
+        });
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      savePendingRef.current = false;
+    };
+  }, [session?.user?.id, currentStep, data, draftLoaded, completed]);
 
   useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
   useEffect(() => { completedRef.current = completed; }, [completed]);
@@ -136,23 +187,6 @@ const Onboarding = () => {
     setData((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const updateStageIfNeeded = useCallback(
-    async (step: number) => {
-      const stage = getOnboardingStageForStep(step);
-      if (stage && session?.user?.id) {
-        try {
-          await supabase.rpc("update_onboarding_stage", {
-            p_user_id: session.user.id,
-            p_stage: stage,
-          });
-        } catch {
-          // fire and forget
-        }
-      }
-    },
-    [session?.user?.id]
-  );
-
   const goNext = useCallback(() => {
     if (currentStep >= totalSteps - 1) return;
     const next = currentStep + 1;
@@ -162,8 +196,7 @@ const Onboarding = () => {
       step_name: stepNames[currentStep],
       platform: "web",
     });
-    void updateStageIfNeeded(next);
-  }, [currentStep, totalSteps, stepNames, updateStageIfNeeded]);
+  }, [currentStep, totalSteps, stepNames]);
 
   const goBack = useCallback(() => {
     if (currentStep > 0 && !submitting) {
@@ -188,7 +221,7 @@ const Onboarding = () => {
         supabase: supabase as any,
         userId: session.user.id,
         data,
-        clearDraftStorage: async () => {
+        clearLocalDraft: async () => {
           localStorage.removeItem(ONBOARDING_STORAGE_KEY);
         },
         trackEvent,
