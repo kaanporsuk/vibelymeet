@@ -21,6 +21,7 @@ SECURITY DEFINER
 SET search_path = public, pg_catalog
 AS $$
 DECLARE
+  v_photos       text[] := COALESCE(p_photos, ARRAY[]::text[]);
   v_avatar       text;
   v_published    int := 0;
   v_orphaned     int := 0;
@@ -30,12 +31,16 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'forbidden');
   END IF;
 
+  IF p_context NOT IN ('onboarding', 'profile_studio') THEN
+    RETURN jsonb_build_object('success', false, 'error', 'invalid_context');
+  END IF;
+
   -- Derive avatar from first photo
-  v_avatar := CASE WHEN array_length(p_photos, 1) > 0 THEN p_photos[1] ELSE NULL END;
+  v_avatar := CASE WHEN array_length(v_photos, 1) > 0 THEN v_photos[1] ELSE NULL END;
 
   -- Update profile
   UPDATE public.profiles
-  SET photos     = p_photos,
+  SET photos     = v_photos,
       avatar_url = v_avatar
   WHERE id = p_user_id;
 
@@ -50,7 +55,7 @@ BEGIN
   WHERE user_id    = p_user_id
     AND media_type = 'photo'
     AND status IN ('created', 'ready')
-    AND storage_path = ANY(p_photos);
+    AND storage_path = ANY(v_photos);
   GET DIAGNOSTICS v_published = ROW_COUNT;
 
   -- Mark photo sessions whose path is NOT in the new set as abandoned
@@ -60,15 +65,16 @@ BEGIN
   WHERE user_id    = p_user_id
     AND media_type = 'photo'
     AND status IN ('published', 'ready')
-    AND (storage_path IS NULL OR NOT (storage_path = ANY(p_photos)));
+    AND (storage_path IS NULL OR NOT (storage_path = ANY(v_photos)));
   GET DIAGNOSTICS v_orphaned = ROW_COUNT;
 
   RETURN jsonb_build_object(
     'success', true,
-    'photos_count', array_length(p_photos, 1),
+    'photos_count', array_length(v_photos, 1),
     'avatar_url', v_avatar,
     'sessions_published', v_published,
-    'sessions_orphaned', v_orphaned
+    'sessions_orphaned', v_orphaned,
+    'context', p_context
   );
 END;
 $$;
@@ -77,8 +83,8 @@ REVOKE ALL ON FUNCTION public.publish_photo_set FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.publish_photo_set TO authenticated, service_role;
 
 -- ─── RPC: get_photo_sessions ─────────────────────────────────────────────────
--- Returns all non-terminal photo sessions for a user, for client-side
--- reconciliation and UI state.
+-- Returns all photo sessions for a user that are not deleted or abandoned,
+-- for client-side reconciliation and UI state.
 
 CREATE OR REPLACE FUNCTION public.get_photo_sessions(
   p_user_id uuid

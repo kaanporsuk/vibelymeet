@@ -130,7 +130,7 @@ serve(async (req) => {
     }
 
     // ── Mark old photo session as deleted if replacing ────────────────────────
-    if (oldPath && oldPath.startsWith("photos/")) {
+    if (oldPath && oldPath.startsWith(`photos/${user.id}/`)) {
       // Delete from Bunny Storage
       await fetch(
         `https://${storageHostname}/${storageZone}/${oldPath}`,

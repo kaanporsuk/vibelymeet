@@ -126,12 +126,18 @@ export interface VibeVideoUploadCredentials {
 
 // ─── Photo session types (Phase 2B) ──────────────────────────────────────────
 
-export interface PhotoUploadResult {
-  success: boolean;
-  path: string;
-  sessionId: string | null;
-  error?: string;
-}
+export type PhotoUploadResult =
+  | {
+    success: true;
+    path: string;
+    sessionId: string | null;
+    error?: string;
+  }
+  | {
+    success: false;
+    error: string;
+    sessionId?: string | null;
+  };
 
 export interface PublishPhotoSetResult {
   success: boolean;
