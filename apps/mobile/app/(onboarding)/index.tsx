@@ -37,7 +37,7 @@ import {
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
-} from '@/components/onboarding/constants';
+} from '@shared/onboardingTypes';
 
 export default function OnboardingV2Screen() {
   const params = useLocalSearchParams<{
