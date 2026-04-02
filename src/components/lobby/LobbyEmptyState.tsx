@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Sparkles, RefreshCw } from "lucide-react";
+import { Sparkles, RefreshCw, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface LobbyEmptyStateProps {
@@ -9,31 +9,53 @@ interface LobbyEmptyStateProps {
 const LobbyEmptyState = ({ onRefresh }: LobbyEmptyStateProps) => {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="w-full max-w-xs mx-auto text-center space-y-6 py-12"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      className="w-full max-w-sm mx-auto"
     >
-      <motion.div
-        animate={{ y: [0, -8, 0] }}
-        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-primary/20 to-accent/20 border border-primary/20 flex items-center justify-center"
-      >
-        <Sparkles className="w-9 h-9 text-primary" />
-      </motion.div>
+      <div className="relative rounded-3xl overflow-hidden border border-white/[0.12] bg-gradient-to-b from-zinc-900/90 via-zinc-950 to-black p-8 sm:p-10 text-center shadow-[0_0_60px_-12px_hsl(var(--neon-violet)/0.35)]">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-90"
+          style={{
+            background:
+              "radial-gradient(ellipse 80% 60% at 50% 0%, hsl(var(--neon-violet) / 0.14) 0%, transparent 55%), radial-gradient(ellipse 50% 40% at 100% 100%, hsl(var(--neon-cyan) / 0.08) 0%, transparent 50%)",
+          }}
+        />
 
-      <div className="space-y-2">
-        <h3 className="text-lg font-display font-semibold text-foreground">
-          You've seen everyone for now!
-        </h3>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          More people are joining — we'll refresh automatically.
-        </p>
+        <div className="relative space-y-6">
+          <motion.div
+            animate={{ scale: [1, 1.03, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            className="w-20 h-20 mx-auto rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center backdrop-blur-sm"
+          >
+            <Sparkles className="w-9 h-9 text-primary" strokeWidth={1.5} />
+          </motion.div>
+
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white/60 mx-auto">
+              <Radio className="w-3 h-3 text-neon-cyan" />
+              Deck clear
+            </div>
+            <h3 className="text-xl font-display font-bold text-white tracking-tight">
+              You&apos;ve seen everyone for now
+            </h3>
+            <p className="text-sm text-white/55 leading-relaxed">
+              More people are joining the room — we&apos;ll refresh your deck automatically. Pull refresh anytime.
+            </p>
+          </div>
+
+          <Button
+            variant="outline"
+            size="default"
+            onClick={onRefresh}
+            className="gap-2 border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh now
+          </Button>
+        </div>
       </div>
-
-      <Button variant="outline" size="sm" onClick={onRefresh} className="gap-2">
-        <RefreshCw className="w-4 h-4" />
-        Refresh Now
-      </Button>
     </motion.div>
   );
 };

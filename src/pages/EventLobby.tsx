@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, SetStateAction } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { ArrowLeft, X, Heart, Star, Clock, Sparkles, User, Moon } from "lucide-react";
+import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -295,58 +295,119 @@ const EventLobby = () => {
   // Loading state
   if (eventLoading || regLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)]" />
       </div>
     );
   }
 
   const isEmpty = currentIndex >= sortedProfiles.length;
+  const deckTotal = sortedProfiles.length;
+  const deckPosition = deckTotal > 0 ? Math.min(currentIndex + 1, deckTotal) : 0;
+  const deckProgress = deckTotal > 0 ? currentIndex / deckTotal : 0;
+  const timerUrgent =
+    timeRemaining &&
+    timeRemaining !== "Ended" &&
+    /^\d+:\d{2}$/.test(timeRemaining) &&
+    (() => {
+      const [m, s] = timeRemaining.split(":").map(Number);
+      return m * 60 + s <= 300;
+    })();
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen flex flex-col relative overflow-hidden bg-zinc-950 text-foreground">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 120% 80% at 50% -20%, hsl(var(--neon-violet) / 0.18) 0%, transparent 50%), radial-gradient(ellipse 80% 50% at 100% 60%, hsl(var(--neon-cyan) / 0.06) 0%, transparent 45%), linear-gradient(180deg, hsl(240 10% 6%) 0%, hsl(240 8% 4%) 40%, hsl(0 0% 2%) 100%)",
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.35] bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2240%22%20height=%2240%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%220.9%22%20numOctaves=%223%22%20stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect%20width=%22100%25%22%20height=%22100%25%22%20filter=%22url(%23n)%22%20opacity=%220.04%22/%3E%3C/svg%3E')]" />
+
       {/* Top Bar */}
-      <header className="sticky top-0 z-50 glass-card border-b border-white/10 px-4 py-3">
-        <div className="flex items-center justify-between max-w-lg mx-auto">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-secondary transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-foreground" />
-          </button>
+      <header className="sticky top-0 z-50 relative border-b border-white/[0.08] bg-black/40 backdrop-blur-xl supports-[backdrop-filter]:bg-black/25">
+        <div className="max-w-lg mx-auto px-4 pt-3 pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-white/90" />
+            </button>
 
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-display font-semibold text-foreground truncate max-w-[160px]">
-              {event?.title || "Event"}
-            </h1>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 text-xs font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              LIVE
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {queuedCount > 0 && (
-              <span className="inline-flex max-w-[120px] sm:max-w-[140px] truncate items-center px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold border border-primary/25">
-                {queuedCount} waiting
-              </span>
-            )}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary text-muted-foreground">
-              <Clock className="w-3.5 h-3.5" />
-              <span className="text-xs font-medium font-display tabular-nums">{timeRemaining}</span>
+            <div className="flex-1 min-w-0 text-center px-1">
+              <h1 className="text-[15px] sm:text-base font-display font-bold text-white truncate leading-tight">
+                {event?.title || "Event"}
+              </h1>
+              <p className="text-[11px] text-white/45 mt-0.5 truncate">
+                {event?.time}
+                {event?.venue ? ` · ${event.venue}` : " · Live room"}
+              </p>
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-[10px] font-bold uppercase tracking-widest shadow-[0_0_24px_rgba(52,211,153,0.12)]">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-40" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                  </span>
+                  Live now
+                </span>
+                {queuedCount > 0 && (
+                  <span className="inline-flex max-w-[140px] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25">
+                    <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
+                    {queuedCount} queued
+                  </span>
+                )}
+              </div>
             </div>
-            <PremiumPill />
+
+            <div className="flex flex-col items-end gap-1.5 shrink-0 w-[4.5rem] sm:w-auto sm:min-w-[5.5rem]">
+              <div
+                className={`flex items-center gap-1 px-2 py-1 rounded-full border tabular-nums ${
+                  timeRemaining === "Ended"
+                    ? "bg-amber-500/15 border-amber-400/30 text-amber-200"
+                    : timerUrgent
+                      ? "bg-amber-500/10 border-amber-400/25 text-amber-100"
+                      : "bg-white/[0.06] border-white/10 text-white/75"
+                }`}
+              >
+                <Clock className="w-3 h-3 shrink-0 opacity-80" />
+                <span className="text-[11px] font-semibold font-display">{timeRemaining || "—"}</span>
+              </div>
+              <PremiumPill />
+            </div>
           </div>
+
+          {!isEmpty && deckTotal > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-white/40">
+                <span className="flex items-center gap-1">
+                  <Radio className="w-3 h-3 text-neon-cyan opacity-80" />
+                  Deck
+                </span>
+                <span className="text-white/55 tabular-nums">
+                  {deckPosition} / {deckTotal}
+                </span>
+              </div>
+              <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary via-neon-cyan to-accent transition-[width] duration-300 ease-out"
+                  style={{ width: `${Math.min(100, deckProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
       {/* Card Area */}
-      <main className="flex-1 flex flex-col items-center justify-center px-4 py-4 max-w-lg mx-auto w-full relative">
+      <main className="flex-1 flex flex-col items-center justify-center px-4 py-5 max-w-lg mx-auto w-full relative z-10">
         {user?.isPaused ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
-            <Moon className="w-16 h-16 text-amber-500/20 mb-4" strokeWidth={1.25} aria-hidden />
-            <h2 className="text-xl font-display font-semibold text-foreground mb-2">{"You're on a break"}</h2>
-            <p className="text-sm text-muted-foreground mb-1">
+            <Moon className="w-16 h-16 text-amber-400/25 mb-4" strokeWidth={1.25} aria-hidden />
+            <h2 className="text-xl font-display font-semibold text-white mb-2">{"You're on a break"}</h2>
+            <p className="text-sm text-white/50 mb-1">
               {user.pauseUntil && user.pauseUntil > new Date()
                 ? `Discovery is paused until ${user.pauseUntil.toLocaleString("en-US", {
                     month: "short",
@@ -356,14 +417,14 @@ const EventLobby = () => {
                   })}`
                 : "Discovery is paused"}
             </p>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+            <p className="text-sm text-white/45 mb-6 leading-relaxed">
               {
                 "Other people can't see you in the event deck right now. Your matches and chats stay active."
               }
             </p>
             <Button
               variant="outline"
-              className="border-amber-500/50 text-amber-600 hover:bg-amber-500/10"
+              className="border-amber-400/40 text-amber-200 hover:bg-amber-500/10"
               disabled={endingBreak}
               onClick={() => {
                 if (!user?.id) return;
@@ -395,7 +456,12 @@ const EventLobby = () => {
         ) : isEmpty ? (
           <LobbyEmptyState onRefresh={refetchDeck} />
         ) : (
-          <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "65vh" }}>
+          <div className="w-full space-y-3">
+            <div className="text-center px-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Discover</p>
+              <p className="text-sm text-white/70 font-medium mt-0.5">Swipe fast — vibes are live in this room</p>
+            </div>
+          <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}>
             {/* Third card (deepest stack layer) */}
             {sortedProfiles[currentIndex + 2] && (
               <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
@@ -465,33 +531,39 @@ const EventLobby = () => {
               )}
             </AnimatePresence>
           </div>
+          </div>
         )}
 
         {/* Action Buttons */}
         {!isEmpty && currentProfile && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-4 mt-5"
+            className="flex flex-col items-center gap-3 mt-6 w-full max-w-xs mx-auto"
           >
+            <div className="flex items-center justify-center gap-5 sm:gap-6 w-full">
             {/* Pass */}
             <button
+              type="button"
               onClick={handlePass}
               disabled={isAnimating}
-              className="w-14 h-14 rounded-full bg-secondary border border-border flex items-center justify-center hover:bg-destructive/20 hover:border-destructive/40 transition-all active:scale-90 disabled:opacity-40"
+              className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+              aria-label="Pass"
             >
-              <X className="w-6 h-6 text-muted-foreground" />
+              <X className="w-7 h-7 text-white/55" strokeWidth={2.25} />
             </button>
 
             {/* Super Vibe */}
             <button
+              type="button"
               onClick={handleSuperVibe}
               disabled={isAnimating || superVibeRemaining <= 0}
-              className="relative w-12 h-12 rounded-full bg-neon-yellow/20 border border-neon-yellow/40 flex items-center justify-center hover:bg-neon-yellow/30 transition-all active:scale-90 disabled:opacity-30"
+              className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
+              aria-label="Super vibe"
             >
-              <Star className="w-5 h-5 text-neon-yellow" fill="hsl(var(--neon-yellow))" />
+              <Star className="w-[22px] h-[22px] text-neon-yellow" fill="hsl(var(--neon-yellow))" />
               {superVibeRemaining > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-neon-yellow text-background text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute -top-0.5 -right-0.5 min-w-[22px] h-[22px] px-1 rounded-full bg-neon-yellow text-zinc-950 text-[10px] font-bold flex items-center justify-center border-2 border-zinc-950">
                   {superVibeRemaining}
                 </span>
               )}
@@ -499,12 +571,18 @@ const EventLobby = () => {
 
             {/* Vibe */}
             <button
+              type="button"
               onClick={handleVibe}
               disabled={isAnimating}
-              className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center hover:shadow-lg hover:shadow-primary/30 transition-all active:scale-90 disabled:opacity-40 neon-glow-pink"
+              className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
+              aria-label="Vibe"
             >
-              <Heart className="w-6 h-6 text-primary-foreground" fill="white" />
+              <Heart className="w-7 h-7 text-primary-foreground drop-shadow-sm" fill="white" />
             </button>
+            </div>
+            <p className="text-[10px] text-white/35 text-center font-medium tracking-wide">
+              Pass · Super · Vibe
+            </p>
           </motion.div>
         )}
       </main>
@@ -588,8 +666,12 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
 /* ---------- Card Skeleton ---------- */
 
 const CardSkeleton = () => (
-  <div className="w-full rounded-2xl overflow-hidden bg-card border border-border" style={{ aspectRatio: "3/4", maxHeight: "65vh" }}>
-    <div className="w-full h-full shimmer-effect" />
+  <div
+    className="relative w-full rounded-3xl overflow-hidden border border-white/[0.1] bg-zinc-900/80 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.75)]"
+    style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}
+  >
+    <div className="w-full h-full min-h-[280px] shimmer-effect opacity-80" />
+    <div className="absolute bottom-0 left-0 right-0 h-2/5 bg-gradient-to-t from-black/90 to-transparent pointer-events-none rounded-b-3xl" />
   </div>
 );
 

@@ -489,6 +489,7 @@ export type DeckProfile = {
   about_me: string | null;
   job: string | null;
   location: string | null;
+  height_cm: number | null;
   tagline: string | null;
   looking_for: string | null;
   queue_status: string | null;
