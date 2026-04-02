@@ -9,6 +9,8 @@ interface PricingBarProps {
   genderLabel: string;
   onPurchase: () => void;
   isPurchasing?: boolean;
+  soldOut?: boolean;
+  eventEnded?: boolean;
 }
 
 const PricingBar = ({
@@ -18,6 +20,8 @@ const PricingBar = ({
   genderLabel,
   onPurchase,
   isPurchasing = false,
+  soldOut = false,
+  eventEnded = false,
 }: PricingBarProps) => {
   const getStatusConfig = () => {
     switch (capacityStatus) {
@@ -43,6 +47,16 @@ const PricingBar = ({
   };
 
   const status = getStatusConfig();
+  const purchaseBlocked = soldOut || eventEnded;
+  const ctaLabel = eventEnded
+    ? "Event Ended"
+    : soldOut
+      ? "Sold Out"
+      : isPurchasing
+        ? "Processing..."
+        : price === 0
+          ? "Register"
+          : "Purchase Ticket";
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
@@ -54,17 +68,19 @@ const PricingBar = ({
               <span className="text-2xl font-bold text-foreground">
                 {price === 0 ? "Free" : `€${price.toFixed(2)}`}
               </span>
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white ${status.color}`}
-              >
-                {status.icon}
-                {status.text}
-              </motion.span>
+              {!purchaseBlocked && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white ${status.color}`}
+                >
+                  {status.icon}
+                  {status.text}
+                </motion.span>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              Ticket price for {genderLabel}
+              {eventEnded ? "This event has ended" : soldOut ? "No spots left" : `Ticket price for ${genderLabel}`}
             </p>
           </div>
 
@@ -82,11 +98,11 @@ const PricingBar = ({
             <Button
               variant="gradient"
               size="lg"
-              onClick={onPurchase}
-              disabled={isPurchasing}
+              onClick={purchaseBlocked ? () => {} : onPurchase}
+              disabled={isPurchasing || purchaseBlocked}
               className="min-w-[160px]"
             >
-              {isPurchasing ? (
+              {isPurchasing && !purchaseBlocked ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Processing...
@@ -94,7 +110,7 @@ const PricingBar = ({
               ) : (
                 <span className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4" />
-                  Purchase Ticket
+                  {ctaLabel}
                 </span>
               )}
             </Button>

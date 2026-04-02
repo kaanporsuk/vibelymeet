@@ -20,6 +20,8 @@ type PricingBarProps = {
   isPurchasing?: boolean;
   /** Web: Sold Out when no spots */
   soldOut?: boolean;
+  /** Past event end time — CTA disabled (parity with web detail guards). */
+  eventEnded?: boolean;
   /** Distance from screen bottom (safe area + overlays like floating tab bar). */
   bottomInset?: number;
 };
@@ -32,6 +34,7 @@ export function PricingBar({
   onPurchase,
   isPurchasing = false,
   soldOut = false,
+  eventEnded = false,
   bottomInset = 0,
 }: PricingBarProps) {
   const theme = Colors[useColorScheme()];
@@ -39,13 +42,16 @@ export function PricingBar({
     capacityStatus === 'almostFull' ? `Only ${spotsLeft} left!` : capacityStatus === 'filling' ? 'Filling Fast' : 'Spots Available';
   const statusColor = capacityStatus === 'almostFull' ? theme.danger : capacityStatus === 'filling' ? theme.neonYellow : theme.success;
   const isFree = price === 0;
-  const ctaLabel = soldOut
-    ? 'Sold Out'
-    : isPurchasing
-      ? 'Processing…'
-      : isFree
-        ? 'Register'
-        : `Purchase Ticket — €${Number(price).toFixed(2)}`;
+  const purchaseBlocked = soldOut || eventEnded;
+  const ctaLabel = eventEnded
+    ? 'Event Ended'
+    : soldOut
+      ? 'Sold Out'
+      : isPurchasing
+        ? 'Processing…'
+        : isFree
+          ? 'Register'
+          : `Purchase Ticket — €${Number(price).toFixed(2)}`;
 
   return (
     <View
@@ -64,21 +70,21 @@ export function PricingBar({
             <Text style={[styles.price, { color: theme.text }]}>
               {price === 0 ? 'Free' : `€${Number(price).toFixed(2)}`}
             </Text>
-            {!soldOut && (
+            {!purchaseBlocked && (
               <View style={[styles.badge, { backgroundColor: withAlpha(statusColor, 0.19) }]}>
                 <Text style={[styles.badgeText, { color: statusColor }]}>{statusText}</Text>
               </View>
             )}
           </View>
           <Text style={[styles.genderLabel, { color: theme.textSecondary }]}>
-            {soldOut ? 'No spots left' : `Ticket price for ${genderLabel}`}
+            {eventEnded ? 'This event has ended' : soldOut ? 'No spots left' : `Ticket price for ${genderLabel}`}
           </Text>
         </View>
         <VibelyButton
           label={ctaLabel}
-          onPress={soldOut ? () => {} : onPurchase}
-          loading={isPurchasing && !soldOut}
-          disabled={isPurchasing || soldOut}
+          onPress={purchaseBlocked ? () => {} : onPurchase}
+          loading={isPurchasing && !purchaseBlocked}
+          disabled={isPurchasing || purchaseBlocked}
           variant="primary"
           size="lg"
         />

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -117,6 +117,9 @@ const EventDetails = () => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
+  const [freeRegisterBusy, setFreeRegisterBusy] = useState(false);
+  /** Wired after purchase handler exists — lets MiniProfile use the same guarded funnel. */
+  const purchasePressRef = useRef<() => void>(() => {});
 
   // Check phone verification for event nudge
   useEffect(() => {
@@ -152,7 +155,7 @@ const EventDetails = () => {
 
   // Handler for Register to Match from mini profile modal - MUST be before early returns
   const handleRegisterFromProfile = useCallback(() => {
-    setShowPaymentModal(true);
+    purchasePressRef.current();
   }, []);
 
   const formatDate = (date: Date) => {
@@ -200,11 +203,15 @@ const EventDetails = () => {
   const isFemale = userGender === "female" || userGender === "woman";
   const userPrice = event.isFree ? 0 : (isFemale ? event.priceFemale : event.priceMale);
   const genderLabel = isFemale ? "Female" : "Male";
+  const soldOut = capacityInfo.spotsLeft <= 0;
+  const eventEnded = Date.now() > event.eventDate.getTime() + event.durationMinutes * 60_000;
+  const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy;
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
 
     if (event.isFree) {
+      if (soldOut || eventEnded) return;
       // Free events: register directly (no Stripe involved)
       const success = await registerForEvent(event.id);
       if (!success) {
@@ -237,9 +244,18 @@ const EventDetails = () => {
     setTimeout(() => setShowTicket(true), 800);
   };
 
-  const handlePurchasePress = () => {
+  const handlePurchasePress = async () => {
+    if (soldOut || eventEnded || freeRegisterBusy) return;
+    if (isRegistered) return;
+    if (showPaymentModal) return;
+
     if (event.isFree || userPrice === 0) {
-      void handlePaymentSuccess();
+      setFreeRegisterBusy(true);
+      try {
+        await handlePaymentSuccess();
+      } finally {
+        setFreeRegisterBusy(false);
+      }
       return;
     }
     if (event.visibility === 'premium' && !canAccessPremiumEvents) {
@@ -253,6 +269,10 @@ const EventDetails = () => {
       return;
     }
     setShowPaymentModal(true);
+  };
+
+  purchasePressRef.current = () => {
+    void handlePurchasePress();
   };
 
   const handleCancelConfirm = async () => {
@@ -505,8 +525,9 @@ const EventDetails = () => {
             eventDurationMinutes={event.durationMinutes}
             eventId={event.id}
             isRegistered={isRegistered}
-            onAccessPress={!isRegistered ? handlePurchasePress : undefined}
+            onAccessPress={!isRegistered ? () => void handlePurchasePress() : undefined}
             accessLabel={event.isFree || userPrice === 0 ? "Register" : "Get Tickets"}
+            accessDisabled={purchaseCtaDisabled}
           />
         </div>
       </div>
@@ -518,7 +539,10 @@ const EventDetails = () => {
           capacityStatus={capacityInfo.status}
           spotsLeft={capacityInfo.spotsLeft}
           genderLabel={genderLabel}
-          onPurchase={handlePurchasePress}
+          onPurchase={() => void handlePurchasePress()}
+          isPurchasing={freeRegisterBusy}
+          soldOut={soldOut}
+          eventEnded={eventEnded}
         />
       )}
 

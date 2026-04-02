@@ -14,7 +14,6 @@ import { withAlpha } from '@/lib/colorUtils';
 
 /** Safety-net refetch if realtime misses an event; primary updates come from realtime + foreground. */
 const UNREAD_BADGE_POLL_MS = 180_000;
-export const FLOATING_TAB_BAR_HEIGHT = 72;
 
 const TAB_CONFIG = [
   { name: 'index' as const, label: 'Now', iconDefault: 'flash-outline' as const, iconActive: 'flash' as const },
