@@ -1,12 +1,17 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
+import { ShieldCheck, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import {
+  PROOF_SELFIES_BUCKET,
+  isAbsoluteMediaUrl,
+  normalizeProofSelfieObjectPath,
+} from "@/lib/proofSelfieUrl";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +29,12 @@ import { Textarea } from "@/components/ui/textarea";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
+type ResolvedVerificationUrls = {
+  profile: string;
+  selfie: string | null;
+  selfieError: string | null;
+};
+
 const REJECTION_REASONS = [
   "Photos don't match",
   "Face not clearly visible",
@@ -37,7 +48,7 @@ const AdminPhotoVerificationPanel = () => {
   const [rejectModal, setRejectModal] = useState<{ id: string; userId: string } | null>(null);
   const [rejectReason, setRejectReason] = useState(REJECTION_REASONS[0]);
   const [rejectCustomReason, setRejectCustomReason] = useState("");
-  const [resolvedUrls, setResolvedUrls] = useState<Record<string, { selfie: string; profile: string }>>({});
+  const [resolvedUrls, setResolvedUrls] = useState<Record<string, ResolvedVerificationUrls>>({});
 
   const { data: verifications = [], isLoading } = useQuery({
     queryKey: ["admin-photo-verifications", activeTab],
@@ -76,27 +87,68 @@ const AdminPhotoVerificationPanel = () => {
 
   const profileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
 
-  // Resolve photo URLs
+  // Resolve photo URLs (selfie = private bucket signed URL only; profile = public/Bunny via resolvePhotoUrl)
   useEffect(() => {
-    const resolveUrls = async () => {
-      const newResolved: Record<string, { selfie: string; profile: string }> = {};
-      for (const v of verifications) {
-        const selfieUrl = v.selfie_url?.startsWith("http")
-          ? v.selfie_url
-          : await getSignedUrl("proof-selfies", v.selfie_url) || resolvePhotoUrl(v.selfie_url);
-        const profileUrl = resolvePhotoUrl(v.profile_photo_url);
-        newResolved[v.id] = { selfie: selfieUrl, profile: profileUrl };
-      }
-      setResolvedUrls(newResolved);
-    };
-    if (verifications.length > 0) resolveUrls();
-  }, [verifications]);
+    let cancelled = false;
 
-  async function getSignedUrl(bucket: string, path: string): Promise<string | null> {
-    if (!path) return null;
-    const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
-    return data?.signedUrl || null;
-  }
+    const resolveUrls = async () => {
+      const newResolved: Record<string, ResolvedVerificationUrls> = {};
+      for (const v of verifications) {
+        const profileUrl = resolvePhotoUrl(v.profile_photo_url);
+        const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
+
+        if (isAbsoluteMediaUrl(rawSelfie)) {
+          newResolved[v.id] = { profile: profileUrl, selfie: rawSelfie.trim(), selfieError: null };
+          continue;
+        }
+
+        const objectPath = normalizeProofSelfieObjectPath(rawSelfie);
+        if (!objectPath) {
+          console.error("[admin photo verification] Missing or invalid selfie storage path", {
+            verificationId: v.id,
+            userId: v.user_id,
+            selfie_url: rawSelfie,
+          });
+          newResolved[v.id] = {
+            profile: profileUrl,
+            selfie: null,
+            selfieError: "Invalid selfie path in database — cannot load from storage.",
+          };
+          continue;
+        }
+
+        const { data, error } = await supabase.storage
+          .from(PROOF_SELFIES_BUCKET)
+          .createSignedUrl(objectPath, 3600);
+
+        if (cancelled) return;
+
+        if (error || !data?.signedUrl) {
+          console.error("[admin photo verification] createSignedUrl failed for proof-selfies", {
+            verificationId: v.id,
+            userId: v.user_id,
+            objectPath,
+            message: error?.message ?? "No signed URL returned",
+          });
+          newResolved[v.id] = {
+            profile: profileUrl,
+            selfie: null,
+            selfieError: "Could not create a signed URL for this selfie. Check policies and path.",
+          };
+        } else {
+          newResolved[v.id] = { profile: profileUrl, selfie: data.signedUrl, selfieError: null };
+        }
+      }
+      if (!cancelled) setResolvedUrls(newResolved);
+    };
+
+    if (verifications.length > 0) void resolveUrls();
+    else setResolvedUrls({});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [verifications]);
 
   // Stats
   const { data: stats } = useQuery({
@@ -268,9 +320,15 @@ const AdminPhotoVerificationPanel = () => {
                     <div className="aspect-[4/5] rounded-xl overflow-hidden bg-secondary">
                       {urls?.selfie ? (
                         <img src={urls.selfie} alt="Selfie" className="w-full h-full object-cover" />
+                      ) : urls?.selfieError ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center">
+                          <AlertTriangle className="w-8 h-8 text-destructive shrink-0" />
+                          <p className="text-xs font-medium text-destructive">{urls.selfieError}</p>
+                          <p className="text-[10px] text-muted-foreground">Details were logged to the browser console.</p>
+                        </div>
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                         </div>
                       )}
                     </div>
