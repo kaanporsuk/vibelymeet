@@ -1,6 +1,6 @@
 # Native video date startup hardening — deploy delta
 
-Branch: `fix/native-video-date-startup-hardening`
+**Status:** Merged to `main` (PRs #192 / #193). Use this doc for deploy history and operator checklist.
 
 ## What changed
 
@@ -30,7 +30,7 @@ Branch: `fix/native-video-date-startup-hardening`
 ## Web impact
 
 - **Behavior:** Users who open `/date/:id` before `both_ready` will get `create_date_room` **403** + `READY_GATE_NOT_READY` (same as native). Existing `useVideoCall` toast remains generic unless a future web pass maps `code`.
-- **No web code changes** in this branch.
+- **Source:** The hardening PRs did not change web app source; web behavior still follows whatever `daily-room` + DB are deployed in Supabase.
 
 ## Remaining client-owned `video_sessions` writes (later sprint)
 

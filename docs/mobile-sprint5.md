@@ -24,7 +24,7 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 ## Implemented in Sprint 5
 
 1. **Video date API** (`lib/videoDateApi.ts`): `useVideoDateSession(sessionId, userId)` — loads session + partner, phase, timeLeft; realtime subscription for phase/ended. Helpers: `getDailyRoomToken(sessionId)`, `enterHandshake(sessionId)`, `endVideoDate(sessionId, reason?)`, `deleteDailyRoom(roomName)`.
-2. **Video date screen** (`app/date/[id].tsx`): Loads session/partner; requests camera/mic permissions (Android); gets token via `daily-room` create_date_room; calls `enter_handshake` if needed; creates Daily call object, joins with url+token; renders `DailyMediaView` for local and remote; End button triggers leave, delete_room, video_date_transition end, leave_matching_queue (if event), navigate. Handles loading, error, "Date ended", and in-call UI. Realtime: when backend sets session to ended, client leaves and shows ended state.
+2. **Video date screen** (`app/date/[id].tsx`): Loads session/partner; requests camera/mic permissions (Android runtime prompts + iOS via `expo-camera`); gets token via `daily-room` create_date_room; calls `enter_handshake` if needed; creates Daily call object, joins with url+token; renders `DailyMediaView` for local and remote; End button triggers leave, delete_room, video_date_transition end, leave_matching_queue (if event), navigate. Handles loading, error, "Date ended", and in-call UI. Realtime: when backend sets session to ended, client leaves and shows ended state.
 
 ## Video provider integration
 
@@ -34,11 +34,15 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 
 ## Backend / shared changes
 
-None. All behavior uses existing `video_sessions`, `daily-room`, and `video_date_transition`. No schema or web code changes.
+Sprint 5 originally used existing `video_sessions`, `daily-room`, and `video_date_transition` without new **names**. A later hardening pass (merged to `main`, see `docs/native-video-date-hardening-deploy.md`) added:
+
+- **Migration** `20260404140000_video_date_enter_handshake_ready_gate_guard.sql` — stricter `video_date_transition('enter_handshake')` (ready gate + ended sessions).
+- **`daily-room` Edge Function** — same actions, with readiness checks before issuing tokens and JSON `code` on errors.
 
 ## Web impact
 
-None.
+- **Runtime:** Web still calls `daily-room` `create_date_room` from `useVideoCall`. Deployed backend may return **403** / **410** with a `code` when the session is not ready or has ended; the current web client shows a generic toast (no `code`-specific copy).
+- **Source:** Hardening did not modify web source files; behavior depends on the deployed Supabase project.
 
 ## Remaining gaps after Sprint 5
 

@@ -1,6 +1,7 @@
 /**
- * Active call rejoin banner — parity with web: "You have an active date!", Rejoin / End.
- * Premium glass treatment; Rejoin -> /date/[sessionId], End -> best-effort end + clear registration.
+ * Active session banner (home): live date or Ready Gate reminder.
+ * `mode="video"` → primary action goes to `/date/[sessionId]`; `mode="ready_gate"` → `/ready/[sessionId]`.
+ * End: forfeit (ready gate) or end video date + clear registration — see parent handlers.
  */
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
