@@ -326,6 +326,11 @@ const EventLobby = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {queuedCount > 0 && (
+              <span className="inline-flex max-w-[120px] sm:max-w-[140px] truncate items-center px-2 py-0.5 rounded-full bg-primary/15 text-primary text-[10px] font-semibold border border-primary/25">
+                {queuedCount} waiting
+              </span>
+            )}
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary text-muted-foreground">
               <Clock className="w-3.5 h-3.5" />
               <span className="text-xs font-medium font-display tabular-nums">{timeRemaining}</span>
