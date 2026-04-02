@@ -194,7 +194,11 @@ export default function DashboardScreen() {
   const handleDateJoinReminder = useCallback(
     async (reminder: DateReminder) => {
       if (activeSession?.sessionId) {
-        router.push(`/date/${activeSession.sessionId}` as const);
+        if (activeSession.kind === 'ready_gate') {
+          router.push(`/ready/${activeSession.sessionId}` as const);
+        } else {
+          router.push(`/date/${activeSession.sessionId}` as const);
+        }
         return;
       }
       if (reminder.matchId && user?.id) {
@@ -209,7 +213,7 @@ export default function DashboardScreen() {
         }
       }
     },
-    [activeSession?.sessionId, user?.id],
+    [activeSession, user?.id],
   );
 
   const nextEvent = nextEventData?.event ?? null;
@@ -331,7 +335,14 @@ export default function DashboardScreen() {
 
   const handleEndActiveSession = useCallback(async () => {
     if (!activeSession || !user?.id) return;
-    await endVideoDate(activeSession.sessionId);
+    if (activeSession.kind === 'ready_gate') {
+      await supabase.rpc('ready_gate_transition', {
+        p_session_id: activeSession.sessionId,
+        p_action: 'forfeit',
+      });
+    } else {
+      await endVideoDate(activeSession.sessionId);
+    }
     await supabase
       .from('event_registrations')
       .update({ queue_status: 'browsing', current_room_id: null, current_partner_id: null })
@@ -632,7 +643,12 @@ export default function DashboardScreen() {
           <ActiveCallBanner
             sessionId={activeSession.sessionId}
             partnerName={activeSession.partnerName}
-            onRejoin={() => router.push(`/date/${activeSession.sessionId}` as const)}
+            mode={activeSession.kind === 'ready_gate' ? 'ready_gate' : 'video'}
+            onRejoin={() =>
+              activeSession.kind === 'ready_gate'
+                ? router.push(`/ready/${activeSession.sessionId}` as const)
+                : router.push(`/date/${activeSession.sessionId}` as const)
+            }
             onEnd={handleEndActiveSession}
           />
         </View>

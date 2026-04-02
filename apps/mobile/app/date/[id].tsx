@@ -20,6 +20,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
+import { Camera } from 'expo-camera';
 import Daily, { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
@@ -27,6 +28,7 @@ import {
   useVideoDateSession,
   getDailyRoomToken,
   enterHandshake,
+  type RoomTokenFailureCode,
   endVideoDate,
   deleteDailyRoom,
   recordVibe,
@@ -60,6 +62,35 @@ import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
+  switch (code) {
+    case 'auth':
+      return 'Please sign in again, then try once more.';
+    case 'ready_gate_required':
+      return 'Almost there — finish the Ready Gate with your match first.';
+    case 'session_ended':
+      return 'This date has already ended.';
+    case 'not_found':
+      return "We couldn't open this date. Go back and try again.";
+    case 'forbidden':
+      return "You don't have access to this date.";
+    case 'network':
+    case 'daily_provider':
+    default:
+      return 'Could not start video. Please try again.';
+  }
+}
+
+function userMessageForHandshakeFailure(code?: string): string {
+  if (code === 'READY_GATE_NOT_READY') {
+    return 'Almost there — finish the Ready Gate with your match first.';
+  }
+  if (code === 'SESSION_ENDED') {
+    return 'This date has already ended.';
+  }
+  return 'Could not start video. Please try again.';
+}
 
 function getTrack(
   participant: DailyParticipant | undefined,
@@ -346,8 +377,11 @@ export default function VideoDateScreen() {
       setHasPermission(ok);
       return ok;
     }
-    setHasPermission(true);
-    return true;
+    const cam = await Camera.requestCameraPermissionsAsync();
+    const mic = await Camera.requestMicrophonePermissionsAsync();
+    const ok = cam.status === 'granted' && mic.status === 'granted';
+    setHasPermission(ok);
+    return ok;
   }, []);
 
   useEffect(() => {
@@ -370,19 +404,72 @@ export default function VideoDateScreen() {
       setCallError(null);
       const ok = await requestPermissions();
       if (!ok || cancelled) {
-        setCallError('Camera and microphone access are required for video dates.');
+        if (!ok && !cancelled) {
+          setCallError('Camera and microphone access are required for video dates.');
+        }
+        hasStartedJoinRef.current = false;
         setJoining(false);
         return;
       }
-      const tokenResult = await getDailyRoomToken(sessionId);
-      if (!tokenResult || cancelled) {
-        setCallError('Could not start video. Please try again.');
+      const tokenRes = await getDailyRoomToken(sessionId);
+      if (cancelled) {
+        hasStartedJoinRef.current = false;
         setJoining(false);
         return;
       }
+      if (!tokenRes.ok) {
+        Sentry.addBreadcrumb({
+          category: 'video-date',
+          message: 'create_date_room failed',
+          level: 'error',
+          data: {
+            sessionId,
+            code: tokenRes.code,
+            httpStatus: tokenRes.httpStatus,
+            serverCode: tokenRes.serverCode,
+          },
+        });
+        Sentry.captureMessage('video_date_token_failed', {
+          level: 'warning',
+          extra: {
+            sessionId,
+            code: tokenRes.code,
+            httpStatus: tokenRes.httpStatus,
+            serverCode: tokenRes.serverCode,
+          },
+        });
+        setCallError(userMessageForTokenFailure(tokenRes.code));
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
+      const tokenResult = tokenRes.data;
       if (!session.handshake_started_at) {
-        await enterHandshake(sessionId);
-        if (cancelled) return;
+        const hs = await enterHandshake(sessionId);
+        if (cancelled) {
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
+        if (!hs.ok) {
+          Sentry.addBreadcrumb({
+            category: 'video-date',
+            message: 'enter_handshake failed',
+            level: 'error',
+            data: { sessionId, code: hs.code, message: hs.message },
+          });
+          Sentry.captureMessage('video_date_enter_handshake_failed', {
+            level: 'warning',
+            extra: { sessionId, code: hs.code, message: hs.message },
+          });
+          setCallError(userMessageForHandshakeFailure(hs.code));
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
+      }
+      if (eventId && user?.id) {
+        void updateParticipantStatus(eventId, user.id, 'in_handshake');
       }
       const call = Daily.createCallObject();
       callRef.current = call;
@@ -416,7 +503,17 @@ export default function VideoDateScreen() {
         setIsConnected(false);
         setIsConnecting(false);
       });
-      call.on('error', () => {
+      call.on('error', (event: unknown) => {
+        const msg =
+          event && typeof event === 'object' && 'errorMsg' in event
+            ? String((event as { errorMsg?: unknown }).errorMsg)
+            : undefined;
+        Sentry.addBreadcrumb({
+          category: 'video-date',
+          message: 'Daily call error',
+          level: 'error',
+          data: { sessionId, errorMsg: msg },
+        });
         setCallError('Connection error. Please try again.');
         setIsConnecting(false);
         setIsConnected(false);
@@ -448,17 +545,20 @@ export default function VideoDateScreen() {
     run();
     return () => {
       cancelled = true;
+      if (!callRef.current) {
+        hasStartedJoinRef.current = false;
+      }
     };
   }, [
     sessionId,
     user?.id,
+    eventId,
     session?.id,
     session?.ended_at,
     session?.handshake_started_at,
     sessionError,
     phase,
     requestPermissions,
-    joining,
     startReconnectionGrace,
   ]);
 

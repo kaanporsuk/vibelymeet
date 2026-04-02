@@ -33,6 +33,30 @@ export type RoomTokenResult = {
   token: string;
 };
 
+/** Classified create_date_room failure (no secrets). */
+export type RoomTokenFailureCode =
+  | 'auth'
+  | 'forbidden'
+  | 'not_found'
+  | 'session_ended'
+  | 'ready_gate_required'
+  | 'daily_provider'
+  | 'network'
+  | 'unknown';
+
+export type GetDailyRoomTokenResult =
+  | { ok: true; data: RoomTokenResult }
+  | {
+      ok: false;
+      code: RoomTokenFailureCode;
+      httpStatus?: number;
+      serverCode?: string;
+    };
+
+export type EnterHandshakeResult =
+  | { ok: true }
+  | { ok: false; code?: string; message?: string };
+
 const HANDSHAKE_SECONDS = 60;
 const DATE_SECONDS = 300;
 
@@ -147,26 +171,111 @@ export function useVideoDateSession(
   return { session, partner, phase, timeLeft, loading, error, refetch: fetchSession };
 }
 
-/** Get Daily room token via daily-room Edge Function (create_date_room). Same contract as web. */
-export async function getDailyRoomToken(sessionId: string): Promise<RoomTokenResult | null> {
-  const { data, error } = await supabase.functions.invoke('daily-room', {
-    body: { action: 'create_date_room', sessionId },
-  });
-  if (error || !data?.token) return null;
-  return {
-    room_name: data.room_name,
-    room_url: data.room_url ?? `https://vibelyapp.daily.co/${data.room_name}`,
-    token: data.token,
-  };
+function mapHttpStatusAndServerCode(
+  status: number,
+  serverCode?: string
+): RoomTokenFailureCode {
+  const c = serverCode ?? '';
+  if (c === 'UNAUTHORIZED' || status === 401) return 'auth';
+  if (c === 'READY_GATE_NOT_READY') return 'ready_gate_required';
+  if (c === 'SESSION_ENDED') return 'session_ended';
+  if (c === 'SESSION_NOT_FOUND' || c === 'ROOM_NOT_FOUND' || status === 404) return 'not_found';
+  if (c === 'ACCESS_DENIED' || status === 403) return 'forbidden';
+  if (c === 'DAILY_PROVIDER_ERROR' || status === 503 || status === 502 || status === 500) {
+    return 'daily_provider';
+  }
+  return 'unknown';
 }
 
-/** Server-owned: enter handshake (start timer). Idempotent. */
-export async function enterHandshake(sessionId: string): Promise<boolean> {
-  const { error } = await supabase.rpc('video_date_transition', {
+type DailyRoomResponseBody = {
+  room_name?: string;
+  room_url?: string;
+  token?: string;
+  error?: string;
+  code?: string;
+};
+
+/** Get Daily room token via daily-room Edge Function (create_date_room). Same contract as web; returns classified errors. */
+export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoomTokenResult> {
+  const { data, error, response } = await supabase.functions.invoke<DailyRoomResponseBody>('daily-room', {
+    body: { action: 'create_date_room', sessionId },
+  });
+
+  if (!error && data?.token && data.room_name) {
+    return {
+      ok: true,
+      data: {
+        room_name: data.room_name,
+        room_url: data.room_url ?? `https://vibelyapp.daily.co/${data.room_name}`,
+        token: data.token,
+      },
+    };
+  }
+
+  if (!error && data && !data.token) {
+    return {
+      ok: false,
+      code: 'daily_provider',
+      httpStatus: response?.status,
+      serverCode: data.code ?? 'MISSING_TOKEN',
+    };
+  }
+
+  if (error) {
+    const errName = error instanceof Error ? error.name : 'unknown';
+
+    if (errName === 'FunctionsFetchError') {
+      return { ok: false, code: 'network', serverCode: 'FETCH_FAILED' };
+    }
+    if (errName === 'FunctionsRelayError') {
+      return { ok: false, code: 'network', serverCode: 'RELAY_ERROR' };
+    }
+
+    if (response && typeof (response as Response).clone === 'function') {
+      const res = response as Response;
+      const status = res.status;
+      let body: DailyRoomResponseBody | null = null;
+      try {
+        body = await res.clone().json();
+      } catch {
+        /* non-JSON body */
+      }
+      const serverCode = body?.code;
+      return {
+        ok: false,
+        code: mapHttpStatusAndServerCode(status, serverCode),
+        httpStatus: status,
+        serverCode: serverCode ?? body?.error,
+      };
+    }
+
+    return { ok: false, code: 'unknown', serverCode: errName };
+  }
+
+  return { ok: false, code: 'unknown', serverCode: 'NO_RESPONSE' };
+}
+
+/** Server-owned: enter handshake (start timer). Idempotent; surfaces RPC JSON errors. */
+export async function enterHandshake(sessionId: string): Promise<EnterHandshakeResult> {
+  const { data, error } = await supabase.rpc('video_date_transition', {
     p_session_id: sessionId,
     p_action: 'enter_handshake',
   });
-  return !error;
+
+  if (error) {
+    return { ok: false, code: 'RPC_ERROR', message: error.message };
+  }
+
+  const payload = data as { success?: boolean; code?: string; error?: string } | null;
+  if (payload && payload.success === false) {
+    return {
+      ok: false,
+      code: payload.code,
+      message: payload.error,
+    };
+  }
+
+  return { ok: true };
 }
 
 /** Server-owned: end the date. Idempotent. */
