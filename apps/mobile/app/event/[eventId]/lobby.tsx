@@ -26,6 +26,7 @@ import {
   getQueuedMatchCount,
   getSuperVibeRemaining,
   type DeckProfile,
+  type SwipeResult,
 } from '@/lib/eventsApi';
 import { avatarUrl } from '@/lib/imageUrl';
 import { ReadyGateOverlay } from '@/components/lobby/ReadyGateOverlay';
@@ -88,14 +89,44 @@ export default function EventLobbyScreen() {
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
   const { data: isRegistered } = useIsRegisteredForEvent(id, user?.id);
-  const deckQueryEnabled = Boolean(id && user?.id && !pauseStatus.isPaused);
+
+  const eventEndTime = useMemo(
+    () => (event ? getEventEndTime(event.event_date, event.duration_minutes) : null),
+    [event?.event_date, event?.duration_minutes]
+  );
+
+  const isLiveWindow = useMemo(() => {
+    if (!event || !eventEndTime) return false;
+    const now = Date.now();
+    const start = new Date(event.event_date).getTime();
+    return now >= start && now < eventEndTime.getTime();
+  }, [event, eventEndTime]);
+
+  const deckQueryEnabled = Boolean(id && user?.id && !pauseStatus.isPaused && isLiveWindow);
   const { data: profiles = [], isLoading: deckLoading, isError: deckError, refetch: refetchDeck } = useEventDeck(
     id,
     user?.id ?? null,
     deckQueryEnabled
   );
 
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const seenProfileIdsRef = useRef<Set<string>>(new Set());
+  const [deckNonce, setDeckNonce] = useState(0);
+
+  useEffect(() => {
+    seenProfileIdsRef.current = new Set();
+    setDeckNonce((n) => n + 1);
+  }, [id]);
+
+  const sortedProfiles = useMemo(() => {
+    const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.profile_id));
+    filtered.sort((a, b) => {
+      if (a.has_super_vibed && !b.has_super_vibed) return -1;
+      if (!a.has_super_vibed && b.has_super_vibed) return 1;
+      return 0;
+    });
+    return filtered;
+  }, [profiles, deckNonce]);
+
   const [processing, setProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionPartnerName, setActiveSessionPartnerName] = useState<string | null>(null);
@@ -106,12 +137,12 @@ export default function EventLobbyScreen() {
   const [endingBreak, setEndingBreak] = useState(false);
   const lastOpenedSessionRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
-    trackEvent('lobby_entered', { event_id: id });
-  }, [id]);
-
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
+
+  useEffect(() => {
+    if (!id || !user?.id || isRegistered !== true || !isLiveWindow || pauseStatus.isPaused) return;
+    trackEvent('lobby_entered', { event_id: id });
+  }, [id, user?.id, isRegistered, isLiveWindow, pauseStatus.isPaused]);
 
   const openReadyGateWithSession = useCallback(
     async (sessionId: string) => {
@@ -247,10 +278,6 @@ export default function EventLobbyScreen() {
     };
   }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck]);
 
-  const eventEndTime = useMemo(
-    () => (event ? getEventEndTime(event.event_date, event.duration_minutes) : null),
-    [event?.event_date, event?.duration_minutes]
-  );
   const timeRemaining = useCountdown(eventEndTime);
 
   useEffect(() => {
@@ -288,7 +315,13 @@ export default function EventLobbyScreen() {
   }, [eventEndTime]);
 
   const mysteryMatchEnabled = Boolean(
-    id && user?.id && event && !eventLoading && isRegistered === true && !pauseStatus.isPaused
+    id &&
+      user?.id &&
+      event &&
+      !eventLoading &&
+      isRegistered === true &&
+      !pauseStatus.isPaused &&
+      isLiveWindow
   );
   const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
     eventId: id,
@@ -355,16 +388,41 @@ export default function EventLobbyScreen() {
     );
   }
 
-  const current = profiles[currentIndex];
-  const nextProfile = profiles[currentIndex + 1] ?? null;
-  const thirdProfile = profiles[currentIndex + 2] ?? null;
-  const hasCards = profiles.length > 0;
-  const isEmpty = currentIndex >= profiles.length || !current;
+  const isEventEndedForLobby =
+    event.status === 'ended' ||
+    (eventEndTime != null && Date.now() >= eventEndTime.getTime());
+
+  if (!isLiveWindow) {
+    return (
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title={isEventEndedForLobby ? 'This event has ended' : "This event isn't live yet"}
+            message={
+              isEventEndedForLobby
+                ? 'The live lobby is closed. Head back to the event for details.'
+                : 'Join the lobby when your event starts — check the countdown on the event page.'
+            }
+            actionLabel="Back to event"
+            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
+          />
+        </View>
+        {dialog}
+      </>
+    );
+  }
+
+  const current = sortedProfiles[0] ?? null;
+  const nextProfile = sortedProfiles[1] ?? null;
+  const thirdProfile = sortedProfiles[2] ?? null;
+  const hasCards = sortedProfiles.length > 0;
+  const isEmpty = !hasCards || !current;
 
   const showSwipeToast = useCallback(
     (result: string) => {
       switch (result) {
         case 'vibe_recorded':
+        case 'swipe_recorded':
           break;
         case 'match':
           break;
@@ -439,27 +497,82 @@ export default function EventLobbyScreen() {
       return;
     }
     setProcessing(true);
+    const targetId = current.profile_id;
     try {
-      const result = await swipe(id, current.profile_id, swipeType);
+      const result = await swipe(id, targetId, swipeType);
+      if (!result) {
+        show({
+          title: 'Something went wrong',
+          message: 'Check your connection and try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+
+      const envelope = result as SwipeResult;
+      if (envelope.success === false) {
+        show({
+          title: 'Unable to swipe',
+          message: envelope.message ?? 'Try again in a moment.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+
+      const code = envelope.result;
+      if (!code) {
+        show({
+          title: 'Something went wrong',
+          message: 'Tap to try again, or refresh the deck.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+
+      const outcome = code === 'swipe_recorded' ? 'vibe_recorded' : code;
       trackEvent('swipe', {
         event_id: id,
         swipe_type: swipeType,
-        result: result?.result ?? 'error',
+        result: outcome,
       });
-      if (result?.result === 'match' && result.match_id) {
-        lastOpenedSessionRef.current = result.match_id;
-        setActiveSessionId(result.match_id);
+
+      if (code === 'match' && envelope.match_id) {
+        lastOpenedSessionRef.current = envelope.match_id;
+        setActiveSessionId(envelope.match_id);
         setActiveSessionPartnerName(current?.name ?? null);
         const img = current?.avatar_url ?? current?.photos?.[0];
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
         refetchDeck();
       }
-      showSwipeToast(result?.result ?? '');
-      if (result?.result === 'super_vibe_sent' || result?.result === 'limit_reached' || result?.result === 'no_credits') {
+
+      showSwipeToast(code);
+      if (code === 'super_vibe_sent' || code === 'limit_reached' || code === 'no_credits') {
         refreshQueueAndSuperVibe();
       }
-      setCurrentIndex((i) => Math.min(i + 1, profiles.length - 1));
-      if (currentIndex + 1 >= profiles.length) refetchDeck();
+
+      const noDeckAdvance = new Set([
+        'blocked',
+        'reported',
+        'not_registered',
+        'target_not_found',
+        'limit_reached',
+        'no_credits',
+        'already_super_vibed_recently',
+        'already_matched',
+      ]);
+      if (noDeckAdvance.has(code)) {
+        return;
+      }
+
+      seenProfileIdsRef.current.add(targetId);
+      setDeckNonce((n) => n + 1);
+      const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.profile_id)).length;
+      if (remainingVisible === 0) {
+        void refetchDeck();
+      }
     } catch {
       show({
         title: 'Something went wrong',
@@ -718,7 +831,7 @@ export default function EventLobbyScreen() {
               </Pressable>
             </View>
             <Text style={[styles.deckMeta, { color: theme.textSecondary }]}>
-              {currentIndex + 1} of {profiles.length} in deck
+              1 of {sortedProfiles.length} in deck
             </Text>
           </>
         )}
@@ -726,17 +839,18 @@ export default function EventLobbyScreen() {
         )}
       </View>
 
-      {activeSessionId && (
+      {activeSessionId && user?.id ? (
         <ReadyGateOverlay
           sessionId={activeSessionId}
-          partnerName={activeSessionPartnerName}
+          eventId={id}
+          userId={user.id}
           partnerImageUri={activeSessionPartnerImage}
-          onReady={() => {
+          onNavigateToDate={(sessionIdToOpen) => {
             lastOpenedSessionRef.current = null;
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
             setActiveSessionPartnerImage(null);
-            router.push(`/date/${activeSessionId}` as const);
+            router.push(`/date/${sessionIdToOpen}` as const);
           }}
           onClose={() => {
             lastOpenedSessionRef.current = null;
@@ -745,7 +859,7 @@ export default function EventLobbyScreen() {
             setActiveSessionPartnerImage(null);
           }}
         />
-      )}
+      ) : null}
 
       <EventEndedModal isOpen={showEventEndedModal} />
     </View>

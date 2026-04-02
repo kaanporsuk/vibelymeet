@@ -517,7 +517,14 @@ export function useEventDeck(eventId: string, userId: string | null, enabled: bo
   });
 }
 
-export type SwipeResult = { result: string; match_id?: string; immediate?: boolean };
+export type SwipeResult = {
+  result?: string;
+  match_id?: string;
+  immediate?: boolean;
+  success?: boolean;
+  error?: string;
+  message?: string;
+};
 
 export async function swipe(eventId: string, targetId: string, swipeType: 'vibe' | 'pass' | 'super_vibe'): Promise<SwipeResult | null> {
   const { data: { session } } = await supabase.auth.getSession();

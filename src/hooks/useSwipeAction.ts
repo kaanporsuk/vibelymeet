@@ -45,12 +45,20 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
           return null;
         }
 
-        const result = data as unknown as SwipeResult;
+        const raw = data as unknown as SwipeResult & { success?: boolean; message?: string; error?: string };
+        if (raw && typeof raw === "object" && raw.success === false) {
+          toast.error(raw.message || "Unable to complete swipe");
+          return null;
+        }
 
-        trackEvent('swipe', {
+        const result = raw as SwipeResult;
+        const outcome =
+          result.result === "swipe_recorded" ? "vibe_recorded" : result.result;
+
+        trackEvent("swipe", {
           event_id: eventId,
           swipe_type: swipeType,
-          result: result.result,
+          result: outcome,
         });
         switch (result.result) {
           case "match":
@@ -93,7 +101,8 @@ export const useSwipeAction = ({ eventId, onMatch, onMatchQueued }: UseSwipeActi
             return result;
 
           case "vibe_recorded":
-            // Non-mutual vibe — notification handled server-side
+          case "swipe_recorded":
+            // Non-mutual vibe — notification handled server-side (`vibe_recorded` canonical; `swipe_recorded` legacy DB)
             return result;
 
           default:

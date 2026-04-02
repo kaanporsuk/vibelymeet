@@ -138,7 +138,11 @@ serve(async (req) => {
             data: { url: "/matches", match_id: result.match_id },
           },
         });
-      } else if (result.result === "super_vibe_sent" || result.result === "vibe_recorded") {
+      } else if (
+        result.result === "super_vibe_sent" ||
+        result.result === "vibe_recorded" ||
+        result.result === "swipe_recorded"
+      ) {
         // Notify target that someone vibed them (do not reveal who)
         await serviceClient.functions.invoke("send-notification", {
           body: {
