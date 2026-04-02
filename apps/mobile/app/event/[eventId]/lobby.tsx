@@ -8,6 +8,7 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,6 +48,11 @@ function getEventEndTime(event_date: string, duration_minutes?: number | null): 
   const start = new Date(event_date);
   const duration = duration_minutes ?? 60;
   return new Date(start.getTime() + duration * 60 * 1000);
+}
+
+function formatHeightCm(cm: number | null | undefined): string | null {
+  if (cm == null || cm <= 0) return null;
+  return `${cm} cm`;
 }
 
 function useCountdown(endTime: Date | null): string {
@@ -136,9 +142,29 @@ export default function EventLobbyScreen() {
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const [endingBreak, setEndingBreak] = useState(false);
+  const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
 
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      const { data } = await supabase
+        .from('profile_vibes')
+        .select('vibe_tags(label)')
+        .eq('profile_id', user.id);
+      if (!data) return;
+      const labels = data
+        .map((v) => {
+          const raw = v.vibe_tags as { label: string } | { label: string }[] | null;
+          const tag = Array.isArray(raw) ? raw[0] : raw;
+          return tag?.label;
+        })
+        .filter(Boolean) as string[];
+      setUserVibes(labels);
+    })();
+  }, [user?.id]);
 
   useEffect(() => {
     if (!id || !user?.id || isRegistered !== true || !isLiveWindow || pauseStatus.isPaused) return;
@@ -419,6 +445,22 @@ export default function EventLobbyScreen() {
   const hasCards = sortedProfiles.length > 0;
   const isEmpty = !hasCards || !current;
 
+  const eventSubtitle = useMemo(() => {
+    if (!event?.event_date) return 'Live room';
+    const t = new Date(event.event_date).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    const place = event.location_name?.trim();
+    return `${t} · ${place || 'Live room'}`;
+  }, [event?.event_date, event?.location_name]);
+
+  const deckProgress = useMemo(() => {
+    if (profiles.length === 0) return 0;
+    return Math.min(1, Math.max(0, (profiles.length - sortedProfiles.length) / profiles.length));
+  }, [profiles.length, sortedProfiles.length]);
+
   const showSwipeToast = useCallback(
     (result: string) => {
       switch (result) {
@@ -588,35 +630,69 @@ export default function EventLobbyScreen() {
 
   return (
     <>
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <LinearGradient
+        colors={['rgba(139, 92, 246, 0.2)', 'rgba(18, 18, 22, 0.92)', theme.background]}
+        locations={[0, 0.32, 1]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View style={[styles.container, { backgroundColor: 'transparent' }]}>
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
-        <Pressable
-          onPress={() => router.back()}
-          style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
-          accessibilityLabel="Back"
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-            {event.title}
-          </Text>
-          <View style={[styles.livePill, { backgroundColor: withAlpha(theme.success, 0.2) }]}>
-            <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
-            <Text style={[styles.liveText, { color: theme.success }]}>LIVE</Text>
-          </View>
-        </View>
-        <View style={styles.headerRight}>
-          {queuedMatchCount > 0 && (
-            <View style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.tint, 0.2), borderColor: withAlpha(theme.tint, 0.5) }]}>
-              <Text style={[styles.queuedBadgeText, { color: theme.tint }]}>{queuedMatchCount} match{queuedMatchCount !== 1 ? 'es' : ''} waiting</Text>
+        <View style={styles.headerRow}>
+          <Pressable
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.backBtnRound, { borderColor: theme.glassBorder, backgroundColor: withAlpha(theme.text, 0.06) }, pressed && { opacity: 0.85 }]}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="arrow-back" size={22} color={theme.text} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
+              {event.title}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]} numberOfLines={1}>
+              {eventSubtitle}
+            </Text>
+            <View style={styles.headerLiveRow}>
+              <View style={[styles.livePillStrong, { backgroundColor: withAlpha(theme.success, 0.18), borderColor: withAlpha(theme.success, 0.45) }]}>
+                <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
+                <Text style={[styles.liveTextStrong, { color: '#86efac' }]}>Live now</Text>
+              </View>
+              {queuedMatchCount > 0 ? (
+                <View style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.neonPink, 0.14), borderColor: withAlpha(theme.neonPink, 0.35) }]}>
+                  <Ionicons name="sparkles" size={11} color={theme.neonPink} />
+                  <Text style={[styles.queuedBadgeText, { color: theme.neonPink }]}>{queuedMatchCount} queued</Text>
+                </View>
+              ) : null}
             </View>
-          )}
-          <View style={[styles.countdownPill, { backgroundColor: theme.surfaceSubtle }]}>
-            <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
-            <Text style={[styles.countdownText, { color: theme.textSecondary }]}>{timeRemaining || '—'}</Text>
+          </View>
+          <View style={styles.headerRightCol}>
+            <View style={[styles.countdownPill, { backgroundColor: withAlpha(theme.text, 0.06), borderColor: theme.glassBorder }]}>
+              <Ionicons name="time-outline" size={14} color={theme.textSecondary} />
+              <Text style={[styles.countdownText, { color: theme.text }]}>{timeRemaining || '—'}</Text>
+            </View>
           </View>
         </View>
+        {hasCards && !pauseStatus.isPaused ? (
+          <View style={styles.deckProgressSection}>
+            <View style={styles.deckProgressLabels}>
+              <Text style={[styles.deckProgressLabel, { color: theme.textSecondary }]}>Deck</Text>
+              <Text style={[styles.deckProgressCount, { color: theme.text }]}>
+                {sortedProfiles.length > 0 ? `1 / ${sortedProfiles.length}` : '—'}
+              </Text>
+            </View>
+            <View style={[styles.deckProgressTrack, { backgroundColor: withAlpha(theme.text, 0.08) }]}>
+              <LinearGradient
+                colors={[theme.tint, theme.neonCyan]}
+                start={{ x: 0, y: 0.5 }}
+                end={{ x: 1, y: 0.5 }}
+                style={[styles.deckProgressFill, { width: `${Math.round(deckProgress * 100)}%` }]}
+              />
+            </View>
+          </View>
+        ) : null}
       </GlassHeaderBar>
 
       <LiveSurfaceOfflineStrip />
@@ -685,9 +761,12 @@ export default function EventLobbyScreen() {
           </View>
         ) : (
           <>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          Discover who's here
-        </Text>
+        <View style={styles.sectionIntro}>
+          <Text style={[styles.sectionKicker, { color: theme.textSecondary }]}>Discover</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Swipe fast — vibes are live in this room
+          </Text>
+        </View>
 
         {deckError && !hasCards ? (
           <View style={styles.centeredInner}>
@@ -775,16 +854,16 @@ export default function EventLobbyScreen() {
             <View style={styles.deckContainer}>
               {thirdProfile && (
                 <View style={[styles.stackCard, styles.stackCardBack3]} pointerEvents="none">
-                  <LobbyProfileCard profile={thirdProfile} theme={theme} isBehind />
+                  <LobbyProfileCard profile={thirdProfile} theme={theme} userVibes={userVibes} isBehind />
                 </View>
               )}
               {nextProfile && (
                 <View style={[styles.stackCard, styles.stackCardBack2]} pointerEvents="none">
-                  <LobbyProfileCard profile={nextProfile} theme={theme} isBehind />
+                  <LobbyProfileCard profile={nextProfile} theme={theme} userVibes={userVibes} isBehind />
                 </View>
               )}
               <View style={[styles.stackCard, styles.stackCardFront]}>
-                <LobbyProfileCard profile={current} theme={theme} />
+                <LobbyProfileCard profile={current} theme={theme} userVibes={userVibes} />
               </View>
             </View>
 
@@ -792,26 +871,29 @@ export default function EventLobbyScreen() {
               <Pressable
                 style={[
                   styles.actionCircle,
-                  { backgroundColor: theme.surface, borderColor: withAlpha(theme.danger, 0.38) },
+                  styles.actionCirclePass,
+                  { backgroundColor: withAlpha(theme.text, 0.06), borderColor: withAlpha(theme.text, 0.14) },
                   processing && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('pass')}
                 disabled={processing}
+                accessibilityLabel="Pass"
               >
-                <Ionicons name="close" size={28} color={theme.danger} />
+                <Ionicons name="close" size={28} color="rgba(255,255,255,0.55)" />
               </Pressable>
               <Pressable
                 style={[
                   styles.actionCircle,
                   styles.actionCircleSuper,
-                  { backgroundColor: withAlpha(theme.neonYellow, 0.16), borderColor: withAlpha(theme.neonYellow, 0.6) },
+                  { backgroundColor: withAlpha(theme.neonYellow, 0.14), borderColor: withAlpha(theme.neonYellow, 0.55) },
                   processing && styles.actionDisabled,
                   superVibeRemaining <= 0 && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('super_vibe')}
                 disabled={processing || superVibeRemaining <= 0}
+                accessibilityLabel="Super vibe"
               >
-                <Ionicons name="star" size={26} color={theme.neonYellow} />
+                <Ionicons name="star" size={24} color={theme.neonYellow} />
                 {superVibeRemaining > 0 && (
                   <View style={[styles.superVibeBadgeCount, { backgroundColor: theme.neonYellow }]}>
                     <Text style={styles.superVibeBadgeCountText}>{superVibeRemaining}</Text>
@@ -822,18 +904,23 @@ export default function EventLobbyScreen() {
                 style={[
                   styles.actionCircle,
                   styles.actionCirclePrimary,
-                  { backgroundColor: theme.tint },
+                  { overflow: 'hidden' },
                   processing && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('vibe')}
                 disabled={processing}
+                accessibilityLabel="Vibe"
               >
-                <Ionicons name="heart" size={28} color="#fff" />
+                <LinearGradient
+                  colors={[theme.tint, theme.neonPink]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                <Ionicons name="heart" size={28} color="#fff" style={{ zIndex: 1 }} />
               </Pressable>
             </View>
-            <Text style={[styles.deckMeta, { color: theme.textSecondary }]}>
-              1 of {sortedProfiles.length} in deck
-            </Text>
+            <Text style={[styles.actionHint, { color: theme.textSecondary }]}>Pass · Super · Vibe</Text>
           </>
         )}
           </>
@@ -863,6 +950,7 @@ export default function EventLobbyScreen() {
       ) : null}
 
       <EventEndedModal isOpen={showEventEndedModal} />
+      </View>
     </View>
     {dialog}
     </>
@@ -872,14 +960,15 @@ export default function EventLobbyScreen() {
 function LobbyProfileCard({
   profile,
   theme,
+  userVibes,
   isBehind = false,
 }: {
   profile: DeckProfile;
   theme: (typeof Colors)[keyof typeof Colors];
+  userVibes: string[];
   isBehind?: boolean;
 }) {
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
-  const [onePrompt, setOnePrompt] = useState<{ question: string; answer: string } | null>(null);
   const [photoVerified, setPhotoVerified] = useState(false);
 
   useEffect(() => {
@@ -887,7 +976,7 @@ function LobbyProfileCard({
       const pid = profile.profile_id;
       const [vibesRes, profileRes] = await Promise.all([
         supabase.from('profile_vibes').select('vibe_tags(label, emoji)').eq('profile_id', pid),
-        supabase.from('profiles').select('prompts, photo_verified').eq('id', pid).maybeSingle(),
+        supabase.from('profiles').select('photo_verified').eq('id', pid).maybeSingle(),
       ]);
       if (vibesRes.data) {
         const labels: string[] = [];
@@ -901,8 +990,7 @@ function LobbyProfileCard({
         }
         setVibeLabels(labels);
       }
-      const pr = profileRes.data as { prompts?: { question: string; answer: string }[]; photo_verified?: boolean } | null;
-      if (pr?.prompts && Array.isArray(pr.prompts) && pr.prompts.length > 0) setOnePrompt(pr.prompts[0]);
+      const pr = profileRes.data as { photo_verified?: boolean } | null;
       if (pr?.photo_verified) setPhotoVerified(true);
     })();
   }, [profile.profile_id]);
@@ -910,7 +998,17 @@ function LobbyProfileCard({
   const photo = profile.avatar_url ?? profile.photos?.[0];
   const uri = photo ? avatarUrl(photo) : '';
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
-  const sharedCount = profile.shared_vibe_count ?? 0;
+  const sharedFromDeck = profile.shared_vibe_count > 0 ? profile.shared_vibe_count : 0;
+  const sharedCount =
+    sharedFromDeck > 0
+      ? sharedFromDeck
+      : vibeLabels.filter((v) => {
+          const label = v.replace(/^\S+\s/, '');
+          return userVibes.includes(label);
+        }).length;
+  const heightLabel = formatHeightCm(profile.height_cm);
+  const showTrustStrip =
+    profile.has_met_before || profile.is_already_connected || photoVerified || sharedCount > 0;
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
@@ -921,50 +1019,63 @@ function LobbyProfileCard({
         styles.profileCardWrap,
         isBehind && styles.profileCardBehind,
         !isBehind && shadows.card,
-        { borderColor: theme.glassBorder, backgroundColor: theme.surfaceSubtle },
+        {
+          borderColor: isBehind ? theme.glassBorder : withAlpha(theme.tint, 0.22),
+          backgroundColor: theme.surfaceSubtle,
+        },
       ]}
     >
       {uri ? (
         <Image
           source={{ uri }}
-          style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle }]}
+          style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle, transform: [{ scale: 1.02 }] }]}
           resizeMode="cover"
         />
       ) : (
-        <View style={[styles.cardImage, { backgroundColor: theme.surfaceSubtle }, styles.cardImagePlaceholder]}>
-          <Ionicons name="person" size={48} color={theme.textSecondary} />
+        <View style={[styles.cardImage, { backgroundColor: '#141418' }, styles.cardImagePlaceholder]}>
+          <LinearGradient
+            colors={['rgba(139,92,246,0.25)', 'rgba(20,20,24,1)']}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <Ionicons name="person" size={52} color="rgba(255,255,255,0.35)" />
+          <Text style={styles.missingPhotoLabel}>Photo soon</Text>
         </View>
       )}
-      <View style={styles.cardGradient} />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(168,85,247,0.14)', 'transparent']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={styles.cardNeonWash}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(0,0,0,0.42)', 'transparent']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={styles.cardTopVignette}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.94)']}
+        locations={[0, 0.35, 1]}
+        style={styles.cardBottomGradient}
+      />
       {profile.has_super_vibed && (
-        <View style={[styles.superVibeBadge, { backgroundColor: withAlpha(theme.neonYellow, 0.2), borderColor: withAlpha(theme.neonYellow, 0.5) }]}>
+        <View style={[styles.superVibeBadge, { backgroundColor: withAlpha(theme.neonYellow, 0.18), borderColor: withAlpha(theme.neonYellow, 0.48) }]}>
           <Ionicons name="sparkles" size={14} color={theme.neonYellow} />
-          <Text style={[styles.superVibeText, { color: theme.neonYellow }]}>Someone wants to meet you!</Text>
+          <Text style={[styles.superVibeText, { color: theme.neonYellow }]} numberOfLines={1}>
+            Wants to meet you
+          </Text>
         </View>
       )}
-      {photoVerified && (
-        <View
-          style={[
-            styles.photoVerifiedBadge,
-            { backgroundColor: withAlpha(theme.neonCyan, 0.93) },
-            !isBehind && styles.photoVerifiedBadgeWithInfo,
-          ]}
-        >
-          <Ionicons name="shield-checkmark" size={14} color="#fff" />
-        </View>
-      )}
-      {showQueueBadge && (
-        <View
-          style={[
-            styles.queueBadge,
-            { backgroundColor: theme.secondary, borderColor: theme.border },
-            !isBehind && styles.queueBadgeWithInfo,
-            !isBehind && photoVerified ? { top: spacing.md + 36 } : null,
-          ]}
-        >
-          <Text style={[styles.queueBadgeText, { color: theme.textSecondary }]}>In a date</Text>
-        </View>
-      )}
+      <View style={styles.cardTopRight}>
+        {showQueueBadge ? (
+          <View style={[styles.queueBadge, { backgroundColor: withAlpha(theme.text, 0.12), borderColor: withAlpha(theme.text, 0.2) }]}>
+            <Text style={[styles.queueBadgeText, { color: 'rgba(255,255,255,0.78)' }]}>In session</Text>
+          </View>
+        ) : null}
+      </View>
       {!isBehind && (
         <Pressable
           onPress={() => router.push(`/user/${profile.profile_id}`)}
@@ -975,60 +1086,103 @@ function LobbyProfileCard({
         </Pressable>
       )}
       <View style={styles.cardBody}>
+        {showTrustStrip ? (
+          <View style={styles.trustStrip}>
+            {photoVerified ? (
+              <View style={[styles.trustChip, { backgroundColor: withAlpha(theme.neonCyan, 0.22), borderColor: withAlpha(theme.neonCyan, 0.35) }]}>
+                <Ionicons name="shield-checkmark" size={12} color="#a5f3fc" />
+                <Text style={[styles.trustChipText, { color: '#cffafe' }]}>Verified</Text>
+              </View>
+            ) : null}
+            {profile.has_met_before ? (
+              <View style={[styles.trustChip, { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.14)' }]}>
+                <Ionicons name="hand-left-outline" size={12} color="rgba(255,255,255,0.85)" />
+                <Text style={styles.trustChipText}>Met before</Text>
+              </View>
+            ) : null}
+            {profile.is_already_connected ? (
+              <View style={[styles.trustChip, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.35) }]}>
+                <Ionicons name="people-outline" size={12} color={theme.tint} />
+                <Text style={[styles.trustChipText, { color: theme.tint }]}>Connected</Text>
+              </View>
+            ) : null}
+            {sharedCount > 0 ? (
+              <View style={[styles.trustChip, { backgroundColor: 'rgba(217,70,239,0.2)', borderColor: 'rgba(232,121,249,0.35)' }]}>
+                <Ionicons name="sparkles" size={12} color="#f0abfc" />
+                <Text style={[styles.trustChipText, { color: '#f5d0fe' }]}>
+                  {sharedCount} shared
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
         <View style={styles.nameAgeRow}>
-          <Text style={styles.cardName} numberOfLines={1}>{profile.name}</Text>
+          <Text style={styles.cardName} numberOfLines={1}>
+            {profile.name}
+          </Text>
           <Text style={styles.cardAge}>{profile.age}</Text>
         </View>
+        {profile.tagline ? (
+          <Text style={styles.cardTagline} numberOfLines={1}>
+            {profile.tagline}
+          </Text>
+        ) : null}
         {intentDisplay ? (
           <Text style={[styles.cardLookingFor, { borderLeftColor: withAlpha(theme.tint, 0.65) }]} numberOfLines={1}>
             {intentDisplay.emoji} {intentDisplay.label}
           </Text>
         ) : null}
-        {(profile.job || profile.location) ? (
+        {(profile.job || profile.location || heightLabel) ? (
           <View style={styles.jobLocationRow}>
             {profile.job ? (
               <View style={styles.metaChip}>
-                <Ionicons name="briefcase-outline" size={14} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.metaChipText} numberOfLines={1}>{profile.job}</Text>
+                <Ionicons name="briefcase-outline" size={14} color="rgba(255,255,255,0.65)" />
+                <Text style={styles.metaChipText} numberOfLines={1}>
+                  {profile.job}
+                </Text>
               </View>
             ) : null}
             {profile.location ? (
               <View style={styles.metaChip}>
-                <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.metaChipText} numberOfLines={1}>{profile.location}</Text>
+                <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.65)" />
+                <Text style={styles.metaChipText} numberOfLines={1}>
+                  {profile.location}
+                </Text>
               </View>
             ) : null}
+            {heightLabel ? <Text style={styles.heightMeta}>{heightLabel}</Text> : null}
           </View>
         ) : null}
         {vibeLabels.length > 0 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.vibeTagsScroll} contentContainerStyle={styles.vibeTagsContent}>
-            {vibeLabels.slice(0, 3).map((tag) => (
-              <View key={tag} style={[styles.vibeTagChip, { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.12)' }]}>
-                <Text style={styles.vibeTagText}>{tag}</Text>
+            {vibeLabels.slice(0, 2).map((tag) => {
+              const label = tag.replace(/^\S+\s/, '');
+              const isShared = userVibes.includes(label);
+              return (
+                <View
+                  key={tag}
+                  style={[
+                    styles.vibeTagChip,
+                    isShared
+                      ? { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.45) }
+                      : { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.14)' },
+                  ]}
+                >
+                  <Text style={[styles.vibeTagText, isShared && { color: theme.tint }]}>{tag}</Text>
+                </View>
+              );
+            })}
+            {vibeLabels.length > 2 ? (
+              <View style={[styles.vibeTagChip, { backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(255,255,255,0.08)' }]}>
+                <Text style={[styles.vibeTagText, { opacity: 0.75 }]}>+{vibeLabels.length - 2}</Text>
               </View>
-            ))}
-            {vibeLabels.length > 3 && (
-              <View style={[styles.vibeTagChip, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                <Text style={[styles.vibeTagText, { opacity: 0.8 }]}>+{vibeLabels.length - 3}</Text>
-              </View>
-            )}
+            ) : null}
           </ScrollView>
         )}
-        {onePrompt && (
-          <Text style={styles.cardPrompt} numberOfLines={1}>
-            {onePrompt.question}: {onePrompt.answer}
-          </Text>
-        )}
-        {sharedCount > 0 && (
-          <View style={[styles.sharedVibesChip, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
-            <Ionicons name="sparkles" size={12} color={theme.tint} />
-            <Text style={[styles.sharedVibesText, { color: theme.tint }]}>
-              {sharedCount} shared vibe{sharedCount !== 1 ? 's' : ''}
-            </Text>
-          </View>
-        )}
         {profile.about_me ? (
-          <Text style={styles.cardBio} numberOfLines={2}>{profile.about_me}</Text>
+          <Text style={styles.cardBio} numberOfLines={2}>
+            {profile.about_me}
+          </Text>
         ) : null}
       </View>
     </View>
@@ -1050,36 +1204,57 @@ const styles = StyleSheet.create({
   onBreakSubtitle: { fontSize: 15, marginTop: spacing.sm, textAlign: 'center' },
   onBreakBody: { fontSize: 14, marginTop: spacing.md, lineHeight: 20, textAlign: 'center', maxWidth: 320 },
   headerBar: { marginBottom: 0 },
-  header: {
+  headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   backBtn: { padding: spacing.xs },
-  headerCenter: { flex: 1, minWidth: 0, alignItems: 'center', gap: 4 },
-  headerTitle: { fontSize: 14, fontWeight: '600' },
-  livePill: {
+  backBtnRound: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  headerCenter: { flex: 1, minWidth: 0, alignItems: 'center' },
+  headerTitle: { fontSize: 15, fontWeight: '700', textAlign: 'center' },
+  headerSubtitle: { fontSize: 11, marginTop: 2, textAlign: 'center', paddingHorizontal: spacing.xs },
+  headerLiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  livePillStrong: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
+    borderWidth: 1,
   },
-  liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveText: { fontSize: 11, fontWeight: '600', letterSpacing: 0.5 },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  liveDot: { width: 7, height: 7, borderRadius: 4 },
+  liveTextStrong: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
+  headerRightCol: {
+    minWidth: 56,
+    alignItems: 'flex-end',
   },
   queuedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
   },
-  queuedBadgeText: { fontSize: 11, fontWeight: '600' },
+  queuedBadgeText: { fontSize: 10, fontWeight: '700' },
   countdownPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1087,10 +1262,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
+    borderWidth: 1,
   },
-  countdownText: { fontSize: 12, fontWeight: '600' },
+  countdownText: { fontSize: 11, fontWeight: '700' },
+  deckProgressSection: { marginTop: spacing.md, gap: 6 },
+  deckProgressLabels: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  deckProgressLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
+  deckProgressCount: { fontSize: 10, fontWeight: '700' },
+  deckProgressTrack: {
+    height: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  deckProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
   body: { flex: 1, padding: spacing.lg },
-  subtitle: { fontSize: 14, marginBottom: spacing.lg },
+  sectionIntro: { marginBottom: spacing.md, alignItems: 'center' },
+  sectionKicker: { fontSize: 10, fontWeight: '700', letterSpacing: 2.4, textTransform: 'uppercase' },
+  sectionTitle: { fontSize: 14, fontWeight: '600', marginTop: 4, textAlign: 'center', paddingHorizontal: spacing.md },
   deckSkeletonWrap: {
     width: '100%',
     aspectRatio: 3 / 4,
@@ -1165,8 +1360,8 @@ const styles = StyleSheet.create({
   deckContainer: {
     width: '100%',
     aspectRatio: 3 / 4,
-    maxHeight: Dimensions.get('window').height * 0.55,
-    marginBottom: spacing.lg,
+    maxHeight: Math.min(Dimensions.get('window').height * 0.58, 520),
+    marginBottom: spacing.md,
     position: 'relative',
   },
   stackCard: {
@@ -1197,16 +1392,36 @@ const styles = StyleSheet.create({
     borderRadius: radius['2xl'],
     borderWidth: 1,
   },
-  profileCardBehind: { opacity: 0.95 },
+  profileCardBehind: { opacity: 0.96 },
   cardImage: { width: '100%', height: '100%', position: 'absolute' },
   cardImagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  cardGradient: {
+  missingPhotoLabel: {
+    position: 'absolute',
+    bottom: '42%',
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  cardNeonWash: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: '55%',
+  },
+  cardTopVignette: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    height: '38%',
+  },
+  cardBottomGradient: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: '72%',
-    backgroundColor: 'rgba(0,0,0,0.78)',
+    height: '78%',
   },
   cardBody: {
     position: 'absolute',
@@ -1214,7 +1429,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: spacing.lg,
-    paddingTop: 52,
+    paddingTop: 36,
+    gap: 6,
+  },
+  cardTopRight: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    zIndex: 11,
+    alignItems: 'flex-end',
+    gap: 6,
   },
   superVibeBadge: {
     position: 'absolute',
@@ -1229,98 +1453,87 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     zIndex: 10,
   },
-  superVibeText: { fontSize: 11, fontWeight: '600' },
+  superVibeText: { fontSize: 10, fontWeight: '700', flexShrink: 1, maxWidth: 140 },
   queueBadge: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    zIndex: 10,
-  },
-  queueBadgeWithInfo: {
-    right: spacing.md + 44,
   },
   profileInfoBtn: {
     position: 'absolute',
-    top: spacing.md,
+    bottom: 200,
     right: spacing.md,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 12,
   },
-  photoVerifiedBadgeWithInfo: {
-    right: spacing.md + 44,
+  queueBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' },
+  trustStrip: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+  trustChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    borderWidth: 1,
   },
-  queueBadgeText: { fontSize: 10, fontWeight: '500' },
-  nameAgeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.sm },
-  cardName: { fontSize: 25, fontWeight: '800', color: '#fff', flexShrink: 1 },
-  cardAge: { fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.82)', marginBottom: 2 },
+  trustChipText: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
+  nameAgeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, flexWrap: 'wrap' },
+  cardName: { fontSize: 26, fontWeight: '800', color: '#fff', flexShrink: 1 },
+  cardAge: { fontSize: 19, fontWeight: '600', color: 'rgba(255,255,255,0.78)', marginBottom: 2 },
+  cardTagline: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.82)' },
   cardLookingFor: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: 'rgba(196,181,253,0.95)',
     borderLeftWidth: 2,
     paddingLeft: 8,
-    marginBottom: spacing.sm,
+    marginTop: 2,
   },
-  jobLocationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
+  jobLocationRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm, columnGap: spacing.md },
   metaChip: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '48%' },
-  metaChipText: { fontSize: 13, color: 'rgba(255,255,255,0.72)' },
-  vibeTagsScroll: { marginBottom: spacing.sm, maxHeight: 32 },
+  metaChipText: { fontSize: 12, color: 'rgba(255,255,255,0.58)' },
+  heightMeta: { fontSize: 12, color: 'rgba(255,255,255,0.45)' },
+  vibeTagsScroll: { maxHeight: 34 },
   vibeTagsContent: { flexDirection: 'row', gap: 6, paddingRight: spacing.md },
   vibeTagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, borderWidth: 1 },
-  vibeTagText: { fontSize: 11, color: 'rgba(255,255,255,0.95)', fontWeight: '500' },
-  cardPrompt: { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginBottom: spacing.sm },
-  photoVerifiedBadge: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  sharedVibesChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    marginBottom: spacing.md,
-  },
-  sharedVibesText: { fontSize: 12, fontWeight: '600' },
-  cardBio: { fontSize: 13, color: 'rgba(255,255,255,0.78)', lineHeight: 19 },
+  vibeTagText: { fontSize: 11, color: 'rgba(255,255,255,0.95)', fontWeight: '600' },
+  cardBio: { fontSize: 13, color: 'rgba(255,255,255,0.68)', lineHeight: 19, marginTop: 2 },
   actions: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing.xl,
-    marginTop: spacing.xl,
-    marginBottom: spacing.md,
+    gap: 22,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
   },
   actionCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actionCircleSuper: { width: 54, height: 54, borderRadius: 27, borderWidth: 2 },
+  actionCirclePass: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  actionCircleSuper: { width: 52, height: 52, borderRadius: 26, borderWidth: 2 },
   actionCirclePrimary: { borderWidth: 0 },
   actionDisabled: { opacity: 0.6 },
+  actionHint: { fontSize: 10, fontWeight: '600', textAlign: 'center', letterSpacing: 0.8, marginBottom: spacing.sm },
   superVibeBadgeCount: {
     position: 'absolute',
     top: -4,
@@ -1333,5 +1546,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   superVibeBadgeCountText: { color: '#000', fontSize: 11, fontWeight: '700' },
-  deckMeta: { fontSize: 12, textAlign: 'center' },
 });

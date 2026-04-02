@@ -1,10 +1,20 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Briefcase, MapPin } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  Sparkles,
+  Briefcase,
+  MapPin,
+  Info,
+  ShieldCheck,
+  Users,
+  HeartHandshake,
+} from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PremiumBadge } from "@/components/premium/PremiumBadge";
 import { getUserBadge } from "@/hooks/useEntitlements";
+import { cn } from "@/lib/utils";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 interface LobbyProfileCardProps {
@@ -13,22 +23,29 @@ interface LobbyProfileCardProps {
   isBehind?: boolean;
 }
 
+function formatHeightCm(cm: number | null | undefined): string | null {
+  if (cm == null || cm <= 0) return null;
+  return `${cm} cm`;
+}
+
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
+  const navigate = useNavigate();
   const [vibeLabels, setVibeLabels] = useState<string[]>([]);
   const [profileBadge, setProfileBadge] = useState<"premium" | "vip" | null>(null);
+  const [photoVerified, setPhotoVerified] = useState(false);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("subscription_tier")
+        .select("subscription_tier, photo_verified")
         .eq("id", profile.profile_id)
         .maybeSingle();
       setProfileBadge(getUserBadge(data?.subscription_tier as string | null | undefined));
+      setPhotoVerified(Boolean(data?.photo_verified));
     })();
   }, [profile.profile_id]);
 
-  // Fetch vibe tags for this profile
   useEffect(() => {
     (async () => {
       const { data } = await supabase
@@ -41,7 +58,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           .map((v) => {
             const raw = v.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
             const tag = Array.isArray(raw) ? raw[0] : raw;
-            return tag?.label ? `${tag.emoji ?? ''} ${tag.label}`.trim() : null;
+            return tag?.label ? `${tag.emoji ?? ""} ${tag.label}`.trim() : null;
           })
           .filter(Boolean) as string[];
         setVibeLabels(labels);
@@ -49,21 +66,31 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
     })();
   }, [profile.profile_id]);
 
-  // Use server-side shared_vibe_count, fall back to client-side calculation
-  const sharedCount = profile.shared_vibe_count > 0
-    ? profile.shared_vibe_count
-    : vibeLabels.filter((v) => {
-        const label = v.replace(/^\S+\s/, "");
-        return userVibes.includes(label);
-      }).length;
+  const sharedCount =
+    profile.shared_vibe_count > 0
+      ? profile.shared_vibe_count
+      : vibeLabels.filter((v) => {
+          const label = v.replace(/^\S+\s/, "");
+          return userVibes.includes(label);
+        }).length;
+
+  const inSession = profile.queue_status && !["browsing", "idle"].includes(profile.queue_status);
+  const heightLabel = formatHeightCm(profile.height_cm);
+  const showTrustStrip =
+    profile.has_met_before || profile.is_already_connected || photoVerified || sharedCount > 0;
 
   const intentRaw = profile.looking_for?.trim();
   const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
 
   return (
-    <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
-      {/* Photo */}
-      <div className="absolute inset-0">
+    <div
+      className={cn(
+        "relative w-full h-full rounded-3xl overflow-hidden bg-zinc-950 ring-1 ring-inset ring-white/[0.12]",
+        isBehind ? "opacity-[0.97]" : "shadow-[0_24px_80px_-12px_rgba(0,0,0,0.85),0_0_0_1px_rgba(168,85,247,0.15)]",
+      )}
+    >
+      {/* Photo — full bleed, cinematic */}
+      <div className="absolute inset-0 scale-[1.02]">
         <ProfilePhoto
           photos={profile.photos as string[]}
           avatarUrl={profile.avatar_url}
@@ -74,40 +101,97 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         />
       </div>
 
-      {/* Gradient overlay at bottom */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+      {/* Neon wash + vignette */}
+      <div
+        className="absolute inset-0 pointer-events-none rounded-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse 90% 70% at 50% 20%, rgba(168,85,247,0.12) 0%, transparent 55%), radial-gradient(ellipse 60% 50% at 100% 100%, rgba(34,211,238,0.08) 0%, transparent 45%)",
+        }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/55 to-black/10 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent pointer-events-none rounded-3xl" />
 
-      {/* Super Vibe badge */}
-      {profile.has_super_vibed && (
-        <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neon-yellow/20 border border-neon-yellow/50 backdrop-blur-sm">
-          <Sparkles className="w-3.5 h-3.5 text-neon-yellow" />
-          <span className="text-xs font-semibold text-neon-yellow">Someone wants to meet you!</span>
+      {/* Top chrome */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-start justify-between gap-2 p-3 sm:p-4">
+        {profile.has_super_vibed ? (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-neon-yellow/15 border border-neon-yellow/45 backdrop-blur-md shadow-[0_0_20px_rgba(250,204,21,0.15)] max-w-[min(100%,14rem)]">
+            <Sparkles className="w-3.5 h-3.5 text-neon-yellow shrink-0" />
+            <span className="text-[10px] sm:text-xs font-semibold text-neon-yellow leading-tight">
+              Wants to meet you
+            </span>
+          </div>
+        ) : (
+          <span />
+        )}
+
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {inSession && (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider bg-white/10 text-white/70 border border-white/15 backdrop-blur-md">
+              In session
+            </span>
+          )}
+          {profileBadge && <PremiumBadge variant={profileBadge} />}
         </div>
+      </div>
+
+      {/* Profile info — full profile (lightweight: opens full user page) */}
+      {!isBehind && (
+        <button
+          type="button"
+          onClick={() => navigate(`/user/${profile.profile_id}`)}
+          className="absolute bottom-[min(42%,200px)] right-3 sm:right-4 z-30 w-11 h-11 rounded-full bg-black/50 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors shadow-lg"
+          aria-label="Open full profile"
+        >
+          <Info className="w-5 h-5 text-white" />
+        </button>
       )}
 
-      {/* Premium badge */}
-      {profileBadge && (
-        <div className="absolute top-4 right-4 z-10">
-          <PremiumBadge variant={profileBadge} />
-        </div>
-      )}
+      {/* Bottom content */}
+      <div className="absolute bottom-0 left-0 right-0 z-10 p-4 sm:p-5 pb-5 space-y-2.5">
+        {showTrustStrip && (
+          <div className="flex flex-wrap gap-1.5">
+            {photoVerified && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-500/20 text-cyan-200 border border-cyan-400/30">
+                <ShieldCheck className="w-3 h-3" />
+                Photo verified
+              </span>
+            )}
+            {profile.has_met_before && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-white/10 text-white/85 border border-white/15">
+                <HeartHandshake className="w-3 h-3 opacity-80" />
+                Met before
+              </span>
+            )}
+            {profile.is_already_connected && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary/20 text-primary border border-primary/25">
+                <Users className="w-3 h-3" />
+                Connected
+              </span>
+            )}
+            {sharedCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-fuchsia-500/20 text-fuchsia-200 border border-fuchsia-400/35">
+                <Sparkles className="w-3 h-3" />
+                {sharedCount} shared vibe{sharedCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+        )}
 
-      {/* Status badge if in a date */}
-      {profile.queue_status && !["browsing", "idle"].includes(profile.queue_status) && (
-        <div className="absolute top-4 right-4 z-10 px-2.5 py-1 rounded-full bg-secondary/80 backdrop-blur-sm border border-border">
-          <span className="text-[10px] font-medium text-muted-foreground">In a date</span>
-        </div>
-      )}
-
-      {/* Bottom info area */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
-        <div className="flex items-end gap-2">
-          <h3 className="text-2xl font-display font-bold text-white">{profile.name}</h3>
-          <span className="text-lg text-white/80 font-medium mb-0.5">{profile.age}</span>
+        <div>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <h3 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight drop-shadow-sm">
+              {profile.name}
+            </h3>
+            <span className="text-lg sm:text-xl font-medium text-white/75 tabular-nums">{profile.age}</span>
+          </div>
+          {profile.tagline ? (
+            <p className="text-sm text-white/80 font-medium mt-1 line-clamp-1">{profile.tagline}</p>
+          ) : null}
         </div>
 
         {intentDisplay ? (
-          <p className="text-xs text-primary font-medium line-clamp-1 border-l-2 border-primary/40 pl-2">
+          <p className="text-[11px] sm:text-xs text-primary/90 font-medium line-clamp-1 border-l-2 border-primary/50 pl-2">
             <span className="mr-1" aria-hidden>
               {intentDisplay.emoji}
             </span>
@@ -115,61 +199,54 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           </p>
         ) : null}
 
-        {(profile.job || profile.location) && (
-          <div className="flex items-center gap-3 text-white/60 text-sm">
+        {(profile.job || profile.location || heightLabel) && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/55">
             {profile.job && (
-              <span className="flex items-center gap-1">
-                <Briefcase className="w-3.5 h-3.5" />
-                {profile.job}
+              <span className="flex items-center gap-1 max-w-[48%]">
+                <Briefcase className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                <span className="truncate">{profile.job}</span>
               </span>
             )}
             {profile.location && (
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" />
-                {profile.location}
+              <span className="flex items-center gap-1 max-w-[48%]">
+                <MapPin className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                <span className="truncate">{profile.location}</span>
               </span>
             )}
+            {heightLabel && <span className="text-white/45 tabular-nums">{heightLabel}</span>}
           </div>
         )}
 
         {vibeLabels.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            {vibeLabels.slice(0, 3).map((tag) => {
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
+            {vibeLabels.slice(0, 2).map((tag) => {
               const label = tag.replace(/^\S+\s/, "");
               const isShared = userVibes.includes(label);
               return (
                 <span
                   key={tag}
-                  className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-sm border ${
+                  className={cn(
+                    "shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium backdrop-blur-md border",
                     isShared
-                      ? "bg-primary/20 border-primary/30 text-primary"
-                      : "bg-white/10 border-white/10 text-white/90"
-                  }`}
+                      ? "bg-primary/25 border-primary/40 text-primary"
+                      : "bg-white/10 border-white/15 text-white/90",
+                  )}
                 >
                   {tag}
                 </span>
               );
             })}
-            {vibeLabels.length > 3 && (
-              <span className="shrink-0 px-2 py-1 rounded-full text-xs font-medium bg-white/10 backdrop-blur-sm text-white/60">
-                +{vibeLabels.length - 3}
+            {vibeLabels.length > 2 && (
+              <span className="shrink-0 px-2 py-1 rounded-full text-[11px] font-medium bg-black/30 border border-white/10 text-white/55">
+                +{vibeLabels.length - 2}
               </span>
             )}
           </div>
         )}
 
-        {sharedCount > 0 && (
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/20 backdrop-blur-sm border border-primary/30">
-            <Sparkles className="w-3 h-3 text-primary" />
-            <span className="text-xs font-medium text-primary">
-              {sharedCount} shared vibe{sharedCount > 1 ? "s" : ""}
-            </span>
-          </div>
-        )}
-
-        {profile.about_me && (
-          <p className="text-sm text-white/70 line-clamp-2">{profile.about_me}</p>
-        )}
+        {profile.about_me ? (
+          <p className="text-[13px] sm:text-sm text-white/65 line-clamp-2 leading-relaxed">{profile.about_me}</p>
+        ) : null}
       </div>
     </div>
   );
