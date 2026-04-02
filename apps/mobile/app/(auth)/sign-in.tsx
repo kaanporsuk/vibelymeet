@@ -107,6 +107,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
 
   const phoneForSignIn = useMemo(() => isValidSignInPhone(countryCode, phoneInput), [countryCode, phoneInput]);
   const phoneValid = phoneForSignIn.valid;
@@ -144,6 +145,25 @@ export default function SignInScreen() {
     const timer = setInterval(() => setResendRemaining((v) => Math.max(0, v - 1)), 1000);
     return () => clearInterval(timer);
   }, [resendRemaining]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (Platform.OS !== 'ios') {
+          if (!cancelled) setAppleSignInAvailable(false);
+          return;
+        }
+        const available = await AppleAuthentication.isAvailableAsync();
+        if (!cancelled) setAppleSignInAvailable(available);
+      } catch {
+        if (!cancelled) setAppleSignInAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const ensureProfileExists = async () => {
@@ -343,6 +363,10 @@ export default function SignInScreen() {
         setError('Apple Sign In is only available on iOS');
         return;
       }
+      if (!appleSignInAvailable) {
+        setError('Apple Sign In is not available on this iOS build.');
+        return;
+      }
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
       });
@@ -393,7 +417,9 @@ export default function SignInScreen() {
             <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
             <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" disabled={loading} />
-            <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />
+            {Platform.OS === 'ios' && appleSignInAvailable ? (
+              <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />
+            ) : null}
             <Pressable onPress={() => { setView('email_signin'); setError(null); }}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use email instead</Text></Pressable>
           </View>
         ) : null}
