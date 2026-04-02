@@ -354,7 +354,7 @@ BEGIN
 
   UPDATE public.profiles SET
     name               = v_name,
-    birth_date         = v_birth_date,
+    birth_date         = NULLIF(v_birth_date, '')::date,
     age                = v_age,
     gender             = v_normalized_gender,
     interested_in      = ARRAY[v_interested_in],
