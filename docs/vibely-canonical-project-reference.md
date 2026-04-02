@@ -109,7 +109,8 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 ### 8.3 Legacy client-side wizard score (not server truth)
 
-- [`src/utils/calculateVibeScore.ts`](../src/utils/calculateVibeScore.ts) and the deprecated twin in [`apps/mobile/lib/calculateVibeScore.ts`](../apps/mobile/lib/calculateVibeScore.ts) implement a **different** formula (e.g. +10 for `hasVibeVideo`) for UI/wizard use. **Do not** treat these as the source of truth for stored `vibe_score`.
+- [`src/utils/calculateVibeScore.ts`](../src/utils/calculateVibeScore.ts) is a **deprecated local completeness estimator** (see file header). It is **not** the source of truth for `profiles.vibe_score` / `vibe_score_label`. There is **no** `apps/mobile/lib/calculateVibeScore.ts`; native reads persisted scores from the profile row.
+- **Do not confuse** with [`src/utils/vibeScoreUtils.ts`](../src/utils/vibeScoreUtils.ts) **`calculateVibeScore`**, which is a **different** concept (event/match **compatibility %**, not profile completeness).
 
 ### 8.4 Webhook pipeline (operator)
 

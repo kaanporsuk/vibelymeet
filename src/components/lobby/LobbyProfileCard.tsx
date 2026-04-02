@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PremiumBadge } from "@/components/premium/PremiumBadge";
 import { getUserBadge } from "@/hooks/useEntitlements";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 interface LobbyProfileCardProps {
   profile: DeckProfile;
@@ -56,6 +57,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         return userVibes.includes(label);
       }).length;
 
+  const intentRaw = profile.looking_for?.trim();
+  const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
+
   return (
     <div className={`relative w-full h-full rounded-2xl overflow-hidden bg-card border border-border ${isBehind ? "" : "shadow-2xl shadow-black/40"}`}>
       {/* Photo */}
@@ -101,6 +105,15 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
           <h3 className="text-2xl font-display font-bold text-white">{profile.name}</h3>
           <span className="text-lg text-white/80 font-medium mb-0.5">{profile.age}</span>
         </div>
+
+        {intentDisplay ? (
+          <p className="text-xs text-primary font-medium line-clamp-1 border-l-2 border-primary/40 pl-2">
+            <span className="mr-1" aria-hidden>
+              {intentDisplay.emoji}
+            </span>
+            {intentDisplay.label}
+          </p>
+        ) : null}
 
         {(profile.job || profile.location) && (
           <div className="flex items-center gap-3 text-white/60 text-sm">

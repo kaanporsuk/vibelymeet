@@ -41,6 +41,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
+import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -911,6 +912,9 @@ function LobbyProfileCard({
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
   const sharedCount = profile.shared_vibe_count ?? 0;
 
+  const intentRaw = profile.looking_for?.trim();
+  const intentDisplay = intentRaw ? getRelationshipIntentDisplaySafe(intentRaw) : null;
+
   return (
     <View
       style={[
@@ -975,6 +979,11 @@ function LobbyProfileCard({
           <Text style={styles.cardName} numberOfLines={1}>{profile.name}</Text>
           <Text style={styles.cardAge}>{profile.age}</Text>
         </View>
+        {intentDisplay ? (
+          <Text style={[styles.cardLookingFor, { borderLeftColor: withAlpha(theme.tint, 0.65) }]} numberOfLines={1}>
+            {intentDisplay.emoji} {intentDisplay.label}
+          </Text>
+        ) : null}
         {(profile.job || profile.location) ? (
           <View style={styles.jobLocationRow}>
             {profile.job ? (
@@ -1250,9 +1259,17 @@ const styles = StyleSheet.create({
     right: spacing.md + 44,
   },
   queueBadgeText: { fontSize: 10, fontWeight: '500' },
-  nameAgeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.md },
+  nameAgeRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.sm },
   cardName: { fontSize: 25, fontWeight: '800', color: '#fff', flexShrink: 1 },
   cardAge: { fontSize: 18, fontWeight: '600', color: 'rgba(255,255,255,0.82)', marginBottom: 2 },
+  cardLookingFor: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(196,181,253,0.95)',
+    borderLeftWidth: 2,
+    paddingLeft: 8,
+    marginBottom: spacing.sm,
+  },
   jobLocationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
   metaChip: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '48%' },
   metaChipText: { fontSize: 13, color: 'rgba(255,255,255,0.72)' },

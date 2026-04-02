@@ -1,4 +1,8 @@
-import { normalizeRelationshipIntentId } from "../../supabase/functions/_shared/profileContracts";
+/**
+ * Match-list scoring uses the same canonical intent vocabulary as apps and Edge (`@shared/profileContracts`).
+ * Path alias is defined in root tsconfig (web) and apps/mobile/tsconfig.json (native).
+ */
+import { normalizeRelationshipIntentId } from "@shared/profileContracts";
 
 export type MatchScoreInput = {
   viewerVibeLabels: readonly string[];

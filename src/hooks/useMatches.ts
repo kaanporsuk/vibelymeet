@@ -16,6 +16,31 @@ import {
   getEmptyConversationPreview,
 } from "../../shared/chat/conversationListPreview";
 
+/** Row shape for `.from("profiles").select(...)` in this hook (intent fields for scoring + display). */
+type MatchesListProfileRow = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+  photo_verified: boolean | null;
+  about_me: string | null;
+  job: string | null;
+  location: string | null;
+  height_cm: number | null;
+  looking_for: string | null;
+  relationship_intent: string | null;
+  prompts: unknown;
+  lifestyle: unknown;
+  tagline: string | null;
+};
+
+function profileIntentForMatch(
+  p: Pick<MatchesListProfileRow, "relationship_intent" | "looking_for"> | undefined,
+): string | null {
+  return p?.relationship_intent ?? p?.looking_for ?? null;
+}
+
 /** Latest message row shape from matches list query (one row per match). */
 type MatchLatestMessageRow = {
   match_id: string;
@@ -174,7 +199,7 @@ export const useMatches = () => {
             : Promise.resolve({ data: [] }),
         ]);
 
-      const profiles = profilesResult.data || [];
+      const profiles = (profilesResult.data || []) as MatchesListProfileRow[];
       const profileVibes = vibesResult.data || [];
       const lastMessages = messagesResult.data || [];
       const events = eventsResult.data || [];
@@ -202,10 +227,7 @@ export const useMatches = () => {
 
       const viewerProfile = profiles.find((p) => p.id === userId);
       const viewerVibes = vibesByProfile[userId] ?? [];
-      const viewerLookingFor =
-        (viewerProfile as any)?.relationship_intent ??
-        (viewerProfile as any)?.looking_for ??
-        null;
+      const viewerLookingFor = profileIntentForMatch(viewerProfile);
 
       const eventsById: Record<string, string> = {};
       events.forEach((e: any) => {
@@ -223,10 +245,7 @@ export const useMatches = () => {
           viewerVibeLabels: viewerVibes,
           otherVibeLabels: otherVibes,
           viewerLookingFor,
-          otherLookingFor:
-            (profile as any)?.relationship_intent ??
-            (profile as any)?.looking_for ??
-            null,
+          otherLookingFor: profileIntentForMatch(profile),
           hasSharedEventContext: !!match.event_id,
         };
         const bestMatchScore = bestMatchSortKey(scoreInput);
@@ -239,7 +258,7 @@ export const useMatches = () => {
           match.archived_by === userId && match.archived_at !== null;
 
         // Use first photo or avatar, resolve via Bunny CDN helper
-        const photoArr = (profile as any)?.photos as string[] | undefined;
+        const photoArr = profile?.photos ?? undefined;
         const rawImage =
           (photoArr && photoArr.length > 0 ? photoArr[0] : null) ||
           profile?.avatar_url ||
@@ -250,7 +269,7 @@ export const useMatches = () => {
         const resolvedPhotos = (photoArr || []).map((p: string) => getImageUrl(p));
 
         // Parse prompts from JSON
-        const rawPrompts = (profile as any)?.prompts;
+        const rawPrompts = profile?.prompts;
         const parsedPrompts = Array.isArray(rawPrompts) ? rawPrompts : [];
 
         const conversationPreview = lastMsg
@@ -283,13 +302,10 @@ export const useMatches = () => {
             ? !lastMsg.read_at && lastMsg.sender_id !== userId
             : false,
           vibes: otherVibes,
-          looking_for:
-            ((profile as any)?.relationship_intent as string | null | undefined) ??
-            ((profile as any)?.looking_for as string | null | undefined) ??
-            null,
+          looking_for: profileIntentForMatch(profile),
           isNew,
           matchId: match.id,
-          photoVerified: !!(profile as any)?.photo_verified,
+          photoVerified: !!profile?.photo_verified,
           isArchived,
           bestMatchScore,
           compatibilityPercent: compatibilityPct,
@@ -297,14 +313,17 @@ export const useMatches = () => {
             ? eventsById[match.event_id] || undefined
             : undefined,
           photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-          about_me: (profile as any)?.about_me || null,
-          job: (profile as any)?.job || null,
-          location: (profile as any)?.location || null,
-          height: (profile as any)?.height_cm || null,
+          about_me: profile?.about_me ?? null,
+          job: profile?.job ?? null,
+          location: profile?.location ?? null,
+          height: profile?.height_cm ?? null,
           prompts: parsedPrompts as { question: string; answer: string }[],
           
-          lifestyle: (profile as any)?.lifestyle as Record<string, string> || undefined,
-          tagline: (profile as any)?.tagline || null,
+          lifestyle:
+            profile?.lifestyle && typeof profile.lifestyle === "object" && !Array.isArray(profile.lifestyle)
+              ? (profile.lifestyle as Record<string, string>)
+              : undefined,
+          tagline: profile?.tagline ?? null,
         };
       });
     },
