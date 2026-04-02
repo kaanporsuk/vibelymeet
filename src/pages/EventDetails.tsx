@@ -237,6 +237,24 @@ const EventDetails = () => {
     setTimeout(() => setShowTicket(true), 800);
   };
 
+  const handlePurchasePress = () => {
+    if (event.isFree || userPrice === 0) {
+      void handlePaymentSuccess();
+      return;
+    }
+    if (event.visibility === 'premium' && !canAccessPremiumEvents) {
+      toast.error('This event is exclusive to Vibely Premium members ✦');
+      navigate('/premium');
+      return;
+    }
+    if (event.visibility === 'vip' && !canAccessVipEvents) {
+      toast.error('This event is exclusive to Vibely VIP members ✦');
+      navigate('/premium');
+      return;
+    }
+    setShowPaymentModal(true);
+  };
+
   const handleCancelConfirm = async () => {
     const success = await unregisterFromEvent(event.id);
     
@@ -487,6 +505,8 @@ const EventDetails = () => {
             eventDurationMinutes={event.durationMinutes}
             eventId={event.id}
             isRegistered={isRegistered}
+            onAccessPress={!isRegistered ? handlePurchasePress : undefined}
+            accessLabel={event.isFree || userPrice === 0 ? "Register" : "Get Tickets"}
           />
         </div>
       </div>
@@ -498,23 +518,7 @@ const EventDetails = () => {
           capacityStatus={capacityInfo.status}
           spotsLeft={capacityInfo.spotsLeft}
           genderLabel={genderLabel}
-          onPurchase={() => {
-            if (event.isFree || userPrice === 0) {
-              handlePaymentSuccess();
-            } else {
-              if (event.visibility === 'premium' && !canAccessPremiumEvents) {
-                toast.error('This event is exclusive to Vibely Premium members ✦');
-                navigate('/premium');
-                return;
-              }
-              if (event.visibility === 'vip' && !canAccessVipEvents) {
-                toast.error('This event is exclusive to Vibely VIP members ✦');
-                navigate('/premium');
-                return;
-              }
-              setShowPaymentModal(true);
-            }
-          }}
+          onPurchase={handlePurchasePress}
         />
       )}
 

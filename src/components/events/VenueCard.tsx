@@ -12,6 +12,9 @@ interface VenueCardProps {
   eventDurationMinutes?: number;
   eventId?: string;
   isRegistered?: boolean;
+  onAccessPress?: () => void;
+  accessLabel?: string;
+  accessDisabled?: boolean;
 }
 
 const VenueCard = ({ 
@@ -21,7 +24,10 @@ const VenueCard = ({
   eventDate, 
   eventDurationMinutes = 60,
   eventId,
-  isRegistered = false 
+  isRegistered = false,
+  onAccessPress,
+  accessLabel = "Get Tickets",
+  accessDisabled = false,
 }: VenueCardProps) => {
   const navigate = useNavigate();
   const [timeUntil, setTimeUntil] = useState("");
@@ -183,10 +189,17 @@ const VenueCard = ({
             Lobby Opens Soon
           </Button>
         ) : (
-          <Button variant="ghost" className="w-full text-muted-foreground" disabled>
-            <Lock className="w-4 h-4 mr-2" />
-            Register to Access
-          </Button>
+          onAccessPress ? (
+            <Button variant="outline" className="w-full" onClick={onAccessPress} disabled={accessDisabled}>
+              <Lock className="w-4 h-4 mr-2" />
+              {accessLabel}
+            </Button>
+          ) : (
+            <div className="w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-center text-sm text-muted-foreground">
+              <Lock className="w-4 h-4 inline mr-1" />
+              Register from event details below
+            </div>
+          )
         )}
       </motion.div>
     );

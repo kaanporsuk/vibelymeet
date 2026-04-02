@@ -20,6 +20,8 @@ type PricingBarProps = {
   isPurchasing?: boolean;
   /** Web: Sold Out when no spots */
   soldOut?: boolean;
+  /** Distance from screen bottom (safe area + overlays like floating tab bar). */
+  bottomInset?: number;
 };
 
 export function PricingBar({
@@ -30,6 +32,7 @@ export function PricingBar({
   onPurchase,
   isPurchasing = false,
   soldOut = false,
+  bottomInset = 0,
 }: PricingBarProps) {
   const theme = Colors[useColorScheme()];
   const statusText =
@@ -45,7 +48,16 @@ export function PricingBar({
         : `Purchase Ticket — €${Number(price).toFixed(2)}`;
 
   return (
-    <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderTopColor: theme.glassBorder }]}>
+    <View
+      style={[
+        styles.bar,
+        {
+          backgroundColor: theme.glassSurface,
+          borderTopColor: theme.glassBorder,
+          bottom: bottomInset,
+        },
+      ]}
+    >
       <View style={styles.inner}>
         <View style={styles.left}>
           <View style={styles.priceRow}>
@@ -78,13 +90,14 @@ export function PricingBar({
 const styles = StyleSheet.create({
   bar: {
     position: 'absolute',
-    bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 40,
+    elevation: 40,
     borderTopWidth: 1,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.lg,
-    paddingBottom: spacing.xl + 16,
+    paddingBottom: spacing.md,
   },
   inner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg },
   left: { flex: 1, minWidth: 0 },

@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Ticket, Sparkles, MapPin, Globe } from "lucide-react";
+import { Ticket, MapPin, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getLanguageLabel } from "@/lib/eventLanguages";
-import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
-import { useQueryClient } from "@tanstack/react-query";
+import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverCardUrl } from "@/utils/imageUrl";
 
@@ -65,42 +63,18 @@ export const EventCardPremium = ({
   const isLive = status === "live";
   const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
-  const { registerForEvent } = useRegisterForEvent();
   
   const [isRegistered, setIsRegistered] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
 
   // Sync with server registration state
   useEffect(() => {
     setIsRegistered(userRegistrations.includes(id));
   }, [userRegistrations, id]);
 
-  const handleRegister = async (e: React.MouseEvent) => {
+  const handleOpenDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsLoading(true);
-    
-    const success = await registerForEvent(id);
-    
-    if (success) {
-      setIsRegistered(true);
-      setShowConfetti(true);
-      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
-      
-      toast.success("You're on the list! 🎉", {
-        description: `See you at ${title}`,
-      });
-
-      setTimeout(() => setShowConfetti(false), 1500);
-    } else {
-      toast.error("Failed to register. Please try again.");
-    }
-    
-    setIsLoading(false);
+    navigate(`/events/${id}`);
   };
 
   return (
@@ -113,40 +87,6 @@ export const EventCardPremium = ({
       onClick={() => navigate(`/events/${id}`)}
       className="relative w-[280px] md:w-[320px] flex-shrink-0 rounded-2xl overflow-hidden bg-card border border-border/50 group cursor-pointer"
     >
-      {/* Confetti Effect */}
-      <AnimatePresence>
-        {showConfetti && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 pointer-events-none"
-          >
-            {[...Array(20)].map((_, i) => (
-              <motion.div
-                key={i}
-                initial={{
-                  x: "50%",
-                  y: "50%",
-                  scale: 0,
-                }}
-                animate={{
-                  x: `${Math.random() * 100}%`,
-                  y: `${Math.random() * 100}%`,
-                  scale: [0, 1, 0],
-                  rotate: Math.random() * 360,
-                }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className={cn(
-                  "absolute w-2 h-2 rounded-full",
-                  i % 3 === 0 ? "bg-neon-pink" : i % 3 === 1 ? "bg-neon-cyan" : "bg-neon-violet"
-                )}
-              />
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Image */}
       <div className="relative aspect-[16/10] overflow-hidden">
         <img
@@ -304,38 +244,18 @@ export const EventCardPremium = ({
           ) : (
             <motion.div key="register" whileTap={{ scale: 0.97 }}>
               <Button
-                onClick={handleRegister}
-                disabled={isLoading}
+                onClick={handleOpenDetails}
                 variant="gradient"
                 className="w-full relative overflow-hidden"
               >
-                <AnimatePresence mode="wait">
-                  {isLoading ? (
-                    <motion.div
-                      key="loading"
-                      initial={{ opacity: 0, scale: 0.5 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.5 }}
-                      className="flex items-center gap-2"
-                    >
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ repeat: Infinity, duration: 0.8, ease: "linear" }}
-                      >
-                        <Sparkles className="w-4 h-4" />
-                      </motion.div>
-                    </motion.div>
-                  ) : (
-                    <motion.span
-                      key="text"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                    >
-                      Register
-                    </motion.span>
-                  )}
-                </AnimatePresence>
+                <motion.span
+                  key="text"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  Get Tickets
+                </motion.span>
               </Button>
             </motion.div>
           )}

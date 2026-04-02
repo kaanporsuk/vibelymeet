@@ -470,7 +470,7 @@ function EventRailCard({
           <Text style={[railCardStyles.attendees, { color: theme.textSecondary }]}>+{event.attendees}</Text>
         </View>
         <View style={[railCardStyles.cta, { backgroundColor: theme.tint }]}>
-          <Text style={railCardStyles.ctaLabel}>Register</Text>
+          <Text style={railCardStyles.ctaLabel}>Get Tickets</Text>
         </View>
       </View>
     </Pressable>

@@ -36,6 +36,7 @@ import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
+import { FLOATING_TAB_BAR_HEIGHT } from '../_layout';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -343,6 +344,9 @@ export default function EventDetailScreen() {
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
   const goingCount = event.current_attendees ?? 0;
   const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
+  const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
+  const pricingBarBottomInset = floatingTabBarObstruction + spacing.xs;
+  const pricingBarReserveSpace = 124 + pricingBarBottomInset;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -362,7 +366,14 @@ export default function EventDetailScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: !isRegistered
+              ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
+              : layout.scrollContentPaddingBottomTab,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.coverWrap, { height: coverHeight }]}>
@@ -476,6 +487,9 @@ export default function EventDetailScreen() {
           eventDurationMinutes={durationMin}
           eventId={event.id}
           isRegistered={!!isRegistered}
+          onAccessPress={!isRegistered ? handlePurchase : undefined}
+          accessLabel={isFree || userPrice === 0 ? 'Register' : 'Get Tickets'}
+          accessDisabled={isPurchasing || isRegistering || soldOut}
         />
 
         {isRegistered ? (
@@ -539,6 +553,7 @@ export default function EventDetailScreen() {
           onPurchase={handlePurchase}
           isPurchasing={isPurchasing || isRegistering}
           soldOut={soldOut}
+          bottomInset={pricingBarBottomInset}
         />
       )}
 
