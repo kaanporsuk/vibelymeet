@@ -66,7 +66,7 @@ const VideoDate = () => {
   const [eventId, setEventId] = useState<string | undefined>(undefined);
   const [partnerPhotoUrl, setPartnerPhotoUrl] = useState<string | null>(null);
   const [partner, setPartner] = useState<PartnerData>({
-    name: "Your Match",
+    name: "Your date",
     age: 0,
     tags: [],
   });

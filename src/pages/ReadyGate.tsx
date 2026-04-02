@@ -33,7 +33,7 @@ const ReadyGate = () => {
   const { setStatus } = useEventStatus({ eventId });
 
   const [partner, setPartner] = useState<PartnerProfile>({
-    name: "Your Match",
+    name: "Your date",
     age: 0,
     tags: [],
   });

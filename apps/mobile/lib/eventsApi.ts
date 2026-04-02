@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 
 const GRACE_HOURS = 6;
@@ -518,14 +519,10 @@ export function useEventDeck(eventId: string, userId: string | null, enabled: bo
   });
 }
 
-export type SwipeResult = {
-  result?: string;
-  match_id?: string;
-  immediate?: boolean;
-  success?: boolean;
-  error?: string;
-  message?: string;
-};
+/** @alias SwipeSessionStageResult — `match` / `match_queued` ids are `video_sessions.id`, not `matches.id`. */
+export type SwipeResult = SwipeSessionStageResult;
+
+export type { DrainMatchQueueResult };
 
 export async function swipe(eventId: string, targetId: string, swipeType: 'vibe' | 'pass' | 'super_vibe'): Promise<SwipeResult | null> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -540,13 +537,16 @@ export async function swipe(eventId: string, targetId: string, swipeType: 'vibe'
 const SUPER_VIBE_LIMIT_PER_EVENT = 3;
 
 /** Drain match queue when user returns to browsing. Returns first ready match if any. */
-export async function drainMatchQueue(eventId: string, userId: string): Promise<{ found: boolean; match_id?: string; partner_id?: string } | null> {
+export async function drainMatchQueue(
+  eventId: string,
+  userId: string,
+): Promise<DrainMatchQueueResult | null> {
   const { data, error } = await supabase.rpc('drain_match_queue', {
     p_event_id: eventId,
     p_user_id: userId,
   });
   if (error) return null;
-  return data as { found: boolean; match_id?: string; partner_id?: string };
+  return data as DrainMatchQueueResult;
 }
 
 /** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */

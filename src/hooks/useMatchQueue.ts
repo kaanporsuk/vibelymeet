@@ -1,23 +1,34 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  type DrainMatchQueueResult,
+  videoSessionIdFromDrainPayload,
+} from "@shared/matching/videoSessionFlow";
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
   currentStatus: string;
-  onMatchReady?: (matchId: string, partnerId: string) => void;
+  /** Canonical: `video_sessions.id` when queue drain or realtime activates ready gate. */
+  onVideoSessionReady?: (videoSessionId: string, partnerId: string) => void;
+  /** @deprecated Use `onVideoSessionReady` */
+  onMatchReady?: (videoSessionId: string, partnerId: string) => void;
 }
 
-export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatchQueueOptions) => {
+export const useMatchQueue = ({
+  eventId,
+  currentStatus,
+  onVideoSessionReady,
+  onMatchReady,
+}: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
   const [queuedCount, setQueuedCount] = useState(0);
-  const onMatchReadyRef = useRef(onMatchReady);
+  const onReadyRef = useRef(onVideoSessionReady ?? onMatchReady);
 
   useEffect(() => {
-    onMatchReadyRef.current = onMatchReady;
-  }, [onMatchReady]);
+    onReadyRef.current = onVideoSessionReady ?? onMatchReady;
+  }, [onVideoSessionReady, onMatchReady]);
 
-  // Count queued matches
   const refreshQueueCount = useCallback(async () => {
     if (!eventId || !user?.id) return;
 
@@ -31,7 +42,6 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
     setQueuedCount(count || 0);
   }, [eventId, user?.id]);
 
-  // Drain queue when status returns to browsing
   useEffect(() => {
     if (!eventId || !user?.id || !["browsing", "idle"].includes(currentStatus)) return;
 
@@ -42,9 +52,10 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
           p_user_id: user.id,
         });
 
-        const result = data as any;
-        if (result?.found && result.match_id) {
-          onMatchReadyRef.current?.(result.match_id, result.partner_id);
+        const result = data as DrainMatchQueueResult;
+        const sessionId = videoSessionIdFromDrainPayload(result);
+        if (result?.found && sessionId && result.partner_id) {
+          onReadyRef.current?.(sessionId, result.partner_id);
         }
       } catch (err) {
         console.error("Error draining queue:", err);
@@ -55,7 +66,6 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
     refreshQueueCount();
   }, [eventId, user?.id, currentStatus, refreshQueueCount]);
 
-  // Listen for realtime match activations (queued → ready)
   useEffect(() => {
     if (!eventId || !user?.id) return;
 
@@ -70,7 +80,12 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
           filter: `event_id=eq.${eventId}`,
         },
         (payload) => {
-          const session = payload.new as any;
+          const session = payload.new as {
+            id: string;
+            participant_1_id: string;
+            participant_2_id: string;
+            ready_gate_status: string;
+          };
           const isParticipant =
             session.participant_1_id === user.id || session.participant_2_id === user.id;
 
@@ -81,13 +96,12 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
               session.participant_1_id === user.id
                 ? session.participant_2_id
                 : session.participant_1_id;
-            onMatchReadyRef.current?.(session.id, partnerId);
+            onReadyRef.current?.(session.id, partnerId);
           }
 
           refreshQueueCount();
         }
       )
-      // Also listen for INSERT — immediate matches are CREATED with 'ready' status
       .on(
         "postgres_changes",
         {
@@ -97,7 +111,12 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
           filter: `event_id=eq.${eventId}`,
         },
         (payload) => {
-          const session = payload.new as any;
+          const session = payload.new as {
+            id: string;
+            participant_1_id: string;
+            participant_2_id: string;
+            ready_gate_status: string;
+          };
           const isParticipant =
             session.participant_1_id === user.id || session.participant_2_id === user.id;
 
@@ -108,7 +127,7 @@ export const useMatchQueue = ({ eventId, currentStatus, onMatchReady }: UseMatch
               session.participant_1_id === user.id
                 ? session.participant_2_id
                 : session.participant_1_id;
-            onMatchReadyRef.current?.(session.id, partnerId);
+            onReadyRef.current?.(session.id, partnerId);
           }
 
           refreshQueueCount();

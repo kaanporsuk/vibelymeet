@@ -43,6 +43,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
+import {
+  videoSessionIdFromSwipePayload,
+  videoSessionIdFromDrainPayload,
+} from '@shared/matching/videoSessionFlow';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -84,7 +88,11 @@ function useCountdown(endTime: Date | null): string {
 }
 
 export default function EventLobbyScreen() {
-  const { eventId } = useLocalSearchParams<{ eventId: string }>();
+  const { eventId, pendingVideoSession, pendingMatch } = useLocalSearchParams<{
+    eventId: string;
+    pendingVideoSession?: string;
+    pendingMatch?: string;
+  }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -231,13 +239,24 @@ export default function EventLobbyScreen() {
     if (!id || !user?.id) return;
     const run = async () => {
       const result = await drainMatchQueue(id, user.id);
-      if (result?.found && result.match_id) {
-        await openReadyGateWithSession(result.match_id);
+      const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
+      if (result?.found && sessionId) {
+        await openReadyGateWithSession(sessionId);
       }
       await refreshQueueAndSuperVibe();
     };
     run();
   }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe]);
+
+  useEffect(() => {
+    if (!id) return;
+    const a = Array.isArray(pendingVideoSession) ? pendingVideoSession[0] : pendingVideoSession;
+    const b = Array.isArray(pendingMatch) ? pendingMatch[0] : pendingMatch;
+    const pending = typeof a === 'string' && a ? a : typeof b === 'string' && b ? b : undefined;
+    if (pending) {
+      void openReadyGateWithSession(pending);
+    }
+  }, [id, pendingVideoSession, pendingMatch, openReadyGateWithSession]);
 
   useEffect(() => {
     if (id && user?.id) refreshQueueAndSuperVibe();
@@ -471,7 +490,7 @@ export default function EventLobbyScreen() {
           break;
         case 'match_queued':
           show({
-            title: 'Match waiting',
+            title: 'Video date queued',
             message: 'It’ll start when your partner is free. 💚',
             variant: 'success',
             primaryAction: { label: 'Nice', onPress: () => {} },
@@ -582,9 +601,10 @@ export default function EventLobbyScreen() {
         result: outcome,
       });
 
-      if (code === 'match' && envelope.match_id) {
-        lastOpenedSessionRef.current = envelope.match_id;
-        setActiveSessionId(envelope.match_id);
+      const videoSessionId = videoSessionIdFromSwipePayload(envelope);
+      if (code === 'match' && videoSessionId) {
+        lastOpenedSessionRef.current = videoSessionId;
+        setActiveSessionId(videoSessionId);
         setActiveSessionPartnerName(current?.name ?? null);
         const img = current?.avatar_url ?? current?.photos?.[0];
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
