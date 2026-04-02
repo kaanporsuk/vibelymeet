@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Loader2, CheckCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,11 @@ export const EmailVerificationFlow = ({
   const [email, setEmail] = useState(userEmail);
   const [otp, setOtp] = useState("");
   const { sendOtp, verifyOtp, isSending, isVerifying } = useEmailVerification();
+
+  useEffect(() => {
+    if (!open) return;
+    setEmail(userEmail ?? "");
+  }, [open, userEmail]);
 
   const handleSendOtp = async () => {
     if (!email || !email.includes("@")) return;

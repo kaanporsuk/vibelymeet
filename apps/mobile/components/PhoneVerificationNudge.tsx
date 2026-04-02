@@ -1,16 +1,14 @@
 /**
- * Phone verification nudge — parity with web variants; Verify on web handoff (verification flow is web/complex).
+ * Phone verification nudge — native parity; launches the canonical native OTP flow.
  */
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Linking } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
-
-const WEB_VERIFY_URL = 'https://vibelymeet.com/settings';
 
 type Variant = 'wizard' | 'match' | 'event' | 'empty';
 
@@ -19,14 +17,14 @@ const COPY: Record<Variant, { emoji: string; title: string; subtitle: string; ct
     emoji: '🔒',
     title: 'One more thing — verify your phone to get a trust badge',
     subtitle: 'Verified profiles get 2x more matches',
-    cta: 'Verify on Web',
+    cta: 'Verify Phone',
     dismiss: 'Maybe Later',
   },
   match: {
     emoji: '💜',
     title: 'Congrats on your first match! Boost your profile with phone verification',
     subtitle: '',
-    cta: 'Verify on Web',
+    cta: 'Verify Phone',
     dismiss: 'Skip',
   },
   event: {
@@ -40,7 +38,7 @@ const COPY: Record<Variant, { emoji: string; title: string; subtitle: string; ct
     emoji: '📱',
     title: 'No matches yet — verify your phone to boost your visibility',
     subtitle: '',
-    cta: 'Verify on Web',
+    cta: 'Verify Phone',
     dismiss: '',
   },
 };
@@ -48,10 +46,13 @@ const COPY: Record<Variant, { emoji: string; title: string; subtitle: string; ct
 type PhoneVerificationNudgeProps = {
   variant: Variant;
   onDismiss?: () => void;
+  /** Opens the canonical native phone verification flow. */
+  onVerify?: () => void;
+  /** Back-compat: fired on CTA tap (previously used for web handoff). */
   onVerified?: () => void;
 };
 
-export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: PhoneVerificationNudgeProps) {
+export function PhoneVerificationNudge({ variant, onDismiss, onVerify, onVerified }: PhoneVerificationNudgeProps) {
   const theme = Colors[useColorScheme()];
   const [dismissed, setDismissed] = useState(false);
   const copy = COPY[variant];
@@ -62,8 +63,8 @@ export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: Phone
   };
 
   const handleVerify = () => {
-    Linking.openURL(WEB_VERIFY_URL).catch(() => {});
     setDismissed(true);
+    onVerify?.();
     onVerified?.();
   };
 

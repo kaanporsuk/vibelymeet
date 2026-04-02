@@ -577,7 +577,8 @@ const Matches = () => {
                   <div className="px-4">
                     <PhoneVerificationNudge
                       variant="empty"
-                      onVerified={() => setPhoneVerifiedForEmpty(true)}
+                      userId={user?.id ?? null}
+                      onVerified={(next) => setPhoneVerifiedForEmpty(next?.phoneVerified ?? true)}
                     />
                   </div>
                 )}

@@ -3,11 +3,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ShieldCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PhoneVerification } from "@/components/PhoneVerification";
+import { fetchMyPhoneVerificationProfile, type PhoneVerificationProfile } from "@/lib/phoneVerificationState";
 
 interface PhoneVerificationNudgeProps {
   variant: "wizard" | "match" | "event" | "empty";
+  /** If provided, the nudge will reconcile against canonical backend truth post-success. */
+  userId?: string | null;
+  /** Optional E.164 value to prefill the modal. */
+  initialPhoneE164?: string | null;
   onDismiss?: () => void;
-  onVerified?: () => void;
+  onVerified?: (profile?: PhoneVerificationProfile) => void;
 }
 
 const COPY = {
@@ -15,33 +20,33 @@ const COPY = {
     emoji: "🔒",
     title: "One more thing — verify your phone to get a trust badge",
     subtitle: "Verified profiles get 2x more matches",
-    cta: "Verify Now",
+    cta: "Verify phone",
     dismiss: "Maybe Later",
   },
   match: {
     emoji: "💜",
     title: "Congrats on your first match! Boost your profile with phone verification",
     subtitle: "",
-    cta: "Verify Now",
+    cta: "Verify phone",
     dismiss: "Skip",
   },
   event: {
     emoji: "📱",
     title: "Tip: Verified profiles are shown first in the event lobby",
     subtitle: "",
-    cta: "Verify Phone",
+    cta: "Verify phone",
     dismiss: "",
   },
   empty: {
     emoji: "📱",
     title: "No matches yet — verify your phone to boost your visibility",
     subtitle: "",
-    cta: "Verify Now",
+    cta: "Verify phone",
     dismiss: "",
   },
 };
 
-export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: PhoneVerificationNudgeProps) {
+export function PhoneVerificationNudge({ variant, userId, initialPhoneE164, onDismiss, onVerified }: PhoneVerificationNudgeProps) {
   const [showModal, setShowModal] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const copy = COPY[variant];
@@ -55,7 +60,19 @@ export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: Phone
 
   const handleVerified = () => {
     setDismissed(true);
-    onVerified?.();
+    if (!userId) {
+      onVerified?.();
+      return;
+    }
+    void (async () => {
+      try {
+        const next = await fetchMyPhoneVerificationProfile(userId);
+        onVerified?.(next);
+      } catch (e) {
+        console.error(e);
+        onVerified?.();
+      }
+    })();
   };
 
   return (
@@ -114,6 +131,7 @@ export function PhoneVerificationNudge({ variant, onDismiss, onVerified }: Phone
       <PhoneVerification
         open={showModal}
         onOpenChange={setShowModal}
+        initialPhoneE164={initialPhoneE164}
         onVerified={handleVerified}
       />
     </>

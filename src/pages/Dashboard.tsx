@@ -561,6 +561,7 @@ const Dashboard = () => {
             >
               <PhoneVerificationNudge
                 variant="wizard"
+                userId={user?.id ?? null}
                 onDismiss={() => {
                   localStorage.setItem("vibely_phone_nudge_dashboard_dismissed", "true");
                   setShowDashboardPhoneNudge(false);

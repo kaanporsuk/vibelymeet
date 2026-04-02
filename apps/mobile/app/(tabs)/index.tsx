@@ -52,6 +52,7 @@ import { usePushPermission } from '@/lib/usePushPermission';
 import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
 import { VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
+import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
@@ -124,6 +125,8 @@ export default function DashboardScreen() {
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
+  const [showPhoneVerify, setShowPhoneVerify] = useState(false);
+  const [initialPhoneE164, setInitialPhoneE164] = useState<string | null>(null);
   const { canCityBrowse } = useEntitlements();
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useEvents(
     user?.id ?? null,
@@ -260,11 +263,30 @@ export default function DashboardScreen() {
         setPhoneNudgeChecked(true);
         return;
       }
-      const { data } = await supabase.from('profiles').select('phone_verified').eq('id', user.id).maybeSingle();
+      const { data } = await supabase
+        .from('profiles')
+        .select('phone_verified, phone_number')
+        .eq('id', user.id)
+        .maybeSingle();
       const verified = (data as { phone_verified?: boolean } | null)?.phone_verified;
+      const phoneNumber = (data as { phone_number?: string | null } | null)?.phone_number;
       setShowPhoneNudge(!verified);
+      setInitialPhoneE164(phoneNumber ?? null);
       setPhoneNudgeChecked(true);
     })();
+  }, [user?.id]);
+
+  const refreshPhoneNudgeStatus = React.useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('phone_verified, phone_number')
+      .eq('id', user.id)
+      .maybeSingle();
+    const verified = (data as { phone_verified?: boolean } | null)?.phone_verified;
+    const phoneNumber = (data as { phone_number?: string | null } | null)?.phone_number;
+    setShowPhoneNudge(!verified);
+    setInitialPhoneE164(phoneNumber ?? null);
   }, [user?.id]);
 
   useEffect(() => {
@@ -688,6 +710,7 @@ export default function DashboardScreen() {
                 await AsyncStorage.setItem(PHONE_NUDGE_DISMISSED_KEY, 'true');
                 setShowPhoneNudge(false);
               }}
+              onVerify={() => setShowPhoneVerify(true)}
               onVerified={() => setShowPhoneNudge(false)}
             />
           )}
@@ -880,6 +903,16 @@ export default function DashboardScreen() {
           )}
         </Animated.View>
       </ScrollView>
+
+      <PhoneVerificationFlow
+        visible={showPhoneVerify}
+        onClose={() => setShowPhoneVerify(false)}
+        initialPhoneE164={initialPhoneE164}
+        onVerified={() => {
+          void refreshPhoneNudgeStatus();
+          setShowPhoneVerify(false);
+        }}
+      />
     </View>
   );
 }

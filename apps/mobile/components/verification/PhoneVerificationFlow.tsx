@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Pressable, TextInput, StyleSheet, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Localization from 'expo-localization';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
@@ -24,6 +25,8 @@ const COUNTRY_CODES = [
   { code: '+34', label: '🇪🇸 +34' },
 ];
 
+const FALLBACK_COUNTRY_CODE = '+1';
+
 type Step = 'phone' | 'otp' | 'success';
 
 type PhoneVerificationFlowProps = {
@@ -37,7 +40,7 @@ type PhoneVerificationFlowProps = {
 export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPhoneE164 }: PhoneVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('phone');
-  const [countryCode, setCountryCode] = useState('+90');
+  const [countryCode, setCountryCode] = useState<string>(FALLBACK_COUNTRY_CODE);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -45,6 +48,25 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
   const [resendCooldown, setResendCooldown] = useState(0);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const successScale = useRef(new Animated.Value(0)).current;
+
+  const dialCodeFromRegion = (region?: string | null): string | null => {
+    const r = (region ?? '').toUpperCase();
+    const map: Record<string, string> = {
+      US: '+1',
+      CA: '+1',
+      GB: '+44',
+      UK: '+44',
+      DE: '+49',
+      FR: '+33',
+      PL: '+48',
+      ES: '+34',
+      IN: '+91',
+      TR: '+90',
+    };
+    const mapped = map[r];
+    if (!mapped) return null;
+    return COUNTRY_CODES.some((c) => c.code === mapped) ? mapped : null;
+  };
 
   const cleaned = phoneNumber.replace(/\D/g, '').replace(/^0+/, '');
   const fullNumber = `${countryCode}${cleaned}`;
@@ -59,6 +81,7 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
       setFailedAttempts(0);
       return;
     }
+
     if (initialPhoneE164) {
       const raw = initialPhoneE164.replace(/\s/g, '');
       const match = raw.match(/^(\+\d{1,3})(.*)$/);
@@ -66,12 +89,20 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
         const cc = match[1];
         const rest = match[2].replace(/\D/g, '');
         const known = COUNTRY_CODES.some((c) => c.code === cc);
-        if (known) setCountryCode(cc);
+        if (known) {
+          setCountryCode(cc);
+        } else {
+          const localeRegionCode = Localization.getLocales()[0]?.regionCode ?? null;
+          const localeDial = dialCodeFromRegion(localeRegionCode);
+          setCountryCode(localeDial ?? FALLBACK_COUNTRY_CODE);
+        }
         setPhoneNumber(rest);
       }
     } else {
       setPhoneNumber('');
-      setCountryCode('+90');
+      const localeRegionCode = Localization.getLocales()[0]?.regionCode ?? null;
+      const localeDial = dialCodeFromRegion(localeRegionCode);
+      setCountryCode(localeDial ?? FALLBACK_COUNTRY_CODE);
     }
   }, [visible, initialPhoneE164]);
 

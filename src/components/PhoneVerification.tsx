@@ -23,6 +23,8 @@ interface PhoneVerificationProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onVerified: () => void;
+  /** Optional E.164 value (e.g. +15551234567) to prefill country + local digits. */
+  initialPhoneE164?: string | null;
 }
 
 const COUNTRY_CODES = [
@@ -71,12 +73,12 @@ function detectCountryFromLocale(): string {
       if (parts.length > 1) return parts[1].toUpperCase();
     }
   } catch {}
-  return "TR";
+  return "US";
 }
 
-export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerificationProps) {
+export function PhoneVerification({ open, onOpenChange, onVerified, initialPhoneE164 }: PhoneVerificationProps) {
   const detectedCountry = detectCountryFromLocale();
-  const defaultDialCode = COUNTRY_CODES.find(c => c.country === detectedCountry)?.code || "+90";
+  const defaultDialCode = COUNTRY_CODES.find(c => c.country === detectedCountry)?.code || "+1";
 
   const [screen, setScreen] = useState<"phone" | "otp" | "success">("phone");
   const [countryCode, setCountryCode] = useState(defaultDialCode);
@@ -105,21 +107,38 @@ export function PhoneVerification({ open, onOpenChange, onVerified }: PhoneVerif
     }
   }, [open]);
 
-  // Health check on modal open
+  // Prefill from saved number when available (E.164)
+  useEffect(() => {
+    if (!open) return;
+    if (!initialPhoneE164?.trim()) {
+      setCountryCode(defaultDialCode);
+      return;
+    }
+    const raw = initialPhoneE164.trim().replace(/\s/g, "");
+    const match = raw.match(/^(\+\d{1,3})(.*)$/);
+    if (!match) return;
+    const cc = match[1];
+    const rest = match[2].replace(/\D/g, "");
+    const known = COUNTRY_CODES.some((c) => c.code === cc);
+    if (known) {
+      setCountryCode(cc);
+      setPhoneNumber(rest);
+    }
+  }, [open, initialPhoneE164, defaultDialCode]);
+
+  // Health check (dev-only diagnostic)
   useEffect(() => {
     if (open) {
-      supabase.functions.invoke("phone-verify", {
-        body: { action: "health_check", phoneNumber: "+0" },
-      }).then(({ data, error: invokeError }) => {
-        if (invokeError) {
-          console.error("Phone verify health check failed:", invokeError);
-        } else {
-          console.log("Phone verify health check:", data);
-          if (data && (!data.hasSid || !data.hasToken || !data.hasVerify)) {
+      const diagOn = typeof window !== "undefined" && window.localStorage?.getItem("__vibely_diag") === "1";
+      if (!import.meta.env.DEV || !diagOn) return;
+      supabase.functions
+        .invoke("phone-verify", { body: { action: "health_check", phoneNumber: "+0" } })
+        .then(({ data, error: invokeError }) => {
+          if (invokeError) console.error("Phone verify health check failed:", invokeError);
+          else if (data && (!data.hasSid || !data.hasToken || !data.hasVerify)) {
             console.error("⚠️ Twilio secrets missing!", data);
           }
-        }
-      });
+        });
     }
   }, [open]);
 

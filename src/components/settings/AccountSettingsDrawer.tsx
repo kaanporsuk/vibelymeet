@@ -42,6 +42,8 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
+import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
+import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 
 interface AccountSettingsDrawerProps {
   open: boolean;
@@ -89,12 +91,15 @@ export const AccountSettingsDrawer = ({
         ? format(premiumUntil, "MMM d, yyyy")
         : null;
   const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  const [profileEmailVerified, setProfileEmailVerified] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   
   const [activeSection, setActiveSection] = useState<ActiveSection>(null);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [emailForVerification, setEmailForVerification] = useState("");
   const [showPasswordForPhone, setShowPasswordForPhone] = useState(false);
   const [phoneChangePassword, setPhoneChangePassword] = useState("");
   const [phoneReauthLoading, setPhoneReauthLoading] = useState(false);
@@ -118,13 +123,14 @@ export const AccountSettingsDrawer = ({
       const { data } = await supabase
         .from("profiles")
         .select(
-          "phone_verified, phone_number, account_paused, account_paused_until, is_paused, paused_until"
+          "phone_verified, phone_number, email_verified, account_paused, account_paused_until, is_paused, paused_until"
         )
         .eq("id", user.id)
         .maybeSingle();
       if (data) {
         setPhoneVerified(!!data.phone_verified);
         setPhoneNumber((data.phone_number as string) ?? null);
+        setProfileEmailVerified(!!data.email_verified);
         setOnBreak(!!(data.account_paused || data.is_paused));
         setBreakUntilIso(
           (data.account_paused_until as string | null) ?? (data.paused_until as string | null) ?? null
@@ -133,6 +139,11 @@ export const AccountSettingsDrawer = ({
     };
     fetchPhone();
   }, [open, user]);
+
+  useEffect(() => {
+    if (!open) return;
+    setEmailForVerification(user?.email ?? "");
+  }, [open, user?.email]);
   
   // Email change state
   const [newEmail, setNewEmail] = useState("");
@@ -370,14 +381,17 @@ export const AccountSettingsDrawer = ({
               <p className="text-foreground font-medium break-all">{user?.email || "No email set"}</p>
               {emailVerified ? (
                 <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                  Verified ✓
+                  Confirmed ✓
                 </span>
               ) : (
                 <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
-                  Unverified
+                  Unconfirmed
                 </span>
               )}
             </div>
+            <p className="text-xs text-muted-foreground">
+              This is your sign-in email status. Profile email verification is a separate trust step.
+            </p>
             <button
               type="button"
               className="text-xs font-medium text-primary hover:underline"
@@ -419,7 +433,7 @@ export const AccountSettingsDrawer = ({
                   onClick={() => setShowPhoneVerification(true)}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Add / verify
+                  Verify phone
                 </button>
               </div>
             )}
@@ -433,17 +447,17 @@ export const AccountSettingsDrawer = ({
                 <span className="text-xs font-medium text-emerald-400">Verified</span>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => setShowPhoneVerification(true)}>
-                  Verify now
+                  Verify phone
                 </Button>
               )}
             </div>
             <div className="flex items-center justify-between border-t border-border/40 pt-2">
               <span className="text-sm text-foreground">Email</span>
-              {emailVerified ? (
+              {profileEmailVerified ? (
                 <span className="text-xs font-medium text-emerald-400">Verified</span>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => setActiveSection("email")}>
-                  Verify via update
+                <Button size="sm" variant="outline" onClick={() => setShowEmailVerification(true)}>
+                  Verify email
                 </Button>
               )}
             </div>
@@ -694,7 +708,7 @@ export const AccountSettingsDrawer = ({
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        We'll send a verification link to your new email
+                        We'll send a confirmation link to your new account email. Profile verification is separate below.
                       </p>
                     </div>
 
@@ -963,9 +977,33 @@ export const AccountSettingsDrawer = ({
       <PhoneVerification
         open={showPhoneVerification}
         onOpenChange={setShowPhoneVerification}
+        initialPhoneE164={phoneNumber}
         onVerified={() => {
-          setPhoneVerified(true);
-          setShowPhoneVerification(false);
+          if (!user?.id) {
+            setPhoneVerified(true);
+            setShowPhoneVerification(false);
+            return;
+          }
+          void (async () => {
+            try {
+              const next = await fetchMyPhoneVerificationProfile(user.id);
+              setPhoneVerified(next.phoneVerified);
+              setPhoneNumber(next.phoneNumber);
+            } catch (e) {
+              console.error(e);
+              setPhoneVerified(true);
+            } finally {
+              setShowPhoneVerification(false);
+            }
+          })();
+        }}
+      />
+      <EmailVerificationFlow
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        userEmail={emailForVerification}
+        onVerified={() => {
+          setProfileEmailVerified(true);
         }}
       />
     </Drawer>

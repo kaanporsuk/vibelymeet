@@ -54,7 +54,7 @@ import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
-// EmailVerificationFlow removed — Supabase Auth "Confirm email" handles this
+import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
 import { useNavigate } from "react-router-dom";
@@ -62,6 +62,8 @@ import { useLogout } from "@/hooks/useLogout";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { resolvePhotoVerificationState, type PhotoVerificationState } from "@/lib/photoVerificationState";
+import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
 import {
@@ -297,8 +299,12 @@ const LegacyProfilePage = () => {
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
-  const [photoVerificationStatus, setPhotoVerificationStatus] = useState<"none" | "pending" | "approved" | "rejected" | "expired">("none");
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailForVerification, setEmailForVerification] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
+  const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [photoVerificationExpiresAt, setPhotoVerificationExpiresAt] = useState<string | null>(null);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
 
@@ -312,22 +318,29 @@ const LegacyProfilePage = () => {
         if (user) {
           const { data: phoneData } = await supabase
             .from("profiles")
-            .select("phone_verified, email_verified, photo_verified, photo_verification_expires_at")
+            .select("phone_verified, phone_number, email_verified, photo_verified, photo_verification_expires_at")
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) {
             setPhoneVerified(true);
           }
+          setEmailVerified(!!phoneData?.email_verified);
+          setEmailForVerification(user.email ?? "");
+          setPhoneNumber((phoneData?.phone_number as string | null | undefined) ?? null);
 
-          // Determine photo verification status
-          if (phoneData?.photo_verified) {
-            // Check expiry
-            if (phoneData.photo_verification_expires_at && new Date(phoneData.photo_verification_expires_at) < new Date()) {
-              setPhotoVerificationStatus("expired");
-            } else {
-              setPhotoVerificationStatus("approved");
-            }
-            setPhotoVerificationExpiresAt(phoneData.photo_verification_expires_at);
+          // Determine photo verification status from canonical backend truth.
+          const profilePhotoVerified = phoneData?.photo_verified;
+          const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
+
+          if (profilePhotoVerified) {
+            setPhotoVerificationExpiresAt(photoVerificationExpiresAt ?? null);
+            setPhotoVerificationStatus(
+              resolvePhotoVerificationState({
+                photoVerified: profilePhotoVerified,
+                photoVerificationExpiresAt,
+                latestPhotoVerificationStatus: null,
+              }),
+            );
           } else {
             // Check for pending verification
             const { data: pendingVerification } = await supabase
@@ -338,13 +351,14 @@ const LegacyProfilePage = () => {
               .limit(1)
               .maybeSingle();
 
-            if (pendingVerification?.status === "pending") {
-              setPhotoVerificationStatus("pending");
-            } else if (pendingVerification?.status === "rejected") {
-              setPhotoVerificationStatus("rejected");
-            } else {
-              setPhotoVerificationStatus("none");
-            }
+            setPhotoVerificationExpiresAt(null);
+            setPhotoVerificationStatus(
+              resolvePhotoVerificationState({
+                photoVerified: profilePhotoVerified,
+                photoVerificationExpiresAt,
+                latestPhotoVerificationStatus: pendingVerification?.status,
+              }),
+            );
           }
         }
 
@@ -542,14 +556,24 @@ const LegacyProfilePage = () => {
   };
 
   const verificationSteps = [
-    { id: "email", label: "Email verification", description: "Verified", icon: Mail, completed: true },
+    {
+      id: "email",
+      label: "Email verification",
+      description: emailVerified ? "Verified" : "Verify your email",
+      icon: Mail,
+      completed: emailVerified,
+    },
     getPhotoVerificationStep(),
     { id: "phone", label: "Phone number", description: phoneVerified ? "Verified" : "Verify your number", icon: Phone, completed: phoneVerified },
   ];
 
   const handleVerificationStep = (stepId: string) => {
     if (stepId === "email") {
-      toast.success("Your email is already verified ✓");
+      if (emailVerified) {
+        toast.success("Your email is already verified ✓");
+        return;
+      }
+      setShowEmailVerification(true);
       return;
     }
     if (stepId === "photo") {
@@ -1733,8 +1757,34 @@ const LegacyProfilePage = () => {
       <PhoneVerification
         open={showPhoneVerification}
         onOpenChange={setShowPhoneVerification}
+        initialPhoneE164={phoneNumber}
         onVerified={() => {
-          setPhoneVerified(true);
+          setShowPhoneVerification(false);
+          if (!profile?.id) {
+            setPhoneVerified(true);
+            return;
+          }
+          void (async () => {
+            try {
+              const next = await fetchMyPhoneVerificationProfile(profile.id);
+              setPhoneVerified(next.phoneVerified);
+              setPhoneNumber(next.phoneNumber);
+            } catch (e) {
+              console.error(e);
+              setPhoneVerified(true);
+            } finally {
+              setProfileRefreshKey((k) => k + 1);
+            }
+          })();
+        }}
+      />
+      <EmailVerificationFlow
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        userEmail={emailForVerification}
+        onVerified={() => {
+          setEmailVerified(true);
+          setProfileRefreshKey((k) => k + 1);
         }}
       />
 
@@ -1744,15 +1794,9 @@ const LegacyProfilePage = () => {
         onOpenChange={setShowPhotoVerification}
         userId={profile.id}
         profilePhotoUrl={profile.photos[0]}
-        onVerificationComplete={(success) => {
-          if (success) {
-            setProfile({ ...profile, photoVerified: true });
-            setPhotoVerificationStatus("approved");
-          } else {
-            // Submitted for review
-            setPhotoVerificationStatus("pending");
-          }
-          setShowPhotoVerification(false);
+        onSubmissionComplete={() => {
+          setPhotoVerificationStatus("pending");
+          setProfileRefreshKey((k) => k + 1);
         }}
       />
 
