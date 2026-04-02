@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import { ShieldCheck, CheckCircle2, XCircle, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import {
   PROOF_SELFIES_BUCKET,
-  isAbsoluteMediaUrl,
-  normalizeProofSelfieObjectPath,
+  checkProofSelfieObjectExists,
+  resolveProofSelfieObjectPathForSigning,
+  type ProofSelfieStoredShape,
 } from "@/lib/proofSelfieUrl";
 import {
   Dialog,
@@ -33,6 +34,15 @@ type ResolvedVerificationUrls = {
   profile: string;
   selfie: string | null;
   selfieError: string | null;
+  /** Populated when selfie resolved for <img onError> diagnostics */
+  _diag?: {
+    verificationId: string;
+    userId: string;
+    originalSelfieUrl: string;
+    shape: ProofSelfieStoredShape;
+    normalizedObjectPath: string | null;
+    storageObjectExists: boolean | null;
+  };
 };
 
 const REJECTION_REASONS = [
@@ -78,16 +88,19 @@ const AdminPhotoVerificationPanel = () => {
       if (userIds.length === 0) return [];
       const { data } = await supabase
         .from("profiles")
-        .select("id, name, age, avatar_url")
+        .select("id, name, age, avatar_url, proof_selfie_url")
         .in("id", userIds);
       return data || [];
     },
     enabled: userIds.length > 0,
   });
 
-  const profileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+  const profileMap = useMemo(
+    () => Object.fromEntries(profiles.map((p: any) => [p.id, p])),
+    [profiles]
+  );
 
-  // Resolve photo URLs (selfie = private bucket signed URL only; profile = public/Bunny via resolvePhotoUrl)
+  // Resolve photo URLs (selfie = fresh signed URL from proof-selfies; never trust stale Supabase URLs)
   useEffect(() => {
     let cancelled = false;
 
@@ -96,26 +109,65 @@ const AdminPhotoVerificationPanel = () => {
       for (const v of verifications) {
         const profileUrl = resolvePhotoUrl(v.profile_photo_url);
         const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
+        const proofSelfieOnProfile = profileMap[v.user_id]?.proof_selfie_url ?? null;
 
-        if (isAbsoluteMediaUrl(rawSelfie)) {
-          newResolved[v.id] = { profile: profileUrl, selfie: rawSelfie.trim(), selfieError: null };
-          continue;
-        }
+        const { objectPath, shape } = resolveProofSelfieObjectPathForSigning(rawSelfie);
 
-        const objectPath = normalizeProofSelfieObjectPath(rawSelfie);
+        const logBase = {
+          verificationId: v.id,
+          userId: v.user_id,
+          originalSelfieUrl: rawSelfie,
+          selfieUrlShape: shape,
+          normalizedObjectPath: objectPath,
+          profileProofSelfieUrl: proofSelfieOnProfile,
+          status: v.status,
+          createdAt: v.created_at,
+        };
+
         if (!objectPath) {
-          console.error("[admin photo verification] Missing or invalid selfie storage path", {
-            verificationId: v.id,
-            userId: v.user_id,
-            selfie_url: rawSelfie,
-          });
+          if (shape === "absolute_non_supabase") {
+            console.warn("[admin photo verification] Non-Supabase absolute selfie_url — displaying as-is; onError may follow", logBase);
+            newResolved[v.id] = {
+              profile: profileUrl,
+              selfie: rawSelfie.trim(),
+              selfieError: null,
+              _diag: {
+                verificationId: v.id,
+                userId: v.user_id,
+                originalSelfieUrl: rawSelfie,
+                shape,
+                normalizedObjectPath: null,
+                storageObjectExists: null,
+              },
+            };
+            continue;
+          }
+
+          console.error("[admin photo verification] Could not derive proof-selfies object path from selfie_url", logBase);
           newResolved[v.id] = {
             profile: profileUrl,
             selfie: null,
-            selfieError: "Invalid selfie path in database — cannot load from storage.",
+            selfieError:
+              shape === "supabase_storage_other_bucket"
+                ? "Selfie URL points at a different storage bucket — expected proof-selfies."
+                : "Invalid selfie value in database — cannot load from proof-selfies.",
           };
           continue;
         }
+
+        let storageObjectExists: boolean | null = null;
+        try {
+          storageObjectExists = await checkProofSelfieObjectExists(supabase, objectPath);
+        } catch (e) {
+          console.warn("[admin photo verification] checkProofSelfieObjectExists threw", { ...logBase, err: String(e) });
+        }
+
+        if (cancelled) return;
+
+        console.info("[admin photo verification] Resolved selfie for signing", {
+          ...logBase,
+          storageObjectExists,
+        });
 
         const { data, error } = await supabase.storage
           .from(PROOF_SELFIES_BUCKET)
@@ -123,20 +175,34 @@ const AdminPhotoVerificationPanel = () => {
 
         if (cancelled) return;
 
+        const diag = {
+          verificationId: v.id,
+          userId: v.user_id,
+          originalSelfieUrl: rawSelfie,
+          shape,
+          normalizedObjectPath: objectPath,
+          storageObjectExists,
+        };
+
         if (error || !data?.signedUrl) {
           console.error("[admin photo verification] createSignedUrl failed for proof-selfies", {
-            verificationId: v.id,
-            userId: v.user_id,
-            objectPath,
+            ...logBase,
+            storageObjectExists,
             message: error?.message ?? "No signed URL returned",
           });
           newResolved[v.id] = {
             profile: profileUrl,
             selfie: null,
             selfieError: "Could not create a signed URL for this selfie. Check policies and path.",
+            _diag: diag,
           };
         } else {
-          newResolved[v.id] = { profile: profileUrl, selfie: data.signedUrl, selfieError: null };
+          newResolved[v.id] = {
+            profile: profileUrl,
+            selfie: data.signedUrl,
+            selfieError: null,
+            _diag: diag,
+          };
         }
       }
       if (!cancelled) setResolvedUrls(newResolved);
@@ -148,7 +214,7 @@ const AdminPhotoVerificationPanel = () => {
     return () => {
       cancelled = true;
     };
-  }, [verifications]);
+  }, [verifications, profileMap]);
 
   // Stats
   const { data: stats } = useQuery({
@@ -246,6 +312,31 @@ const AdminPhotoVerificationPanel = () => {
     return `${days}d ago`;
   };
 
+  const onSelfieImageError = useCallback((verificationId: string) => {
+    setResolvedUrls((prev) => {
+      const cur = prev[verificationId];
+      if (!cur?.selfie) return prev;
+      console.error("[admin photo verification] Selfie <img> failed to load after resolved URL", {
+        verificationId,
+        userId: cur._diag?.userId,
+        attemptedUrl: cur.selfie,
+        originalSelfieUrl: cur._diag?.originalSelfieUrl,
+        selfieUrlShape: cur._diag?.shape,
+        normalizedObjectPath: cur._diag?.normalizedObjectPath,
+        storageObjectExists: cur._diag?.storageObjectExists,
+      });
+      return {
+        ...prev,
+        [verificationId]: {
+          ...cur,
+          selfie: null,
+          selfieError:
+            "Selfie failed to load (expired link, missing object, or blocked request). See console for the attempted URL.",
+        },
+      };
+    });
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -319,7 +410,12 @@ const AdminPhotoVerificationPanel = () => {
                     <p className="text-xs text-muted-foreground text-center">Verification Selfie</p>
                     <div className="aspect-[4/5] rounded-xl overflow-hidden bg-secondary">
                       {urls?.selfie ? (
-                        <img src={urls.selfie} alt="Selfie" className="w-full h-full object-cover" />
+                        <img
+                          src={urls.selfie}
+                          alt="Selfie"
+                          className="w-full h-full object-cover"
+                          onError={() => onSelfieImageError(v.id)}
+                        />
                       ) : urls?.selfieError ? (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-3 text-center">
                           <AlertTriangle className="w-8 h-8 text-destructive shrink-0" />
