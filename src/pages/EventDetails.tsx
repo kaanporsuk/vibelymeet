@@ -365,6 +365,7 @@ const EventDetails = () => {
         {showEventPhoneNudge && !isRegistered && (
           <PhoneVerificationNudge
             variant="event"
+            userId={user?.id ?? null}
             onDismiss={() => {
               localStorage.setItem("vibely_phone_nudge_event_dismissed", "true");
               setShowEventPhoneNudge(false);

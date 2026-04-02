@@ -59,6 +59,7 @@ import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/p
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
+import { PhotoVerificationFlow } from '@/components/verification/PhotoVerificationFlow';
 import { useSchedule } from '@/lib/useSchedule';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
@@ -68,6 +69,7 @@ import type { VibeScoreActionId } from '@/lib/vibeScoreIncompleteActions';
 import VibeScoreCircle from '@/components/profile/VibeScoreCircle';
 import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
@@ -189,6 +191,8 @@ export default function ProfileStudio() {
   // Verification
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
+  const [showPhotoVerify, setShowPhotoVerify] = useState(false);
+  const [photoVerificationState, setPhotoVerificationState] = useState<PhotoVerificationState>('none');
 
   const chooseFileSupported = React.useMemo(() => isDocumentPickerAvailable(), []);
 
@@ -208,6 +212,16 @@ export default function ProfileStudio() {
   }, [profile]);
 
   const { show, dialog } = useVibelyDialog();
+
+  const refreshPhotoVerificationState = React.useCallback(async () => {
+    if (!user?.id) return;
+    const next = await fetchMyPhotoVerificationState(user.id);
+    setPhotoVerificationState(next.state);
+  }, [user?.id]);
+
+  useEffect(() => {
+    void refreshPhotoVerificationState();
+  }, [refreshPhotoVerificationState]);
 
   // ═══════════════════════════════════════════════
   // End of hooks — only plain values / handlers below until loading/error early returns.
@@ -354,9 +368,41 @@ export default function ProfileStudio() {
         scrollToSection('details');
         break;
       case 'phone':
+        setShowPhoneVerify(true);
+        break;
       case 'email':
+        setShowEmailVerify(true);
+        break;
       case 'photo_verify':
         scrollToSection('verification');
+        if (photoVerificationState === 'approved') {
+          show({
+            title: 'Already verified',
+            message: 'Your photo verification badge is active.',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        }
+        if (photoVerificationState === 'pending') {
+          show({
+            title: 'Under review',
+            message: 'Your selfie is currently under review. We’ll update your badge when approved.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        }
+        if (!profile?.photos?.[0]) {
+          show({
+            title: 'Add a profile photo first',
+            message: 'Please add a profile photo before submitting selfie verification.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        }
+        setShowPhotoVerify(true);
         break;
       case 'name':
         scrollToSection('hero');
@@ -1820,7 +1866,7 @@ export default function ProfileStudio() {
               )}
 
               {/* Photo */}
-              {profile?.photo_verified ? (
+              {photoVerificationState === 'approved' ? (
                 <RNView style={[s.verificationCard, { borderColor: 'rgba(13,148,136,0.3)', backgroundColor: 'rgba(13,148,136,0.1)' }]}>
                   <RNView style={[s.verificationIconSquare, { backgroundColor: 'rgba(13,148,136,0.2)' }]}>
                     <Ionicons name="camera-outline" size={20} color={VERIFICATION_TEAL} />
@@ -1831,14 +1877,54 @@ export default function ProfileStudio() {
                   </RNView>
                   <RNView style={s.verificationTealCheck}><Ionicons name="checkmark" size={14} color="#fff" /></RNView>
                 </RNView>
-              ) : (
-                <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})} style={({ pressed }) => [s.verificationCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.85 }]}>
+              ) : photoVerificationState === 'pending' ? (
+                <Pressable
+                  onPress={() =>
+                    show({
+                      title: 'Under review',
+                      message: 'Your selfie is currently under review. We’ll update your badge when approved.',
+                      variant: 'info',
+                      primaryAction: { label: 'OK', onPress: () => {} },
+                    })
+                  }
+                  style={({ pressed }) => [s.verificationCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.85 }]}
+                >
                   <RNView style={[s.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
                     <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
                   </RNView>
                   <RNView style={s.verificationCardText}>
                     <Text style={[s.verificationCardTitle, { color: theme.text }]}>Photo verification</Text>
-                    <Text style={[s.verificationCardSubtitle, { color: theme.tint }]}>Verify on web</Text>
+                    <Text style={[s.verificationCardSubtitle, { color: theme.textSecondary }]}>Under review</Text>
+                  </RNView>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    if (!profile?.photos?.[0]) {
+                      show({
+                        title: 'Add a profile photo first',
+                        message: 'Please add a profile photo before submitting selfie verification.',
+                        variant: 'warning',
+                        primaryAction: { label: 'OK', onPress: () => {} },
+                      });
+                      return;
+                    }
+                    setShowPhotoVerify(true);
+                  }}
+                  style={({ pressed }) => [s.verificationCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.85 }]}
+                >
+                  <RNView style={[s.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
+                    <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
+                  </RNView>
+                  <RNView style={s.verificationCardText}>
+                    <Text style={[s.verificationCardTitle, { color: theme.text }]}>Photo verification</Text>
+                    <Text style={[s.verificationCardSubtitle, { color: theme.tint }]}>
+                      {photoVerificationState === 'rejected'
+                        ? 'Declined — try again'
+                        : photoVerificationState === 'expired'
+                          ? 'Expired — re-verify'
+                          : 'Verify'}
+                    </Text>
                   </RNView>
                   <Ionicons name="chevron-forward" size={20} color={theme.tint} />
                 </Pressable>
@@ -2109,13 +2195,26 @@ export default function ProfileStudio() {
       <PhoneVerificationFlow
         visible={showPhoneVerify}
         onClose={() => setShowPhoneVerify(false)}
-        onVerified={() => { qc.invalidateQueries({ queryKey: ['my-profile'] }); }}
+        initialPhoneE164={profile?.phone_number}
+        onVerified={() => {
+          qc.invalidateQueries({ queryKey: ['my-profile'] });
+        }}
       />
       <EmailVerificationFlow
         visible={showEmailVerify}
         email={user?.email ?? ''}
         onClose={() => setShowEmailVerify(false)}
         onVerified={() => { qc.invalidateQueries({ queryKey: ['my-profile'] }); }}
+      />
+      <PhotoVerificationFlow
+        visible={showPhotoVerify}
+        onClose={() => setShowPhotoVerify(false)}
+        profilePhotoUrl={profile?.photos?.[0] ?? null}
+        onSubmissionComplete={() => {
+          setPhotoVerificationState('pending');
+          void refreshPhotoVerificationState();
+          qc.invalidateQueries({ queryKey: ['my-profile'] });
+        }}
       />
 
       {/* ═══ Video Manage Bottom Sheet ═══ */}

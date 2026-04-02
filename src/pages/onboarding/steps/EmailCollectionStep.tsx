@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -14,6 +15,7 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
 
   const valid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
@@ -23,8 +25,8 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
     try {
       const { error } = await supabase.auth.updateUser({ email: email.trim() });
       if (error) throw error;
-      setMessage(`We sent a confirmation link to ${email.trim()}. You can verify it anytime.`);
-      setTimeout(onNext, 2000);
+      setMessage(`Confirm your account email via inbox link, then verify your profile email in-app.`);
+      setShowEmailVerification(true);
     } catch {
       setMessage("Couldn't update email. Try again or skip.");
     } finally {
@@ -61,18 +63,27 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
 
       <Button
         onClick={submit}
-        disabled={!valid || loading}
+        disabled={!valid || loading || showEmailVerification}
         className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
       >
         {loading ? "Saving..." : "Continue"}
       </Button>
 
-      <button
-        onClick={onSkip}
-        className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
-      >
-        Skip for now
-      </button>
+      {!showEmailVerification ? (
+        <button
+          onClick={onSkip}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
+        >
+          Skip for now
+        </button>
+      ) : null}
+
+      <EmailVerificationFlow
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        userEmail={email.trim()}
+        onVerified={onNext}
+      />
     </div>
   );
 };

@@ -48,12 +48,15 @@ import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
 import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScoreIncompleteActions";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
+import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { useLogout } from "@/hooks/useLogout";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { resolvePhotoVerificationState, type PhotoVerificationState } from "@/lib/photoVerificationState";
+import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import {
   Drawer,
   DrawerClose,
@@ -342,9 +345,12 @@ const ProfileStudio = () => {
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [showPhotoVerification, setShowPhotoVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
-  const [photoVerificationStatus, setPhotoVerificationStatus] = useState<"none" | "pending" | "approved" | "rejected" | "expired">("none");
+  const [emailForVerification, setEmailForVerification] = useState("");
+  const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -366,18 +372,24 @@ const ProfileStudio = () => {
         if (user) {
           const { data: phoneData } = await supabase
             .from("profiles")
-            .select("phone_verified, email_verified, photo_verified, photo_verification_expires_at")
+            .select("phone_verified, phone_number, email_verified, photo_verified, photo_verification_expires_at")
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) setPhoneVerified(true);
-          const nextEmailVerified = !!phoneData?.email_verified || !!user.email_confirmed_at;
-          setEmailVerified(nextEmailVerified);
-          if (phoneData?.photo_verified) {
-            if (phoneData.photo_verification_expires_at && new Date(phoneData.photo_verification_expires_at) < new Date()) {
-              setPhotoVerificationStatus("expired");
-            } else {
-              setPhotoVerificationStatus("approved");
-            }
+          setPhoneNumber((phoneData?.phone_number as string | null | undefined) ?? null);
+          setEmailVerified(!!phoneData?.email_verified);
+          setEmailForVerification(user.email ?? "");
+          const profilePhotoVerified = phoneData?.photo_verified;
+          const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
+
+          if (profilePhotoVerified) {
+            setPhotoVerificationStatus(
+              resolvePhotoVerificationState({
+                photoVerified: profilePhotoVerified,
+                photoVerificationExpiresAt,
+                latestPhotoVerificationStatus: null,
+              }),
+            );
           } else {
             const { data: pendingVerification } = await supabase
               .from("photo_verifications")
@@ -386,9 +398,14 @@ const ProfileStudio = () => {
               .order("created_at", { ascending: false })
               .limit(1)
               .maybeSingle();
-            if (pendingVerification?.status === "pending") setPhotoVerificationStatus("pending");
-            else if (pendingVerification?.status === "rejected") setPhotoVerificationStatus("rejected");
-            else setPhotoVerificationStatus("none");
+
+            setPhotoVerificationStatus(
+              resolvePhotoVerificationState({
+                photoVerified: profilePhotoVerified,
+                photoVerificationExpiresAt,
+                latestPhotoVerificationStatus: pendingVerification?.status,
+              }),
+            );
           }
         }
         const data = await fetchMyProfile();
@@ -518,13 +535,27 @@ const ProfileStudio = () => {
   };
 
   const verificationSteps = [
-    { id: "email", label: "Email verification", description: "Verified", icon: Mail, completed: true },
+    {
+      id: "email",
+      label: "Email verification",
+      description: emailVerified ? "Verified" : "Verify your email",
+      icon: Mail,
+      completed: emailVerified,
+    },
     getPhotoVerificationStep(),
     { id: "phone", label: "Phone number", description: phoneVerified ? "Verified" : "Verify your number", icon: Phone, completed: phoneVerified },
   ];
 
   const handleVerificationStep = (stepId: string) => {
-    if (stepId === "email") { toast.success("Your email is already verified ✓"); return; }
+    if (stepId === "email") {
+      if (emailVerified) {
+        toast.success("Your email is already verified ✓");
+        return;
+      }
+      setShowEmailVerification(true);
+      scrollToSection("verification");
+      return;
+    }
     if (stepId === "photo") {
       if (photoVerificationStatus === "approved") { toast.success("Photo already verified ✓"); return; }
       if (photoVerificationStatus === "pending") { toast.info("Your verification is under review."); return; }
@@ -1821,17 +1852,50 @@ const ProfileStudio = () => {
         existingCaption={profile.vibeCaption}
       />
 
-      <PhoneVerification open={showPhoneVerification} onOpenChange={setShowPhoneVerification} onVerified={() => setPhoneVerified(true)} />
+      <PhoneVerification
+        open={showPhoneVerification}
+        onOpenChange={setShowPhoneVerification}
+        initialPhoneE164={phoneNumber}
+        onVerified={() => {
+          setShowPhoneVerification(false);
+          void (async () => {
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user?.id) {
+                setPhoneVerified(true);
+                return;
+              }
+              const next = await fetchMyPhoneVerificationProfile(user.id);
+              setPhoneVerified(next.phoneVerified);
+              setPhoneNumber(next.phoneNumber);
+            } catch (e) {
+              console.error(e);
+              setPhoneVerified(true);
+            } finally {
+              setProfileRefreshKey((k) => k + 1);
+            }
+          })();
+        }}
+      />
+      <EmailVerificationFlow
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        userEmail={emailForVerification}
+        onVerified={() => {
+          setEmailVerified(true);
+          setProfileRefreshKey((k) => k + 1);
+        }}
+      />
 
       <SimplePhotoVerification
         open={showPhotoVerification}
         onOpenChange={setShowPhotoVerification}
         userId={profile.id}
         profilePhotoUrl={profile.photos[0]}
-        onVerificationComplete={(success) => {
-          if (success) { setProfile({ ...profile, photoVerified: true }); setPhotoVerificationStatus("approved"); }
-          else setPhotoVerificationStatus("pending");
-          setShowPhotoVerification(false);
+        onSubmissionComplete={() => {
+          // Persisted backend state after submission is "pending" (admin approval is server-side).
+          setPhotoVerificationStatus("pending");
+          setProfileRefreshKey((k) => k + 1);
         }}
       />
 

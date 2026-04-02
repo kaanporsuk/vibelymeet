@@ -11,7 +11,11 @@ interface SimplePhotoVerificationProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
-  onVerificationComplete: (success: boolean) => void;
+  /**
+   * Called after a successful selfie upload + `photo_verifications` insert,
+   * which means the backend state is now "submitted / pending review".
+   */
+  onSubmissionComplete: () => void;
   profilePhotoUrl?: string;
 }
 
@@ -21,7 +25,7 @@ export function SimplePhotoVerification({
   open,
   onOpenChange,
   userId,
-  onVerificationComplete,
+  onSubmissionComplete,
   profilePhotoUrl,
 }: SimplePhotoVerificationProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -183,7 +187,8 @@ export function SimplePhotoVerification({
       toast.success("Selfie submitted for review!");
 
       setTimeout(() => {
-        onVerificationComplete(false); // false = pending, not yet verified
+        // The persisted backend truth after submission is "pending" (admin-only approval).
+        onSubmissionComplete();
         onOpenChange(false);
       }, 3000);
     } catch (err: any) {

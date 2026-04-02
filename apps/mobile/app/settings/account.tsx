@@ -38,6 +38,7 @@ import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
+import { PhotoVerificationFlow } from '@/components/verification/PhotoVerificationFlow';
 import { avatarUrl } from '@/lib/imageUrl';
 import { isRevenueCatConfigured, restorePurchasesWithCustomerInfo } from '@/lib/revenuecat';
 import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscriber';
@@ -46,6 +47,7 @@ import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwa
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
+import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -173,9 +175,13 @@ export default function AccountSettingsScreen() {
   const qc = useQueryClient();
   const email = user?.email ?? '';
 
+  const [emailForVerification, setEmailForVerification] = useState(email);
+
   const [copiedToast, setCopiedToast] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
   const [showEmailVerify, setShowEmailVerify] = useState(false);
+  const [showPhotoVerify, setShowPhotoVerify] = useState(false);
+  const [photoVerificationState, setPhotoVerificationState] = useState<PhotoVerificationState>('none');
   const [emailSheetOpen, setEmailSheetOpen] = useState(false);
   const [passwordSheetOpen, setPasswordSheetOpen] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
@@ -235,6 +241,53 @@ export default function AccountSettingsScreen() {
     qc.invalidateQueries({ queryKey: ['my-profile'] });
     qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
   }, [qc, user?.id]);
+
+  const refreshPhotoVerificationState = useCallback(async () => {
+    if (!user?.id) return;
+    const next = await fetchMyPhotoVerificationState(user.id);
+    setPhotoVerificationState(next.state);
+  }, [user?.id]);
+
+  useEffect(() => {
+    void refreshPhotoVerificationState();
+  }, [refreshPhotoVerificationState]);
+
+  useEffect(() => {
+    // Keep the verification email in sync with the current auth email when not actively verifying.
+    if (!showEmailVerify) setEmailForVerification(email);
+  }, [email, showEmailVerify]);
+
+  const openEmailVerification = useCallback(
+    (nextEmail?: string) => {
+      const e = (nextEmail ?? email).trim();
+      setEmailForVerification(e);
+      setShowEmailVerify(true);
+    },
+    [email],
+  );
+
+  const openPhotoVerification = useCallback(() => {
+    if (photoVerificationState === 'approved') return;
+    if (photoVerificationState === 'pending') {
+      show({
+        title: 'Under review',
+        message: 'Your selfie is currently under review. We’ll update your badge when approved.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    if (!profile?.avatar_url) {
+      show({
+        title: 'Add a profile photo first',
+        message: 'Please add a profile photo before submitting selfie verification.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    setShowPhotoVerify(true);
+  }, [photoVerificationState, profile?.avatar_url, profile?.name, profile?.phone_number, show]);
 
   useEffect(() => {
     let cancelled = false;
@@ -601,13 +654,13 @@ export default function AccountSettingsScreen() {
                   theme={theme}
                   label="Email"
                   verified={!!profile?.email_verified}
-                  onVerify={() => setShowEmailVerify(true)}
+                  onVerify={() => openEmailVerification()}
                 />
                 <TrustMini
                   theme={theme}
                   label="Photo"
                   verified={!!profile?.photo_verified}
-                  onVerify={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/profile').catch(() => {})}
+                  onVerify={openPhotoVerification}
                 />
               </View>
             </View>
@@ -675,11 +728,21 @@ export default function AccountSettingsScreen() {
                 iconColor={CYAN}
                 title="Photo verification"
                 subtitle={
-                  profile?.photo_verified ? "Verified · Helps others trust your profile" : "Take a selfie to verify it's really you"
+                  photoVerificationState === 'approved'
+                    ? "Verified · Helps others trust your profile"
+                    : photoVerificationState === 'pending'
+                      ? 'Under review'
+                      : photoVerificationState === 'rejected'
+                        ? 'Declined — try again'
+                        : photoVerificationState === 'expired'
+                          ? 'Expired — re-verify'
+                          : "Take a selfie to verify it's really you"
                 }
                 right={
-                  profile?.photo_verified ? (
+                  photoVerificationState === 'approved' ? (
                     <ValueChip label="Verified ✓" accentColor={CYAN} />
+                  ) : photoVerificationState === 'pending' ? (
+                    <ValueChip label="Under review" accentColor={AMBER} />
                   ) : (
                     <View style={styles.rowRight}>
                       <ValueChip label="Verify" accentColor={AMBER} />
@@ -687,11 +750,7 @@ export default function AccountSettingsScreen() {
                     </View>
                   )
                 }
-                onPress={
-                  profile?.photo_verified
-                    ? undefined
-                    : () => WebBrowser.openBrowserAsync('https://vibelymeet.com/profile').catch(() => {})
-                }
+                onPress={photoVerificationState === 'approved' ? undefined : openPhotoVerification}
               />
               <Hairline theme={theme} />
               <AccountRow
@@ -706,7 +765,7 @@ export default function AccountSettingsScreen() {
                     <ValueChip label="Verify →" accentColor={AMBER} />
                   )
                 }
-                onPress={profile?.email_verified ? undefined : () => setShowEmailVerify(true)}
+                onPress={profile?.email_verified ? undefined : () => openEmailVerification()}
               />
               <Hairline theme={theme} />
               <AccountRow
@@ -932,9 +991,19 @@ export default function AccountSettingsScreen() {
       />
       <EmailVerificationFlow
         visible={showEmailVerify}
-        email={email}
+        email={emailForVerification}
         onClose={() => setShowEmailVerify(false)}
         onVerified={refreshProfile}
+      />
+      <PhotoVerificationFlow
+        visible={showPhotoVerify}
+        onClose={() => setShowPhotoVerify(false)}
+        profilePhotoUrl={profile?.avatar_url}
+        onSubmissionComplete={() => {
+          setPhotoVerificationState('pending');
+          void refreshPhotoVerificationState();
+          refreshProfile();
+        }}
       />
 
       <KeyboardAwareBottomSheetModal
@@ -967,11 +1036,12 @@ export default function AccountSettingsScreen() {
                   });
                   return;
                 }
+                const updatedEmail = newEmail.trim();
                 show({
-                  title: 'Verification sent',
-                  message: `Check ${newEmail} to confirm.`,
+                  title: 'Confirm your new account email',
+                  message: `Check ${updatedEmail} in your inbox to confirm your account email. Then verify this email for your profile in-app below.`,
                   variant: 'success',
-                  primaryAction: { label: 'OK', onPress: () => {} },
+                  primaryAction: { label: 'Verify in app', onPress: () => openEmailVerification(updatedEmail) },
                 });
                 setNewEmail('');
                 setConfirmEmail('');
@@ -1008,7 +1078,7 @@ export default function AccountSettingsScreen() {
         />
         <View style={[styles.infoCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: withAlpha(theme.tint, 0.2) }]}>
           <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
-            Your email will update after you confirm the link we sent.
+            Confirm your new account email in your inbox. This updates your sign-in email; verifying your profile email is separate.
           </Text>
         </View>
       </KeyboardAwareBottomSheetModal>

@@ -502,6 +502,7 @@ const MatchSuccessModal = ({
                   {showPhoneNudge && (
                     <PhoneVerificationNudge
                       variant="match"
+                      userId={user?.id ?? null}
                       onDismiss={() => {
                         localStorage.setItem("vibely_phone_nudge_match_dismissed", "true");
                         setShowPhoneNudge(false);
