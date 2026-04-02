@@ -16,6 +16,7 @@
       "bundleIdentifier": "com.vibelymeet.vibely",
       "appleTeamId": "W38S57AM55",
       "deploymentTarget": "15.1",
+      "usesAppleSignIn": true,
       "supportsTablet": true,
       "infoPlist": {
         "UIBackgroundModes": [
@@ -87,7 +88,8 @@
           "photosPermission": "Vibely needs photo library access to add profile photos.",
           "cameraPermission": "Vibely needs camera access to take profile photos."
         }
-      ]
+      ],
+      "expo-apple-authentication"
     ],
     "experiments": {
       "typedRoutes": true
