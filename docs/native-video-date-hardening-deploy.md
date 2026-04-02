@@ -9,7 +9,7 @@ Branch: `fix/native-video-date-startup-hardening`
    - JSON error bodies include a stable `code` string (`UNAUTHORIZED`, `SESSION_NOT_FOUND`, `ACCESS_DENIED`, `SESSION_ENDED`, `READY_GATE_NOT_READY`, `DAILY_PROVIDER_ERROR`, etc.) for client classification.
    - Unhandled errors return **503** with `code: DAILY_PROVIDER_ERROR` (previously 500 + generic message).
 
-2. **Database migration `20260402120000_video_date_enter_handshake_ready_gate_guard.sql`**
+2. **Database migration `20260404140000_video_date_enter_handshake_ready_gate_guard.sql`** (timestamp chosen to avoid collision with `20260402120000_onboarding_drafts` in `schema_migrations.version`)
    - `video_date_transition('enter_handshake')` rejects ended sessions and requires `both_ready` (or session already in `handshake`/`date` for rejoin/legacy), matching the Edge Function policy.
 
 3. **Mobile**
@@ -22,7 +22,7 @@ Branch: `fix/native-video-date-startup-hardening`
 
 | Artifact | Action |
 |----------|--------|
-| Migration `20260402120000_video_date_enter_handshake_ready_gate_guard.sql` | Apply to production database (e.g. `supabase db push` or linked CI). |
+| Migration `20260404140000_video_date_enter_handshake_ready_gate_guard.sql` | Apply to production database (e.g. `supabase db push` or linked CI). |
 | Edge Function `daily-room` | Deploy function bundle (e.g. `supabase functions deploy daily-room`). |
 
 **Order:** Apply migration first, then deploy the Edge Function (or together in one release window). Mobile/Web binaries can ship after or with backend; older clients still receive non-2xx + JSON `code` on violations.
