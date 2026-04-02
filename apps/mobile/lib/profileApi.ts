@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { normalizeRelationshipIntent } from '@shared/profileContracts';
 
 export type OnboardingStage =
   | 'none'
@@ -275,10 +276,14 @@ export async function updateMyProfile(updates: Partial<{
   if (updates.company !== undefined) db.company = updates.company;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
   if (updates.relationship_intent !== undefined || updates.looking_for !== undefined) {
-    const intent = updates.relationship_intent ?? updates.looking_for ?? null;
-    db.relationship_intent = intent;
+    const rawIntent = updates.relationship_intent ?? updates.looking_for ?? null;
+    const normalizedIntent =
+      typeof rawIntent === 'string' && rawIntent.trim().length > 0
+        ? normalizeRelationshipIntent(rawIntent)
+        : null;
+    db.relationship_intent = normalizedIntent;
     // Compatibility mirror until all reads migrate to relationship_intent.
-    db.looking_for = intent;
+    db.looking_for = normalizedIntent;
   }
   if (updates.photos !== undefined) db.photos = updates.photos;
   if (updates.avatar_url !== undefined) db.avatar_url = updates.avatar_url;

@@ -1,4 +1,4 @@
-import { intentOptions } from "@/components/RelationshipIntent";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import {
   type SearchHitKind,
   type SearchableMatch,
@@ -13,9 +13,10 @@ export {
 
 function buildIntentSearchHaystack(lookingFor: string): string {
   if (!lookingFor) return "";
-  const opt = intentOptions.find((i) => i.id === lookingFor);
-  if (opt) return [lookingFor, opt.label, opt.emoji].join(" ").toLowerCase();
-  return `${lookingFor} 💫`.toLowerCase();
+  // Never include raw internal ids (e.g. `long_term`, `not_sure`) in search haystacks.
+  // We only search by canonical id/label/emoji vocabulary.
+  const safe = getRelationshipIntentDisplaySafe(lookingFor);
+  return [safe.id, safe.label, safe.emoji].join(" ").toLowerCase();
 }
 
 export function getMatchSearchHitKind(match: SearchableMatch, query: string): SearchHitKind {

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeRelationshipIntent } from "@shared/profileContracts";
 
 export type OnboardingStage =
   | "none"
@@ -204,9 +205,14 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.company !== undefined) dbData.company = profile.company;
   if (profile.aboutMe !== undefined) dbData.about_me = profile.aboutMe;
   if (profile.lookingFor !== undefined || profile.relationshipIntent !== undefined) {
-    const intent = profile.relationshipIntent ?? profile.lookingFor ?? null;
-    dbData.looking_for = intent;
-    dbData.relationship_intent = intent;
+    const rawIntent = profile.relationshipIntent ?? profile.lookingFor ?? null;
+    const normalizedIntent =
+      typeof rawIntent === "string" && rawIntent.trim().length > 0
+        ? normalizeRelationshipIntent(rawIntent)
+        : null;
+
+    dbData.looking_for = normalizedIntent;
+    dbData.relationship_intent = normalizedIntent;
   }
   if (profile.lifestyle !== undefined) dbData.lifestyle = profile.lifestyle;
   if (profile.prompts !== undefined) dbData.prompts = profile.prompts;

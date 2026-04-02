@@ -56,8 +56,8 @@ export function calculateVibeScore(profile: VibeScoreProfile): number {
   if (promptAnswers >= 2) score += 3;
   if (promptAnswers >= 3) score += 3;
 
-  // Vibe Video: 10 points
-  if (profile.hasVibeVideo) score += 10;
+  // Vibe video: parity with server — credit when a uid exists (upload/processing counts).
+  if (profile.hasVibeVideo) score += 15;
 
   return Math.min(score, 100);
 }

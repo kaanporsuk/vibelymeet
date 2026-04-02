@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useUserProfile as useViewerProfile } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 const PROMPT_EMOJIS: Record<string, string> = {
   "A shower thought I had recently": "🚿",
@@ -45,14 +46,6 @@ interface UserProfile {
   bunnyVideoStatus: string;
   vibeCaption: string;
 }
-
-const INTENT_MAP: Record<string, { label: string; emoji: string }> = {
-  "long-term": { label: "Long-term relationship", emoji: "💍" },
-  "short-term": { label: "Short-term, open to long", emoji: "💫" },
-  casual: { label: "Casual dating", emoji: "🎉" },
-  friends: { label: "New friends", emoji: "🤝" },
-  unsure: { label: "Still figuring it out", emoji: "🤔" },
-};
 
 const ProfilePreview = () => {
   const navigate = useNavigate();
@@ -101,7 +94,9 @@ const ProfilePreview = () => {
     ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
     : null;
   const filledPhotos = profile.photos.filter(Boolean);
-  const lookingForDisplay = profile.lookingFor ? INTENT_MAP[profile.lookingFor] : null;
+  const lookingForDisplay = profile.lookingFor
+    ? getRelationshipIntentDisplaySafe(profile.lookingFor)
+    : null;
   const lifestyleKeys = Object.keys(profile.lifestyle).filter((k) => k !== "meeting_preference");
   const hasLifestyle = lifestyleKeys.length > 0;
   const hasBasics = !!(profile.job || profile.heightCm || profile.location);

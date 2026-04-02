@@ -24,6 +24,7 @@ const USER_PROFILE_SELECT_WITH_VIBE = [
   'height_cm',
   'about_me',
   'looking_for',
+  'relationship_intent',
   'photos',
   'avatar_url',
   'bunny_video_uid',
@@ -52,6 +53,7 @@ const USER_PROFILE_SELECT_BASE = [
   'height_cm',
   'about_me',
   'looking_for',
+  'relationship_intent',
   'photos',
   'avatar_url',
   'bunny_video_uid',
@@ -77,6 +79,7 @@ export type UserProfileView = {
   height_cm: number | null;
   about_me: string | null;
   looking_for: string | null;
+  relationship_intent: string | null;
   photos: string[] | null;
   avatar_url: string | null;
   bunny_video_uid: string | null;
@@ -185,6 +188,12 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
     height_cm: typeof row.height_cm === 'number' ? row.height_cm : row.height_cm === null ? null : null,
     about_me: typeof row.about_me === 'string' ? row.about_me : row.about_me === null ? null : null,
     looking_for: typeof row.looking_for === 'string' ? row.looking_for : row.looking_for === null ? null : null,
+    relationship_intent:
+      typeof row.relationship_intent === 'string'
+        ? row.relationship_intent
+        : row.relationship_intent === null
+          ? null
+          : null,
     photos,
     avatar_url: typeof row.avatar_url === 'string' ? row.avatar_url : row.avatar_url === null ? null : null,
     bunny_video_uid:

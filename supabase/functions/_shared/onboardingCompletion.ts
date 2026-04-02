@@ -11,6 +11,7 @@ import {
   type OnboardingData,
   type OnboardingStage,
 } from "./onboardingTypes";
+import { normalizeRelationshipIntentId } from "./profileContracts";
 
 // ─── Minimal Supabase client interface ───────────────────────────────────────
 
@@ -235,7 +236,7 @@ export async function executeOnboardingCompletion(
         has_about_me: !!data.aboutMe.trim(),
         has_height: !!data.heightCm,
         has_job: !!data.job.trim(),
-        relationship_intent: data.relationshipIntent,
+        relationship_intent: normalizeRelationshipIntentId(data.relationshipIntent),
         total_time_seconds: Math.round((Date.now() - startedAt) / 1000),
         vibe_score: vibeScore,
       });

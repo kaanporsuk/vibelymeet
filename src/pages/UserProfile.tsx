@@ -25,6 +25,7 @@ interface UserProfileData {
   avatar_url: string | null;
   tagline: string | null;
   looking_for: string | null;
+  relationship_intent: string | null;
   lifestyle: Record<string, string> | null;
   prompts: Array<{ question: string; answer: string }> | null;
   photo_verified: boolean | null;
@@ -42,7 +43,9 @@ const UserProfile = () => {
     const fetchProfile = async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("id, name, age, about_me, job, company, height_cm, location, country, photos, avatar_url, tagline, looking_for, lifestyle, prompts, photo_verified")
+        .select(
+          "id, name, age, about_me, job, company, height_cm, location, country, photos, avatar_url, tagline, looking_for, relationship_intent, lifestyle, prompts, photo_verified"
+        )
         .eq("id", userId)
         .single();
       setProfile(data as UserProfileData | null);
@@ -88,6 +91,7 @@ const UserProfile = () => {
   const resolvedPhotos = photos.map(p => resolvePhotoUrl(p)).filter(Boolean);
   const prompts = (profile.prompts || []) as Array<{ question: string; answer: string }>;
   const lifestyle = (profile.lifestyle || {}) as Record<string, string>;
+  const lookingForIntent = profile.relationship_intent ?? profile.looking_for;
 
   return (
     <div className="min-h-screen bg-background pb-8">
@@ -201,10 +205,10 @@ const UserProfile = () => {
         )}
 
         {/* Looking For */}
-        {profile.looking_for && (
+        {lookingForIntent && (
           <div className="glass-card p-4 space-y-2">
             <h3 className="text-sm font-semibold text-foreground">Looking For</h3>
-            <RelationshipIntent selected={profile.looking_for} />
+            <RelationshipIntent selected={lookingForIntent} />
           </div>
         )}
 

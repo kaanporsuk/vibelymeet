@@ -149,7 +149,7 @@ export const useMatches = () => {
           supabase
             .from("profiles")
             .select(
-              "id, name, age, avatar_url, photos, photo_verified, about_me, job, location, height_cm, looking_for, prompts, lifestyle, tagline"
+              "id, name, age, avatar_url, photos, photo_verified, about_me, job, location, height_cm, looking_for, relationship_intent, prompts, lifestyle, tagline"
             )
             .in("id", profileIdsForFetch),
           supabase

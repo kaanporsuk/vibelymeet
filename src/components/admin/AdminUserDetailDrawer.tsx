@@ -40,6 +40,7 @@ import { getImageUrl, fullScreenUrl, avatarUrl as avatarPreset } from "@/utils/i
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
 import AdminPremiumModal from "./AdminPremiumModal";
 import { Crown } from "lucide-react";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -393,7 +394,11 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       </div>
                       <div>
                         <p className="text-muted-foreground">Looking For</p>
-                        <p className="text-foreground">{profile.relationship_intent || profile.looking_for || 'N/A'}</p>
+                        <p className="text-foreground">
+                          {profile.relationship_intent || profile.looking_for
+                            ? `${getRelationshipIntentDisplaySafe(profile.relationship_intent || profile.looking_for).emoji} ${getRelationshipIntentDisplaySafe(profile.relationship_intent || profile.looking_for).label}`
+                            : 'N/A'}
+                        </p>
                       </div>
                       <div>
                         <p className="text-muted-foreground">Job</p>

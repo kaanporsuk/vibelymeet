@@ -1,3 +1,5 @@
+import { normalizeRelationshipIntentId } from "../../supabase/functions/_shared/profileContracts";
+
 export type MatchScoreInput = {
   viewerVibeLabels: readonly string[];
   otherVibeLabels: readonly string[];
@@ -29,7 +31,8 @@ export function countVibeOverlap(
 }
 
 function normIntent(s: string | null | undefined): string {
-  return (s ?? "").trim().toLowerCase();
+  const canonical = normalizeRelationshipIntentId(s);
+  return canonical ?? "";
 }
 
 export function intentAligned(

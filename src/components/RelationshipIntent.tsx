@@ -1,7 +1,13 @@
 import { motion } from "framer-motion";
-import { Heart, Sparkles, Users, Coffee, PartyPopper, Home, ShieldOff } from "lucide-react";
+import { Heart, Sparkles, Users, Coffee, Home, ShieldOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
+import {
+  RELATIONSHIP_INTENT_OPTIONS as CANONICAL_INTENT_OPTIONS,
+  getRelationshipIntentDisplaySafe,
+  normalizeRelationshipIntentId,
+  type RelationshipIntentId,
+} from "@shared/profileContracts";
 
 interface IntentOption {
   id: string;
@@ -11,50 +17,22 @@ interface IntentOption {
   emoji: string;
 }
 
-export const intentOptions: IntentOption[] = [
-  {
-    id: "long-term",
-    label: "Long-term partner",
-    description: "Ready to settle down",
-    icon: Home,
-    emoji: "💍",
-  },
-  {
-    id: "relationship",
-    label: "Relationship",
-    description: "Open to something real",
-    icon: Heart,
-    emoji: "💕",
-  },
-  {
-    id: "something-casual",
-    label: "Something casual",
-    description: "Let's see where it goes",
-    icon: Sparkles,
-    emoji: "✨",
-  },
-  {
-    id: "new-friends",
-    label: "New friends",
-    description: "Expanding the squad",
-    icon: Users,
-    emoji: "👋",
-  },
-  {
-    id: "figuring-out",
-    label: "Figuring it out",
-    description: "Still exploring",
-    icon: Coffee,
-    emoji: "🤷",
-  },
-  {
-    id: "rather-not",
-    label: "Rather not say",
-    description: "Prefer not to share",
-    icon: ShieldOff,
-    emoji: "🤐",
-  },
-];
+const INTENT_ICON_BY_ID: Record<RelationshipIntentId, LucideIcon> = {
+  "long-term": Home,
+  relationship: Heart,
+  "something-casual": Sparkles,
+  "new-friends": Users,
+  "figuring-out": Coffee,
+  "rather-not": ShieldOff,
+};
+
+export const intentOptions: IntentOption[] = CANONICAL_INTENT_OPTIONS.map((o) => ({
+  id: o.id,
+  label: o.label,
+  description: o.description,
+  icon: INTENT_ICON_BY_ID[o.id],
+  emoji: o.emoji,
+}));
 
 interface RelationshipIntentProps {
   selected: string;
@@ -63,14 +41,17 @@ interface RelationshipIntentProps {
 }
 
 export const RelationshipIntent = ({ selected, onSelect, editable = false }: RelationshipIntentProps) => {
-  const selectedIntent = intentOptions.find((i) => i.id === selected);
+  const normalizedSelected = normalizeRelationshipIntentId(selected) ?? "figuring-out";
+  const selectedIntent = intentOptions.find((i) => i.id === normalizedSelected);
 
-  if (!editable && selectedIntent) {
+  // Read-only mode must never render the full selector list.
+  if (!editable) {
+    const safe = getRelationshipIntentDisplaySafe(normalizedSelected);
     return (
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-primary/10 border border-primary/20">
-        <span className="text-lg">{selectedIntent.emoji}</span>
+        <span className="text-lg">{safe.emoji}</span>
         <div>
-          <p className="text-sm font-medium text-foreground">{selectedIntent.label}</p>
+          <p className="text-sm font-medium text-foreground">{safe.label}</p>
         </div>
       </div>
     );
@@ -79,7 +60,7 @@ export const RelationshipIntent = ({ selected, onSelect, editable = false }: Rel
   return (
     <div className="space-y-2">
       {intentOptions.map((intent, index) => {
-        const isSelected = selected === intent.id;
+        const isSelected = normalizedSelected === intent.id;
         
         return (
           <motion.button
