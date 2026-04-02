@@ -400,7 +400,9 @@ Deno.serve(async (req) => {
     // 11. Send via OneSignal (all registered devices)
     // Deep link contract (web + native):
     // - /chat/:id is always the other user's profile_id (the message sender from the recipient's POV).
-    // - match_id is included in data for muting, bundling, and client logic — not for the chat URL path.
+    // - Persistent chat rows use `matches.id` as `match_id` in message bundles / client logic — not for the chat URL path.
+    // - Event lobby / ready gate pushes may include `video_session_id` (= video_sessions.id). Legacy `match_id` in those
+    //   payloads is the same session id during the compatibility window — not matches.id until post-date mutual / Daily Drop.
     let webPath = '/'
     const osData: Record<string, unknown> = { ...(data || {}), category }
     if (

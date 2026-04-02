@@ -43,11 +43,13 @@ const EventLobby = () => {
   // Ready Gate overlay state
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  // FIX 4: Handle pendingMatch query param from PostDateSurvey
+  // Pending video session from post-date queue / push deep link (canonical + legacy query names)
   useEffect(() => {
-    const pendingMatch = searchParams.get("pendingMatch");
-    if (pendingMatch) {
-      setActiveSessionId(pendingMatch);
+    const pending =
+      searchParams.get("pendingVideoSession") ?? searchParams.get("pendingMatch");
+    if (pending) {
+      setActiveSessionId(pending);
+      searchParams.delete("pendingVideoSession");
       searchParams.delete("pendingMatch");
       setSearchParams(searchParams, { replace: true });
     }
@@ -67,20 +69,20 @@ const EventLobby = () => {
   // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
     eventId: eventId || "",
-    onMatch: (matchId) => {
-      setActiveSessionId(matchId);
+    onVideoSessionReady: (videoSessionId) => {
+      setActiveSessionId(videoSessionId);
     },
-    onMatchQueued: () => {
+    onVideoSessionQueued: () => {
       // Toast already handled by useSwipeAction
     },
   });
 
-  // Match queue — fires Ready Gate when a queued match becomes ready
+  // Queue drain / realtime — activates ready gate when a queued video session becomes ready
   const { queuedCount } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
-    onMatchReady: (matchId, _partnerId) => {
-      setActiveSessionId(matchId);
+    onVideoSessionReady: (videoSessionId, _partnerId) => {
+      setActiveSessionId(videoSessionId);
     },
   });
 

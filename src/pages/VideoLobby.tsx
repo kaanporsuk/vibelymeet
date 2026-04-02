@@ -18,7 +18,7 @@ interface PartnerProfile {
 
 // Default partner data
 const DEFAULT_PARTNER: PartnerProfile = {
-  name: "Your Match",
+  name: "Your date",
   photo: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop",
   vibeTags: ["🎵 Music Lover", "☕ Coffee Enthusiast"],
   vibeVideoUrl: null,

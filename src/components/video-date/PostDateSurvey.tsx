@@ -15,6 +15,7 @@ import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { sendNotification } from "@/lib/notifications";
 import { trackEvent } from "@/lib/analytics";
+import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -63,10 +64,10 @@ export const PostDateSurvey = ({
 
   // FIX 4 & 5: Queue drain with proper status tracking
   const handleQueueMatch = useCallback(
-    (matchId: string, _queuePartnerId: string) => {
-      toast("You have a match waiting! 💚", { duration: 2000 });
+    (videoSessionId: string, _queuePartnerId: string) => {
+      toast("Your video date is ready — head to the lobby 💚", { duration: 2000 });
       if (eventId) {
-        navigate(`/event/${eventId}/lobby?pendingMatch=${matchId}`);
+        navigate(buildEventLobbyPendingSessionUrl(eventId, videoSessionId));
       } else {
         navigate("/home");
       }
@@ -77,7 +78,7 @@ export const PostDateSurvey = ({
   useMatchQueue({
     eventId,
     currentStatus: surveyStatus,
-    onMatchReady: handleQueueMatch,
+    onVideoSessionReady: handleQueueMatch,
   });
 
   // FIX 3: Navigate to lobby, not event details

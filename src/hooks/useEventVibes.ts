@@ -210,19 +210,22 @@ export function useEventVibes(eventId: string) {
   };
 }
 
-/** Real OneSignal push via send-notification (user JWT from invoke). */
+/**
+ * Pre-event `event_vibes` only — does not create `video_sessions` or `matches`.
+ * Mutual interest: route to event lobby, never `/matches` or chat-oriented copy.
+ */
 async function notifyVibeReceiver(receiverId: string, eventId: string, isMutual: boolean) {
   try {
     const { error } = await supabase.functions.invoke("send-notification", {
       body: {
         user_id: receiverId,
-        category: isMutual ? "new_match" : "someone_vibed_you",
-        title: isMutual ? "It's a match! 🎉" : "Someone vibed you ✨",
+        category: isMutual ? "mutual_vibe" : "someone_vibed_you",
+        title: isMutual ? "Mutual vibe! 💜" : "Someone vibed you ✨",
         body: isMutual
-          ? "You both vibed — start chatting now!"
+          ? "You both showed interest before the event — see you in the lobby!"
           : "Someone at the event is interested in you!",
         data: {
-          url: isMutual ? "/matches" : `/event/${eventId}/lobby`,
+          url: `/event/${eventId}/lobby`,
           event_id: eventId,
         },
       },

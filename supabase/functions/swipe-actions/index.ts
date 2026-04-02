@@ -1,48 +1,36 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-type SwipeResult = {
+/**
+ * `handle_swipe` JSON when mutual vibe creates a video date session.
+ * - `video_session_id` / `event_id` — canonical (session stage, not persistent chat).
+ * - `match_id` — legacy alias equal to `video_session_id` (still NOT `matches.id`).
+ */
+type HandleSwipeSessionPayload = {
   result: string;
   match_id?: string;
+  video_session_id?: string;
+  event_id?: string;
   immediate?: boolean;
 };
 
-async function sendNewMatchEmails(
-  serviceRoleClient: SupabaseClient,
-  supabaseUrl: string,
-  serviceRoleKey: string,
-  actorId: string,
-  targetId: string,
-) {
-  for (const uid of [targetId, actorId]) {
-    try {
-      const { data: authUser, error } = await serviceRoleClient.auth.admin.getUserById(uid);
-      if (error || !authUser?.user?.email) continue;
-      const res = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-        body: JSON.stringify({
-          to: authUser.user.email,
-          template: "new_match",
-          data: {},
-        }),
-      });
-      if (!res.ok) {
-        const t = await res.text();
-        console.error("swipe-actions match email http:", uid, res.status, t);
-      }
-    } catch (e) {
-      console.error("swipe-actions match email error:", uid, e);
-    }
-  }
+/** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */
+function sessionStageNotificationData(eventId: string, videoSessionId: string): Record<string, string> {
+  const q = `pendingVideoSession=${encodeURIComponent(videoSessionId)}&pendingMatch=${encodeURIComponent(videoSessionId)}`;
+  const path = `/event/${eventId}/lobby?${q}`;
+  return {
+    url: path,
+    deep_link: path,
+    video_session_id: videoSessionId,
+    event_id: eventId,
+    /** @deprecated Same as video_session_id — historical name; not matches.id */
+    match_id: videoSessionId,
+  };
 }
 
 serve(async (req) => {
@@ -101,41 +89,50 @@ serve(async (req) => {
       );
     }
 
-    const result = data as SwipeResult;
+    const raw = data as HandleSwipeSessionPayload;
+    const result: HandleSwipeSessionPayload = { ...raw };
+    if (result.result === "match" || result.result === "match_queued") {
+      if (result.match_id && !result.video_session_id) {
+        result.video_session_id = result.match_id;
+      }
+      result.event_id = result.event_id ?? String(event_id);
+    }
 
-    // Only send notifications for specific results; rely on handle_swipe's own idempotency (e.g. already_matched / already_super_vibed_recently)
+    const sessionId = result.video_session_id ?? result.match_id;
+    const eventIdStr = typeof result.event_id === "string" ? result.event_id : String(event_id);
+
     try {
-      if (result.result === "match" && result.match_id) {
-        const matchBody = {
-          category: "new_match" as const,
-          title: "It's a match! 🎉",
-          body: "You both vibed — start chatting now!",
-          data: { url: "/matches", match_id: result.match_id },
+      if (result.result === "match" && sessionId) {
+        const dataPayload = sessionStageNotificationData(eventIdStr, sessionId);
+        const immediateBody = {
+          category: "ready_gate" as const,
+          title: "You're synced up! 💚",
+          body: "Open the event lobby for your ready gate and video date.",
+          data: dataPayload,
         };
         try {
           await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: target_id, ...matchBody },
+            body: { user_id: target_id, ...immediateBody },
           });
         } catch (e) {
-          console.error("swipe-actions new_match notify target:", e);
+          console.error("swipe-actions ready_gate notify target:", e);
         }
         try {
           await serviceClient.functions.invoke("send-notification", {
-            body: { user_id: actorId, ...matchBody },
+            body: { user_id: actorId, ...immediateBody },
           });
         } catch (e) {
-          console.error("swipe-actions new_match notify actor:", e);
+          console.error("swipe-actions ready_gate notify actor:", e);
         }
-        void sendNewMatchEmails(serviceClient, supabaseUrl, serviceRoleKey, actorId, target_id);
-      } else if (result.result === "match_queued" && result.match_id) {
-        // Notify partner about queued match / ready gate
+        // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
+      } else if (result.result === "match_queued" && sessionId) {
         await serviceClient.functions.invoke("send-notification", {
           body: {
             user_id: target_id,
             category: "ready_gate",
-            title: "Video date ready! 📹",
-            body: "Someone is waiting — tap to join your video date",
-            data: { url: "/matches", match_id: result.match_id },
+            title: "Your video date is ready 📹",
+            body: "Someone mutual-vibed with you — open the event lobby to join the ready gate.",
+            data: sessionStageNotificationData(eventIdStr, sessionId),
           },
         });
       } else if (
@@ -143,7 +140,6 @@ serve(async (req) => {
         result.result === "vibe_recorded" ||
         result.result === "swipe_recorded"
       ) {
-        // Notify target that someone vibed them (do not reveal who)
         await serviceClient.functions.invoke("send-notification", {
           body: {
             user_id: target_id,
@@ -170,4 +166,3 @@ serve(async (req) => {
     );
   }
 });
-
