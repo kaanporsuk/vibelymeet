@@ -25,6 +25,7 @@ import { LazyImage } from "@/components/LazyImage";
 import { SuperLikeButton } from "@/components/SuperLikeButton";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 
@@ -50,14 +51,6 @@ interface ProfilePreviewProps {
   };
   onClose: () => void;
 }
-
-const intentLabels: Record<string, string> = {
-  "long-term": "💍 Long-term partner",
-  "relationship": "💕 Relationship",
-  "something-casual": "✨ Something casual",
-  "new-friends": "👋 New friends",
-  "figuring-out": "🤷 Figuring it out",
-};
 
 export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -421,14 +414,15 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                       )}
                     </div>
 
-                    {/* Intent badge */}
-                    {profile.relationshipIntent && intentLabels[profile.relationshipIntent] && (
+                    {/* Intent badge (safe canonical display only) */}
+                    {profile.relationshipIntent ? (
                       <div className="mt-2">
                         <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/20 border border-primary/30 text-sm text-primary">
-                          {intentLabels[profile.relationshipIntent]}
+                          {getRelationshipIntentDisplaySafe(profile.relationshipIntent).emoji}{" "}
+                          {getRelationshipIntentDisplaySafe(profile.relationshipIntent).label}
                         </span>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
                   {/* Photo verified badge */}

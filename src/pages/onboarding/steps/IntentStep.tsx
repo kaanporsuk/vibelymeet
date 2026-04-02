@@ -3,11 +3,12 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const OPTIONS = [
-  { id: "long-term", emoji: "💕", label: "Relationship" },
-  { id: "something-casual", emoji: "🌊", label: "Something casual" },
-  { id: "figuring-out", emoji: "🤷", label: "Not sure yet" },
+  { id: "long-term", emoji: "💍", label: "Long-term partner" },
+  { id: "relationship", emoji: "💕", label: "Relationship" },
+  { id: "something-casual", emoji: "✨", label: "Something casual" },
   { id: "new-friends", emoji: "👋", label: "New friends" },
-  { id: "rather-not", emoji: "💬", label: "Open to anything" },
+  { id: "figuring-out", emoji: "🤷", label: "Figuring it out" },
+  { id: "rather-not", emoji: "🤐", label: "Rather not say" },
 ];
 
 interface IntentStepProps {

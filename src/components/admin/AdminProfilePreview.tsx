@@ -23,20 +23,13 @@ import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { getImageUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 interface AdminProfilePreviewProps {
   userId: string;
   isOpen: boolean;
   onClose: () => void;
 }
-
-const intentLabels: Record<string, string> = {
-  "long-term": "💍 Long-term partner",
-  "relationship": "💕 Relationship",
-  "something-casual": "✨ Something casual",
-  "new-friends": "👋 New friends",
-  "figuring-out": "🤷 Figuring it out",
-};
 
 const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewProps) => {
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
@@ -286,7 +279,10 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                   {(profile.relationship_intent || profile.looking_for) && (
                     <div className="flex items-center gap-2">
                       <Heart className="w-4 h-4 text-muted-foreground" />
-                      <span>{intentLabels[profile.relationship_intent || profile.looking_for] || profile.relationship_intent || profile.looking_for}</span>
+                      <span>
+                        {getRelationshipIntentDisplaySafe(profile.relationship_intent || profile.looking_for).emoji}{" "}
+                        {getRelationshipIntentDisplaySafe(profile.relationship_intent || profile.looking_for).label}
+                      </span>
                     </div>
                   )}
                 </div>

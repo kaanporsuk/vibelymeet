@@ -1,4 +1,4 @@
-import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
+import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import {
   type SearchHitKind,
   type SearchableMatch,
@@ -7,8 +7,8 @@ import {
 
 function buildIntentSearchHaystack(lookingFor: string): string {
   if (!lookingFor) return '';
-  const d = getLookingForDisplay(lookingFor);
-  return [lookingFor, d?.label ?? '', d?.emoji ?? ''].join(' ').toLowerCase();
+  const safe = getRelationshipIntentDisplaySafe(lookingFor);
+  return [safe.id, safe.label, safe.emoji].join(' ').toLowerCase();
 }
 
 export function getMatchSearchHitKind(match: SearchableMatch, query: string): SearchHitKind {

@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
+import { getRelationshipIntentAliases, getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
@@ -100,7 +101,10 @@ const AdminUsersPanel = () => {
       }
 
       if (lookingForFilter !== 'all') {
-        query = query.or(`relationship_intent.eq.${lookingForFilter},looking_for.eq.${lookingForFilter}`);
+        const aliases = getRelationshipIntentAliases(lookingForFilter as any);
+        const relOr = aliases.map((a) => `relationship_intent.eq.${a}`).join(',');
+        const lfOr = aliases.map((a) => `looking_for.eq.${a}`).join(',');
+        query = query.or(`${relOr},${lfOr}`);
       }
 
       if (searchQuery) {
@@ -223,8 +227,9 @@ const AdminUsersPanel = () => {
                 <SelectItem value="long-term">Long-term</SelectItem>
                 <SelectItem value="relationship">Relationship</SelectItem>
                 <SelectItem value="something-casual">Casual</SelectItem>
-                <SelectItem value="new-friends">Friends</SelectItem>
+                <SelectItem value="new-friends">New friends</SelectItem>
                 <SelectItem value="figuring-out">Figuring out</SelectItem>
+                <SelectItem value="rather-not">Rather not say</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -384,7 +389,9 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <span className="truncate max-w-[80px] text-sm">
-                        {user.relationship_intent || user.looking_for || 'N/A'}
+                        {user.relationship_intent || user.looking_for
+                          ? `${getRelationshipIntentDisplaySafe(user.relationship_intent || user.looking_for).emoji} ${getRelationshipIntentDisplaySafe(user.relationship_intent || user.looking_for).label}`
+                          : 'N/A'}
                       </span>
                     </TableCell>
                     <TableCell>

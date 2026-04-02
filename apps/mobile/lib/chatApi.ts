@@ -109,7 +109,7 @@ export function useMatches(userId: string | null | undefined) {
       const [profilesRes, vibesRes, messagesRes, eventsRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, age, avatar_url, photos, looking_for, location')
+          .select('id, name, age, avatar_url, photos, looking_for, relationship_intent, location')
           .in('id', profileIdsForFetch),
         supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
         supabase
@@ -168,7 +168,10 @@ export function useMatches(userId: string | null | undefined) {
 
       const viewerProfile = profiles.find((p) => p.id === userId);
       const viewerVibes = vibesByProfile[userId] ?? [];
-      const viewerLookingFor = (viewerProfile as { looking_for?: string | null }).looking_for ?? null;
+      const viewerLookingFor =
+        (viewerProfile as any)?.relationship_intent ??
+        (viewerProfile as any)?.looking_for ??
+        null;
 
       const formatTime = (createdAt: string) => {
         const d = new Date(createdAt);
@@ -190,7 +193,10 @@ export function useMatches(userId: string | null | undefined) {
         const isNew = Date.now() - matchedAt < ONE_DAY_MS;
         const eventId = (match as { event_id?: string | null }).event_id;
         const eventTitle = eventId ? eventsById[eventId] ?? null : null;
-        const lookingFor = (profile as { looking_for?: string | null }).looking_for ?? null;
+        const lookingFor =
+          (profile as any)?.relationship_intent ??
+          (profile as any)?.looking_for ??
+          null;
         const location = (profile as { location?: string | null }).location ?? null;
         const otherVibes = vibesByProfile[otherId] ?? [];
         const scoreInput: MatchScoreInput = {

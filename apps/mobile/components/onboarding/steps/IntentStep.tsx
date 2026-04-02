@@ -6,11 +6,12 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 
 const OPTIONS = [
-  { id: 'long_term', label: 'Relationship', emoji: '💕' },
-  { id: 'short_term', label: 'Something casual', emoji: '🌊' },
-  { id: 'not_sure', label: 'Not sure yet', emoji: '🤷' },
-  { id: 'friends', label: 'New friends', emoji: '👋' },
-  { id: 'open', label: 'Open to anything', emoji: '💬' },
+  { id: 'long-term', label: 'Long-term partner', emoji: '💍' },
+  { id: 'relationship', label: 'Relationship', emoji: '💕' },
+  { id: 'something-casual', label: 'Something casual', emoji: '✨' },
+  { id: 'new-friends', label: 'New friends', emoji: '👋' },
+  { id: 'figuring-out', label: 'Figuring it out', emoji: '🤷' },
+  { id: 'rather-not', label: 'Rather not say', emoji: '🤐' },
 ];
 
 export default function IntentStep({ value, onChange, onNext }: { value: string; onChange: (v: string) => void; onNext: () => void; }) {

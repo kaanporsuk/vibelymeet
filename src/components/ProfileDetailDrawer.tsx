@@ -27,6 +27,7 @@ import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { useUserProfile } from "@/hooks/useUserProfile";
+import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 
 interface ProfileDetailDrawerProps {
@@ -118,7 +119,8 @@ export const ProfileDetailDrawer = ({
   };
 
   const tagline = fetchedProfile?.tagline?.trim() ?? "";
-  const lookingFor = (fetchedProfile?.relationship_intent?.trim() || fetchedProfile?.looking_for?.trim()) ?? "";
+  const intentIdForDisplay =
+    fetchedProfile?.relationship_intent?.trim() || fetchedProfile?.looking_for?.trim() || "";
   const aboutTrim = (profileData.aboutMe ?? "").trim();
   const showAboutMe = aboutTrim.length > 10;
   
@@ -505,10 +507,11 @@ export const ProfileDetailDrawer = ({
                     <p className="text-sm italic text-primary mt-2">&quot;{tagline}&quot;</p>
                   ) : null}
 
-                  {lookingFor ? (
+                  {intentIdForDisplay ? (
                     <div className="mt-2">
                       <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/20 border border-primary/30 text-sm text-primary">
-                        {lookingFor}
+                        {getRelationshipIntentDisplaySafe(intentIdForDisplay).emoji}{" "}
+                        {getRelationshipIntentDisplaySafe(intentIdForDisplay).label}
                       </span>
                     </div>
                   ) : null}

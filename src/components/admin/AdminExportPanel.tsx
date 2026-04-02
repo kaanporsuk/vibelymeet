@@ -25,6 +25,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, subDays, subMonths, parseISO, isWithinInterval } from "date-fns";
+import { normalizeRelationshipIntentId } from "@shared/profileContracts";
 
 type ExportType = "users" | "matches" | "events" | "reports" | "activity_logs";
 type ExportFormat = "csv" | "pdf";
@@ -240,7 +241,8 @@ const AdminExportPanel = () => {
 
     const rows = data?.map((user) => [
       user.id, user.name, user.age, user.gender, user.location || "",
-      user.height_cm || "", user.relationship_intent || user.looking_for || "",
+      user.height_cm || "",
+      normalizeRelationshipIntentId(user.relationship_intent || user.looking_for) || "",
       user.email_verified ? "Yes" : "No", user.photo_verified ? "Yes" : "No",
       user.is_suspended ? "Yes" : "No", user.total_matches || 0,
       user.total_conversations || 0, user.events_attended || 0,

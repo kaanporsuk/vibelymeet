@@ -102,7 +102,8 @@ export function UserProfileFullView({
 
   const photos = useMemo(() => (profile.photos ?? []).filter(Boolean), [profile.photos]);
   const vibes = profile.vibes ?? [];
-  const lookingForDisplay = getLookingForDisplay(profile.looking_for);
+  const lookingForId = profile.relationship_intent ?? profile.looking_for;
+  const lookingForDisplay = getLookingForDisplay(lookingForId);
   const lifestyle = profile.lifestyle ?? {};
   const lifestyleChips = getLifestyleDisplayChips(lifestyle);
 
@@ -111,7 +112,7 @@ export function UserProfileFullView({
   const photoVerified = profile.photo_verified === true;
 
   const hasLookingFor =
-    typeof profile.looking_for === 'string' && profile.looking_for.trim().length > 0 && !!lookingForDisplay;
+    typeof lookingForId === 'string' && lookingForId.trim().length > 0 && !!lookingForDisplay;
 
   const photoGridGap = spacing.sm;
   const gridPadding = layout.containerPadding * 2;
