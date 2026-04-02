@@ -3,10 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Calendar, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { EventCover } from "@/components/ui/ProfilePhoto";
-import { useUserRegistrations, useRegisterForEvent } from "@/hooks/useRegistrations";
-import { useQueryClient } from "@tanstack/react-query";
+import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { getLanguageLabel } from "@/lib/eventLanguages";
 
 interface EventCardProps {
@@ -33,12 +31,9 @@ export const EventCard = ({
   language,
 }: EventCardProps) => {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { data: userRegistrations = [] } = useUserRegistrations();
-  const { registerForEvent } = useRegisterForEvent();
   
   const [isRegistered, setIsRegistered] = useState(initialRegistered);
-  const [isLoading, setIsLoading] = useState(false);
 
   // Sync with server registration state
   useEffect(() => {
@@ -49,22 +44,9 @@ export const EventCard = ({
     navigate(`/events/${id}`);
   };
 
-  const handleRegister = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent card navigation
-    setIsLoading(true);
-    
-    const success = await registerForEvent(id);
-    
-    if (success) {
-      setIsRegistered(true);
-      queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-      queryClient.invalidateQueries({ queryKey: ["events"] });
-      toast.success(`You're registered for ${title}! 🎉`);
-    } else {
-      toast.error("Failed to register. Please try again.");
-    }
-    
-    setIsLoading(false);
+  const handleOpenDetails = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate(`/events/${id}`);
   };
 
   return (
@@ -115,15 +97,12 @@ export const EventCard = ({
           variant={isRegistered ? "outline" : "gradient"}
           size="sm"
           className={cn("w-full", isRegistered && "border-neon-cyan text-neon-cyan")}
-          onClick={handleRegister}
-          disabled={isRegistered || isLoading}
+          onClick={handleOpenDetails}
         >
-          {isLoading ? (
-            <span className="animate-pulse">Registering...</span>
-          ) : isRegistered ? (
-            "✓ Registered"
+          {isRegistered ? (
+            "View Ticket"
           ) : (
-            "Register"
+            "Get Tickets"
           )}
         </Button>
       </div>

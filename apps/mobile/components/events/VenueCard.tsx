@@ -19,6 +19,9 @@ type VenueCardProps = {
   eventDurationMinutes?: number;
   eventId?: string;
   isRegistered?: boolean;
+  onAccessPress?: () => void;
+  accessLabel?: string;
+  accessDisabled?: boolean;
 };
 
 export function VenueCard({
@@ -29,6 +32,9 @@ export function VenueCard({
   eventDurationMinutes = 60,
   eventId,
   isRegistered = false,
+  onAccessPress,
+  accessLabel = 'Get Tickets',
+  accessDisabled = false,
 }: VenueCardProps) {
   const theme = Colors[useColorScheme()];
   const router = useRouter();
@@ -118,7 +124,20 @@ export function VenueCard({
         ) : isRegistered ? (
           <VibelyButton label="Lobby Opens Soon" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
         ) : (
-          <VibelyButton label="Register to Access" onPress={() => {}} variant="ghost" disabled style={styles.cta} />
+          onAccessPress ? (
+            <VibelyButton
+              label={accessLabel}
+              onPress={onAccessPress}
+              disabled={accessDisabled}
+              variant="secondary"
+              style={styles.cta}
+            />
+          ) : (
+            <View style={[styles.lockedHint, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+              <Ionicons name="lock-closed-outline" size={14} color={theme.textSecondary} />
+              <Text style={[styles.lockedHintText, { color: theme.textSecondary }]}>Register from the event details CTA below</Text>
+            </View>
+          )
         )}
       </Card>
     );
@@ -167,4 +186,15 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 14, fontWeight: '500' },
   mapPlaceholder: { height: 120, borderRadius: radius.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   cta: { alignSelf: 'stretch' },
+  lockedHint: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  lockedHintText: { fontSize: 12, fontWeight: '500' },
 });

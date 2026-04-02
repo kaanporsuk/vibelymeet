@@ -36,6 +36,7 @@ import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
+import { FLOATING_TAB_BAR_HEIGHT } from '@/constants/tabBarMetrics';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -225,6 +226,15 @@ export default function EventDetailScreen() {
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;
+    const endMs = new Date(event.event_date).getTime() + (event.duration_minutes ?? 60) * 60 * 1000;
+    if (Date.now() > endMs) return;
+    const maxMen = (event as EventDetailsRow).max_male_attendees ?? Math.floor(((event as EventDetailsRow).max_attendees ?? 50) / 2);
+    const maxWomen = (event as EventDetailsRow).max_female_attendees ?? Math.ceil(((event as EventDetailsRow).max_attendees ?? 50) / 2);
+    const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
+    const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
+    const spots = userGender === 'female' || userGender === 'woman' ? maxWomen - currentWomen : maxMen - currentMen;
+    if (spots <= 0) return;
+    if (isPurchasing || isRegistering) return;
     if (isFree || userPrice === 0) {
       await handleRegister();
       return;
@@ -258,7 +268,7 @@ export default function EventDetailScreen() {
     } finally {
       setIsPurchasing(false);
     }
-  }, [event, isFree, userPrice, handleRegister, showDialog]);
+  }, [event, isFree, userPrice, userGender, isPurchasing, isRegistering, handleRegister, showDialog]);
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
@@ -343,6 +353,9 @@ export default function EventDetailScreen() {
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
   const goingCount = event.current_attendees ?? 0;
   const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
+  const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
+  const pricingBarBottomInset = floatingTabBarObstruction + spacing.xs;
+  const pricingBarReserveSpace = 124 + pricingBarBottomInset;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -362,7 +375,14 @@ export default function EventDetailScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: layout.scrollContentPaddingBottomTab }]}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: !isRegistered
+              ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
+              : layout.scrollContentPaddingBottomTab,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.coverWrap, { height: coverHeight }]}>
@@ -476,6 +496,9 @@ export default function EventDetailScreen() {
           eventDurationMinutes={durationMin}
           eventId={event.id}
           isRegistered={!!isRegistered}
+          onAccessPress={!isRegistered ? handlePurchase : undefined}
+          accessLabel={isFree || userPrice === 0 ? 'Register' : 'Get Tickets'}
+          accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded}
         />
 
         {isRegistered ? (
@@ -539,6 +562,8 @@ export default function EventDetailScreen() {
           onPurchase={handlePurchase}
           isPurchasing={isPurchasing || isRegistering}
           soldOut={soldOut}
+          eventEnded={eventEnded}
+          bottomInset={pricingBarBottomInset}
         />
       )}
 
