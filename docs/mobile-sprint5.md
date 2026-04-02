@@ -6,7 +6,7 @@ Sprint 5 implements the real video date room on mobile using the same backend an
 
 ### Video provider and join flow
 - **Provider:** Daily.co. Web uses `@daily-co/daily-js` (browser); mobile uses `@daily-co/react-native-daily-js` with the same backend.
-- **Token/room:** Edge Function `daily-room` with body `{ action: "create_date_room", sessionId }`. Backend looks up `video_sessions` by id, ensures `daily_room_name` / room on Daily API, creates meeting token, returns `{ room_name, room_url, token }`. Mobile calls the same Edge Function; no mobile-only path.
+- **Token/room:** Edge Function `daily-room` with body `{ action: "create_date_room", sessionId }`. Backend looks up `video_sessions` by id, enforces **both participants ready** (`ready_gate_status = both_ready`) or an in-progress session (handshake/date) for rejoin, ensures `daily_room_name` / room on Daily API, creates meeting token, returns `{ room_name, room_url, token }`. Errors include JSON `code` (e.g. `READY_GATE_NOT_READY`, `SESSION_ENDED`) for client diagnostics. Mobile classifies failures in `getDailyRoomToken` (see `docs/native-video-date-hardening-deploy.md`).
 - **Join:** Client calls `Daily.createCallObject()`, then `call.join({ url: room_url, token })`. Same semantics as web.
 
 ### Video date state model

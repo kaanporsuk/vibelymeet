@@ -11,6 +11,21 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
 
+/** Server-owned: allow Daily token only when session is ended-free and ready-gate satisfied or call already in progress (rejoin). */
+function canIssueVideoDateRoomToken(session: {
+  ended_at: string | null;
+  handshake_started_at: string | null;
+  ready_gate_status: string | null;
+  state: string | null;
+  phase: string | null;
+}): boolean {
+  if (session.ended_at) return false;
+  if (session.handshake_started_at) return true;
+  if (session.state === "handshake" || session.state === "date") return true;
+  if (session.phase === "handshake" || session.phase === "date") return true;
+  return session.ready_gate_status === "both_ready";
+}
+
 async function createMeetingToken(
   roomName: string,
   userId: string,
@@ -110,10 +125,13 @@ serve(async (req) => {
 
     // All other actions require auth
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No auth header" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "No auth header", code: "UNAUTHORIZED" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -125,35 +143,75 @@ serve(async (req) => {
       error: authError,
     } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     // ── ACTION: create_date_room ──
     if (action === "create_date_room") {
       const { data: session } = await supabase
         .from("video_sessions")
-        .select("id, participant_1_id, participant_2_id, daily_room_name")
+        .select(
+          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, state, phase",
+        )
         .eq("id", sessionId)
         .maybeSingle();
 
       if (!session) {
-        return new Response(JSON.stringify({ error: "Session not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            error: "Session not found",
+            code: "SESSION_NOT_FOUND",
+          }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       if (
         session.participant_1_id !== user.id &&
         session.participant_2_id !== user.id
       ) {
-        return new Response(JSON.stringify({ error: "Access denied" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (session.ended_at) {
+        return new Response(
+          JSON.stringify({
+            error: "Session has ended",
+            code: "SESSION_ENDED",
+          }),
+          {
+            status: 410,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (!canIssueVideoDateRoomToken(session)) {
+        return new Response(
+          JSON.stringify({
+            error: "Both participants must be ready before starting video",
+            code: "READY_GATE_NOT_READY",
+          }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       const roomName =
@@ -191,25 +249,59 @@ serve(async (req) => {
     if (action === "join_date_room") {
       const { data: session } = await supabase
         .from("video_sessions")
-        .select("id, participant_1_id, participant_2_id, daily_room_name")
+        .select(
+          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, state, phase",
+        )
         .eq("id", sessionId)
         .maybeSingle();
 
       if (!session || !session.daily_room_name) {
-        return new Response(JSON.stringify({ error: "Room not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Room not found", code: "ROOM_NOT_FOUND" }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       if (
         session.participant_1_id !== user.id &&
         session.participant_2_id !== user.id
       ) {
-        return new Response(JSON.stringify({ error: "Access denied" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (session.ended_at) {
+        return new Response(
+          JSON.stringify({
+            error: "Session has ended",
+            code: "SESSION_ENDED",
+          }),
+          {
+            status: 410,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (!canIssueVideoDateRoomToken(session)) {
+        return new Response(
+          JSON.stringify({
+            error: "Both participants must be ready before joining video",
+            code: "READY_GATE_NOT_READY",
+          }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       const token = await createMeetingToken(
@@ -240,10 +332,13 @@ serve(async (req) => {
         !match ||
         (match.profile_id_1 !== user.id && match.profile_id_2 !== user.id)
       ) {
-        return new Response(JSON.stringify({ error: "Access denied" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       const calleeId =
@@ -339,9 +434,15 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Daily room error:", error);
-    return new Response(JSON.stringify({ error: "Internal error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        error: "Video service temporarily unavailable",
+        code: "DAILY_PROVIDER_ERROR",
+      }),
+      {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 });

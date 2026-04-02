@@ -14,11 +14,19 @@ import { VibelyButton } from '@/components/ui';
 type ActiveCallBannerProps = {
   sessionId: string;
   partnerName?: string | null;
+  /** video = in_handshake / in_date; ready_gate = still on Ready Gate */
+  mode?: 'video' | 'ready_gate';
   onRejoin: () => void;
   onEnd: () => void;
 };
 
-export function ActiveCallBanner({ sessionId, partnerName, onRejoin, onEnd }: ActiveCallBannerProps) {
+export function ActiveCallBanner({
+  sessionId: _sessionId,
+  partnerName,
+  mode = 'video',
+  onRejoin,
+  onEnd,
+}: ActiveCallBannerProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const pulse = useRef(new Animated.Value(1)).current;
@@ -44,10 +52,16 @@ export function ActiveCallBanner({ sessionId, partnerName, onRejoin, onEnd }: Ac
             </Animated.View>
             <View style={styles.textWrap}>
               <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
-                You have an active date!
+                {mode === 'ready_gate' ? 'Your match is waiting!' : 'You have an active date!'}
               </Text>
               <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={1}>
-                {partnerName ? `With ${partnerName}` : 'Tap to rejoin'} 💚
+                {mode === 'ready_gate'
+                  ? partnerName
+                    ? `${partnerName} is ready — tap to continue`
+                    : 'Finish the Ready Gate to start 💚'
+                  : partnerName
+                    ? `With ${partnerName}`
+                    : 'Tap to rejoin 💚'}
               </Text>
             </View>
           </View>
@@ -63,7 +77,12 @@ export function ActiveCallBanner({ sessionId, partnerName, onRejoin, onEnd }: Ac
             >
               <Ionicons name="close" size={18} color={theme.danger} />
             </Pressable>
-            <VibelyButton label="Rejoin" onPress={onRejoin} variant="primary" size="sm" />
+            <VibelyButton
+              label={mode === 'ready_gate' ? 'Continue' : 'Rejoin'}
+              onPress={onRejoin}
+              variant="primary"
+              size="sm"
+            />
           </View>
         </View>
       </View>

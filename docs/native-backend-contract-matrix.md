@@ -85,8 +85,8 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `daily-room` | Edge Function | create_date_room, get token, delete_room | Same; Daily SDK on device |
-| `video_date_transition` | RPC | enter_handshake, vibe, end, etc. | Same |
+| `daily-room` | Edge Function | create_date_room, join_date_room, delete_room | **Token issuance:** requires `both_ready` **or** session already in handshake/date (`handshake_started_at` / `state` / `phase`) so rejoin works; **410** + `SESSION_ENDED` if `ended_at` set. Errors return JSON `{ error, code }` (no secrets). See `docs/native-video-date-hardening-deploy.md`. |
+| `video_date_transition` | RPC | enter_handshake, vibe, end, etc. | **enter_handshake:** same readiness rule as `daily-room` for first start; idempotent when `handshake_started_at` already set; **SESSION_ENDED** / **READY_GATE_NOT_READY** + `code` on failure. |
 | `leave_matching_queue` | RPC | On leave/end | Same |
 | `video_sessions` | Table | Session state, ended_at | Same |
 

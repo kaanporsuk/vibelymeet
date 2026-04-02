@@ -45,15 +45,15 @@ export function ReadyGateOverlay({
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
-  const handleBothReady = useCallback(async () => {
+  const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
     closedRef.current = true;
     setIsTransitioning(true);
-    await updateParticipantStatus(eventId, userId, 'in_date');
+    // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
     setTimeout(() => {
       onNavigateToDate(sessionId);
     }, 1200);
-  }, [eventId, userId, sessionId, onNavigateToDate]);
+  }, [sessionId, onNavigateToDate]);
 
   const handleForfeited = useCallback(
     async (_reason: 'timeout' | 'skip') => {
