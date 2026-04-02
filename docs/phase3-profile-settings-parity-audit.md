@@ -115,7 +115,7 @@ Already available in `apps/mobile` from Phase 1/2:
 - **spacing**, **radius**, **typography**, **layout**, **shadows**, **border** from theme
 - **Colors[colorScheme]** (theme.tint, theme.danger, theme.neonCyan, theme.text, theme.textSecondary, theme.surface, theme.surfaceSubtle, theme.glassBorder, etc.)
 
-Profile-specific: **VibeScoreDisplay** is local (profile); web uses shared **calculateVibeScore** (utils). Native vibe score is a placeholder formula; shared calculation could be a later improvement.
+Profile-specific: **VibeScoreDisplay** should reflect **`profiles.vibe_score`** / **`vibe_score_label`** from the server (triggers + `calculate_vibe_score(uuid)`). The deprecated web helper [`src/utils/calculateVibeScore.ts`](../src/utils/calculateVibeScore.ts) is not authoritative. Native has no duplicate local completeness scorer in-repo; show persisted fields like web.
 
 No new primitives are strictly required for visual parity; gaps are mostly usage of existing Card/glass, VibelyText, layout constants, and optional additions (e.g. a small VerificationBadge component, or reusing Chip for Premium).
 

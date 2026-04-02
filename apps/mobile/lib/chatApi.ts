@@ -19,6 +19,24 @@ import {
 import type { ReactionPair } from '../../../shared/chat/messageReactionModel';
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from '../../../shared/chat/queryKeys';
 
+/** Matches `profiles` select columns in `useMatches` below (intent fields typed for scoring). */
+type ChatMatchesProfileRow = {
+  id: string;
+  name?: string | null;
+  age?: number | null;
+  avatar_url?: string | null;
+  photos?: string[] | null;
+  looking_for?: string | null;
+  relationship_intent?: string | null;
+  location?: string | null;
+};
+
+function profileIntentForMatch(
+  p: Pick<ChatMatchesProfileRow, 'relationship_intent' | 'looking_for'> | undefined,
+): string | null {
+  return p?.relationship_intent ?? p?.looking_for ?? null;
+}
+
 export type { NativeHydratedGameSessionView };
 export type { ThreadInvalidateScope };
 
@@ -128,7 +146,7 @@ export function useMatches(userId: string | null | undefined) {
       if (messagesRes.error) throw messagesRes.error;
       if ('error' in eventsRes && eventsRes.error) throw eventsRes.error;
 
-      const profiles = profilesRes.data || [];
+      const profiles = (profilesRes.data || []) as ChatMatchesProfileRow[];
       const profileVibes = (vibesRes.data || []) as unknown as {
         profile_id: string;
         vibe_tags: { label: string } | { label: string }[] | null;
@@ -168,10 +186,7 @@ export function useMatches(userId: string | null | undefined) {
 
       const viewerProfile = profiles.find((p) => p.id === userId);
       const viewerVibes = vibesByProfile[userId] ?? [];
-      const viewerLookingFor =
-        (viewerProfile as any)?.relationship_intent ??
-        (viewerProfile as any)?.looking_for ??
-        null;
+      const viewerLookingFor = profileIntentForMatch(viewerProfile);
 
       const formatTime = (createdAt: string) => {
         const d = new Date(createdAt);
@@ -188,15 +203,12 @@ export function useMatches(userId: string | null | undefined) {
         const otherId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
         const profile = profiles.find((p) => p.id === otherId);
         const lastMsg = lastMessages[match.id];
-        const photo = (profile as { photos?: string[] })?.photos?.[0] || (profile as { avatar_url?: string })?.avatar_url || '';
+        const photo = profile?.photos?.[0] || profile?.avatar_url || '';
         const matchedAt = match.matched_at ? new Date(match.matched_at).getTime() : 0;
         const isNew = Date.now() - matchedAt < ONE_DAY_MS;
         const eventId = (match as { event_id?: string | null }).event_id;
         const eventTitle = eventId ? eventsById[eventId] ?? null : null;
-        const lookingFor =
-          (profile as any)?.relationship_intent ??
-          (profile as any)?.looking_for ??
-          null;
+        const lookingFor = profileIntentForMatch(profile);
         const location = (profile as { location?: string | null }).location ?? null;
         const otherVibes = vibesByProfile[otherId] ?? [];
         const scoreInput: MatchScoreInput = {
@@ -225,8 +237,8 @@ export function useMatches(userId: string | null | undefined) {
 
         return {
           id: otherId,
-          name: (profile as { name?: string })?.name || 'Unknown',
-          age: (profile as { age?: number })?.age ?? 0,
+          name: profile?.name || 'Unknown',
+          age: profile?.age ?? 0,
           image: avatarUrl(photo, 'avatar'),
           conversationPreview,
           messageSearchHaystack: conversationPreviewSearchText(conversationPreview),

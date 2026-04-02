@@ -1,7 +1,9 @@
 /**
  * @deprecated Profile completeness is computed server-side and stored on `profiles.vibe_score`
- * (see Supabase migration `vibe_score_backend`). Do not use this in UI — read `vibe_score` /
- * `vibe_score_label` from the profile row instead.
+ * (see Supabase migrations under `supabase/migrations/*vibe_score*`). Do not use this in UI —
+ * read `vibe_score` / `vibe_score_label` from the profile row instead.
+ *
+ * Not related to `vibeScoreUtils.ts` → `calculateVibeScore` (match/event compatibility %).
  *
  * Kept for reference/tests only.
  */
