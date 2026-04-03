@@ -197,24 +197,27 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     try {
       const { data: allRegs, error } = await supabase
         .from("event_registrations")
-        .select("profile_id")
+        .select("profile_id, admission_status")
         .eq("event_id", event.id)
         .in("admission_status", ["confirmed", "waitlisted"]);
       if (error) throw error;
-      const ids = [...new Set((allRegs ?? []).map((r) => r.profile_id).filter(Boolean))] as string[];
       const eventTitle = (event.title as string) || "Your event";
-      for (const user_id of ids) {
+      const waitlistedBody = `${eventTitle} starts soon. You’re still on the waitlist, so keep an eye on the event page for status updates.`;
+      for (const row of allRegs ?? []) {
+        const user_id = row.profile_id;
+        if (!user_id) continue;
+        const admissionStatus = row.admission_status;
         await sendNotification({
           user_id,
           category: "event_reminder",
           title: eventTitle,
-          body,
-          data: { url: `/event/${event.id}/lobby`, event_id: event.id },
+          body: admissionStatus === "waitlisted" ? waitlistedBody : body,
+          data: { event_id: event.id, admission_status: admissionStatus },
         });
       }
       setLastNotifyAllAt(Date.now());
       toast.success(
-        `Notification sent to ${ids.length} user${ids.length === 1 ? "" : "s"} (confirmed + waitlist)`
+        `Notification sent to ${(allRegs ?? []).length} user${(allRegs ?? []).length === 1 ? "" : "s"} (confirmed custom + waitlist-safe copy)`
       );
     } catch {
       toast.error("Failed to send notifications");
@@ -319,7 +322,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       <div className="shrink-0 border-b border-border/50 bg-card">
         <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
           <label htmlFor="admin-notify-all-body" className="text-xs font-medium text-muted-foreground">
-            Broadcast push — confirmed + waitlist only
+            Broadcast push — confirmed + waitlist only, status-safe routing
           </label>
           <Input
             id="admin-notify-all-body"
@@ -329,8 +332,9 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
             className="bg-secondary/50"
           />
           <p className="text-[11px] text-muted-foreground">
-            Does not target removed/canceled registration rows. Same delivery path as row reminders. 5-minute
-            cooldown between sends.
+            Does not target removed/canceled registration rows. Waitlisted recipients land on the event page, not the lobby.
+            Same delivery path as row reminders. Custom text goes to confirmed recipients; waitlisted recipients get standard status-safe copy.
+            5-minute cooldown between sends.
           </p>
         </div>
       </div>
