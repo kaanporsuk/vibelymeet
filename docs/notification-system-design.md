@@ -10,8 +10,8 @@ This document is the result of a full audit of web and native notification code,
 
 | # | Trigger event | Channel | Title | Body template | Deep link / action | Sent by | Preference key |
 |---|---------------|---------|-------|---------------|-------------------|---------|-----------------|
-| 1 | New match (event lobby mutual vibe) | Push (OneSignal) | "It's a match! 🎉" | "You have a new match! Start chatting now." | `/matches`, match_id | Edge: swipe-actions | notify_new_match |
-| 2 | Ready gate (match queued, partner waiting) | Push | "Video date ready! 📹" | "Someone is waiting — tap to join your video date" | `/matches`, match_id | Edge: swipe-actions | notify_ready_gate |
+| 1 | Event deck mutual vibe → ready gate (immediate) | Push (OneSignal) | "You're synced up! 💚" | "Open the event lobby for your ready gate and video date." | `/event/{eventId}/lobby?pendingVideoSession={uuid}&pendingMatch={uuid}` — `data.video_session_id` + `data.event_id`; `data.match_id` is a **legacy alias** = same `video_sessions.id` (**not** `matches.id`) | Edge: swipe-actions (`handle_swipe` → `match`) | notify_ready_gate |
+| 2 | Event deck mutual vibe → queued session | Push | "Your video date is ready 📹" | "Someone mutual-vibed with you — open the event lobby to join the ready gate." | Same lobby URL + query pattern as row 1 | Edge: swipe-actions (`match_queued`) | notify_ready_gate |
 | 3 | Someone vibed you (non-mutual / super vibe) | Push | "Someone vibed you! 💜" | "Join the event to find out who" | `/events` | Edge: swipe-actions | notify_someone_vibed_you |
 | 4 | New message (chat) | Push | Sender name or "New message" | Message preview (≤80 chars) | `/chat/{match_id}`, match_id | Edge: send-message | notify_messages |
 | 5 | Daily drop ready (cron) | Push | "💧 Your Daily Drop is ready" | "Someone new is waiting to meet you. Open to see who." | `/matches` | Edge: generate-daily-drops | notify_daily_drop |
@@ -22,9 +22,13 @@ This document is the result of a full audit of web and native notification code,
 | 10 | Event reminder (admin, 15 min) | Push | "{eventTitle} starts soon! ⏰" | "Get ready — starting in 15 minutes" | `/event/{eventId}/lobby` | Client: AdminEventControls | notify_event_reminder |
 | 11 | New event created (admin) | Email (Resend) | "🎉 New Event: {title}" | HTML: event details, CTA to events | — | Edge: event-notifications (event_created) | N/A (email) |
 | 12 | Event capacity alert (admin) | Email | "🔥 \"{title}\" is {pct}% Full!" | HTML: FOMO, CTA | — | Edge: event-notifications (capacity_alert) | N/A (email) |
-| 13 | Vibe sent (mutual / non-mutual) | OneSignal push | "It's a match!" / "Someone vibed you" style copy | Event lobby pre-event | — | Web: `useEventVibes` → `send-notification` (`new_match` / `someone_vibed_you`) | notify_new_match / notify_someone_vibed_you |
+| 13 | Pre-event `event_vibes` (one-way / mutual) | OneSignal push | "Mutual vibe! 💜" / "Someone vibed you ✨" | Lobby-oriented copy (does not create `video_sessions` / `matches`) | `/event/{eventId}/lobby` | Web: `useEventVibes` → `send-notification` (`mutual_vibe` / `someone_vibed_you`; mutual maps to **notify_new_match** pref) | notify_new_match / notify_someone_vibed_you |
 
 **Web in-app (NotificationContext):** Match, message, event, date_proposal — shown as toasts/cards; not push. Date reminders are scheduled client-side (usePushNotifications.scheduleDateReminder) or via service worker; no server-sent date_reminder push documented. Event reminders (30m/5m) are not automated in code found; admin sends manual "Event reminder" (item 10).
+
+**Session-stage vs persistent match (push):** Event-lobby / ready-gate flows use **`video_sessions.id`**. Pushes deep-link to **`/event/{eventId}/lobby`** with query params (see rows 1–2). **`matches.id`** and **`/matches`** / chat are for **persistent** matches (e.g. Daily Drop unlock, post-date mutual), not for deck-created video sessions.
+
+**Compatibility naming:** Query param **`pendingMatch`** is retained for older clients only; its value equals **`pendingVideoSession`** (both are **`video_sessions.id`**). It does **not** refer to **`matches.id`**.
 
 ### 1.2 Tables
 
@@ -37,7 +41,7 @@ This document is the result of a full audit of web and native notification code,
 
 - **send-notification** Edge Function: single entry point for push. Checks account pause (profiles.is_paused), prefs pause (paused_until), push_enabled, category toggle, match mute, quiet hours, message throttle (1/min when message_bundle_enabled). Sends to both onesignal_player_id and mobile_onesignal_player_id. Categories: new_match, messages, someone_vibed_you, ready_gate, event_live, event_reminder, date_reminder, daily_drop, recommendations, product_updates, credits_subscription; safety_alerts bypasses pause/quiet hours.
 - **event-notifications:** email only (Resend); event_created + capacity_alert; admin-only, rate-limited.
-- **Event lobby vibes (web):** `useEventVibes` invokes **`send-notification`** for mutual vs one-way vibes (replaces legacy `vibe-notification`). Swipe-actions still sends push for `super_vibe_sent` / `vibe_recorded` at events.
+- **Event lobby vibes (web):** `useEventVibes` invokes **`send-notification`** with categories **`mutual_vibe`** / **`someone_vibed_you`** and lobby URL (pre-event table only). **Swipe-actions** sends **`ready_gate`** pushes for deck outcomes **`match`** / **`match_queued`** with lobby + `video_session_id` (see §1.1 rows 1–2).
 - **daily-drop-actions:** send_opener → daily_drop to partner; send_reply → new_match to opener.
 - **generate-daily-drops:** cron; creates pairs, then send-notification daily_drop to each user.
 - **email-drip:** cron; profile-complete (profile live + 2+ photos, 1h–7d old); first-event-nudge (1–7d old, no registrations). Resend; unsubscribe via UNSUB_HMAC_SECRET.
@@ -60,7 +64,7 @@ This document is the result of a full audit of web and native notification code,
 
 ### 2.3 What native can receive
 
-- Same push payloads as web for any trigger that calls **send-notification** with user_id: new match, ready gate, someone vibed you, messages, daily drop (ready, opener, reply), credits, event live, event reminder. Native is targeted via `mobile_onesignal_player_id` in the same Edge Function.
+- Same push payloads as web for any trigger that calls **send-notification** with user_id: ready gate (deck mutual / queue), mutual_vibe / someone_vibed_you (pre-event vibes), messages, daily drop (ready, opener, reply), credits, event live, event reminder. Native is targeted via `mobile_onesignal_player_id` in the same Edge Function.
 
 ### 2.4 Display and deep links
 
@@ -90,7 +94,7 @@ This document is the result of a full audit of web and native notification code,
 | **Re-engagement** | No “haven’t opened in X days” or weekly summary. |
 | **In-app center** | Web has NotificationContainer (match/message/event/date_proposal toasts); native has no in-app list/history. |
 | **Badge** | Native does not set/clear badge from unread counts. |
-| **Deep link map** | data.url is web path (/chat/x, /matches, /event/x/lobby); native must map these to Expo routes (e.g. /chat/[id], /(tabs)/matches, /event/[eventId]/lobby). |
+| **Deep link map** | data.url is web path: `/chat/…`, `/matches`, `/event/{id}/lobby` (often with `pendingVideoSession` + legacy `pendingMatch` query params — both encode **`video_sessions.id`** for session-stage). Native must map to Expo routes (e.g. /chat/[id], /(tabs)/matches, /event/[eventId]/lobby). |
 | **Rich notifications** | send-notification supports image_url (chrome_web_image); native image in notification depends on OneSignal payload (large_icon, etc.). Not consistently used per type. |
 | **Sounds** | preference sound_enabled exists; no per-category sound or custom sounds in implementation. |
 
@@ -110,7 +114,7 @@ All 44 notification types with proposed channel, copy, and rules.
 
 | # | Name | Trigger | Channel(s) | Title template | Body template | Image | Sound | Deep link | Preference toggle | Priority | Timing | Suppress if |
 |---|------|---------|------------|----------------|---------------|-------|-------|-----------|-------------------|----------|--------|-------------|
-| 1 | New match (event lobby) | Mutual vibe at event | Push | It's a match! 🎉 | You have a new match! Start chatting now. | Partner photo | Match chime | /chat/{userId} | notify_new_match | High | Immediate | User in that chat |
+| 1 | Event deck → ready gate (immediate) | `handle_swipe` → `match` | Push | You're synced up! 💚 | Open the event lobby for your ready gate and video date. | — | — | `/event/{eventId}/lobby?pendingVideoSession={videoSessionId}&pendingMatch={videoSessionId}` (session id; `pendingMatch` = legacy param name) | notify_ready_gate | High | Immediate | Already in that lobby / on date |
 | 2 | New message (text) | Chat message insert | Push | {senderName} | {preview ≤80 chars} | Sender avatar | Message tone | /chat/{userId} | notify_messages | High | Immediate | In that chat screen; or throttle 1/1min |
 | 3 | New voice message | Voice message received | Push | {senderName} sent a voice message | Listen now | Sender avatar | Message tone | /chat/{userId} | notify_messages | High | Immediate | In that chat |
 | 4 | New video message | Video message received | Push | {senderName} sent a video | Watch now | Sender avatar | Message tone | /chat/{userId} | notify_messages | High | Immediate | In that chat |
@@ -130,12 +134,12 @@ All 44 notification types with proposed channel, copy, and rules.
 | 18 | Opener received (daily drop) | Partner sent opener | Push | 💧 Your Daily Drop sent you a message | Reply before 6 PM tomorrow to unlock chat | — | Drop sound | /(tabs)/matches | notify_daily_drop | High | Immediate | — |
 | 19 | Reply received (daily drop) | Partner replied; match unlocked | Push | You're connected! 🎉 | You and {name} matched through Daily Drop | Partner photo | Match chime | /chat/{userId} | notify_new_match | High | Immediate | — |
 | 20 | Drop expiring soon | Unviewed drop, e.g. 1h before expire | Push | Your Daily Drop expires soon | Open now to see who and reply | — | Default | /(tabs)/matches | notify_daily_drop | Medium | Scheduled | — |
-| 21 | Partner ready (ready gate) | Other party marked ready | Push | Video date ready! 📹 | Someone is waiting — tap to join | Partner avatar | Urgent double-tone | /date/{sessionId} | notify_ready_gate | High | Immediate | On date/ready screen |
+| 21 | Deck queue → ready gate (lobby) | `handle_swipe` → `match_queued` (today same URL family as #1) | Push | Your video date is ready 📹 | Someone mutual-vibed with you — open the event lobby to join the ready gate. | — | Urgent double-tone | `/event/{eventId}/lobby?pendingVideoSession={videoSessionId}&pendingMatch={videoSessionId}` | notify_ready_gate | High | Immediate | On date/ready screen |
 | 22 | Date starting now | Both ready, room started | Push | Your date is starting now | Join before they leave | Partner avatar | Urgent | /date/{sessionId} | notify_ready_gate | High | Immediate | — |
 | 23 | Reconnection attempt | Partner reconnecting after drop | Push | {name} is reconnecting… | Tap to rejoin the date | — | Default | /date/{sessionId} | notify_ready_gate | Medium | Immediate | — |
 | 24 | Someone vibed you | Vibe at event (non-mutual) | Push | Someone vibed you! 💜 | Join the event to find out who | — | Default | /event/{eventId}/lobby or /events | notify_someone_vibed_you | Medium | Immediate | In that lobby |
 | 25 | Super vibe received | Super vibe at event | Push | Someone sent you a Super Vibe! ✨ | You stand out — join the event | — | Default | /event/{eventId}/lobby | notify_someone_vibed_you | High | Immediate | In that lobby |
-| 26 | Mutual vibe — match | Mutual vibe at event | Push | It's a mutual vibe! 💜 | You and {name} vibed — it's a match! | Partner photo | Match chime | /chat/{userId} | notify_new_match | High | Immediate | In that lobby |
+| 26 | Pre-event mutual vibe (table) | `event_vibes` mutual before deck session exists | Push | Mutual vibe! 💜 | You both showed interest before the event — see you in the lobby! | — | Default | `/event/{eventId}/lobby` | notify_new_match (category `mutual_vibe`) | High | Immediate | In that lobby |
 | 27 | Who liked you (premium teaser) | Count update for premium | Push | {n} people vibe with you | Upgrade to see who | — | Default | /premium | notify_recommendations | Low | Batched | — |
 | 28 | Welcome to Vibely | Post signup / onboarding | Push | Welcome to Vibely! 🌟 | Complete your profile and join your first event | — | Default | /(tabs) or /profile | (account) | Low | Once | — |
 | 29 | Profile incomplete | Missing photos/bio after 24h | Push/Email | Add photos to get more matches | Profiles with 3+ photos get 2x more matches | — | — | /profile | (account) | Low | Drip | — |
@@ -162,12 +166,12 @@ All 44 notification types with proposed channel, copy, and rules.
 | Toggle | Default | Controls (catalog #) |
 |--------|---------|----------------------|
 | Messages | ON | 2, 3, 4, 5, 7, 8, 9 |
-| Matches | ON | 1, 26, 27 |
+| Matches | ON | 6, 19, 26 |
 | Events | ON | 10, 11, 12, 13, 14, 15, 16 |
-| Daily Drop | ON | 17, 18, 19, 20 |
-| Video Dates | ON | 21, 22, 23 |
+| Daily Drop | ON | 17, 18, 20 |
+| Video Dates | ON | 1, 21, 22, 23 |
 | Vibes & Social | ON | 24, 25 |
-| Marketing & Tips | OFF | 36, 37, 38, 39 |
+| Marketing & Tips | OFF | 27, 36, 37, 38, 39 |
 | Account & Safety | ON (locked) | 28–35, 40–44 |
 
 Native settings screen should mirror these; “Quiet hours” and “Sound” can link to web or be added later.
@@ -189,13 +193,14 @@ Native settings screen should mirror these; “Quiet hours” and “Sound” ca
 
 | Notification | data.url (or equivalent) | Native screen |
 |-------------|---------------------------|----------------|
-| New match | /chat/{userId} or match_id | /chat/[id] (id = other user profile id) |
+| Persistent new match (chat) | /chat/{userId} (sender id in bundle) or data with `matches.id` semantics | /chat/[id] |
+| Session-stage ready gate (deck) | `/event/{eventId}/lobby?pendingVideoSession=…&pendingMatch=…` | /event/[eventId]/lobby |
 | New message | /chat/{match_id} | /chat/[id] |
 | Daily drop | /matches | /(tabs)/matches (focus drop tab if exists) |
 | Daily drop opener/reply | /matches or /chat/{match_id} | /(tabs)/matches or /chat/[id] |
 | Event starting / live / ended | /event/{eventId}/lobby | /event/[eventId]/lobby |
 | Event list | /events | /(tabs)/events |
-| Ready gate / date | /date/{sessionId} or /matches | /date/[id] |
+| In-date / rejoin | `/date/{sessionId}` (after joined) | /date/[id] |
 | Date proposal | /schedule | /schedule |
 | Credits / settings | /settings | /settings |
 | Premium | /premium | /premium |
