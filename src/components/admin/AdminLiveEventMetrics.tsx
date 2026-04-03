@@ -44,6 +44,31 @@ interface MetricCardProps {
   warning?: boolean;
 }
 
+interface LifecycleSourceStatus {
+  source: string;
+  status: "ok" | "unavailable";
+  detail: string;
+}
+
+interface LifecycleFeedItem {
+  timestamp: string;
+  source: string;
+  category: string;
+  result: string;
+  event_id?: string | null;
+  session_id?: string | null;
+  user_id?: string | null;
+  admission_status?: string | null;
+  queue_id?: string | null;
+  error_reason?: string | null;
+}
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+const asString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value : null;
+
 const MetricCard = ({ icon: Icon, label, value, color, warning }: MetricCardProps) => (
   <div className="glass-card p-4 rounded-2xl relative">
     {warning && (
@@ -259,6 +284,227 @@ const AdminLiveEventMetrics = () => {
       ].filter((d) => d.value > 0)
     : [];
 
+  const { data: lifecycleFeed } = useQuery({
+    queryKey: ["admin-event-lifecycle-feed", eventId],
+    queryFn: async () => {
+      if (!eventId) return null;
+
+      const sources: LifecycleSourceStatus[] = [];
+      const items: LifecycleFeedItem[] = [];
+
+      const markSource = (
+        source: string,
+        status: "ok" | "unavailable",
+        detail: string,
+      ) => {
+        sources.push({ source, status, detail });
+      };
+
+      const { data: reminderQueue, error: reminderQueueError } = await supabase
+        .from("event_reminder_queue")
+        .select("id, profile_id, event_id, reminder_type, sent_at, created_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (reminderQueueError) {
+        markSource("reminder_queue", "unavailable", reminderQueueError.message);
+      } else {
+        const rows = reminderQueue || [];
+        const sentCount = rows.filter((r) => !!r.sent_at).length;
+        const pendingCount = rows.length - sentCount;
+        markSource("reminder_queue", "ok", `${sentCount} sent / ${pendingCount} pending`);
+        rows.forEach((r) => {
+          items.push({
+            timestamp: r.created_at,
+            source: "reminder_queue",
+            category: r.reminder_type,
+            result: r.sent_at ? "sent" : "pending",
+            event_id: r.event_id,
+            user_id: r.profile_id,
+            queue_id: r.id,
+          });
+        });
+      }
+
+      const { data: reminderSendLog, error: reminderSendLogError } = await supabase
+        .from("notification_log")
+        .select("id, user_id, category, delivered, suppressed_reason, created_at, data")
+        .eq("data->>event_id", eventId)
+        .in("category", [
+          "event_reminder",
+          "event_reminder_30m",
+          "event_reminder_5m",
+          "event_waitlist_promoted",
+          "event_cancelled",
+          "event_live",
+        ])
+        .order("created_at", { ascending: false })
+        .limit(40);
+
+      if (reminderSendLogError) {
+        markSource("notification_log", "unavailable", reminderSendLogError.message);
+      } else {
+        const rows = reminderSendLog || [];
+        markSource("notification_log", "ok", `${rows.length} recent records`);
+        rows.forEach((r) => {
+          const dataObj = asRecord(r.data);
+          items.push({
+            timestamp: r.created_at || new Date(0).toISOString(),
+            source: "notification_log",
+            category: r.category,
+            result: r.delivered ? "delivered" : "suppressed",
+            event_id: asString(dataObj?.event_id) ?? eventId,
+            session_id: asString(dataObj?.session_id) ?? asString(dataObj?.video_session_id),
+            user_id: r.user_id,
+            admission_status: asString(dataObj?.admission_status),
+            queue_id: asString(dataObj?.queue_id),
+            error_reason: r.delivered ? null : r.suppressed_reason,
+          });
+        });
+      }
+
+      const { data: waitlistQueue, error: waitlistQueueError } = await supabase
+        .from("waitlist_promotion_notify_queue")
+        .select("id, user_id, event_id, processed_at, created_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (waitlistQueueError) {
+        markSource("waitlist_promotion_queue", "unavailable", waitlistQueueError.message);
+      } else {
+        const rows = waitlistQueue || [];
+        const doneCount = rows.filter((r) => !!r.processed_at).length;
+        markSource("waitlist_promotion_queue", "ok", `${doneCount}/${rows.length} processed`);
+        rows.forEach((r) => {
+          items.push({
+            timestamp: r.created_at,
+            source: "waitlist_promotion_queue",
+            category: "event_waitlist_promoted",
+            result: r.processed_at ? "processed" : "pending",
+            event_id: r.event_id,
+            user_id: r.user_id,
+            admission_status: "promoted",
+            queue_id: r.id,
+          });
+        });
+      }
+
+      const { data: settlements, error: settlementsError } = await supabase
+        .from("stripe_event_ticket_settlements")
+        .select("checkout_session_id, profile_id, event_id, outcome, result, created_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (settlementsError) {
+        markSource("ticket_settlements", "unavailable", settlementsError.message);
+      } else {
+        const rows = settlements || [];
+        markSource("ticket_settlements", "ok", `${rows.length} recent settlements`);
+        rows.forEach((r) => {
+          const resultObj = asRecord(r.result);
+          items.push({
+            timestamp: r.created_at,
+            source: "ticket_settlements",
+            category: "stripe_event_ticket_settlement",
+            result: r.outcome,
+            event_id: r.event_id,
+            user_id: r.profile_id,
+            admission_status: asString(resultObj?.admission_status),
+            queue_id: r.checkout_session_id,
+          });
+        });
+      }
+
+      const { data: swipes, error: swipesError } = await supabase
+        .from("event_swipes")
+        .select("id, event_id, actor_id, target_id, swipe_type, created_at")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false })
+        .limit(40);
+
+      if (swipesError) {
+        markSource("event_swipes", "unavailable", swipesError.message);
+      } else {
+        const rows = swipes || [];
+        markSource("event_swipes", "ok", `${rows.length} recent swipes`);
+        rows.forEach((r) => {
+          items.push({
+            timestamp: r.created_at,
+            source: "event_swipes",
+            category: "swipe_action",
+            result: r.swipe_type,
+            event_id: r.event_id,
+            user_id: r.actor_id,
+            queue_id: r.id,
+          });
+        });
+      }
+
+      const { data: sessions, error: sessionsError } = await supabase
+        .from("video_sessions")
+        .select("id, event_id, participant_1_id, participant_2_id, state, ended_reason, started_at, ended_at, state_updated_at")
+        .eq("event_id", eventId)
+        .order("state_updated_at", { ascending: false })
+        .limit(30);
+
+      if (sessionsError) {
+        markSource("video_sessions", "unavailable", sessionsError.message);
+      } else {
+        const rows = sessions || [];
+        markSource("video_sessions", "ok", `${rows.length} recent session records`);
+        rows.forEach((r) => {
+          const timestamp = r.state_updated_at || r.ended_at || r.started_at;
+          items.push({
+            timestamp,
+            source: "video_sessions",
+            category: "video_date_state",
+            result: r.ended_reason ? `${r.state}:${r.ended_reason}` : r.state,
+            event_id: r.event_id,
+            session_id: r.id,
+            user_id: r.participant_1_id,
+          });
+        });
+      }
+
+      const { data: adminActions, error: adminActionsError } = await supabase
+        .from("admin_activity_logs")
+        .select("id, admin_id, action_type, target_type, target_id, created_at")
+        .eq("target_type", "event")
+        .eq("target_id", eventId)
+        .order("created_at", { ascending: false })
+        .limit(30);
+
+      if (adminActionsError) {
+        markSource("admin_activity_logs", "unavailable", adminActionsError.message);
+      } else {
+        const rows = adminActions || [];
+        markSource("admin_activity_logs", "ok", `${rows.length} recent admin actions`);
+        rows.forEach((r) => {
+          items.push({
+            timestamp: r.created_at,
+            source: "admin_activity_logs",
+            category: r.target_type,
+            result: r.action_type,
+            event_id: r.target_id,
+            user_id: r.admin_id,
+            queue_id: r.id,
+          });
+        });
+      }
+
+      const sortedItems = items
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 40);
+
+      return { sources, items: sortedItems };
+    },
+    enabled: !!eventId,
+    refetchInterval: 15000,
+  });
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -343,6 +589,56 @@ const AdminLiveEventMetrics = () => {
                     <Legend />
                   </RechartsPie>
                 </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Event Lifecycle Ops Feed */}
+          {lifecycleFeed && (
+            <div className="glass-card p-6 rounded-2xl space-y-4">
+              <div>
+                <h3 className="font-semibold text-foreground">Event Lifecycle Ops Feed</h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Event-scoped queue/log visibility. Sources marked unavailable are not currently queryable in this admin session.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {lifecycleFeed.sources.map((s) => (
+                  <Badge
+                    key={s.source}
+                    className={s.status === "ok"
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"}
+                  >
+                    {s.source}: {s.detail}
+                  </Badge>
+                ))}
+              </div>
+
+              <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                {lifecycleFeed.items.length > 0 ? lifecycleFeed.items.map((item, idx) => (
+                  <div key={`${item.source}-${item.timestamp}-${idx}`} className="rounded-xl border border-white/10 bg-secondary/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="bg-secondary text-foreground border-white/10">{item.source}</Badge>
+                        <Badge className="bg-primary/15 text-primary border-primary/30">{item.category}</Badge>
+                        <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">{item.result}</Badge>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
+                      <span>event_id: {item.event_id || "-"}</span>
+                      <span>session_id: {item.session_id || "-"}</span>
+                      <span>user_id: {item.user_id || "-"}</span>
+                      <span>admission_status: {item.admission_status || "-"}</span>
+                      <span>queue_id: {item.queue_id || "-"}</span>
+                      <span>error_reason: {item.error_reason || "-"}</span>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="text-sm text-muted-foreground">No recent lifecycle records found for this event.</div>
+                )}
               </div>
             </div>
           )}

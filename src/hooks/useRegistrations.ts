@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { trackEvent } from "@/lib/analytics";
 
 export type UserEventAdmissionMap = {
   confirmedEventIds: string[];
@@ -64,6 +65,16 @@ export const useRegisterForEvent = () => {
     if (error) return false;
     const result = data as { success?: boolean; error?: string } | null;
     if (result?.success === true) {
+      const { data: reg } = await supabase
+        .from("event_registrations")
+        .select("admission_status")
+        .eq("event_id", eventId)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      trackEvent("event_registration_success", {
+        event_id: eventId,
+        admission_status: reg?.admission_status ?? null,
+      });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
     }
     return result?.success === true;
@@ -78,6 +89,16 @@ export const useRegisterForEvent = () => {
     if (error) return false;
     const result = data as { success?: boolean } | null;
     if (result?.success === true) {
+      const { data: reg } = await supabase
+        .from("event_registrations")
+        .select("admission_status")
+        .eq("event_id", eventId)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      trackEvent("event_unregistered", {
+        event_id: eventId,
+        admission_status: reg?.admission_status ?? null,
+      });
       await queryClient.invalidateQueries({ queryKey: ["user-registrations", user.id] });
       await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });

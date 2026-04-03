@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { trackEvent } from "@/lib/analytics";
 
 export type VideoDatePhase = "handshake" | "date" | "ended";
 
@@ -37,6 +38,7 @@ export const useReconnection = ({
   const onGraceExpiredRef = useRef(onGraceExpired);
   const onReconnectedRef = useRef(onReconnected);
   const graceExpiredFiredRef = useRef(false);
+  const graceWindowStartedRef = useRef(false);
 
   useEffect(() => {
     onGraceExpiredRef.current = onGraceExpired;
@@ -78,6 +80,13 @@ export const useReconnection = ({
       if (r.ended) {
         if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
           graceExpiredFiredRef.current = true;
+          if (graceWindowStartedRef.current) {
+            trackEvent("video_date_reconnect_grace_expired", {
+              session_id: sessionId,
+              phase,
+            });
+            graceWindowStartedRef.current = false;
+          }
           onGraceExpiredRef.current?.();
         }
         setInReconnectGraceUi(false);
@@ -125,6 +134,13 @@ export const useReconnection = ({
 
     // Disconnected → connected again: clear our away slot (partner may have reported us while we were gone).
     if (!prev && sessionId && phase !== "ended") {
+      if (graceWindowStartedRef.current) {
+        trackEvent("video_date_reconnect_returned", {
+          session_id: sessionId,
+          phase,
+        });
+        graceWindowStartedRef.current = false;
+      }
       void supabase.rpc("video_date_transition", {
         p_session_id: sessionId,
         p_action: "mark_reconnect_return",
@@ -136,8 +152,14 @@ export const useReconnection = ({
 
   const startGraceWindow = useCallback(() => {
     if (!hadConnectedOnceRef.current || !sessionId || phase === "ended") return;
+    if (graceWindowStartedRef.current) return;
 
+    graceWindowStartedRef.current = true;
     setInReconnectGraceUi(true);
+    trackEvent("video_date_reconnect_grace_started", {
+      session_id: sessionId,
+      phase,
+    });
 
     void supabase.rpc("video_date_transition", {
       p_session_id: sessionId,

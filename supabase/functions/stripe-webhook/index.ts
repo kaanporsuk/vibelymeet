@@ -10,6 +10,42 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 )
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+}
+
+function pickAdmissionStatus(result: unknown): string | null {
+  const root = asRecord(result)
+  if (!root) return null
+  if (typeof root.admission_status === 'string') return root.admission_status
+  const nested = asRecord(root.result)
+  if (nested && typeof nested.admission_status === 'string') return nested.admission_status
+  return null
+}
+
+function pickResultCode(result: unknown): string {
+  const root = asRecord(result)
+  if (!root) return 'ok'
+  if (typeof root.outcome === 'string') return root.outcome
+  if (typeof root.action === 'string') return root.action
+  const nested = asRecord(root.result)
+  if (nested && typeof nested.action === 'string') return nested.action
+  return 'ok'
+}
+
+function logLifecycle(payload: {
+  event_id: string | null
+  session_id?: string | null
+  user_id: string | null
+  admission_status: string | null
+  queue_id?: string | null
+  category: string
+  result: string
+  error_reason?: string | null
+}) {
+  console.log('lifecycle.stripe_webhook', JSON.stringify(payload))
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -67,9 +103,34 @@ Deno.serve(async (req) => {
             )
             if (settleError) {
               console.error('settle_event_ticket_checkout error:', settleError)
+              logLifecycle({
+                event_id: eventId,
+                user_id: userId,
+                admission_status: null,
+                category: 'stripe_event_ticket_settlement',
+                result: 'rpc_error',
+                error_reason: settleError.message,
+              })
             } else {
               console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
+              logLifecycle({
+                event_id: eventId,
+                user_id: userId,
+                admission_status: pickAdmissionStatus(settleResult),
+                category: 'stripe_event_ticket_settlement',
+                result: pickResultCode(settleResult),
+                error_reason: null,
+              })
             }
+          } else {
+            logLifecycle({
+              event_id: eventId ?? null,
+              user_id: userId ?? null,
+              admission_status: null,
+              category: 'stripe_event_ticket_settlement',
+              result: 'rejected',
+              error_reason: 'missing_user_or_event',
+            })
           }
           break
         }
