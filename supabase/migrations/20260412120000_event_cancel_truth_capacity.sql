@@ -2,6 +2,8 @@
 -- Admin: confirmed headcount by gender for capacity warnings (no admission behavior change).
 
 -- ─── get_visible_events: exclude cancelled from discovery ───────────────────
+DROP FUNCTION IF EXISTS public.get_visible_events(uuid, double precision, double precision, boolean, double precision, double precision, double precision);
+
 CREATE OR REPLACE FUNCTION public.get_visible_events(
   p_user_id uuid,
   p_user_lat double precision DEFAULT NULL,
@@ -17,6 +19,7 @@ RETURNS TABLE(
   current_attendees integer, tags text[], status text, city text, country text,
   scope text, latitude double precision, longitude double precision,
   radius_km integer, distance_km double precision, is_registered boolean,
+  is_waitlisted boolean,
   computed_status text, is_recurring boolean, parent_event_id uuid,
   occurrence_number integer, language text
 )
@@ -33,6 +36,12 @@ DECLARE
   v_effective_lat double precision;
   v_effective_lng double precision;
 BEGIN
+  IF auth.role() IS DISTINCT FROM 'service_role' THEN
+    IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_user_id THEN
+      RAISE EXCEPTION 'Access denied' USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
   SELECT EXISTS (
     SELECT 1 FROM public.subscriptions s
     WHERE s.user_id = p_user_id
@@ -89,7 +98,13 @@ BEGIN
     EXISTS (
       SELECT 1 FROM event_registrations er
       WHERE er.event_id = e.id AND er.profile_id = p_user_id
+        AND er.admission_status = 'confirmed'
     ) AS is_registered,
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.event_id = e.id AND er.profile_id = p_user_id
+        AND er.admission_status = 'waitlisted'
+    ) AS is_waitlisted,
     CASE
       WHEN e.status = 'cancelled' THEN 'cancelled'
       WHEN e.status = 'ended' OR e.ended_at IS NOT NULL THEN 'ended'
@@ -112,7 +127,7 @@ BEGIN
       OR e.scope IS NULL
       OR (e.scope = 'regional' AND (
         e.country IS NULL
-        OR e.country = (SELECT p.country FROM profiles p WHERE p.id = p_user_id)
+        OR e.country = (SELECT pr.country FROM profiles pr WHERE pr.id = p_user_id)
         OR v_can_premium_browse
       ))
       OR (e.scope = 'local' AND e.latitude IS NOT NULL AND e.longitude IS NOT NULL AND (

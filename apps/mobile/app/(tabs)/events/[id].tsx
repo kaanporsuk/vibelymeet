@@ -149,6 +149,15 @@ export default function EventDetailScreen() {
 
   const performRegisterCore = useCallback(async () => {
     if (!event) return;
+    if ((event as EventDetailsRow).status === 'cancelled') {
+      showDialog({
+        title: 'This event was cancelled',
+        message: 'Registration and lobby access are closed.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
     const vis = (event as EventDetailsRow).visibility;
     if (vis === 'premium' && !canAccessPremiumEvents) {
       showDialog({
@@ -224,6 +233,15 @@ export default function EventDetailScreen() {
 
   const handlePurchase = useCallback(async () => {
     if (!event) return;
+    if ((event as EventDetailsRow).status === 'cancelled') {
+      showDialog({
+        title: 'This event was cancelled',
+        message: "You can't purchase or register for this event anymore.",
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
     const endMs = new Date(event.event_date).getTime() + (event.duration_minutes ?? 60) * 60 * 1000;
     if (Date.now() > endMs) return;
     const maxMen = (event as EventDetailsRow).max_male_attendees ?? Math.floor(((event as EventDetailsRow).max_attendees ?? 50) / 2);
@@ -329,6 +347,7 @@ export default function EventDetailScreen() {
   }
 
   const eventRow = event as EventDetailsRow;
+  const isCancelled = eventRow.status === 'cancelled';
   const eventDate = new Date(event.event_date);
   const dateStr = format(eventDate, 'EEEE, MMMM d');
   const timeStr = format(eventDate, 'h:mm a');
@@ -396,9 +415,12 @@ export default function EventDetailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: !hasAdmission
-              ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
-              : layout.scrollContentPaddingBottomTab,
+            paddingBottom:
+              isCancelled && hasAdmission
+                ? Math.max(layout.scrollContentPaddingBottomTab, 100 + floatingTabBarObstruction)
+                : !hasAdmission
+                  ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
+                  : layout.scrollContentPaddingBottomTab,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -479,6 +501,21 @@ export default function EventDetailScreen() {
           )}
         </Card>
 
+        {isCancelled ? (
+          <View
+            style={[
+              styles.cancelledBanner,
+              { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: withAlpha(theme.danger, 0.4) },
+            ]}
+          >
+            <Text style={[styles.cancelledBannerTitle, { color: theme.danger }]}>This event was cancelled</Text>
+            <Text style={[styles.cancelledBannerBody, { color: theme.textSecondary }]}>
+              You can still open this page to manage an existing booking if you registered—registration and lobby access are
+              closed.
+            </Text>
+          </View>
+        ) : null}
+
         <Pressable
           onPress={() => setShowInviteSheet(true)}
           style={({ pressed }) => [styles.inviteFriendsBtn, { opacity: pressed ? 0.85 : 1 }]}
@@ -524,92 +561,153 @@ export default function EventDetailScreen() {
           eventDurationMinutes={durationMin}
           eventId={event.id}
           isRegistered={isConfirmed}
-          onAccessPress={!hasAdmission ? handlePurchase : undefined}
+          onAccessPress={!hasAdmission && !isCancelled ? handlePurchase : undefined}
           accessLabel={isFree || userPrice === 0 ? 'Register' : 'Get Tickets'}
-          accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded}
+          accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded || isCancelled}
         />
 
         {isConfirmed ? (
-          <>
-            <View style={[styles.youreInBlock, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
-              <View style={[styles.youreInIconWrap, { backgroundColor: theme.tint }]}>
-                <Ionicons name="sparkles" size={22} color="#fff" />
+          isCancelled ? (
+            <>
+              <View style={[styles.youreInBlock, { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: theme.danger }]}>
+                <View style={[styles.youreInIconWrap, { backgroundColor: theme.danger }]}>
+                  <Ionicons name="ban-outline" size={22} color="#fff" />
+                </View>
+                <View style={styles.youreInText}>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
+                    Your booking is still on file—lobby and live access are closed. Use Manage Booking if you need to release your
+                    spot.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.youreInText}>
-                <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
-                <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
-              </View>
-            </View>
-            {eventEnded ? (
-              <VibelyButton label="Event Ended" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
-            ) : eventLive ? (
               <VibelyButton
-                label="Enter Lobby →"
-                variant="primary"
-                onPress={() => router.push(`/event/${event.id}/lobby` as const)}
-                style={styles.cta}
-              />
-            ) : (
-              <VibelyButton label="Registered ✓" variant="primary" disabled style={styles.cta} onPress={() => {}} />
-            )}
-            <VibelyButton
-              label="View Ticket"
-              variant="secondary"
-              onPress={() => setShowTicket(true)}
-              style={styles.cta}
-            />
-            {!eventEnded ? (
-              <VibelyButton
-                label="Manage Booking"
+                label="View Ticket"
                 variant="secondary"
-                onPress={() => setShowManageBooking(true)}
+                onPress={() => setShowTicket(true)}
                 style={styles.cta}
               />
-            ) : null}
-            {!eventEnded ? (
-              <Pressable
-                onPress={() => setShowInviteSheet(true)}
-                style={({ pressed }) => [styles.bringFriendRow, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={[styles.bringFriendText, { color: theme.tint }]}>Bring a friend? →</Text>
-              </Pressable>
-            ) : null}
-          </>
+              {!eventEnded ? (
+                <VibelyButton
+                  label="Manage Booking"
+                  variant="secondary"
+                  onPress={() => setShowManageBooking(true)}
+                  style={styles.cta}
+                />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <View style={[styles.youreInBlock, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
+                <View style={[styles.youreInIconWrap, { backgroundColor: theme.tint }]}>
+                  <Ionicons name="sparkles" size={22} color="#fff" />
+                </View>
+                <View style={styles.youreInText}>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
+                </View>
+              </View>
+              {eventEnded ? (
+                <VibelyButton label="Event Ended" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
+              ) : eventLive ? (
+                <VibelyButton
+                  label="Enter Lobby →"
+                  variant="primary"
+                  onPress={() => router.push(`/event/${event.id}/lobby` as const)}
+                  style={styles.cta}
+                />
+              ) : (
+                <VibelyButton label="Registered ✓" variant="primary" disabled style={styles.cta} onPress={() => {}} />
+              )}
+              <VibelyButton
+                label="View Ticket"
+                variant="secondary"
+                onPress={() => setShowTicket(true)}
+                style={styles.cta}
+              />
+              {!eventEnded ? (
+                <VibelyButton
+                  label="Manage Booking"
+                  variant="secondary"
+                  onPress={() => setShowManageBooking(true)}
+                  style={styles.cta}
+                />
+              ) : null}
+              {!eventEnded ? (
+                <Pressable
+                  onPress={() => setShowInviteSheet(true)}
+                  style={({ pressed }) => [styles.bringFriendRow, pressed && { opacity: 0.85 }]}
+                >
+                  <Text style={[styles.bringFriendText, { color: theme.tint }]}>Bring a friend? →</Text>
+                </Pressable>
+              ) : null}
+            </>
+          )
         ) : isWaitlisted ? (
-          <>
-            <View style={[styles.youreInBlock, { backgroundColor: withAlpha('#d97706', 0.15), borderColor: '#d97706' }]}>
-              <View style={[styles.youreInIconWrap, { backgroundColor: '#d97706' }]}>
-                <Ionicons name="hourglass-outline" size={22} color="#fff" />
+          isCancelled ? (
+            <>
+              <View style={[styles.youreInBlock, { backgroundColor: withAlpha(theme.danger, 0.12), borderColor: theme.danger }]}>
+                <View style={[styles.youreInIconWrap, { backgroundColor: theme.danger }]}>
+                  <Ionicons name="ban-outline" size={22} color="#fff" />
+                </View>
+                <View style={styles.youreInText}>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
+                    You were on the paid waitlist—this event will not run. Use Manage Booking for your options.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.youreInText}>
-                <Text style={[styles.youreInTitle, { color: theme.text }]}>Paid waitlist</Text>
-                <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                  We'll confirm you if a spot opens
-                </Text>
-              </View>
-            </View>
-            <VibelyButton
-              label="View Ticket"
-              variant="secondary"
-              onPress={() => setShowTicket(true)}
-              style={styles.cta}
-            />
-            {!eventEnded ? (
               <VibelyButton
-                label="Manage Booking"
+                label="View Ticket"
                 variant="secondary"
-                onPress={() => setShowManageBooking(true)}
+                onPress={() => setShowTicket(true)}
                 style={styles.cta}
               />
-            ) : null}
-          </>
+              {!eventEnded ? (
+                <VibelyButton
+                  label="Manage Booking"
+                  variant="secondary"
+                  onPress={() => setShowManageBooking(true)}
+                  style={styles.cta}
+                />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <View style={[styles.youreInBlock, { backgroundColor: withAlpha('#d97706', 0.15), borderColor: '#d97706' }]}>
+                <View style={[styles.youreInIconWrap, { backgroundColor: '#d97706' }]}>
+                  <Ionicons name="hourglass-outline" size={22} color="#fff" />
+                </View>
+                <View style={styles.youreInText}>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>Paid waitlist</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
+                    We'll confirm you if a spot opens
+                  </Text>
+                </View>
+              </View>
+              <VibelyButton
+                label="View Ticket"
+                variant="secondary"
+                onPress={() => setShowTicket(true)}
+                style={styles.cta}
+              />
+              {!eventEnded ? (
+                <VibelyButton
+                  label="Manage Booking"
+                  variant="secondary"
+                  onPress={() => setShowManageBooking(true)}
+                  style={styles.cta}
+                />
+              ) : null}
+            </>
+          )
         ) : (
           <View style={styles.spacerForPricingBar} />
         )}
       </ScrollView>
 
       {/* Sticky bottom: pricing when not registered */}
-      {!hasAdmission && (
+      {!hasAdmission && !isCancelled && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityStatus}
@@ -623,7 +721,31 @@ export default function EventDetailScreen() {
         />
       )}
 
-      {/* Registered: bottom bar You're in / Manage Booking — same as inline above; optional sticky duplicate omitted for clarity */}
+      {isCancelled && hasAdmission ? (
+        <View
+          style={[
+            styles.cancelledAdmissionBar,
+            {
+              backgroundColor: theme.surface,
+              borderTopColor: withAlpha(theme.danger, 0.35),
+              paddingBottom: floatingTabBarObstruction,
+            },
+          ]}
+        >
+          <View style={{ flex: 1, marginRight: spacing.md }}>
+            <Text style={[styles.cancelledAdmissionTitle, { color: theme.danger }]}>Event cancelled</Text>
+            <Text style={[styles.cancelledAdmissionSub, { color: theme.textSecondary }]}>
+              Manage booking if you need to release your spot
+            </Text>
+          </View>
+          <VibelyButton
+            label="Manage Booking"
+            variant="secondary"
+            onPress={() => setShowManageBooking(true)}
+            style={{ flexShrink: 0 }}
+          />
+        </View>
+      ) : null}
 
       <ManageBookingModal
         visible={showManageBooking}
@@ -760,4 +882,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  cancelledBanner: {
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  cancelledBannerTitle: { fontSize: 15, fontWeight: '700', marginBottom: 6 },
+  cancelledBannerBody: { fontSize: 13, lineHeight: 18 },
+  cancelledAdmissionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cancelledAdmissionTitle: { fontSize: 15, fontWeight: '700' },
+  cancelledAdmissionSub: { fontSize: 12, marginTop: 2 },
 });

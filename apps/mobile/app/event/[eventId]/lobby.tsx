@@ -353,13 +353,22 @@ export default function EventLobbyScreen() {
         (payload) => {
           const row = payload.new as { status?: string };
           if (row.status === 'ended') setShowEventEndedModal(true);
+          if (row.status === 'cancelled') {
+            show({
+              title: 'This event was cancelled',
+              message: 'You’ll be taken back to the event page.',
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+            router.replace(`/(tabs)/events/${id}` as const);
+          }
         }
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, event?.status, eventEndTime]);
+  }, [id, event?.status, eventEndTime, show]);
 
   useEffect(() => {
     if (!eventEndTime) return;
@@ -420,6 +429,22 @@ export default function EventLobbyScreen() {
             message="You need to be signed in to discover who's here."
             actionLabel="Go back"
             onActionPress={() => router.back()}
+          />
+        </View>
+        {dialog}
+      </>
+    );
+  }
+
+  if (event.status === 'cancelled') {
+    return (
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="This event was cancelled"
+            message="Head back to the event page for details and booking options."
+            actionLabel="Back to event"
+            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
           />
         </View>
         {dialog}
@@ -540,6 +565,14 @@ export default function EventLobbyScreen() {
           });
           break;
         case 'already_matched':
+          break;
+        case 'event_not_active':
+          show({
+            title: 'Event not active',
+            message: 'This event was cancelled or is no longer available for swipes.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           break;
         case 'blocked':
         case 'reported':

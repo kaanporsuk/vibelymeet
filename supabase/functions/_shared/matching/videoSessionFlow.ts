@@ -63,6 +63,8 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "limit_reached",
   "already_super_vibed_recently",
   "already_matched",
+  /** Cancelled/archived event: `handle_swipe` — do not burn the current deck card. */
+  "event_not_active",
 ]);
 
 export function shouldAdvanceLobbyDeckAfterSwipe(result: string | null | undefined): boolean {
