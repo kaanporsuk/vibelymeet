@@ -63,6 +63,16 @@ Migration `20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql` intro
 Edge function gate tightening:
 - `supabase/functions/daily-room/index.ts` now issues Daily room tokens only when session is active (`handshake`/`date`/rejoin) or when `ready_gate_status = 'both_ready'` and `ready_gate_expires_at` is still valid.
 
+### Phase 3 events hardening delta (2026-04-04)
+
+Migration `20260412143000_phase3_legacy_queue_contract_cleanup.sql` consolidates queue-era compatibility surfaces and active contracts:
+- `handle_swipe` and `drain_match_queue` are explicitly re-anchored to active swipe-first + queued-TTL semantics, including strict 60-second lobby foreground proof for immediate ready gate.
+- Active payload contract remains `video_session_id` + `event_id`; `match_id` stays as a legacy alias for compatibility only.
+- Legacy queue RPC surfaces are now compatibility-only:
+  - `join_matching_queue` → deprecated no-op
+  - `find_video_date_match` → deprecated no-op
+  - `leave_matching_queue` → retained compatibility cleanup path, marked deprecated in response/comment
+
 ---
 
 ## 3. Storage buckets and media schema surfaces
@@ -131,9 +141,9 @@ The generated type surface exposes the following public functions.
 - `handle_swipe(p_actor_id, p_event_id, p_swipe_type, p_target_id)` → `Json`
 - `check_mutual_vibe_and_match(p_session_id)` → `Json`
 - `find_mystery_match(p_event_id, p_user_id)` → `Json`
-- `find_video_date_match(p_event_id, p_user_id)` → `Json`
-- `join_matching_queue(p_event_id, p_user_id)` → `Json`
-- `leave_matching_queue(p_event_id)` → `Json` (legacy-compatible surface; active product path no longer depends on it)
+- `find_video_date_match(p_event_id, p_user_id)` → `Json` (deprecated compatibility no-op)
+- `join_matching_queue(p_event_id, p_user_id)` → `Json` (deprecated compatibility no-op)
+- `leave_matching_queue(p_event_id)` → `Json` (deprecated compatibility surface; retained cleanup behavior for older clients)
 - `drain_match_queue(p_event_id)` → `Json`
 - `update_participant_status(p_event_id, p_status)` → `undefined` (activity/status update only)
 - `mark_lobby_foreground(p_event_id)` → `undefined` (canonical 60s lobby-foreground presence proof)

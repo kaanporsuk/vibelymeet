@@ -87,6 +87,22 @@ Key deltas recorded in this migration:
 - Preserves strict 60-second `last_lobby_foregrounded_at` presence semantics introduced in Phase 1.1 for immediate promotion.
 - Tightens lifecycle expiry ownership by ending stale queued/ready states server-side with explicit end reasons.
 
+### Phase 3 events hardening addendum (2026-04-04)
+
+Added migration:
+- `20260412143000_phase3_legacy_queue_contract_cleanup.sql`
+
+Key deltas recorded in this migration:
+- Re-anchors active swipe/drain contracts to Phase 1.1/2 semantics after later migration drift:
+  - `handle_swipe` keeps strict 60-second true-lobby foreground proof for immediate ready gate.
+  - queued matches keep canonical `queued_expires_at` TTL semantics.
+  - active payload shape is normalized around `video_session_id` + `event_id` with legacy `match_id` alias preserved.
+- `drain_match_queue` cleanup-first behavior is restored (`expire_stale_video_sessions()`) with queued TTL guard and 60-second foreground recency checks.
+- Legacy queue-era RPC surfaces are retired safely:
+  - `join_matching_queue` and `find_video_date_match` are now compatibility no-ops returning a deprecated contract.
+  - `leave_matching_queue` is kept for compatibility and returns `deprecated: true` while preserving cleanup behavior.
+- This pass does not alter payment settlement semantics or swipe-first matching product flow.
+
 ---
 
 ## 3. The single most important migration finding
