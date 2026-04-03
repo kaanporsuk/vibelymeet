@@ -94,6 +94,9 @@ verify_jwt = true
 [functions.swipe-actions]
 verify_jwt = true
 
+[functions.post-date-verdict]
+verify_jwt = true
+
 [functions.push-webhook]
 verify_jwt = false
 

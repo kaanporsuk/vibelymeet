@@ -10,6 +10,7 @@ const corsHeaders = {
  * `handle_swipe` JSON when mutual vibe creates a video date session.
  * - `video_session_id` / `event_id` — canonical (session stage, not persistent chat).
  * - `match_id` — legacy alias equal to `video_session_id` (still NOT `matches.id`).
+ * Super Vibe is capped per event (`limit_reached`, etc.); there is no `no_credits` branch in current SQL.
  */
 type HandleSwipeSessionPayload = {
   result: string;

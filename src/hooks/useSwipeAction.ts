@@ -26,6 +26,12 @@ interface UseSwipeActionOptions {
   onVideoSessionQueued?: (videoSessionId: string) => void;
 }
 
+/**
+ * Event deck swipes via `swipe-actions` → `handle_swipe`.
+ * Expected `result` values include match, match_queued, vibe_recorded, swipe_recorded, super_vibe_sent,
+ * limit_reached, already_super_vibed_recently, already_matched, blocked, reported, pass_recorded, etc.
+ * Legacy `no_credits` is not returned by current `handle_swipe` (super vibe uses per-event limits only).
+ */
 export const useSwipeAction = ({
   eventId,
   onMatch,
@@ -101,10 +107,6 @@ export const useSwipeAction = ({
 
           case "super_vibe_sent":
             toast("Super Vibe sent! ✨", { duration: 2000 });
-            return raw;
-
-          case "no_credits":
-            toast("Get Super Vibes to stand out! ✨", { duration: 2500 });
             return raw;
 
           case "limit_reached":

@@ -503,14 +503,6 @@ export default function EventLobbyScreen() {
             primaryAction: { label: 'OK', onPress: () => {} },
           });
           break;
-        case 'no_credits':
-          show({
-            title: 'Get Super Vibes',
-            message: 'Grab credits to stand out with a Super Vibe. ✨',
-            variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
         case 'limit_reached':
           show({
             title: 'Super Vibe limit',
@@ -612,7 +604,7 @@ export default function EventLobbyScreen() {
       }
 
       showSwipeToast(code);
-      if (code === 'super_vibe_sent' || code === 'limit_reached' || code === 'no_credits') {
+      if (code === 'super_vibe_sent' || code === 'limit_reached') {
         refreshQueueAndSuperVibe();
       }
 
@@ -622,7 +614,6 @@ export default function EventLobbyScreen() {
         'not_registered',
         'target_not_found',
         'limit_reached',
-        'no_credits',
         'already_super_vibed_recently',
         'already_matched',
       ]);

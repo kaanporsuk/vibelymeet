@@ -34,4 +34,5 @@
 
 ## Remaining client-owned `video_sessions` writes (later sprint)
 
-- Native: `getOrSeedVibeQuestions` and `submitVerdictAndCheckMutual` still perform direct table updates; not changed here.
+- Native: `getOrSeedVibeQuestions` still performs a conditional seed write for `vibe_questions`.
+- Post-date verdict (screen 1) uses `post-date-verdict` → `submit_post_date_verdict` (see migration `20260403120000_submit_post_date_verdict.sql`); optional survey fields may still PATCH `date_feedback` from clients.

@@ -2901,6 +2901,10 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
+      submit_post_date_verdict: {
+        Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
+      }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
       clear_expired_pauses: { Args: never; Returns: number }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
