@@ -123,9 +123,10 @@ The generated type surface exposes the following public functions.
 - `find_mystery_match(p_event_id, p_user_id)` → `Json`
 - `find_video_date_match(p_event_id, p_user_id)` → `Json`
 - `join_matching_queue(p_event_id, p_user_id)` → `Json`
-- `leave_matching_queue(p_event_id, p_user_id)` → `Json`
-- `drain_match_queue(p_event_id, p_user_id)` → `Json`
-- `update_participant_status(p_event_id, p_status, p_user_id)` → `undefined`
+- `leave_matching_queue(p_event_id)` → `Json` (legacy-compatible surface; active product path no longer depends on it)
+- `drain_match_queue(p_event_id)` → `Json`
+- `update_participant_status(p_event_id, p_status)` → `undefined` (activity/status update only)
+- `mark_lobby_foreground(p_event_id)` → `undefined` (canonical 60s lobby-foreground presence proof)
 
 ### Events / deck generation / discovery
 - `get_event_deck(p_event_id, p_limit?, p_user_id)` → deck rows containing profile-level event card data

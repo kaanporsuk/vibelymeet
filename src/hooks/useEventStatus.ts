@@ -44,7 +44,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
     [eventId, user?.id]
   );
 
-  // Heartbeat: update last_active_at every 60s
+  // Heartbeat: update activity only. Lobby foreground proof is stamped by lobby-only lifecycle signals.
   useEffect(() => {
     if (!enabled || !eventId || !user?.id) return;
 
@@ -56,7 +56,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
           .eq("event_id", eventId)
           .eq("profile_id", user.id);
       } catch {}
-    }, 60000);
+    }, 30000);
 
     return () => {
       if (heartbeatRef.current) clearInterval(heartbeatRef.current);

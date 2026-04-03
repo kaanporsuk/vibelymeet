@@ -507,18 +507,9 @@ const VideoDate = () => {
 
   const handleLeave = useCallback(async () => {
     endCall();
-    if (id && user?.id && eventId) {
-      try {
-        await supabase.rpc("leave_matching_queue", {
-          p_event_id: eventId,
-        });
-      } catch (err) {
-        console.error("Error cleaning up:", err);
-      }
-    }
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     handleCallEnd();
-  }, [endCall, id, user?.id, eventId, handleCallEnd]);
+  }, [endCall, handleCallEnd]);
 
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
