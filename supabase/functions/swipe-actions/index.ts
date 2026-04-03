@@ -112,7 +112,11 @@ serve(async (req) => {
     }
 
     const raw = data as HandleSwipeSessionPayload;
-    const result: HandleSwipeSessionPayload = { ...raw };
+    const result: HandleSwipeSessionPayload = {
+      ...raw,
+      // Canonicalize historical alias at the edge boundary.
+      result: raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result,
+    };
     if (result.result === "match" || result.result === "match_queued") {
       if (result.match_id && !result.video_session_id) {
         result.video_session_id = result.match_id;
@@ -208,8 +212,7 @@ serve(async (req) => {
         });
       } else if (
         result.result === "super_vibe_sent" ||
-        result.result === "vibe_recorded" ||
-        result.result === "swipe_recorded"
+        result.result === "vibe_recorded"
       ) {
         await serviceClient.functions.invoke("send-notification", {
           body: {

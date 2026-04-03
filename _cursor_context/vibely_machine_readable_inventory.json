@@ -49,7 +49,7 @@
       "services": 6,
       "edge_functions_deployable": 33,
       "edge_function_shared_dirs": 1,
-      "migrations": 110,
+      "migrations": 111,
       "public_tables": 41,
       "public_views": 1,
       "public_functions": 26,
@@ -907,9 +907,9 @@
   ],
   "function_config_gaps": [],
   "migrations": {
-    "count": 104,
+    "count": 105,
     "first": "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
-    "last": "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql",
+    "last": "20260412143000_phase3_legacy_queue_contract_cleanup.sql",
     "files": [
       "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
       "20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql",
@@ -1014,7 +1014,8 @@
       "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
       "20260404183000_phase1_presence_atomic_cleanup.sql",
       "20260404191500_phase1_1_true_lobby_foreground.sql",
-      "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql"
+      "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql",
+      "20260412143000_phase3_legacy_queue_contract_cleanup.sql"
     ],
     "phase1_event_presence_updates": [
       "update_participant_status(p_event_id, p_status) no longer writes last_lobby_foregrounded_at",
@@ -1027,6 +1028,13 @@
       "drain_match_queue(p_event_id) now invokes cleanup before promotion and ignores expired queued sessions",
       "ready_gate_transition(p_session_id, p_action, p_reason) supports p_action='sync' for polling reconciliation",
       "daily-room token gate tightened: active handshake/date/rejoin or valid non-expired both_ready only"
+    ],
+    "phase3_event_hardening_updates": [
+      "handle_swipe/drain_match_queue re-anchored to strict 60s foreground + queued_expires_at TTL semantics",
+      "active swipe/session contract normalized around video_session_id + event_id with legacy match_id alias retained",
+      "join_matching_queue and find_video_date_match deprecated to compatibility no-op surfaces",
+      "leave_matching_queue retained for compatibility cleanup, marked deprecated in response contract",
+      "active web/native flow no longer depends on legacy queue-era RPC surfaces"
     ],
     "risk_flags": {
       "contains_destructive_resets": true,
