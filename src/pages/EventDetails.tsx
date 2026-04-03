@@ -312,7 +312,7 @@ const EventDetails = () => {
       } else if (wasConfirmed) {
         toast.success("Spot released", {
           description:
-            "Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules.",
+            "Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules. Refund exceptions are handled manually by support.",
         });
       } else {
         toast.success("Booking updated", {

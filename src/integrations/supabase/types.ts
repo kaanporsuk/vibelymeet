@@ -1016,6 +1016,94 @@ export type Database = {
           },
         ]
       }
+      event_payment_exceptions: {
+        Row: {
+          checkout_session_id: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          event_status_snapshot: string | null
+          exception_status: string
+          exception_type: string
+          external_refund_reference: string | null
+          id: string
+          notes: string | null
+          profile_id: string
+          refund_handled_externally: boolean
+          registration_admission_snapshot: string | null
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          settlement_outcome_snapshot: string | null
+          support_ticket_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          checkout_session_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          event_status_snapshot?: string | null
+          exception_status?: string
+          exception_type: string
+          external_refund_reference?: string | null
+          id?: string
+          notes?: string | null
+          profile_id: string
+          refund_handled_externally?: boolean
+          registration_admission_snapshot?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          settlement_outcome_snapshot?: string | null
+          support_ticket_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          checkout_session_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          event_status_snapshot?: string | null
+          exception_status?: string
+          exception_type?: string
+          external_refund_reference?: string | null
+          id?: string
+          notes?: string | null
+          profile_id?: string
+          refund_handled_externally?: boolean
+          registration_admission_snapshot?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          settlement_outcome_snapshot?: string | null
+          support_ticket_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_payment_exceptions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_support_ticket_id_fkey"
+            columns: ["support_ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       events: {
         Row: {
           archived_at: string | null
@@ -2349,8 +2437,11 @@ export type Database = {
           admin_notes: string | null
           app_version: string | null
           assigned_to: string | null
+          checkout_session_id: string | null
           created_at: string
           device_model: string | null
+          event_id: string | null
+          event_payment_exception_id: string | null
           id: string
           message: string
           os_version: string | null
@@ -2370,8 +2461,11 @@ export type Database = {
           admin_notes?: string | null
           app_version?: string | null
           assigned_to?: string | null
+          checkout_session_id?: string | null
           created_at?: string
           device_model?: string | null
+          event_id?: string | null
+          event_payment_exception_id?: string | null
           id?: string
           message: string
           os_version?: string | null
@@ -2391,8 +2485,11 @@ export type Database = {
           admin_notes?: string | null
           app_version?: string | null
           assigned_to?: string | null
+          checkout_session_id?: string | null
           created_at?: string
           device_model?: string | null
+          event_id?: string | null
+          event_payment_exception_id?: string | null
           id?: string
           message?: string
           os_version?: string | null
@@ -2409,6 +2506,20 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "support_tickets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_event_payment_exception_id_fkey"
+            columns: ["event_payment_exception_id"]
+            isOneToOne: false
+            referencedRelation: "event_payment_exceptions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "support_tickets_user_id_fkey"
             columns: ["user_id"]
@@ -2983,10 +3094,35 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_create_event_payment_exception: {
+        Args: {
+          p_checkout_session_id?: string
+          p_event_id: string
+          p_exception_status?: string
+          p_exception_type: string
+          p_notes?: string
+          p_profile_id: string
+          p_support_ticket_id?: string
+        }
+        Returns: Json
+      }
       admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
       admin_delete_event: { Args: { p_event_id: string }; Returns: Json }
       admin_get_event_confirmed_gender_counts: {
         Args: { p_event_id: string }
+        Returns: Json
+      }
+      admin_transition_event_payment_exception: {
+        Args: {
+          p_exception_id: string
+          p_exception_status?: string
+          p_exception_type?: string
+          p_external_refund_reference?: string
+          p_notes?: string
+          p_refund_handled_externally?: boolean
+          p_resolution?: string
+          p_support_ticket_id?: string
+        }
         Returns: Json
       }
       admin_remove_event_registration: {

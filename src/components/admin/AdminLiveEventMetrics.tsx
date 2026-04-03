@@ -63,6 +63,17 @@ interface LifecycleFeedItem {
   error_reason?: string | null;
 }
 
+interface EventPaymentExceptionItem {
+  id: string;
+  profile_id: string;
+  support_ticket_id: string | null;
+  checkout_session_id: string | null;
+  exception_type: string;
+  exception_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 
@@ -505,6 +516,28 @@ const AdminLiveEventMetrics = () => {
     refetchInterval: 15000,
   });
 
+  const { data: paymentExceptions = [] } = useQuery({
+    queryKey: ["admin-event-payment-exceptions", eventId],
+    queryFn: async () => {
+      if (!eventId) return [];
+      const { data, error } = await supabase
+        .from("event_payment_exceptions")
+        .select("id, profile_id, support_ticket_id, checkout_session_id, exception_type, exception_status, created_at, updated_at")
+        .eq("event_id", eventId)
+        .order("updated_at", { ascending: false })
+        .limit(30);
+      if (error) throw error;
+      return (data ?? []) as EventPaymentExceptionItem[];
+    },
+    enabled: !!eventId,
+    refetchInterval: 15000,
+  });
+
+  const paymentExceptionStatusCounts = paymentExceptions.reduce<Record<string, number>>((acc, row) => {
+    acc[row.exception_status] = (acc[row.exception_status] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -642,6 +675,48 @@ const AdminLiveEventMetrics = () => {
               </div>
             </div>
           )}
+
+          <div className="glass-card p-6 rounded-2xl space-y-4">
+            <div>
+              <h3 className="font-semibold text-foreground">Payment Exception Cases</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Manual support and refund exception state for this event. Refund handling remains external.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Badge className="bg-secondary text-foreground border-white/10">
+                total: {paymentExceptions.length}
+              </Badge>
+              {Object.entries(paymentExceptionStatusCounts).map(([status, count]) => (
+                <Badge key={status} className="bg-primary/15 text-primary border-primary/30">
+                  {status}: {count}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+              {paymentExceptions.length > 0 ? paymentExceptions.map((item) => (
+                <div key={item.id} className="rounded-xl border border-white/10 bg-secondary/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-secondary text-foreground border-white/10">{item.exception_type}</Badge>
+                      <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">{item.exception_status}</Badge>
+                    </div>
+                    <span className="text-[11px] text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
+                    <span>exception_id: {item.id}</span>
+                    <span>profile_id: {item.profile_id}</span>
+                    <span>support_ticket_id: {item.support_ticket_id || "-"}</span>
+                    <span>checkout_session_id: {item.checkout_session_id || "-"}</span>
+                  </div>
+                </div>
+              )) : (
+                <div className="text-sm text-muted-foreground">No payment exception cases for this event.</div>
+              )}
+            </div>
+          </div>
         </>
       )}
 

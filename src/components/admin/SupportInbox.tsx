@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -33,6 +33,9 @@ type TicketRow = {
   id: string;
   reference_id: string;
   user_id: string;
+  event_id: string | null;
+  checkout_session_id: string | null;
+  event_payment_exception_id: string | null;
   primary_type: string;
   subcategory: string;
   status: string;
@@ -57,6 +60,49 @@ type ReplyRow = {
   message: string;
   created_at: string;
 };
+
+type ExceptionType =
+  | "refund_requested"
+  | "refund_handled_externally"
+  | "payment_mismatch"
+  | "registration_corrected"
+  | "cancelled_after_payment"
+  | "support_exception";
+
+type ExceptionStatus = "open" | "in_review" | "awaiting_external" | "resolved" | "closed_no_action";
+
+type EventPaymentExceptionRow = {
+  id: string;
+  event_id: string;
+  profile_id: string;
+  support_ticket_id: string | null;
+  checkout_session_id: string | null;
+  exception_type: ExceptionType;
+  exception_status: ExceptionStatus;
+  notes: string | null;
+  resolution: string | null;
+  refund_handled_externally: boolean;
+  external_refund_reference: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const EXCEPTION_TYPE_OPTIONS: { value: ExceptionType; label: string }[] = [
+  { value: "refund_requested", label: "Refund requested" },
+  { value: "refund_handled_externally", label: "Refund handled externally" },
+  { value: "payment_mismatch", label: "Payment mismatch" },
+  { value: "registration_corrected", label: "Registration corrected" },
+  { value: "cancelled_after_payment", label: "Cancelled after payment" },
+  { value: "support_exception", label: "Support exception" },
+];
+
+const EXCEPTION_STATUS_OPTIONS: { value: ExceptionStatus; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "in_review", label: "In review" },
+  { value: "awaiting_external", label: "Awaiting external" },
+  { value: "resolved", label: "Resolved" },
+  { value: "closed_no_action", label: "Closed no action" },
+];
 
 const PRI_ORDER: Record<string, number> = {
   urgent: 0,
@@ -84,6 +130,11 @@ export default function SupportInbox() {
   const [sendEmail, setSendEmail] = useState(true);
   const [notesDraft, setNotesDraft] = useState("");
   const [profileUserId, setProfileUserId] = useState<string | null>(null);
+  const [exceptionTypeDraft, setExceptionTypeDraft] = useState<ExceptionType>("refund_requested");
+  const [exceptionStatusDraft, setExceptionStatusDraft] = useState<ExceptionStatus>("open");
+  const [exceptionNotesDraft, setExceptionNotesDraft] = useState("");
+  const [exceptionResolutionDraft, setExceptionResolutionDraft] = useState("");
+  const [externalRefundReferenceDraft, setExternalRefundReferenceDraft] = useState("");
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ["admin-support-tickets"],
@@ -161,6 +212,38 @@ export default function SupportInbox() {
     },
     enabled: !!selectedId,
   });
+
+  const { data: linkedException } = useQuery({
+    queryKey: ["admin-support-linked-exception", selected?.id],
+    queryFn: async () => {
+      if (!selected?.id) return null;
+      const { data, error } = await supabase
+        .from("event_payment_exceptions")
+        .select("id, event_id, profile_id, support_ticket_id, checkout_session_id, exception_type, exception_status, notes, resolution, refund_handled_externally, external_refund_reference, created_at, updated_at")
+        .eq("support_ticket_id", selected.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as EventPaymentExceptionRow | null;
+    },
+    enabled: !!selected?.id,
+  });
+
+  useEffect(() => {
+    if (!linkedException) {
+      setExceptionTypeDraft("refund_requested");
+      setExceptionStatusDraft("open");
+      setExceptionResolutionDraft("");
+      setExternalRefundReferenceDraft("");
+      return;
+    }
+    setExceptionTypeDraft(linkedException.exception_type);
+    setExceptionStatusDraft(linkedException.exception_status);
+    setExceptionNotesDraft(linkedException.notes ?? "");
+    setExceptionResolutionDraft(linkedException.resolution ?? "");
+    setExternalRefundReferenceDraft(linkedException.external_refund_reference ?? "");
+  }, [linkedException]);
 
   const { data: profile } = useQuery({
     queryKey: ["admin-support-profile", selected?.user_id],
@@ -261,6 +344,62 @@ export default function SupportInbox() {
       }
     },
     onError: () => toast.error("Failed to send reply"),
+  });
+
+  const createExceptionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected?.event_id) throw new Error("Missing event context on ticket");
+      const { data, error } = await supabase.rpc("admin_create_event_payment_exception", {
+        p_event_id: selected.event_id,
+        p_profile_id: selected.user_id,
+        p_exception_type: exceptionTypeDraft,
+        p_exception_status: exceptionStatusDraft,
+        p_checkout_session_id: selected.checkout_session_id,
+        p_support_ticket_id: selected.id,
+        p_notes: exceptionNotesDraft.trim() || null,
+      });
+      if (error) throw error;
+      const ok = (data as { success?: boolean; error?: string } | null)?.success;
+      if (!ok) {
+        throw new Error((data as { error?: string } | null)?.error ?? "Failed to create exception");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-support-linked-exception", selected?.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
+      setExceptionNotesDraft("");
+      toast.success("Payment exception case created");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to create payment exception case"),
+  });
+
+  const transitionExceptionMutation = useMutation({
+    mutationFn: async () => {
+      if (!linkedException?.id) throw new Error("No linked payment exception case");
+      const { data, error } = await supabase.rpc("admin_transition_event_payment_exception", {
+        p_exception_id: linkedException.id,
+        p_exception_type: exceptionTypeDraft,
+        p_exception_status: exceptionStatusDraft,
+        p_resolution: exceptionResolutionDraft.trim() || null,
+        p_notes: exceptionNotesDraft.trim() || null,
+        p_refund_handled_externally: exceptionTypeDraft === "refund_handled_externally" ? true : null,
+        p_external_refund_reference: externalRefundReferenceDraft.trim() || null,
+        p_support_ticket_id: selected?.id ?? null,
+      });
+      if (error) throw error;
+      const ok = (data as { success?: boolean; error?: string } | null)?.success;
+      if (!ok) {
+        throw new Error((data as { error?: string } | null)?.error ?? "Failed to update exception");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-support-linked-exception", selected?.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
+      toast.success("Payment exception case updated");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "Failed to update payment exception case"),
   });
 
   const needsAttention = (t: TicketRow) => {
@@ -482,6 +621,14 @@ export default function SupportInbox() {
               </Button>
             </div>
 
+            <div className="px-4 py-3 border-b border-border bg-secondary/20">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span>event_id: {selected.event_id ?? "-"}</span>
+                <span>checkout_session_id: {selected.checkout_session_id ?? "-"}</span>
+                <span>linked_exception_id: {selected.event_payment_exception_id ?? linkedException?.id ?? "-"}</span>
+              </div>
+            </div>
+
             <ScrollArea className="flex-1 p-4 max-h-[320px]">
               <div className="rounded-lg border border-border bg-secondary/20 p-3 mb-4">
                 <p className="text-xs text-muted-foreground mb-1">Original request</p>
@@ -561,6 +708,93 @@ export default function SupportInbox() {
               >
                 Save notes
               </Button>
+            </div>
+
+            <div className="p-4 border-t border-border space-y-3 bg-secondary/10">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Payment exception case
+                </p>
+                {linkedException ? (
+                  <Badge variant="outline">
+                    {EXCEPTION_TYPE_OPTIONS.find((o) => o.value === linkedException.exception_type)?.label ?? linkedException.exception_type} · {EXCEPTION_STATUS_OPTIONS.find((o) => o.value === linkedException.exception_status)?.label ?? linkedException.exception_status}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">No case linked</Badge>
+                )}
+              </div>
+
+              {!selected.event_id ? (
+                <p className="text-xs text-muted-foreground">
+                  Add event context to this ticket before opening a payment exception case.
+                </p>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <Select value={exceptionTypeDraft} onValueChange={(v) => setExceptionTypeDraft(v as ExceptionType)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Exception type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXCEPTION_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={exceptionStatusDraft} onValueChange={(v) => setExceptionStatusDraft(v as ExceptionStatus)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Exception status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EXCEPTION_STATUS_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Input
+                value={externalRefundReferenceDraft}
+                onChange={(e) => setExternalRefundReferenceDraft(e.target.value)}
+                placeholder="External refund reference (optional)"
+                className="h-9"
+              />
+
+              <Textarea
+                value={exceptionResolutionDraft}
+                onChange={(e) => setExceptionResolutionDraft(e.target.value)}
+                rows={2}
+                placeholder="Resolution summary (optional)"
+              />
+
+              <Textarea
+                value={exceptionNotesDraft}
+                onChange={(e) => setExceptionNotesDraft(e.target.value)}
+                rows={2}
+                placeholder="Operator notes for this exception case"
+              />
+
+              <div className="flex flex-wrap gap-2">
+                {!linkedException ? (
+                  <Button
+                    size="sm"
+                    onClick={() => createExceptionMutation.mutate()}
+                    disabled={!selected.event_id || createExceptionMutation.isPending}
+                  >
+                    {createExceptionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Open case
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => transitionExceptionMutation.mutate()}
+                    disabled={transitionExceptionMutation.isPending}
+                  >
+                    {transitionExceptionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Save transition
+                  </Button>
+                )}
+              </div>
             </div>
           </>
         )}
