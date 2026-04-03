@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase';
 const BOTH_READY = 'both_ready';
 const FORFEITED = 'forfeited';
 const SNOOZED = 'snoozed';
+const EXPIRED = 'expired';
+const POLL_MS = 2000;
 
 export type ReadyGateState = {
   status: string;
@@ -77,7 +79,7 @@ export function useReadyGate(
 
     if (status === BOTH_READY) {
       onBothReadyRef.current?.();
-    } else if (status === FORFEITED) {
+    } else if (status === FORFEITED || status === EXPIRED) {
       onForfeitedRef.current?.('timeout');
     }
   }, [sessionId, userId]);
@@ -112,7 +114,7 @@ export function useReadyGate(
 
           if (nextStatus === BOTH_READY) {
             onBothReadyRef.current?.();
-          } else if (nextStatus === FORFEITED) {
+          } else if (nextStatus === FORFEITED || nextStatus === EXPIRED) {
             onForfeitedRef.current?.('timeout');
           }
         },
@@ -122,6 +124,18 @@ export function useReadyGate(
       supabase.removeChannel(channel);
     };
   }, [sessionId, userId]);
+
+  // Fallback sync while ready gate is active in case realtime misses transitions.
+  useEffect(() => {
+    if (!sessionId || !userId) return;
+    if ([BOTH_READY, FORFEITED, EXPIRED].includes(state.status)) return;
+
+    const intervalId = setInterval(() => {
+      void fetchSession();
+    }, POLL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [sessionId, userId, state.status, fetchSession]);
 
   const markReady = useCallback(async () => {
     if (!sessionId || !userId) return;
@@ -142,7 +156,7 @@ export function useReadyGate(
   }, [sessionId, userId, fetchSession]);
 
   const isBothReady = state.status === BOTH_READY;
-  const isForfeited = state.status === FORFEITED;
+  const isForfeited = state.status === FORFEITED || state.status === EXPIRED;
   const isSnoozed = state.status === SNOOZED;
 
   return {

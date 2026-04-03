@@ -19,6 +19,8 @@ interface UseReadyGateOptions {
   onForfeited: (reason: "timeout" | "skip") => void;
 }
 
+const POLL_MS = 2000;
+
 export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGateOptions) => {
   const { user } = useUserProfile();
   const [state, setState] = useState<ReadyGateState>({
@@ -39,11 +41,9 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     onForfeitedRef.current = onForfeited;
   }, [onBothReady, onForfeited]);
 
-  // Fetch initial state and determine participant position
-  useEffect(() => {
-    if (!sessionId || !user?.id) return;
+  const fetchSession = useCallback(async () => {
+      if (!sessionId || !user?.id) return;
 
-    const fetchSession = async () => {
       const { data: session } = await supabase
         .from("video_sessions")
         .select("participant_1_id, participant_2_id, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at")
@@ -79,13 +79,17 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
       if (session.ready_gate_status === ReadyGateStatus.BothReady) {
         onBothReadyRef.current();
-      } else if (session.ready_gate_status === ReadyGateStatus.Forfeited) {
+      } else if (session.ready_gate_status === ReadyGateStatus.Forfeited || session.ready_gate_status === ReadyGateStatus.Expired) {
         onForfeitedRef.current("timeout");
       }
-    };
-
-    fetchSession();
   }, [sessionId, user?.id]);
+
+  // Fetch initial state and determine participant position
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+
+    void fetchSession();
+  }, [sessionId, user?.id, fetchSession]);
 
   // Subscribe to realtime updates
   useEffect(() => {
@@ -119,7 +123,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
           if (s.ready_gate_status === ReadyGateStatus.BothReady) {
             onBothReadyRef.current();
-          } else if (s.ready_gate_status === ReadyGateStatus.Forfeited) {
+          } else if (s.ready_gate_status === ReadyGateStatus.Forfeited || s.ready_gate_status === ReadyGateStatus.Expired) {
             onForfeitedRef.current("timeout");
           }
         }
@@ -130,6 +134,20 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       supabase.removeChannel(channel);
     };
   }, [sessionId, user?.id]);
+
+  // Fallback sync while ready gate is active in case realtime misses transitions.
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+    if ([ReadyGateStatus.BothReady, ReadyGateStatus.Forfeited, ReadyGateStatus.Expired].includes(state.status)) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      void fetchSession();
+    }, POLL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [sessionId, user?.id, state.status, fetchSession]);
 
   // Mark self as ready (server-owned transition)
   const markReady = useCallback(async () => {
