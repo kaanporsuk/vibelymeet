@@ -34,6 +34,19 @@ function sessionStageNotificationData(eventId: string, videoSessionId: string): 
   };
 }
 
+function logLifecycle(payload: {
+  event_id: string | null;
+  session_id: string | null;
+  user_id: string | null;
+  admission_status?: string | null;
+  queue_id?: string | null;
+  category: string;
+  result: string;
+  error_reason?: string | null;
+}) {
+  console.log("lifecycle.swipe_actions", JSON.stringify(payload));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -84,6 +97,14 @@ serve(async (req) => {
 
     if (error) {
       console.error("swipe-actions handle_swipe error:", error);
+      logLifecycle({
+        event_id: String(event_id),
+        session_id: null,
+        user_id: actorId,
+        category: "swipe_action",
+        result: "rpc_error",
+        error_reason: error.message,
+      });
       return new Response(
         JSON.stringify({ success: false, error: "swipe_failed" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -102,6 +123,15 @@ serve(async (req) => {
     const sessionId = result.video_session_id ?? result.match_id;
     const eventIdStr = typeof result.event_id === "string" ? result.event_id : String(event_id);
 
+    logLifecycle({
+      event_id: eventIdStr,
+      session_id: sessionId ?? null,
+      user_id: actorId,
+      category: "swipe_action",
+      result: result.result ?? "ok",
+      error_reason: null,
+    });
+
     try {
       if (result.result === "match" && sessionId) {
         const dataPayload = sessionStageNotificationData(eventIdStr, sessionId);
@@ -115,15 +145,47 @@ serve(async (req) => {
           await serviceClient.functions.invoke("send-notification", {
             body: { user_id: target_id, ...immediateBody },
           });
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: String(target_id),
+            category: "ready_gate",
+            result: "notify_sent",
+            error_reason: null,
+          });
         } catch (e) {
           console.error("swipe-actions ready_gate notify target:", e);
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: String(target_id),
+            category: "ready_gate",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
         }
         try {
           await serviceClient.functions.invoke("send-notification", {
             body: { user_id: actorId, ...immediateBody },
           });
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: actorId,
+            category: "ready_gate",
+            result: "notify_sent",
+            error_reason: null,
+          });
         } catch (e) {
           console.error("swipe-actions ready_gate notify actor:", e);
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: actorId,
+            category: "ready_gate",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
         }
         // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
       } else if (result.result === "match_queued" && sessionId) {
@@ -135,6 +197,14 @@ serve(async (req) => {
             body: "Someone mutual-vibed with you — open the event lobby to join the ready gate.",
             data: sessionStageNotificationData(eventIdStr, sessionId),
           },
+        });
+        logLifecycle({
+          event_id: eventIdStr,
+          session_id: sessionId,
+          user_id: String(target_id),
+          category: "ready_gate",
+          result: "notify_sent",
+          error_reason: null,
         });
       } else if (
         result.result === "super_vibe_sent" ||
@@ -150,9 +220,25 @@ serve(async (req) => {
             data: { url: "/events" },
           },
         });
+        logLifecycle({
+          event_id: eventIdStr,
+          session_id: null,
+          user_id: String(target_id),
+          category: "someone_vibed_you",
+          result: "notify_sent",
+          error_reason: null,
+        });
       }
     } catch (notifyError) {
       console.error("swipe-actions notification error:", notifyError);
+      logLifecycle({
+        event_id: eventIdStr,
+        session_id: sessionId ?? null,
+        user_id: actorId,
+        category: "swipe_action",
+        result: "notify_error",
+        error_reason: notifyError instanceof Error ? notifyError.message : String(notifyError),
+      });
     }
 
     return new Response(
@@ -161,6 +247,14 @@ serve(async (req) => {
     );
   } catch (err) {
     console.error("swipe-actions unexpected error:", err);
+    logLifecycle({
+      event_id: null,
+      session_id: null,
+      user_id: null,
+      category: "swipe_action",
+      result: "error",
+      error_reason: err instanceof Error ? err.message : String(err),
+    });
     return new Response(
       JSON.stringify({ success: false, error: "internal_error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },

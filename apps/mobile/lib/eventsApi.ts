@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 
@@ -478,6 +479,16 @@ export function useRegisterForEvent() {
       if (!result?.success) {
         throw new Error(result?.error ?? 'Registration failed');
       }
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('admission_status')
+        .eq('event_id', eventId)
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      trackEvent('event_registration_success', {
+        event_id: eventId,
+        admission_status: reg?.admission_status ?? null,
+      });
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });
@@ -492,12 +503,22 @@ export function useRegisterForEvent() {
     mutationFn: async (eventId: string) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('admission_status')
+        .eq('event_id', eventId)
+        .eq('profile_id', user.id)
+        .maybeSingle();
       const { data, error } = await supabase.rpc('cancel_event_registration', {
         p_event_id: eventId,
       });
       if (error) throw error;
       const result = data as { success?: boolean } | null;
       if (!result?.success) throw new Error('Cancellation failed');
+      trackEvent('event_unregistered', {
+        event_id: eventId,
+        admission_status: reg?.admission_status ?? null,
+      });
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });

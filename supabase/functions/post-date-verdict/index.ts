@@ -16,6 +16,19 @@ type VerdictRpcResult = {
   persistent_match_created?: boolean | null;
 };
 
+function logLifecycle(payload: {
+  event_id?: string | null;
+  session_id: string | null;
+  user_id: string | null;
+  admission_status?: string | null;
+  queue_id?: string | null;
+  category: string;
+  result: string;
+  error_reason?: string | null;
+}) {
+  console.log("lifecycle.post_date_verdict", JSON.stringify(payload));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -48,6 +61,9 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
+    const { data: authUser } = await userClient.auth.getUser();
+    const actorUserId = authUser?.user?.id ?? null;
+
     const { data, error } = await userClient.rpc("submit_post_date_verdict", {
       p_session_id: sessionId,
       p_liked: liked,
@@ -55,6 +71,13 @@ serve(async (req) => {
 
     if (error) {
       console.error("post-date-verdict RPC error:", error);
+      logLifecycle({
+        session_id: sessionId,
+        user_id: actorUserId,
+        category: "post_date_verdict",
+        result: "rpc_error",
+        error_reason: error.message,
+      });
       return new Response(JSON.stringify({ success: false, error: "rpc_failed", message: error.message }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -63,11 +86,26 @@ serve(async (req) => {
 
     const payload = data as VerdictRpcResult;
     if (payload?.success === false) {
+      logLifecycle({
+        session_id: sessionId,
+        user_id: actorUserId,
+        category: "post_date_verdict",
+        result: "rejected",
+        error_reason: payload.error ?? "rpc_rejected",
+      });
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    logLifecycle({
+      session_id: sessionId,
+      user_id: actorUserId,
+      category: "post_date_verdict",
+      result: payload?.mutual ? "mutual" : "recorded",
+      error_reason: null,
+    });
 
     // Server-owned push: only when this resolution created a new persistent matches row (avoid duplicate toasts).
     if (
@@ -96,15 +134,43 @@ serve(async (req) => {
           await serviceClient.functions.invoke("send-notification", {
             body: { user_id: sess.participant_1_id, ...immediateBody },
           });
+          logLifecycle({
+            session_id: sessionId,
+            user_id: sess.participant_1_id,
+            category: "new_match",
+            result: "notify_sent",
+            error_reason: null,
+          });
         } catch (e) {
           console.error("post-date-verdict notify p1:", e);
+          logLifecycle({
+            session_id: sessionId,
+            user_id: sess.participant_1_id,
+            category: "new_match",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
         }
         try {
           await serviceClient.functions.invoke("send-notification", {
             body: { user_id: sess.participant_2_id, ...immediateBody },
           });
+          logLifecycle({
+            session_id: sessionId,
+            user_id: sess.participant_2_id,
+            category: "new_match",
+            result: "notify_sent",
+            error_reason: null,
+          });
         } catch (e) {
           console.error("post-date-verdict notify p2:", e);
+          logLifecycle({
+            session_id: sessionId,
+            user_id: sess.participant_2_id,
+            category: "new_match",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
         }
       }
     }
@@ -115,6 +181,13 @@ serve(async (req) => {
     });
   } catch (err) {
     console.error("post-date-verdict unexpected error:", err);
+    logLifecycle({
+      session_id: null,
+      user_id: null,
+      category: "post_date_verdict",
+      result: "error",
+      error_reason: err instanceof Error ? err.message : String(err),
+    });
     return new Response(JSON.stringify({ success: false, error: "internal_error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

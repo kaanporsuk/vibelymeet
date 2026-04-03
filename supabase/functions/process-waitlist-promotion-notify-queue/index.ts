@@ -7,6 +7,19 @@ const corsHeaders: Record<string, string> = {
 
 const BATCH = 50
 
+function logLifecycle(payload: {
+  event_id: string | null
+  session_id?: string | null
+  user_id: string | null
+  admission_status: string | null
+  queue_id: string | null
+  category: string
+  result: string
+  error_reason?: string | null
+}) {
+  console.log('lifecycle.waitlist_promotion_notify', JSON.stringify(payload))
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
@@ -58,13 +71,22 @@ Deno.serve(async (req) => {
           data: {
             event_id: eventId,
             eventTitle,
-            url: `/event/${eventId}`,
+            admission_status: 'confirmed',
           },
         }),
       })
 
       if (!notifyRes.ok) {
         failed++
+        logLifecycle({
+          event_id: eventId,
+          user_id: userId,
+          admission_status: 'confirmed',
+          queue_id: queueId,
+          category: 'event_waitlist_promoted',
+          result: 'delivery_error',
+          error_reason: `notify_http_${notifyRes.status}`,
+        })
         console.error('waitlist-promo notify http', notifyRes.status, await notifyRes.text())
         continue
       }
@@ -78,6 +100,15 @@ Deno.serve(async (req) => {
       }
       if (!notifyOk) {
         failed++
+        logLifecycle({
+          event_id: eventId,
+          user_id: userId,
+          admission_status: 'confirmed',
+          queue_id: queueId,
+          category: 'event_waitlist_promoted',
+          result: 'delivery_error',
+          error_reason: 'notify_payload_not_success',
+        })
         continue
       }
 
@@ -88,9 +119,27 @@ Deno.serve(async (req) => {
 
       if (upErr) {
         failed++
+        logLifecycle({
+          event_id: eventId,
+          user_id: userId,
+          admission_status: 'confirmed',
+          queue_id: queueId,
+          category: 'event_waitlist_promoted',
+          result: 'queue_update_error',
+          error_reason: upErr.message,
+        })
         console.error('waitlist-promo mark processed', upErr)
         continue
       }
+      logLifecycle({
+        event_id: eventId,
+        user_id: userId,
+        admission_status: 'confirmed',
+        queue_id: queueId,
+        category: 'event_waitlist_promoted',
+        result: 'sent',
+        error_reason: null,
+      })
       sent++
     }
 
@@ -101,6 +150,15 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (e) {
+    logLifecycle({
+      event_id: null,
+      user_id: null,
+      admission_status: null,
+      queue_id: null,
+      category: 'event_waitlist_promoted',
+      result: 'error',
+      error_reason: e instanceof Error ? e.message : String(e),
+    })
     console.error('process-waitlist-promotion-notify-queue error:', e)
     return new Response(JSON.stringify({ success: false, error: String(e) }), {
       status: 200,

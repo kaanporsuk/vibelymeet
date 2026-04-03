@@ -181,11 +181,6 @@ export default function EventDetailScreen() {
     }
     const ok = await registerForEvent(event.id);
     if (ok) {
-      trackEvent('event_registered', {
-        event_id: event.id,
-        event_title: event.title,
-        is_free: ev?.is_free !== false,
-      });
       const { data: regSnap } = await refetchRegistration();
       const evRow = event as EventDetailsRow;
       const registrationIsVirtual = !evRow.is_location_specific;

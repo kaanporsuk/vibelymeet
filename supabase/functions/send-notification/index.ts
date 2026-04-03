@@ -66,6 +66,79 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
 // Categories that bypass quiet hours (time-critical / safety / support)
 const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply']
 
+type AdmissionStatus = 'confirmed' | 'waitlisted' | string | undefined
+
+function getEventId(data: any): string | null {
+  return typeof data?.event_id === 'string' && data.event_id.trim() ? data.event_id : null
+}
+
+function getAdmissionStatus(data: any): AdmissionStatus {
+  return typeof data?.admission_status === 'string' && data.admission_status.trim()
+    ? data.admission_status
+    : undefined
+}
+
+function isEventLifecycleCategory(category: string): boolean {
+  return [
+    'event_reminder',
+    'event_reminder_30m',
+    'event_reminder_5m',
+    'event_waitlist_promoted',
+    'event_live',
+    'event_cancelled',
+  ].includes(category)
+}
+
+function getSessionId(data: any): string | null {
+  if (typeof data?.session_id === 'string' && data.session_id.trim()) return data.session_id
+  if (typeof data?.video_session_id === 'string' && data.video_session_id.trim()) return data.video_session_id
+  return null
+}
+
+function getQueueId(data: any): string | null {
+  if (typeof data?.queue_id === 'string' && data.queue_id.trim()) return data.queue_id
+  return null
+}
+
+function shouldLogLifecycle(category: string, data: any): boolean {
+  return isEventLifecycleCategory(category) || !!getEventId(data) || !!getSessionId(data)
+}
+
+function logLifecycle(payload: {
+  event_id?: string | null
+  session_id?: string | null
+  user_id?: string | null
+  admission_status?: string | null
+  queue_id?: string | null
+  category?: string | null
+  result: string
+  error_reason?: string | null
+}) {
+  console.log('lifecycle.send_notification', JSON.stringify(payload))
+}
+
+function eventDeepLink(category: string, data: any): string | null {
+  const eventId = getEventId(data)
+  if (!eventId) return null
+
+  const admissionStatus = getAdmissionStatus(data)
+  const isConfirmed = admissionStatus === 'confirmed'
+
+  if (category === 'event_live') {
+    return `/event/${eventId}/lobby`
+  }
+
+  if (category === 'event_reminder' || category === 'event_reminder_30m' || category === 'event_reminder_5m') {
+    return isConfirmed ? `/event/${eventId}/lobby` : `/events/${eventId}`
+  }
+
+  if (category === 'event_waitlist_promoted' || category === 'event_cancelled') {
+    return `/events/${eventId}`
+  }
+
+  return null
+}
+
 // Title/body templates for P0 notification types (used when caller omits title or body)
 const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) => string }> = {
   new_message: { title: 'New message', body: (ctx) => `${ctx?.senderName ?? 'Someone'}: ${ctx?.preview ?? 'New message'}` },
@@ -73,16 +146,34 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   daily_drop: { title: 'Daily Drop is ready 💧', body: () => 'Your daily match is waiting. Tap to reveal!' },
   drop_opener: { title: 'New opener received', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a message` },
   drop_reply: { title: 'Reply received!', body: (ctx) => `${ctx?.senderName ?? 'Someone'} replied to your opener` },
-  event_reminder_30m: { title: 'Event in 30 minutes ⏰', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} starts soon. Get ready!` },
-  event_reminder_5m: { title: 'Starting in 5 minutes! 🎉', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} is about to begin` },
+  event_reminder_30m: {
+    title: 'Event in 30 minutes ⏰',
+    body: (ctx) =>
+      ctx?.admission_status === 'confirmed'
+        ? `${ctx?.eventTitle ?? 'Your event'} starts soon. Get ready to join the lobby.`
+        : `${ctx?.eventTitle ?? 'Your event'} starts soon. You’re still on the waitlist, so keep an eye on the event page for status updates.`,
+  },
+  event_reminder_5m: {
+    title: 'Starting in 5 minutes! 🎉',
+    body: (ctx) =>
+      ctx?.admission_status === 'confirmed'
+        ? `${ctx?.eventTitle ?? 'Your event'} is about to begin. Tap through to the lobby.`
+        : `${ctx?.eventTitle ?? 'Your event'} is about to begin. You’re still on the waitlist, so keep an eye on the event page for status updates.`,
+  },
   event_waitlist_promoted: {
     title: "You're in! 🎉",
-    body: (ctx) => `A spot opened up — you're confirmed for ${ctx?.eventTitle ?? 'your event'}.`,
+    body: (ctx) => `A spot opened up — you're confirmed for ${ctx?.eventTitle ?? 'your event'}. Open the event page to view your updated status.`,
   },
-  event_live: { title: 'Event is LIVE 🔴', body: (ctx) => `${ctx?.eventTitle ?? 'Event'} has started. Enter the lobby now!` },
+  event_live: {
+    title: 'Event is LIVE 🔴',
+    body: (ctx) =>
+      ctx?.admission_status === 'confirmed'
+        ? `${ctx?.eventTitle ?? 'Event'} has started. Enter the lobby now!`
+        : `${ctx?.eventTitle ?? 'Event'} has started. Open the event page to view your status.`,
+  },
   event_cancelled: {
     title: 'Event cancelled',
-    body: (ctx) => `${ctx?.eventTitle ?? 'An event'} has been cancelled.`,
+    body: (ctx) => `${ctx?.eventTitle ?? 'An event'} has been cancelled. Open the event page for details.`,
   },
   vibe_received: { title: 'Someone vibed you! 💜', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a vibe at ${ctx?.eventTitle ?? 'an event'}` },
   super_vibe: { title: 'Super Vibe! ⭐', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a Super Vibe!` },
@@ -171,6 +262,30 @@ function isInQuietHours(start: string, end: string, timezone: string): boolean {
 }
 
 Deno.serve(async (req) => {
+  let lifecycleContext: {
+    shouldLog: boolean
+    event_id: string | null
+    session_id: string | null
+    user_id: string | null
+    admission_status: string | null
+    queue_id: string | null
+    category: string | null
+  } | null = null
+
+  const emitLifecycle = (result: string, errorReason?: string | null) => {
+    if (!lifecycleContext?.shouldLog) return
+    logLifecycle({
+      event_id: lifecycleContext.event_id,
+      session_id: lifecycleContext.session_id,
+      user_id: lifecycleContext.user_id,
+      admission_status: lifecycleContext.admission_status,
+      queue_id: lifecycleContext.queue_id,
+      category: lifecycleContext.category,
+      result,
+      error_reason: errorReason ?? null,
+    })
+  }
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
@@ -207,7 +322,18 @@ Deno.serve(async (req) => {
 
     let { user_id, category, title, body, data, image_url, bypass_preferences } = await req.json()
 
+    lifecycleContext = {
+      shouldLog: shouldLogLifecycle(typeof category === 'string' ? category : '', data),
+      event_id: getEventId(data),
+      session_id: getSessionId(data),
+      user_id: typeof user_id === 'string' ? user_id : null,
+      admission_status: typeof getAdmissionStatus(data) === 'string' ? getAdmissionStatus(data)! : null,
+      queue_id: getQueueId(data),
+      category: typeof category === 'string' ? category : null,
+    }
+
     if (!user_id || !category) {
+      emitLifecycle('rejected', 'invalid_request')
       return new Response(
         JSON.stringify({ success: false, error: 'user_id and category required' }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -243,6 +369,7 @@ Deno.serve(async (req) => {
 
     if (!prefs) {
       await logNotification(user_id, category, title, body, data, false, 'no_preferences')
+      emitLifecycle('suppressed', 'no_preferences')
       return new Response(JSON.stringify({ success: false, reason: 'no_preferences' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -274,6 +401,7 @@ Deno.serve(async (req) => {
 
       if (legacyPaused || accountPaused) {
         await logNotification(user_id, category, title, body, data, false, 'account_paused')
+        emitLifecycle('suppressed', 'account_paused')
         return new Response(JSON.stringify({ success: false, reason: 'account_paused' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
@@ -284,6 +412,7 @@ Deno.serve(async (req) => {
     if (category !== 'safety_alerts' && category !== 'support_reply' && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
         await logNotification(user_id, category, title, body, data, false, 'paused')
+        emitLifecycle('suppressed', 'paused')
         return new Response(JSON.stringify({ success: false, reason: 'paused' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
@@ -293,6 +422,7 @@ Deno.serve(async (req) => {
     // 6. Check master toggle
     if (!prefs.push_enabled && !bypass_preferences) {
       await logNotification(user_id, category, title, body, data, false, 'user_disabled')
+      emitLifecycle('suppressed', 'user_disabled')
       return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -303,6 +433,7 @@ Deno.serve(async (req) => {
       const col = CATEGORY_TO_COLUMN[category]
       if (col && prefs[col] === false) {
         await logNotification(user_id, category, title, body, data, false, 'user_disabled')
+        emitLifecycle('suppressed', 'user_disabled')
         return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
@@ -325,6 +456,7 @@ Deno.serve(async (req) => {
       if (matchMute) {
         if (new Date(matchMute.muted_until) > new Date()) {
           await logNotification(user_id, category, title, body, data, false, 'match_muted')
+          emitLifecycle('suppressed', 'match_muted')
           return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           })
@@ -345,6 +477,7 @@ Deno.serve(async (req) => {
       if (notifMute) {
         if (!notifMute.muted_until || new Date(notifMute.muted_until) > new Date()) {
           await logNotification(user_id, category, title, body, data, false, 'match_muted')
+          emitLifecycle('suppressed', 'match_muted')
           return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           })
@@ -364,6 +497,7 @@ Deno.serve(async (req) => {
       )
       if (inQuiet) {
         await logNotification(user_id, category, title, body, data, false, 'quiet_hours')
+        emitLifecycle('suppressed', 'quiet_hours')
         return new Response(JSON.stringify({ success: false, reason: 'quiet_hours' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
@@ -402,6 +536,7 @@ Deno.serve(async (req) => {
     }
     if (playerIds.length === 0) {
       await logNotification(user_id, category, title, body, data, false, 'no_player_id')
+      emitLifecycle('suppressed', 'no_player_id')
       return new Response(JSON.stringify({ success: false, reason: 'no_player_id' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -414,6 +549,7 @@ Deno.serve(async (req) => {
     // - Event lobby / ready gate pushes may include `video_session_id` (= video_sessions.id). Legacy `match_id` in those
     //   payloads is the same session id during the compatibility window — not matches.id until post-date mutual / Daily Drop.
     let webPath = '/'
+    const admissionStatus = getAdmissionStatus(data)
     const osData: Record<string, unknown> = { ...(data || {}), category }
     if (
       (category === 'messages' || isDateSuggestionCategory) &&
@@ -428,14 +564,19 @@ Deno.serve(async (req) => {
       osData.deep_link = chatPath
       webPath = chatPath
     } else {
+      const eventLink = isEventLifecycleCategory(category) ? eventDeepLink(category, data) : null
       const deepLink =
-        data && typeof data.url === 'string'
+        eventLink ||
+        (data && typeof data.url === 'string'
           ? data.url
           : data && typeof data.deep_link === 'string'
             ? data.deep_link
-            : '/'
+            : '/')
       osData.deep_link = deepLink
-      webPath = data && typeof data.url === 'string' ? data.url : '/'
+      if (typeof admissionStatus === 'string') {
+        osData.admission_status = admissionStatus
+      }
+      webPath = deepLink
     }
 
     const osPayload: any = {
@@ -473,6 +614,11 @@ Deno.serve(async (req) => {
       /* non-JSON body */
     }
     console.log('OneSignal:', osResponse.status, notificationId || 'no-id')
+    if (osResponse.ok) {
+      emitLifecycle('delivered', null)
+    } else {
+      emitLifecycle('delivery_error', `onesignal_http_${osResponse.status}`)
+    }
 
     // 12. Log success
     await logNotification(user_id, category, finalTitle, finalBody, data, true)
@@ -482,6 +628,7 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
+    emitLifecycle('error', error?.message || 'internal_error')
     console.error('send-notification error:', error)
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
