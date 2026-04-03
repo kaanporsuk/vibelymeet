@@ -185,6 +185,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     (parseInt(maxFemaleAttendees) || 0) +
     (parseInt(maxNonbinaryAttendees) || 0);
 
+  /** Matches save payload: empty gender fields fall back to default max (50). */
+  const effectiveMaxAttendees = totalCapacity > 0 ? totalCapacity : 50;
+  const confirmedHeadcount = isEditing ? (event?.current_attendees ?? 0) : 0;
+  const capacityBelowConfirmed =
+    isEditing && effectiveMaxAttendees < confirmedHeadcount;
+
   // City search debounce
   const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCitySearch = useCallback(async (q: string) => {
@@ -343,6 +349,19 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     if (!title || !coverImage || !eventDate || !eventTime) {
       toast.error('Please fill in all required fields');
       return;
+    }
+    if (capacityBelowConfirmed) {
+      const ok = window.confirm(
+        [
+          `Save with total capacity ${effectiveMaxAttendees} while ${confirmedHeadcount} user(s) still have confirmed seats?`,
+          '',
+          'The backend does not automatically remove or demote confirmed attendees when capacity goes down.',
+          'To enforce the new cap, remove specific people from the Attendees panel after saving.',
+          '',
+          'Save anyway?',
+        ].join('\n')
+      );
+      if (!ok) return;
     }
     saveEvent.mutate();
   };
@@ -561,6 +580,25 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
               <p className="text-sm text-muted-foreground">
                 Total Capacity: <span className="text-foreground font-medium">{totalCapacity}</span>
               </p>
+            )}
+            {isEditing && (
+              <p className="text-xs text-muted-foreground">
+                Saved <code className="text-[10px]">max_attendees</code>:{" "}
+                <span className="text-foreground font-medium">{effectiveMaxAttendees}</span> (defaults to 50 if
+                all gender caps are empty). Confirmed headcount:{" "}
+                <span className="text-foreground font-medium">{confirmedHeadcount}</span>.
+              </p>
+            )}
+            {capacityBelowConfirmed && (
+              <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium text-amber-200">Capacity is below confirmed headcount</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Confirmed seats: <strong className="text-foreground">{confirmedHeadcount}</strong>. New
+                  cap: <strong className="text-foreground">{effectiveMaxAttendees}</strong>. The system does
+                  not auto-demote confirmed attendees—you can still save, then adjust the roster in Attendees if
+                  needed.
+                </p>
+              </div>
             )}
           </CollapsibleSection>
 

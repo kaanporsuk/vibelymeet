@@ -25,11 +25,37 @@ const AdminEventControls = ({
   const [reminderSentAt, setReminderSentAt] = useState<number | null>(null);
   const [isSendingReminder, setIsSendingReminder] = useState(false);
 
-  const notifyRegistrants = async (category: string, title: string, body: string) => {
+  /** Confirmed seats only (lobby-eligible). Waitlist excluded. */
+  const notifyRegistrantsConfirmedOnly = async (category: string, title: string, body: string) => {
     const { data: registrations } = await supabase
       .from("event_registrations")
       .select("profile_id")
-      .eq("event_id", eventId);
+      .eq("event_id", eventId)
+      .eq("admission_status", "confirmed");
+
+    if (registrations) {
+      await Promise.allSettled(
+        registrations.map((r) =>
+          sendNotification({
+            user_id: r.profile_id,
+            category,
+            title,
+            body,
+            data: { url: `/event/${eventId}/lobby`, event_id: eventId },
+          })
+        )
+      );
+    }
+    return registrations?.length || 0;
+  };
+
+  /** Confirmed + waitlisted (everyone on the guest list except canceled/other statuses). */
+  const notifyRegistrantsConfirmedAndWaitlist = async (category: string, title: string, body: string) => {
+    const { data: registrations } = await supabase
+      .from("event_registrations")
+      .select("profile_id")
+      .eq("event_id", eventId)
+      .in("admission_status", ["confirmed", "waitlisted"]);
 
     if (registrations) {
       await Promise.allSettled(
@@ -91,7 +117,10 @@ const AdminEventControls = ({
   });
 
   const isLive = eventStatus === "live" || eventStatus === "upcoming";
-  const isEnded = eventStatus === "ended" || eventStatus === "completed";
+  const isEnded =
+    eventStatus === "ended" ||
+    eventStatus === "completed" ||
+    eventStatus === "cancelled";
   const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
 
   const handleGoLive = async () => {
@@ -105,24 +134,28 @@ const AdminEventControls = ({
     }
     queryClient.invalidateQueries({ queryKey: ["admin-events"] });
     queryClient.invalidateQueries({ queryKey: ["events"] });
-    const count = await notifyRegistrants(
+    const count = await notifyRegistrantsConfirmedOnly(
       "event_live",
       `${eventTitle} is live! 🎉`,
       "Join now and start meeting people"
     );
-    toast.success(`"${eventTitle}" is live — ${count} users notified`);
+    toast.success(
+      `"${eventTitle}" is live — notified ${count} confirmed attendee${count === 1 ? "" : "s"} (waitlist not notified)`
+    );
   };
 
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
-      const count = await notifyRegistrants(
+      const count = await notifyRegistrantsConfirmedAndWaitlist(
         "event_reminder",
         `${eventTitle} starts soon! ⏰`,
         "Get ready — starting in 15 minutes"
       );
       setReminderSentAt(Date.now());
-      toast.success(`Reminder sent to ${count} users`);
+      toast.success(
+        `Reminder sent to ${count} user${count === 1 ? "" : "s"} (confirmed + waitlist)`
+      );
     } catch {
       toast.error("Failed to send reminder");
     } finally {
@@ -161,6 +194,7 @@ const AdminEventControls = ({
               variant="default"
               className="gap-1.5"
               onClick={handleGoLive}
+              title="Sets event live and notifies confirmed attendees only (not waitlist)"
             >
               Go Live
             </Button>
@@ -200,9 +234,10 @@ const AdminEventControls = ({
             className="gap-1.5"
             onClick={handleSendReminder}
             disabled={isSendingReminder || !!reminderCooldown}
+            title="Notifies confirmed attendees and waitlisted users (guest list)"
           >
             <Bell className="w-3.5 h-3.5" />
-            {reminderCooldown ? "Sent" : "Send Reminder"}
+            {reminderCooldown ? "Sent" : "Reminder (confirmed + waitlist)"}
           </Button>
         </>
       )}

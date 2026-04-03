@@ -91,6 +91,13 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 - When `p_filter_radius_km` is set, **local** events are filtered by distance from the effective browse/user point; **global** and **regional** scoped rows are **not** excluded by the user’s radius filter (see latest `get_visible_events` definitions under `supabase/migrations/`, e.g. `20260325100000_get_visible_events_no_coord_edge_case.sql`).
 
+### Admin lifecycle RPCs (web)
+
+- **`admin_cancel_event(p_event_id)`** — `SECURITY DEFINER`, `has_role(..., admin)`; sets `events.status = 'cancelled'`; rejects archived rows and statuses already terminal (`cancelled`, `ended`, `completed`). Wired from [`AdminEventsPanel.tsx`](../src/components/admin/AdminEventsPanel.tsx).
+- **`admin_delete_event(p_event_id)`** — same auth model; deletes in one transaction in dependency order (`event_swipes` → `video_sessions` → `event_vibes` → `event_registrations` → `events`), matching the former browser-side chain; remaining `event_id` FKs rely on `ON DELETE CASCADE` from `events`. Migration: `20260411120000_admin_event_cancel_delete_rpc.sql`.
+
+**Admin push targeting:** In [`AdminEventControls.tsx`](../src/components/admin/AdminEventControls.tsx), **Go Live** sends only to **`admission_status = 'confirmed'`**; **Send reminder** sends to **confirmed + waitlist**. The attendees-modal broadcast matches the reminder audience (explicit in UI copy).
+
 ---
 
 ## 8. Vibe score and Vibe Video readiness

@@ -198,7 +198,8 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       const { data: allRegs, error } = await supabase
         .from("event_registrations")
         .select("profile_id")
-        .eq("event_id", event.id);
+        .eq("event_id", event.id)
+        .in("admission_status", ["confirmed", "waitlisted"]);
       if (error) throw error;
       const ids = [...new Set((allRegs ?? []).map((r) => r.profile_id).filter(Boolean))] as string[];
       const eventTitle = (event.title as string) || "Your event";
@@ -212,7 +213,9 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         });
       }
       setLastNotifyAllAt(Date.now());
-      toast.success(`Notification sent to ${ids.length} attendees`);
+      toast.success(
+        `Notification sent to ${ids.length} user${ids.length === 1 ? "" : "s"} (confirmed + waitlist)`
+      );
     } catch {
       toast.error("Failed to send notifications");
     } finally {
@@ -316,7 +319,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       <div className="shrink-0 border-b border-border/50 bg-card">
         <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
           <label htmlFor="admin-notify-all-body" className="text-xs font-medium text-muted-foreground">
-            Message to all registered attendees (push)
+            Broadcast push — confirmed + waitlist only
           </label>
           <Input
             id="admin-notify-all-body"
@@ -326,7 +329,8 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
             className="bg-secondary/50"
           />
           <p className="text-[11px] text-muted-foreground">
-            Sends via the same system as event reminders. 5-minute cooldown between sends.
+            Does not target removed/canceled registration rows. Same delivery path as row reminders. 5-minute
+            cooldown between sends.
           </p>
         </div>
       </div>
@@ -583,7 +587,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                             className="gap-2"
                           >
                             <Bell className="w-4 h-4" />
-                            Notify all attendees
+                            Notify confirmed + waitlist
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

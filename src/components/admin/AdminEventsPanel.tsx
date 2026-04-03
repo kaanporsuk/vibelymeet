@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Calendar, Users, Clock, Eye, MoreHorizontal,
   UserCheck, Upload, Archive, RotateCcw, Globe, MapPin, Flag, RefreshCw, CheckSquare, Square,
+  Ban,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -190,23 +191,40 @@ const AdminEventsPanel = () => {
     onError: () => toast.error('Failed to update archive status'),
   });
 
-  // Permanent delete — cascades related data first
   const deleteEvent = useMutation({
     mutationFn: async (eventId: string) => {
-      // Delete related data in order to avoid FK violations
-      await supabase.from('event_swipes').delete().eq('event_id', eventId);
-      await supabase.from('video_sessions').delete().eq('event_id', eventId);
-      await supabase.from('event_vibes').delete().eq('event_id', eventId);
-      await supabase.from('event_registrations').delete().eq('event_id', eventId);
-      // Finally delete the event itself
-      const { error } = await supabase.from('events').delete().eq('id', eventId);
+      const { data, error } = await supabase.rpc('admin_delete_event', { p_event_id: eventId });
       if (error) throw error;
+      const payload = data as { ok?: boolean; error?: string } | null;
+      if (payload && payload.ok === false) {
+        throw new Error(payload.error || 'delete_failed');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success('Event permanently deleted');
     },
     onError: (err: any) => toast.error(`Failed to delete: ${err.message}`),
+  });
+
+  const cancelEvent = useMutation({
+    mutationFn: async (eventId: string) => {
+      const { data, error } = await supabase.rpc('admin_cancel_event', { p_event_id: eventId });
+      if (error) throw error;
+      const payload = data as { ok?: boolean; error?: string; status?: string } | null;
+      if (payload && payload.ok === false) {
+        const msg =
+          payload.error === 'already_terminal'
+            ? `Event is already ${payload.status || 'in a terminal state'}`
+            : payload.error || 'cancel_failed';
+        throw new Error(msg);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      toast.success('Event cancelled');
+    },
+    onError: (err: any) => toast.error(err?.message || 'Failed to cancel event'),
   });
 
   // Archive entire series
@@ -266,6 +284,11 @@ const AdminEventsPanel = () => {
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);
+    const canCancel =
+      !event.archived_at &&
+      event.status !== 'cancelled' &&
+      event.status !== 'ended' &&
+      event.status !== 'completed';
 
     return (
       <>
@@ -376,6 +399,32 @@ const AdminEventsPanel = () => {
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
 
+                {canCancel && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        const title = event.title as string;
+                        const message = [
+                          `Cancel "${title}"?`,
+                          '',
+                          'The event will be marked cancelled. It will no longer behave as an active, upcoming, or live event for users.',
+                          'Existing registrations stay in the database (this is not delete). Use attendee tools or permanent delete if you need accounts or rows removed.',
+                          'Cancel is different from Archive (organizational hide), End (normal completion), and Delete (erase event data).',
+                        ].join('\n');
+                        if (confirm(message)) {
+                          cancelEvent.mutate(event.id);
+                        }
+                      }}
+                      disabled={cancelEvent.isPending}
+                      className="gap-2 text-amber-600 focus:text-amber-600"
+                    >
+                      <Ban className="w-4 h-4" />
+                      Cancel event
+                    </DropdownMenuItem>
+                  </>
+                )}
+
                 {isParent && (
                   <>
                     <DropdownMenuSeparator />
@@ -394,8 +443,16 @@ const AdminEventsPanel = () => {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
-                        if (confirm('PERMANENTLY DELETE this event and ALL its data? This cannot be undone.')) {
-                          if (confirm('Are you absolutely sure? All registrations, sessions, and matches will be lost.')) {
+                        if (
+                          confirm(
+                            'PERMANENTLY DELETE this event and ALL its data? The database will remove swipes, video sessions, vibes, registrations, and the event in one transaction. This cannot be undone.'
+                          )
+                        ) {
+                          if (
+                            confirm(
+                              'Final confirmation: every registration and session row for this event will be erased. Continue?'
+                            )
+                          ) {
                             deleteEvent.mutate(event.id);
                           }
                         }
@@ -426,8 +483,18 @@ const AdminEventsPanel = () => {
                     {/* Delete — available for all non-archived events */}
                     <DropdownMenuItem
                       onClick={() => {
-                        if (confirm(`Permanently delete "${event.title}" and all its data? This cannot be undone.`)) {
-                          deleteEvent.mutate(event.id);
+                        if (
+                          confirm(
+                            `Permanently delete "${event.title}"? The server removes swipes, sessions, vibes, registrations, and the event in one transaction. This cannot be undone.`
+                          )
+                        ) {
+                          if (
+                            confirm(
+                              'Final confirmation: all registrations and related rows for this event will be erased. Continue?'
+                            )
+                          ) {
+                            deleteEvent.mutate(event.id);
+                          }
                         }
                       }}
                       className="gap-2 text-destructive focus:text-destructive"
