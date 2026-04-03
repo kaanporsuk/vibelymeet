@@ -68,13 +68,16 @@ export const useRegisterForEvent = () => {
   const unregisterFromEvent = async (eventId: string): Promise<boolean> => {
     if (!user?.id) return false;
 
-    const { error } = await supabase
-      .from("event_registrations")
-      .delete()
-      .eq("event_id", eventId)
-      .eq("profile_id", user.id);
-
-    return !error;
+    const { data, error } = await supabase.rpc("cancel_event_registration", {
+      p_event_id: eventId,
+    });
+    if (error) return false;
+    const result = data as { success?: boolean } | null;
+    if (result?.success === true) {
+      await queryClient.invalidateQueries({ queryKey: ["user-registrations", user.id] });
+      await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
+    }
+    return result?.success === true;
   };
 
   return { registerForEvent, unregisterFromEvent };

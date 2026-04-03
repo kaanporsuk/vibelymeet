@@ -517,6 +517,15 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11c. Stream — paid waitlist promotion (2026-04-07)
+
+- **Migrations:**
+  - `supabase/migrations/20260407120000_paid_waitlist_promotion.sql` — `event_registrations.waitlisted_at`, `promoted_at`; `waitlist_promotion_notify_queue`; `on_registration_change` extended to **`UPDATE OF admission_status`** (so waitlist→confirmed updates `current_attendees`); `promote_waitlist_for_event_worker` / `promote_waitlist_for_event`; `cancel_event_registration`; `admin_remove_event_registration`; delete + `max_attendees` triggers calling the worker; `settle_event_ticket_checkout` sets `waitlisted_at` / enqueue notify on paid waitlist paths
+  - `supabase/migrations/20260407121000_schedule_waitlist_promotion_notify_cron.sql` — optional `pg_cron` → `process-waitlist-promotion-notify-queue` (requires `app.supabase_url` + `app.cron_secret`)
+- **Edge:** `supabase/functions/process-waitlist-promotion-notify-queue` — drains notify queue with `CRON_SECRET`, invokes `send-notification` with category `event_waitlist_promoted` (maps to `notify_event_reminder`)
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

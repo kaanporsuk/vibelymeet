@@ -491,12 +491,12 @@ export function useRegisterForEvent() {
     mutationFn: async (eventId: string) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { error } = await supabase
-        .from('event_registrations')
-        .delete()
-        .eq('event_id', eventId)
-        .eq('profile_id', user.id);
+      const { data, error } = await supabase.rpc('cancel_event_registration', {
+        p_event_id: eventId,
+      });
       if (error) throw error;
+      const result = data as { success?: boolean } | null;
+      if (!result?.success) throw new Error('Cancellation failed');
     },
     onSuccess: (_, eventId) => {
       qc.invalidateQueries({ queryKey: ['event-registration-check'] });

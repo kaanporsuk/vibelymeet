@@ -29,14 +29,14 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Deployable directories
 
-There are **33 deployable Edge Functions** plus one shared helper directory:
+There are **34 deployable Edge Functions** plus one shared helper directory:
 
-- deployable functions: **33**
+- deployable functions: **34**
 - shared helper directory: `_shared`
 
 ### Config coverage
 
-`supabase/config.toml` explicitly configures **all 33** functions. No config gaps remain.
+`supabase/config.toml` explicitly configures **all 34** functions. No config gaps remain.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -44,7 +44,7 @@ There are **33 deployable Edge Functions** plus one shared helper directory:
 account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification, daily-drop-actions, send-message, swipe-actions.
 
 **Public-but-protected (`verify_jwt = false`):**  
-stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
+stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops, process-waitlist-promotion-notify-queue (Bearer `CRON_SECRET`), plus additional entries in `supabase/config.toml` (e.g. credit-replenish, date-reminder-cron).
 
 ---
 
@@ -369,6 +369,15 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **External services:** OneSignal
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ONESIGNAL_APP_ID`, `ONESIGNAL_REST_API_KEY`, `APP_URL`
 - **Rebuild notes:** depends on the OneSignal app existing and the app/user identity model matching what the frontend sets up
+
+### `process-waitlist-promotion-notify-queue` (2026-04)
+- **Purpose:** drains `waitlist_promotion_notify_queue` in batches and invokes `send-notification` with category `event_waitlist_promoted` for users promoted from paid waitlist to confirmed
+- **Auth posture:** Class B — `verify_jwt = false`; requires `Authorization: Bearer` matching Edge secret `CRON_SECRET` (same pattern as `credit-replenish`)
+- **Frontend call sites:** none (pg_cron / operator HTTP only)
+- **Primary tables touched:** `waitlist_promotion_notify_queue`, `events` (title lookup)
+- **External services:** OneSignal (via `send-notification`)
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`
+- **Rebuild notes:** optional until migrations + cron URL/secret are configured; queue rows remain pending until this function runs
 
 ### `daily-drop-actions` (Stream 2C)
 - **Purpose:** wraps `daily_drop_transition` for opener/reply flows and couples them with server-owned push notifications
