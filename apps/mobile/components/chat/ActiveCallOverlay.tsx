@@ -5,7 +5,7 @@
 import React from 'react';
 import { View, Text, Modal, Pressable, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Daily, { DailyMediaView } from '@daily-co/react-native-daily-js';
+import { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -108,19 +108,32 @@ export function ActiveCallOverlay({
   }
 
   // Video call (active)
+  const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
+  const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
+  const localVideoTrack = localParticipant ? getTrack(localParticipant, 'video') : null;
+
   return (
     <Modal transparent visible animationType="fade">
       <View style={styles.videoBackdrop}>
         {/* Remote video */}
         <View style={StyleSheet.absoluteFill}>
           {remoteParticipant ? (
-            <DailyMediaView
-              videoTrack={getTrack(remoteParticipant, 'video')}
-              audioTrack={getTrack(remoteParticipant, 'audio')}
-              mirror={false}
-              zOrder={0}
-              style={StyleSheet.absoluteFill}
-            />
+            <>
+              <DailyMediaView
+                videoTrack={remoteVideoTrack}
+                audioTrack={remoteAudioTrack}
+                mirror={false}
+                zOrder={0}
+                style={StyleSheet.absoluteFill}
+              />
+              {!remoteVideoTrack && (
+                <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
+                  <VibelyText variant="body" style={{ color: theme.textSecondary }}>
+                    {partnerName} — camera off
+                  </VibelyText>
+                </View>
+              )}
+            </>
           ) : (
             <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
               <VibelyText variant="body" style={{ color: theme.textSecondary }}>{partnerName} will appear here</VibelyText>
@@ -135,9 +148,9 @@ export function ActiveCallOverlay({
 
         {/* Local PIP */}
         <View style={[styles.pip, { borderColor: theme.tint }]}>
-          {localParticipant ? (
+          {localParticipant && localVideoTrack ? (
             <DailyMediaView
-              videoTrack={getTrack(localParticipant, 'video')}
+              videoTrack={localVideoTrack}
               audioTrack={null}
               mirror
               zOrder={1}
@@ -145,7 +158,9 @@ export function ActiveCallOverlay({
             />
           ) : (
             <View style={[styles.pipVideo, styles.pipPlaceholder, { backgroundColor: theme.surface }]}>
-              <Text style={[styles.pipPlaceholderText, { color: theme.textSecondary }]}>You</Text>
+              <Text style={[styles.pipPlaceholderText, { color: theme.textSecondary }]}>
+                {localParticipant ? 'Camera off' : 'You'}
+              </Text>
             </View>
           )}
           {isMuted && (
