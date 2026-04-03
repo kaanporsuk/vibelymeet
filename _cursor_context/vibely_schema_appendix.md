@@ -53,6 +53,16 @@ In particular:
 - storage behavior is defined in migrations, not in `types.ts`
 - policy intent and actual runtime behavior are not always identical
 
+### Phase 2 events hardening delta (2026-04-04)
+
+Migration `20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql` introduces a server-owned queued expiry path and readiness sync improvements:
+- `video_sessions.queued_expires_at` is now the canonical queued-match TTL field (10 minutes).
+- `expire_stale_video_sessions()` owns queued TTL expiry, ready-gate expiry, and snooze wake-up transitions.
+- `ready_gate_transition` now supports `sync` action for deterministic client polling fallback.
+
+Edge function gate tightening:
+- `supabase/functions/daily-room/index.ts` now issues Daily room tokens only when session is active (`handshake`/`date`/rejoin) or when `ready_gate_status = 'both_ready'` and `ready_gate_expires_at` is still valid.
+
 ---
 
 ## 3. Storage buckets and media schema surfaces

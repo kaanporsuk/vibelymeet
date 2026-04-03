@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-11",
+  "generated_at": "2026-04-04",
   "artifact_type": "machine_readable_inventory",
   "project": {
     "name": "Vibely",
@@ -49,7 +49,7 @@
       "services": 6,
       "edge_functions_deployable": 33,
       "edge_function_shared_dirs": 1,
-      "migrations": 109,
+      "migrations": 110,
       "public_tables": 41,
       "public_views": 1,
       "public_functions": 26,
@@ -907,9 +907,9 @@
   ],
   "function_config_gaps": [],
   "migrations": {
-    "count": 103,
+    "count": 104,
     "first": "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
-    "last": "20260404191500_phase1_1_true_lobby_foreground.sql",
+    "last": "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql",
     "files": [
       "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
       "20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql",
@@ -1013,12 +1013,20 @@
       "20260310124808_84e1cfb5-c367-4e34-a610-b555e7907d5b.sql",
       "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
       "20260404183000_phase1_presence_atomic_cleanup.sql",
-      "20260404191500_phase1_1_true_lobby_foreground.sql"
+      "20260404191500_phase1_1_true_lobby_foreground.sql",
+      "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql"
     ],
     "phase1_event_presence_updates": [
       "update_participant_status(p_event_id, p_status) no longer writes last_lobby_foregrounded_at",
       "mark_lobby_foreground(p_event_id) is the canonical foreground-proof stamp",
       "handle_swipe and drain_match_queue continue enforcing 60s recency via last_lobby_foregrounded_at"
+    ],
+    "phase2_event_hardening_updates": [
+      "video_sessions.queued_expires_at introduced as canonical queued TTL (10 minutes)",
+      "expire_stale_video_sessions() added for deterministic queued/ready expiry and snooze wake-up",
+      "drain_match_queue(p_event_id) now invokes cleanup before promotion and ignores expired queued sessions",
+      "ready_gate_transition(p_session_id, p_action, p_reason) supports p_action='sync' for polling reconciliation",
+      "daily-room token gate tightened: active handshake/date/rejoin or valid non-expired both_ready only"
     ],
     "risk_flags": {
       "contains_destructive_resets": true,

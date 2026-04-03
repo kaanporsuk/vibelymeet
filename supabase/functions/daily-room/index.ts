@@ -11,19 +11,29 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
 
-/** Server-owned: allow Daily token only when session is ended-free and ready-gate satisfied or call already in progress (rejoin). */
+/** Server-owned: allow Daily token only for active handshake/date states or non-expired both_ready gate. */
 function canIssueVideoDateRoomToken(session: {
   ended_at: string | null;
   handshake_started_at: string | null;
   ready_gate_status: string | null;
+  ready_gate_expires_at: string | null;
   state: string | null;
-  phase: string | null;
 }): boolean {
   if (session.ended_at) return false;
-  if (session.handshake_started_at) return true;
-  if (session.state === "handshake" || session.state === "date") return true;
-  if (session.phase === "handshake" || session.phase === "date") return true;
-  return session.ready_gate_status === "both_ready";
+  if (
+    session.state === "handshake" ||
+    session.state === "date" ||
+    session.handshake_started_at
+  ) {
+    return true;
+  }
+
+  if (session.ready_gate_status !== "both_ready") return false;
+
+  if (!session.ready_gate_expires_at) return false;
+  const gateDeadline = new Date(session.ready_gate_expires_at).getTime();
+  if (Number.isNaN(gateDeadline)) return false;
+  return gateDeadline > Date.now();
 }
 
 async function createMeetingToken(
@@ -157,7 +167,7 @@ serve(async (req) => {
       const { data: session } = await supabase
         .from("video_sessions")
         .select(
-          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, state, phase",
+          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state",
         )
         .eq("id", sessionId)
         .maybeSingle();
@@ -250,7 +260,7 @@ serve(async (req) => {
       const { data: session } = await supabase
         .from("video_sessions")
         .select(
-          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, state, phase",
+          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state",
         )
         .eq("id", sessionId)
         .maybeSingle();

@@ -73,6 +73,20 @@ The parity repair was performed **via metadata-only history reconciliation** usi
 - `./scripts/check_migration_parity.sh` reports zero missing local/remote versions
 - `supabase db push --linked --dry-run` reports the remote database as **up to date**
 
+### Phase 2 events hardening addendum (2026-04-04)
+
+Added migration:
+- `20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql`
+
+Key deltas recorded in this migration:
+- Adds canonical queued TTL column: `video_sessions.queued_expires_at`.
+- Backfills queued TTL for existing queued sessions and sets TTL at queued-match creation in `handle_swipe`.
+- Adds deterministic backend cleanup RPC `expire_stale_video_sessions()` and schedules it minutely with `pg_cron` (best effort; migration remains safe where cron is unavailable).
+- Updates `drain_match_queue` to run cleanup first and only promote non-expired queued sessions.
+- Extends `ready_gate_transition` with `p_action = 'sync'` for poll-based state reconciliation.
+- Preserves strict 60-second `last_lobby_foregrounded_at` presence semantics introduced in Phase 1.1 for immediate promotion.
+- Tightens lifecycle expiry ownership by ending stale queued/ready states server-side with explicit end reasons.
+
 ---
 
 ## 3. The single most important migration finding
