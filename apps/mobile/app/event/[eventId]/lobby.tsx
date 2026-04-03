@@ -539,6 +539,15 @@ export default function EventLobbyScreen() {
 
   const isOffline = useIsOffline();
 
+  const discoverSectionIntro = (
+    <View style={styles.sectionIntro}>
+      <Text style={[styles.sectionKicker, { color: theme.textSecondary }]}>Discover</Text>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>
+        Swipe fast — vibes are live in this room
+      </Text>
+    </View>
+  );
+
   const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
     if (!current || processing) return;
     if (isOffline) {
@@ -772,15 +781,10 @@ export default function EventLobbyScreen() {
           </View>
         ) : (
           <>
-        <View style={styles.sectionIntro}>
-          <Text style={[styles.sectionKicker, { color: theme.textSecondary }]}>Discover</Text>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Swipe fast — vibes are live in this room
-          </Text>
-        </View>
-
         {deckError && !hasCards ? (
-          <View style={styles.centeredInner}>
+          <>
+            {discoverSectionIntro}
+            <View style={styles.centeredInner}>
             <ErrorState
               title="Couldn't load deck"
               message="We couldn't load people at this event. Tap Retry to try again."
@@ -788,8 +792,11 @@ export default function EventLobbyScreen() {
               onActionPress={() => refetchDeck()}
             />
           </View>
+          </>
         ) : deckLoading && !hasCards ? (
-          <View style={styles.deckSkeletonWrap}>
+          <>
+            {discoverSectionIntro}
+            <View style={styles.deckSkeletonWrap}>
             <View style={[styles.deckSkeletonCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <View style={[styles.deckSkeletonImage, { backgroundColor: theme.muted }]} />
               <View style={styles.deckSkeletonBody}>
@@ -799,8 +806,10 @@ export default function EventLobbyScreen() {
               </View>
             </View>
           </View>
+          </>
         ) : !hasCards || isEmpty ? (
-          <View style={styles.centeredInner}>
+          <View style={styles.emptyStateVerticalCenter}>
+            {discoverSectionIntro}
             <Card variant="glass" style={[styles.emptyCard, { borderColor: theme.glassBorder }]}>
               {isWaiting ? (
                 <>
@@ -862,6 +871,7 @@ export default function EventLobbyScreen() {
           </View>
         ) : (
           <>
+            {discoverSectionIntro}
             <View style={styles.deckContainer}>
               {thirdProfile && (
                 <View style={[styles.stackCard, styles.stackCardBack3]} pointerEvents="none">
@@ -1204,6 +1214,13 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   centeredInner: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
+  /** Intro + empty card centered together in body (avoids card sitting low: intro was above a flex:1 centered region). */
+  emptyStateVerticalCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+  },
   onBreakWrap: {
     flex: 1,
     justifyContent: 'center',
