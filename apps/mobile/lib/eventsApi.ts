@@ -310,27 +310,40 @@ export function useRegisteredUpcomingEventsForInvite(userId: string | null | und
   });
 }
 
+/** Matches web `EventRegistrationSnapshot`: lobby/deck require `isConfirmed` only. */
+export type EventRegistrationSnapshot = {
+  isConfirmed: boolean;
+  isWaitlisted: boolean;
+};
+
 export function useIsRegisteredForEvent(eventId: string | undefined, userId: string | undefined) {
   return useQuery({
     queryKey: ['event-registration-check', eventId, userId],
     enabled: !!eventId && !!userId,
-    queryFn: async (): Promise<boolean> => {
-      if (!eventId || !userId) return false;
+    queryFn: async (): Promise<EventRegistrationSnapshot> => {
+      if (!eventId || !userId) return { isConfirmed: false, isWaitlisted: false };
       const { data, error } = await supabase
         .from('event_registrations')
-        .select('id')
+        .select('admission_status')
         .eq('event_id', eventId)
         .eq('profile_id', userId)
         .maybeSingle();
-      if (error) return false;
-      return !!data;
+      if (error) return { isConfirmed: false, isWaitlisted: false };
+      const s = data?.admission_status;
+      return {
+        isConfirmed: s === 'confirmed',
+        isWaitlisted: s === 'waitlisted',
+      };
     },
   });
 }
 
 export type NextRegisteredEventResult = {
   event: EventListItem | null;
+  /** Confirmed seat for `event` (lobby-eligible). */
   isRegistered: boolean;
+  isWaitlisted: boolean;
+  hasEventAdmission: boolean;
 };
 
 /** Next event for dashboard — web parity: user's next registered event (or first visible upcoming if none). */
@@ -339,19 +352,27 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
     queryKey: ['next-registered-event', userId, canCityBrowse],
     enabled: !!userId,
     queryFn: async (): Promise<NextRegisteredEventResult> => {
-      if (!userId) return { event: null, isRegistered: false };
+      if (!userId)
+        return { event: null, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
       const now = new Date();
 
       const { data: regRows, error: regError } = await supabase
         .from('event_registrations')
-        .select('event_id')
+        .select('event_id, admission_status')
         .eq('profile_id', userId);
 
       if (regError) throw regError;
-      const eventIds = (regRows ?? []).map((r) => r.event_id).filter(Boolean);
+      type RegR = { event_id: string | null; admission_status: string | null };
+      const regs = (regRows ?? []) as RegR[];
+      const eventIds = regs.map((r) => r.event_id).filter(Boolean) as string[];
       if (eventIds.length === 0) {
         const first = await fetchFirstUpcomingVisibleEvent(userId, canCityBrowse);
-        return { event: first, isRegistered: false };
+        return { event: first, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
+      }
+
+      const statusByEvent = new Map<string, string>();
+      for (const r of regs) {
+        if (r.event_id) statusByEvent.set(r.event_id, r.admission_status ?? '');
       }
 
       const { data: eventsData, error: eventsError } = await supabase
@@ -376,18 +397,31 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
         return now < eventEnd;
       });
       if (notEnded.length > 0) {
+        notEnded.sort((a, b) => {
+          const sa = statusByEvent.get(a.id);
+          const sb = statusByEvent.get(b.id);
+          const pa = sa === 'confirmed' ? 0 : sa === 'waitlisted' ? 1 : 2;
+          const pb = sb === 'confirmed' ? 0 : sb === 'waitlisted' ? 1 : 2;
+          if (pa !== pb) return pa - pb;
+          return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
+        });
         const e = notEnded[0];
         const eventDate = new Date(e.event_date);
         const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
         const end = new Date(eventDate.getTime() + durationMs);
         const isLive = now >= eventDate && now < end;
+        const st = statusByEvent.get(e.id) ?? '';
+        const isConfirmed = st === 'confirmed';
+        const isWaitlisted = st === 'waitlisted';
         return {
           event: rowToEventListItem(e, eventDate, isLive),
-          isRegistered: true,
+          isRegistered: isConfirmed,
+          isWaitlisted,
+          hasEventAdmission: isConfirmed || isWaitlisted,
         };
       }
       const first = await fetchFirstUpcomingVisibleEvent(userId, canCityBrowse);
-      return { event: first, isRegistered: false };
+      return { event: first, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
     },
   });
 }
@@ -543,7 +577,6 @@ export async function drainMatchQueue(
 ): Promise<DrainMatchQueueResult | null> {
   const { data, error } = await supabase.rpc('drain_match_queue', {
     p_event_id: eventId,
-    p_user_id: userId,
   });
   if (error) return null;
   return data as DrainMatchQueueResult;

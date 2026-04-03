@@ -63,14 +63,15 @@ export const EventCardPremium = ({
   const isLive = status === "live";
   const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
   const navigate = useNavigate();
-  const { data: userRegistrations = [] } = useUserRegistrations();
-  
-  const [isRegistered, setIsRegistered] = useState(false);
+  const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
 
-  // Sync with server registration state
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isWaitlisted, setIsWaitlisted] = useState(false);
+
   useEffect(() => {
-    setIsRegistered(userRegistrations.includes(id));
-  }, [userRegistrations, id]);
+    setIsConfirmed(admission.confirmedEventIds.includes(id));
+    setIsWaitlisted(admission.waitlistedEventIds.includes(id));
+  }, [admission.confirmedEventIds, admission.waitlistedEventIds, id]);
 
   const handleOpenDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -231,7 +232,7 @@ export const EventCardPremium = ({
           </div>
         ) : (
         <AnimatePresence mode="wait">
-          {isRegistered ? (
+          {isConfirmed || isWaitlisted ? (
             <motion.button
               key="registered"
               initial={{ scale: 0.9, opacity: 0 }}
@@ -239,7 +240,7 @@ export const EventCardPremium = ({
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan font-medium"
             >
               <Ticket className="w-4 h-4" />
-              View Ticket
+              {isConfirmed ? "View Ticket" : "On waitlist"}
             </motion.button>
           ) : (
             <motion.div key="register" whileTap={{ scale: 0.97 }}>

@@ -59,7 +59,7 @@ export function ReadyGateOverlay({
     async (_reason: 'timeout' | 'skip') => {
       if (closedRef.current) return;
       closedRef.current = true;
-      await updateParticipantStatus(eventId, userId, 'browsing');
+      await updateParticipantStatus(eventId, 'browsing');
       show({
         title: _reason === 'timeout' ? "They weren't ready" : 'No worries',
         message:
@@ -94,7 +94,7 @@ export function ReadyGateOverlay({
   }, [sessionId]);
 
   useEffect(() => {
-    void updateParticipantStatus(eventId, userId, 'in_ready_gate');
+    void updateParticipantStatus(eventId, 'in_ready_gate');
   }, [eventId, userId]);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export function ReadyGateOverlay({
   const handleSkip = () => {
     closedRef.current = true;
     void forfeit();
-    void updateParticipantStatus(eventId, userId, 'browsing');
+    void updateParticipantStatus(eventId, 'browsing');
     onClose();
   };
 

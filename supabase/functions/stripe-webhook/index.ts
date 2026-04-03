@@ -56,15 +56,20 @@ Deno.serve(async (req) => {
         if (session.metadata?.type === 'event_ticket') {
           const eventId = session.metadata?.event_id
 
-        if (userId && eventId) {
-            // Register user for event (uses profile_id column)
-            await supabase
-              .from('event_registrations')
-              .upsert({
-                profile_id: userId,
-                event_id: eventId,
-                payment_status: 'paid',
-              }, { onConflict: 'event_id,profile_id' })
+          if (userId && eventId) {
+            const { data: settleResult, error: settleError } = await supabase.rpc(
+              'settle_event_ticket_checkout',
+              {
+                p_checkout_session_id: session.id,
+                p_profile_id: userId,
+                p_event_id: eventId,
+              },
+            )
+            if (settleError) {
+              console.error('settle_event_ticket_checkout error:', settleError)
+            } else {
+              console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
+            }
           }
           break
         }

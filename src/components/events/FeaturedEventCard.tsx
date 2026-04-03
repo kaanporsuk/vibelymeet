@@ -36,13 +36,14 @@ export const FeaturedEventCard = ({
   language,
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
-  const { data: userRegistrations = [] } = useUserRegistrations();
+  const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
   const { data: eventAttendees = [] } = useEventAttendees(id, 5);
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
   const expired = isEventExpired({ event_date: eventDate.toISOString(), duration_minutes: durationMinutes });
 
-  const isRegistered = userRegistrations.includes(id);
+  const isConfirmedSeat = admission.confirmedEventIds.includes(id);
+  const isWaitlistedSeat = admission.waitlistedEventIds.includes(id);
 
   useEffect(() => {
     const calculateTimeLeft = () => {
@@ -276,7 +277,7 @@ export const FeaturedEventCard = ({
             </div>
           ) : (
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            {isRegistered ? (
+            {isConfirmedSeat ? (
               <Button
                 onClick={handlePrimaryAction}
                 className={cn(
@@ -289,6 +290,20 @@ export const FeaturedEventCard = ({
               >
                 <Ticket className="w-5 h-5 mr-2" />
                 View Ticket
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            ) : isWaitlistedSeat ? (
+              <Button
+                onClick={handlePrimaryAction}
+                className={cn(
+                  "relative px-6 py-6 text-lg font-semibold rounded-full",
+                  "bg-gradient-to-r from-amber-500 to-orange-600",
+                  "shadow-[0_0_30px_rgba(245,158,11,0.35)]",
+                  "transition-shadow duration-300"
+                )}
+              >
+                <Ticket className="w-5 h-5 mr-2" />
+                On waitlist
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             ) : (

@@ -6,13 +6,18 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
+import { useUserProfile } from "@/contexts/AuthContext";
 
 const EventPaymentSuccess = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useUserProfile();
   const [searchParams] = useSearchParams();
   const eventId = searchParams.get("event_id");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
+  const [admissionStatus, setAdmissionStatus] = useState<"confirmed" | "waitlisted" | "unknown">(
+    "unknown"
+  );
 
   useEffect(() => {
     if (!eventId) return;
@@ -33,6 +38,26 @@ const EventPaymentSuccess = () => {
   }, [eventId, queryClient]);
 
   useEffect(() => {
+    if (!eventId || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("event_registrations")
+        .select("admission_status")
+        .eq("event_id", eventId)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      if (cancelled || error) return;
+      const s = data?.admission_status;
+      if (s === "confirmed" || s === "waitlisted") setAdmissionStatus(s);
+      else setAdmissionStatus("unknown");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, user?.id]);
+
+  useEffect(() => {
     confetti({
       particleCount: 120,
       spread: 80,
@@ -40,6 +65,20 @@ const EventPaymentSuccess = () => {
       colors: ["#a855f7", "#ec4899", "#06b6d4"],
     });
   }, []);
+
+  const headline =
+    admissionStatus === "waitlisted"
+      ? "You're on the waitlist"
+      : admissionStatus === "confirmed"
+        ? "You're on the list! 🎉"
+        : "Payment received";
+
+  const subline =
+    admissionStatus === "waitlisted"
+      ? "The event was full when your payment settled — we'll confirm you if a spot opens."
+      : admissionStatus === "confirmed"
+        ? "Check your email for confirmation"
+        : "Hang tight while we confirm your spot.";
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 text-center">
@@ -58,7 +97,7 @@ const EventPaymentSuccess = () => {
         transition={{ delay: 0.2 }}
         className="text-3xl font-display font-bold text-foreground mb-2"
       >
-        You're on the list! 🎉
+        {headline}
       </motion.h1>
 
       {eventTitle && (
@@ -78,7 +117,7 @@ const EventPaymentSuccess = () => {
         transition={{ delay: 0.45 }}
         className="text-muted-foreground mb-8"
       >
-        Check your email for confirmation
+        {subline}
       </motion.p>
 
       <motion.div

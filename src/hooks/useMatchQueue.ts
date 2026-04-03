@@ -49,7 +49,6 @@ export const useMatchQueue = ({
       try {
         const { data } = await supabase.rpc("drain_match_queue", {
           p_event_id: eventId,
-          p_user_id: user.id,
         });
 
         const result = data as DrainMatchQueueResult;

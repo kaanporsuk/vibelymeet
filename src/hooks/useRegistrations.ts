@@ -3,23 +3,35 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 
+export type UserEventAdmissionMap = {
+  confirmedEventIds: string[];
+  waitlistedEventIds: string[];
+};
+
 export const useUserRegistrations = () => {
   const { user } = useUserProfile();
 
   return useQuery({
     queryKey: ["user-registrations", user?.id],
     enabled: !!user?.id,
-    queryFn: async (): Promise<string[]> => {
-      if (!user?.id) return [];
-      
+    queryFn: async (): Promise<UserEventAdmissionMap> => {
+      if (!user?.id) return { confirmedEventIds: [], waitlistedEventIds: [] };
+
       const { data, error } = await supabase
         .from("event_registrations")
-        .select("event_id")
+        .select("event_id, admission_status")
         .eq("profile_id", user.id);
 
       if (error) throw error;
 
-      return (data || []).map((reg) => reg.event_id);
+      const confirmedEventIds: string[] = [];
+      const waitlistedEventIds: string[] = [];
+      for (const row of data ?? []) {
+        const ev = row.event_id as string;
+        if (row.admission_status === "confirmed") confirmedEventIds.push(ev);
+        else if (row.admission_status === "waitlisted") waitlistedEventIds.push(ev);
+      }
+      return { confirmedEventIds, waitlistedEventIds };
     },
   });
 };

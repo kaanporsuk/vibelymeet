@@ -56,7 +56,10 @@ const EventDetails = () => {
   // Fetch real event data
   const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
   const { data: attendees = [] } = useEventAttendees(id);
-  const { data: isRegistered = false, refetch: refetchRegistration } = useIsRegisteredForEvent(id, user?.id);
+  const { data: regSnapshot, refetch: refetchRegistration } = useIsRegisteredForEvent(id, user?.id);
+  const isConfirmed = regSnapshot?.isConfirmed ?? false;
+  const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
+  const hasEventAdmission = isConfirmed || isWaitlisted;
   
   // Event vibes hook for pre-event interest expressions
   const eventVibes = useEventVibes(id || "");
@@ -246,7 +249,7 @@ const EventDetails = () => {
 
   const handlePurchasePress = async () => {
     if (soldOut || eventEnded || freeRegisterBusy) return;
-    if (isRegistered) return;
+    if (hasEventAdmission) return;
     if (showPaymentModal) return;
 
     if (event.isFree || userPrice === 0) {
@@ -400,7 +403,7 @@ const EventDetails = () => {
       <div className="px-4 py-6 space-y-6">
 
         {/* Phone verification nudge for events */}
-        {showEventPhoneNudge && !isRegistered && (
+        {showEventPhoneNudge && !hasEventAdmission && (
           <PhoneVerificationNudge
             variant="event"
             userId={user?.id ?? null}
@@ -477,7 +480,7 @@ const EventDetails = () => {
 
         {/* Guest List - Conditional Rendering */}
         <AnimatePresence mode="wait">
-          {isRegistered ? (
+          {isConfirmed ? (
             <motion.div
               key="roster"
               initial={{ opacity: 0, y: 20 }}
@@ -507,7 +510,7 @@ const EventDetails = () => {
       </AnimatePresence>
 
         {/* Mutual Vibes Section - Only show for registered users with mutual vibes */}
-        {isRegistered && eventVibes.mutualVibes.length > 0 && (
+        {isConfirmed && eventVibes.mutualVibes.length > 0 && (
           <MutualVibesSection
             mutualVibes={eventVibes.mutualVibes}
             onProfileClick={(profileId) => navigate(`/user/${profileId}`)}
@@ -524,8 +527,8 @@ const EventDetails = () => {
             eventDate={event.eventDate}
             eventDurationMinutes={event.durationMinutes}
             eventId={event.id}
-            isRegistered={isRegistered}
-            onAccessPress={!isRegistered ? () => void handlePurchasePress() : undefined}
+            isRegistered={isConfirmed}
+            onAccessPress={!isConfirmed ? () => void handlePurchasePress() : undefined}
             accessLabel={event.isFree || userPrice === 0 ? "Register" : "Get Tickets"}
             accessDisabled={purchaseCtaDisabled}
           />
@@ -533,7 +536,7 @@ const EventDetails = () => {
       </div>
 
       {/* Sticky Bottom Bar - Only show when not registered */}
-      {!isRegistered && (
+      {!hasEventAdmission && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityInfo.status}
@@ -546,8 +549,8 @@ const EventDetails = () => {
         />
       )}
 
-      {/* Registered Bottom Bar */}
-      {isRegistered && (
+      {/* Confirmed admission bottom bar */}
+      {isConfirmed && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -562,6 +565,21 @@ const EventDetails = () => {
                 <p className="font-semibold text-foreground">You're In!</p>
                 <p className="text-xs text-muted-foreground">See you there</p>
               </div>
+            </div>
+            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
+              Manage Booking
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Paid waitlist: show truthful status without implying a confirmed seat */}
+      {isWaitlisted && !isConfirmed && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
+          <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-foreground">You're on the paid waitlist</p>
+              <p className="text-xs text-muted-foreground">We'll confirm you if a spot opens</p>
             </div>
             <Button variant="outline" onClick={() => setShowManageBooking(true)}>
               Manage Booking
@@ -619,7 +637,7 @@ const EventDetails = () => {
         }}
         onSendVibe={(profileId) => eventVibes.sendVibe(profileId)}
         onRemoveVibe={(profileId) => eventVibes.removeVibe(profileId)}
-        isViewerRegistered={isRegistered}
+        isViewerRegistered={isConfirmed}
         hasSentVibe={selectedProfile ? eventVibes.hasSentVibe(selectedProfile.id) : false}
         hasReceivedVibe={selectedProfile ? eventVibes.hasReceivedVibe(selectedProfile.id) : false}
         isSendingVibe={eventVibes.isSendingVibe}

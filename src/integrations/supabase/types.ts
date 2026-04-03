@@ -797,6 +797,7 @@ export type Database = {
       }
       event_registrations: {
         Row: {
+          admission_status: string
           attendance_marked: boolean | null
           attendance_marked_at: string | null
           attendance_marked_by: string | null
@@ -815,6 +816,7 @@ export type Database = {
           registered_at: string
         }
         Insert: {
+          admission_status?: string
           attendance_marked?: boolean | null
           attendance_marked_at?: string | null
           attendance_marked_by?: string | null
@@ -833,6 +835,7 @@ export type Database = {
           registered_at?: string
         }
         Update: {
+          admission_status?: string
           attendance_marked?: boolean | null
           attendance_marked_at?: string | null
           attendance_marked_by?: string | null
@@ -2175,6 +2178,48 @@ export type Database = {
           },
         ]
       }
+      stripe_event_ticket_settlements: {
+        Row: {
+          checkout_session_id: string
+          created_at: string
+          event_id: string
+          outcome: string
+          profile_id: string
+          result: Json
+        }
+        Insert: {
+          checkout_session_id: string
+          created_at?: string
+          event_id: string
+          outcome: string
+          profile_id: string
+          result?: Json
+        }
+        Update: {
+          checkout_session_id?: string
+          created_at?: string
+          event_id?: string
+          outcome?: string
+          profile_id?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_event_ticket_settlements_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_event_ticket_settlements_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           created_at: string | null
@@ -2926,7 +2971,7 @@ export type Database = {
         Returns: boolean
       }
       drain_match_queue: {
-        Args: { p_event_id: string; p_user_id: string }
+        Args: { p_event_id: string }
         Returns: Json
       }
       find_mystery_match: {
@@ -3043,6 +3088,7 @@ export type Database = {
           id: string
           is_recurring: boolean
           is_registered: boolean
+          is_waitlisted: boolean
           language: string
           latitude: number
           longitude: number
@@ -3094,7 +3140,7 @@ export type Database = {
         Returns: Json
       }
       leave_matching_queue: {
-        Args: { p_event_id: string; p_user_id: string }
+        Args: { p_event_id: string }
         Returns: Json
       }
       mark_match_messages_read: {
@@ -3111,6 +3157,14 @@ export type Database = {
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      settle_event_ticket_checkout: {
+        Args: {
+          p_checkout_session_id: string
+          p_event_id: string
+          p_profile_id: string
+        }
+        Returns: Json
+      }
       replenish_monthly_credits: { Args: never; Returns: Json }
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
@@ -3126,7 +3180,7 @@ export type Database = {
         Returns: undefined
       }
       update_participant_status: {
-        Args: { p_event_id: string; p_status: string; p_user_id: string }
+        Args: { p_event_id: string; p_status: string }
         Returns: undefined
       }
       video_date_transition: {

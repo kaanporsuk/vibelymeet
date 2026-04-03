@@ -37,6 +37,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { FLOATING_TAB_BAR_HEIGHT } from '@/constants/tabBarMetrics';
+import { withAlpha } from '@/lib/colorUtils';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -48,7 +49,10 @@ export default function EventDetailScreen() {
   const { user } = useAuth();
   const { canAccessPremiumEvents, canAccessVipEvents } = useEntitlements();
   const { data: event, isLoading, error } = useEventDetails(id ?? undefined);
-  const { data: isRegistered, refetch: refetchRegistration } = useIsRegisteredForEvent(id ?? undefined, user?.id);
+  const { data: regSnapshot, refetch: refetchRegistration } = useIsRegisteredForEvent(id ?? undefined, user?.id);
+  const isConfirmed = regSnapshot?.isConfirmed ?? false;
+  const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
+  const hasAdmission = isConfirmed || isWaitlisted;
   const { registerForEvent, unregisterFromEvent, isRegistering, isUnregistering } = useRegisterForEvent();
   const [userGender, setUserGender] = useState<string>('male');
   const [showManageBooking, setShowManageBooking] = useState(false);
@@ -234,6 +238,7 @@ export default function EventDetailScreen() {
     const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
     const spots = userGender === 'female' || userGender === 'woman' ? maxWomen - currentWomen : maxMen - currentMen;
     if (spots <= 0) return;
+    if (hasAdmission) return;
     if (isPurchasing || isRegistering) return;
     if (isFree || userPrice === 0) {
       await handleRegister();
@@ -268,7 +273,7 @@ export default function EventDetailScreen() {
     } finally {
       setIsPurchasing(false);
     }
-  }, [event, isFree, userPrice, userGender, isPurchasing, isRegistering, handleRegister, showDialog]);
+  }, [event, isFree, userPrice, userGender, hasAdmission, isPurchasing, isRegistering, handleRegister, showDialog]);
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
@@ -378,7 +383,7 @@ export default function EventDetailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: !isRegistered
+            paddingBottom: !hasAdmission
               ? Math.max(layout.scrollContentPaddingBottomTab, pricingBarReserveSpace)
               : layout.scrollContentPaddingBottomTab,
           },
@@ -474,7 +479,7 @@ export default function EventDetailScreen() {
           totalCount={Math.max(event.current_attendees ?? 0, attendeeDisplays.length)}
           onAttendeePress={(attendee) => {
             if (attendee.id === user?.id) return;
-            if (!isRegistered) {
+            if (!hasAdmission) {
               router.push(`/user/${attendee.id}` as const);
               return;
             }
@@ -482,7 +487,7 @@ export default function EventDetailScreen() {
           }}
         />
 
-        {isRegistered && mutualVibes.length > 0 && (
+        {isConfirmed && mutualVibes.length > 0 && (
           <MutualVibesSection mutualVibes={mutualVibes} onProfilePress={() => {}} />
         )}
 
@@ -495,13 +500,13 @@ export default function EventDetailScreen() {
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
           eventId={event.id}
-          isRegistered={!!isRegistered}
-          onAccessPress={!isRegistered ? handlePurchase : undefined}
+          isRegistered={isConfirmed}
+          onAccessPress={!hasAdmission ? handlePurchase : undefined}
           accessLabel={isFree || userPrice === 0 ? 'Register' : 'Get Tickets'}
           accessDisabled={isPurchasing || isRegistering || soldOut || eventEnded}
         />
 
-        {isRegistered ? (
+        {isConfirmed ? (
           <>
             <View style={[styles.youreInBlock, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
               <View style={[styles.youreInIconWrap, { backgroundColor: theme.tint }]}>
@@ -547,13 +552,41 @@ export default function EventDetailScreen() {
               </Pressable>
             ) : null}
           </>
+        ) : isWaitlisted ? (
+          <>
+            <View style={[styles.youreInBlock, { backgroundColor: withAlpha('#d97706', 0.15), borderColor: '#d97706' }]}>
+              <View style={[styles.youreInIconWrap, { backgroundColor: '#d97706' }]}>
+                <Ionicons name="hourglass-outline" size={22} color="#fff" />
+              </View>
+              <View style={styles.youreInText}>
+                <Text style={[styles.youreInTitle, { color: theme.text }]}>Paid waitlist</Text>
+                <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
+                  We'll confirm you if a spot opens
+                </Text>
+              </View>
+            </View>
+            <VibelyButton
+              label="View Ticket"
+              variant="secondary"
+              onPress={() => setShowTicket(true)}
+              style={styles.cta}
+            />
+            {!eventEnded ? (
+              <VibelyButton
+                label="Manage Booking"
+                variant="secondary"
+                onPress={() => setShowManageBooking(true)}
+                style={styles.cta}
+              />
+            ) : null}
+          </>
         ) : (
           <View style={styles.spacerForPricingBar} />
         )}
       </ScrollView>
 
       {/* Sticky bottom: pricing when not registered */}
-      {!isRegistered && (
+      {!hasAdmission && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityStatus}

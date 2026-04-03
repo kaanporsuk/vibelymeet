@@ -292,6 +292,12 @@ export const useEventAttendees = (eventId: string | undefined) => {
   });
 };
 
+/** Server admission: only `confirmed` may use lobby/deck; `waitlisted` is paid without capacity. */
+export type EventRegistrationSnapshot = {
+  isConfirmed: boolean;
+  isWaitlisted: boolean;
+};
+
 export const useIsRegisteredForEvent = (
   eventId: string | undefined,
   userId: string | undefined
@@ -299,22 +305,29 @@ export const useIsRegisteredForEvent = (
   return useQuery({
     queryKey: ["event-registration-check", eventId, userId],
     enabled: !!eventId && !!userId,
-    queryFn: async (): Promise<boolean> => {
-      if (!eventId || !userId) return false;
+    queryFn: async (): Promise<EventRegistrationSnapshot | null> => {
+      if (!eventId || !userId) return null;
 
       const { data, error } = await supabase
         .from("event_registrations")
-        .select("id")
+        .select("admission_status")
         .eq("event_id", eventId)
         .eq("profile_id", userId)
         .maybeSingle();
 
       if (error) {
         console.error("Error checking registration:", error);
-        return false;
+        return { isConfirmed: false, isWaitlisted: false };
       }
 
-      return !!data;
+      if (!data?.admission_status) {
+        return { isConfirmed: false, isWaitlisted: false };
+      }
+
+      return {
+        isConfirmed: data.admission_status === "confirmed",
+        isWaitlisted: data.admission_status === "waitlisted",
+      };
     },
   });
 };

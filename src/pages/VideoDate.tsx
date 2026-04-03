@@ -402,7 +402,7 @@ const VideoDate = () => {
               "Content-Type": "application/json",
               apikey: SUPABASE_PUBLISHABLE_KEY,
             },
-            body: JSON.stringify({ p_event_id: eventId, p_user_id: user.id, p_status: "offline" }),
+            body: JSON.stringify({ p_event_id: eventId, p_status: "offline" }),
             keepalive: true,
           }).catch(() => {});
         }
@@ -525,7 +525,6 @@ const VideoDate = () => {
       try {
         await supabase.rpc("leave_matching_queue", {
           p_event_id: eventId,
-          p_user_id: user.id,
         });
       } catch (err) {
         console.error("Error cleaning up:", err);
