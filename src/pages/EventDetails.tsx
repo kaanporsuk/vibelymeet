@@ -181,13 +181,11 @@ const EventDetails = () => {
     );
   }
 
-  // Calculate capacity status
+  /** Aggregate capacity only (matches server admission — no synthetic per-gender occupancy). */
   const getCapacityStatus = () => {
-    const userGender = userProfile?.gender?.toLowerCase() || "male";
-    const spotsLeft = userGender === "female" || userGender === "woman"
-      ? event.maxWomen - event.currentWomen 
-      : event.maxMen - event.currentMen;
-    
+    const cap = event.maxAttendees;
+    const cur = event.currentAttendees;
+    const spotsLeft = Math.max(0, cap - cur);
     if (spotsLeft <= 2) return { status: "almostFull" as const, spotsLeft };
     if (spotsLeft <= 5) return { status: "filling" as const, spotsLeft };
     return { status: "available" as const, spotsLeft };
@@ -200,10 +198,16 @@ const EventDetails = () => {
   const genderLabel = isFemale ? "Female" : "Male";
   const soldOut = capacityInfo.spotsLeft <= 0;
   const eventEnded = Date.now() > event.eventDate.getTime() + event.durationMinutes * 60_000;
-  const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy;
+  const isCancelled = event.status === "cancelled";
+  const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
+
+    if (event.status === "cancelled") {
+      toast.error("This event was cancelled.");
+      return;
+    }
 
     if (event.isFree) {
       if (soldOut || eventEnded) return;
@@ -240,6 +244,10 @@ const EventDetails = () => {
   };
 
   const handlePurchasePress = async () => {
+    if (isCancelled) {
+      toast.error("This event was cancelled.");
+      return;
+    }
     if (soldOut || eventEnded || freeRegisterBusy) return;
     if (hasEventAdmission) return;
     if (showPaymentModal) return;
@@ -305,7 +313,7 @@ const EventDetails = () => {
   const preview = attendeePreview?.success === true ? attendeePreview : null;
   const headlineOtherConfirmed =
     preview?.total_other_confirmed ??
-    (event ? Math.max(0, event.currentMen + event.currentWomen) : 0);
+    (event ? Math.max(0, event.currentAttendees) : 0);
 
   const rosterRevealed: GuestListRosterAttendee[] = preview
     ? preview.revealed.map((r) => ({
@@ -390,6 +398,16 @@ const EventDetails = () => {
 
       {/* Content */}
       <div className="px-4 py-6 space-y-6">
+
+        {isCancelled && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
+            <p className="font-semibold text-destructive">This event was cancelled</p>
+            <p className="text-muted-foreground mt-1 leading-relaxed">
+              You can still open this page to manage an existing booking if you registered—registration and lobby access
+              are closed. Per-gender “spots” are not shown; admission uses total capacity only.
+            </p>
+          </div>
+        )}
 
         {/* Phone verification nudge for events */}
         {showEventPhoneNudge && !hasEventAdmission && (
@@ -529,7 +547,7 @@ const EventDetails = () => {
             eventDurationMinutes={event.durationMinutes}
             eventId={event.id}
             isRegistered={isConfirmed}
-            onAccessPress={!isConfirmed ? () => void handlePurchasePress() : undefined}
+            onAccessPress={!isConfirmed && !isCancelled ? () => void handlePurchasePress() : undefined}
             accessLabel={event.isFree || userPrice === 0 ? "Register" : "Get Tickets"}
             accessDisabled={purchaseCtaDisabled}
           />
@@ -537,7 +555,7 @@ const EventDetails = () => {
       </div>
 
       {/* Sticky Bottom Bar - Only show when not registered */}
-      {!hasEventAdmission && (
+      {!hasEventAdmission && !isCancelled && (
         <PricingBar
           price={userPrice}
           capacityStatus={capacityInfo.status}
@@ -550,8 +568,22 @@ const EventDetails = () => {
         />
       )}
 
+      {isCancelled && hasEventAdmission && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-destructive/30 rounded-none">
+          <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-destructive">Event cancelled</p>
+              <p className="text-xs text-muted-foreground">Manage booking if you need to release your spot</p>
+            </div>
+            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
+              Manage Booking
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Confirmed admission bottom bar */}
-      {isConfirmed && (
+      {isConfirmed && !isCancelled && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -575,7 +607,7 @@ const EventDetails = () => {
       )}
 
       {/* Paid waitlist: show truthful status without implying a confirmed seat */}
-      {isWaitlisted && !isConfirmed && (
+      {isWaitlisted && !isConfirmed && !isCancelled && (
         <div className="fixed bottom-0 left-0 right-0 z-40 glass-card border-t border-border/50 rounded-none">
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>

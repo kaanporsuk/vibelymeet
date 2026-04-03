@@ -98,6 +98,12 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 **Admin push targeting:** In [`AdminEventControls.tsx`](../src/components/admin/AdminEventControls.tsx), **Go Live** sends only to **`admission_status = 'confirmed'`**; **Send reminder** sends to **confirmed + waitlist**. The attendees-modal broadcast matches the reminder audience (explicit in UI copy).
 
+**Cancellation comms (web):** After a successful `admin_cancel_event`, [`AdminEventsPanel.tsx`](../src/components/admin/AdminEventsPanel.tsx) calls [`adminEventCancellationNotify.ts`](../src/lib/adminEventCancellationNotify.ts) — **separate** push copy for **confirmed** vs **waitlist** via category **`event_cancelled`** (mapped in [`send-notification`](../supabase/functions/send-notification/index.ts) to `notify_event_reminder`).
+
+**Discovery / lobby truth:** `get_visible_events` excludes **`status = 'cancelled'`** (migration `20260412120000_event_cancel_truth_capacity.sql`). **`get_event_deck`** returns **no rows** for cancelled/archived events; **`handle_swipe`** returns **`event_not_active`** for cancelled/archived. Web [`EventDetails.tsx`](../src/pages/EventDetails.tsx) reads `events.status`; lobby redirects when cancelled.
+
+**Admin per-gender counts:** **`admin_get_event_confirmed_gender_counts(p_event_id)`** (same migration) — admin-only confirmed counts by normalized profile gender for edit-form warnings only (admission still **aggregate** `max_attendees` / `current_attendees`).
+
 ---
 
 ## 8. Vibe score and Vibe Video readiness

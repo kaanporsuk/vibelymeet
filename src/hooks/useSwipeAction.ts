@@ -129,6 +129,10 @@ export const useSwipeAction = ({
             toast("This person is not available for matching.", { duration: 2000 });
             return raw;
 
+          case "event_not_active":
+            toast("This event is no longer active.", { duration: 3500 });
+            return raw;
+
           case "vibe_recorded":
           case "swipe_recorded":
             return raw;

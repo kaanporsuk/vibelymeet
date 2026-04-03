@@ -41,6 +41,7 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   event_almost_full: 'notify_event_reminder',
   event_waitlist_promoted: 'notify_event_reminder',
   event_reminder: 'notify_event_reminder',
+  event_cancelled: 'notify_event_reminder',
   event_live: 'notify_event_live',
   daily_drop: 'notify_daily_drop',
   drop_opener: 'notify_daily_drop',
@@ -79,6 +80,10 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
     body: (ctx) => `A spot opened up — you're confirmed for ${ctx?.eventTitle ?? 'your event'}.`,
   },
   event_live: { title: 'Event is LIVE 🔴', body: (ctx) => `${ctx?.eventTitle ?? 'Event'} has started. Enter the lobby now!` },
+  event_cancelled: {
+    title: 'Event cancelled',
+    body: (ctx) => `${ctx?.eventTitle ?? 'An event'} has been cancelled.`,
+  },
   vibe_received: { title: 'Someone vibed you! 💜', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a vibe at ${ctx?.eventTitle ?? 'an event'}` },
   super_vibe: { title: 'Super Vibe! ⭐', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a Super Vibe!` },
   mutual_vibe: { title: "It's a match! 🎉", body: (ctx) => `You and ${ctx?.partnerName ?? 'someone'} vibed each other` },

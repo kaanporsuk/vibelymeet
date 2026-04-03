@@ -286,6 +286,8 @@ const Events = () => {
       });
     }
 
+    filtered = filtered.filter((event) => event.status !== "cancelled");
+
     // 2. Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
