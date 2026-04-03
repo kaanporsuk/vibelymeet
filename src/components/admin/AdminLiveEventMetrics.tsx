@@ -151,7 +151,8 @@ const AdminLiveEventMetrics = () => {
       // Gender ratio
       const genderCount: Record<string, number> = { man: 0, woman: 0, "non-binary": 0 };
       registrations.forEach((r) => {
-        const g = (r.profiles as any)?.gender;
+        const profile = r.profiles as { gender?: string } | null;
+        const g = profile?.gender;
         if (g && genderCount[g] !== undefined) genderCount[g]++;
       });
 
