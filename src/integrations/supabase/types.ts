@@ -2985,6 +2985,10 @@ export type Database = {
       }
       admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
       admin_delete_event: { Args: { p_event_id: string }; Returns: Json }
+      admin_get_event_confirmed_gender_counts: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       admin_remove_event_registration: {
         Args: { p_event_id: string; p_profile_id: string }
         Returns: Json

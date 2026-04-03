@@ -233,6 +233,12 @@ const EventLobby = () => {
   useEffect(() => {
     if (eventLoading || regLoading || !event) return;
 
+    if (event.status === "cancelled") {
+      toast.error("This event was cancelled.", { duration: 3500 });
+      navigate(`/events/${eventId}`, { replace: true });
+      return;
+    }
+
     const now = new Date();
     const endTime = addMinutes(event.eventDate, event.durationMinutes);
     const isLive = now >= event.eventDate && now < endTime;

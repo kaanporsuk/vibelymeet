@@ -27,6 +27,7 @@ import AdminEventFormModal from "./AdminEventFormModal";
 import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 import AdminEventControls from "./AdminEventControls";
 import BatchEventImportModal from "./BatchEventImportModal";
+import { notifyAttendeesOfEventCancellation } from "@/lib/adminEventCancellationNotify";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -208,7 +209,7 @@ const AdminEventsPanel = () => {
   });
 
   const cancelEvent = useMutation({
-    mutationFn: async (eventId: string) => {
+    mutationFn: async ({ eventId, title }: { eventId: string; title: string }) => {
       const { data, error } = await supabase.rpc('admin_cancel_event', { p_event_id: eventId });
       if (error) throw error;
       const payload = data as { ok?: boolean; error?: string; status?: string } | null;
@@ -219,10 +220,14 @@ const AdminEventsPanel = () => {
             : payload.error || 'cancel_failed';
         throw new Error(msg);
       }
+      const counts = await notifyAttendeesOfEventCancellation(eventId, title);
+      return counts;
     },
-    onSuccess: () => {
+    onSuccess: (counts) => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success('Event cancelled');
+      const c = counts?.confirmedSent ?? 0;
+      const w = counts?.waitlistSent ?? 0;
+      toast.success(`Event cancelled — push sent: ${c} confirmed, ${w} waitlisted`);
     },
     onError: (err: any) => toast.error(err?.message || 'Failed to cancel event'),
   });
@@ -411,9 +416,11 @@ const AdminEventsPanel = () => {
                           'The event will be marked cancelled. It will no longer behave as an active, upcoming, or live event for users.',
                           'Existing registrations stay in the database (this is not delete). Use attendee tools or permanent delete if you need accounts or rows removed.',
                           'Cancel is different from Archive (organizational hide), End (normal completion), and Delete (erase event data).',
+                          '',
+                          'After cancel, we automatically send a push to each confirmed attendee and each waitlisted user (explicit targeting; separate copy per group).',
                         ].join('\n');
                         if (confirm(message)) {
-                          cancelEvent.mutate(event.id);
+                          cancelEvent.mutate({ eventId: event.id, title });
                         }
                       }}
                       disabled={cancelEvent.isPending}

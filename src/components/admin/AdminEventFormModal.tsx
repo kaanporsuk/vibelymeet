@@ -191,6 +191,61 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const capacityBelowConfirmed =
     isEditing && effectiveMaxAttendees < confirmedHeadcount;
 
+  const { data: genderRpc } = useQuery({
+    queryKey: ["admin-event-gender-counts", event?.id],
+    enabled: isEditing && !!event?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_get_event_confirmed_gender_counts", {
+        p_event_id: event!.id,
+      });
+      if (error) throw error;
+      return data as {
+        ok?: boolean;
+        male?: number;
+        female?: number;
+        nonbinary?: number;
+        other_or_unspecified?: number;
+        error?: string;
+      };
+    },
+  });
+
+  const genderCountsOk = genderRpc?.ok === true;
+  const confirmedMale = genderCountsOk ? (genderRpc.male ?? 0) : 0;
+  const confirmedFemale = genderCountsOk ? (genderRpc.female ?? 0) : 0;
+  const confirmedNonbinary = genderCountsOk ? (genderRpc.nonbinary ?? 0) : 0;
+  const confirmedOtherGender = genderCountsOk ? (genderRpc.other_or_unspecified ?? 0) : 0;
+
+  const parseGenderCapInput = (raw: string): number | null => {
+    const t = raw.trim();
+    if (t === "") return null;
+    const n = parseInt(t, 10);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const capMale = parseGenderCapInput(maxMaleAttendees);
+  const capFemale = parseGenderCapInput(maxFemaleAttendees);
+  const capNonbinary = parseGenderCapInput(maxNonbinaryAttendees);
+
+  const genderCapWarnings: string[] = [];
+  if (genderCountsOk) {
+    if (capMale !== null && confirmedMale > capMale) {
+      genderCapWarnings.push(
+        `Male cap (${capMale}) is below currently confirmed men (${confirmedMale}).`
+      );
+    }
+    if (capFemale !== null && confirmedFemale > capFemale) {
+      genderCapWarnings.push(
+        `Female cap (${capFemale}) is below currently confirmed women (${confirmedFemale}).`
+      );
+    }
+    if (capNonbinary !== null && confirmedNonbinary > capNonbinary) {
+      genderCapWarnings.push(
+        `Non-binary cap (${capNonbinary}) is below currently confirmed non-binary attendees (${confirmedNonbinary}).`
+      );
+    }
+  }
+
   // City search debounce
   const geocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCitySearch = useCallback(async (q: string) => {
@@ -350,6 +405,22 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       toast.error('Please fill in all required fields');
       return;
     }
+    if (genderCapWarnings.length > 0) {
+      const ok = window.confirm(
+        [
+          "Per-gender caps are below current confirmed counts for at least one bucket:",
+          "",
+          ...genderCapWarnings,
+          "",
+          "Admission paths still use total max_attendees only — these caps are planning hints and are not auto-enforced on the server.",
+          "Lowering caps does not remove or rebalance confirmed attendees.",
+          "",
+          "Save anyway?",
+        ].join("\n")
+      );
+      if (!ok) return;
+    }
+
     if (capacityBelowConfirmed) {
       const ok = window.confirm(
         [
@@ -588,6 +659,38 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                 all gender caps are empty). Confirmed headcount:{" "}
                 <span className="text-foreground font-medium">{confirmedHeadcount}</span>.
               </p>
+            )}
+            {isEditing && genderCountsOk && (
+              <div className="rounded-lg border border-border bg-secondary/20 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-foreground">Confirmed by profile gender (server)</p>
+                <p>
+                  Men: <strong className="text-foreground">{confirmedMale}</strong>
+                  {" · "}Women: <strong className="text-foreground">{confirmedFemale}</strong>
+                  {" · "}Non-binary: <strong className="text-foreground">{confirmedNonbinary}</strong>
+                  {confirmedOtherGender > 0 && (
+                    <>
+                      {" · "}Other/unspecified:{" "}
+                      <strong className="text-foreground">{confirmedOtherGender}</strong>
+                    </>
+                  )}
+                </p>
+                <p>
+                  Empty male/female/non-binary fields mean <strong className="text-foreground">no separate cap</strong>{" "}
+                  for that bucket in this form (we won&apos;t warn on that bucket).{" "}
+                  <strong className="text-foreground">Admission still uses total max_attendees only</strong> — per-gender
+                  numbers are not enforced on register in this codebase.
+                </p>
+              </div>
+            )}
+            {genderCapWarnings.length > 0 && (
+              <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium text-amber-200">Per-gender cap below confirmed distribution</p>
+                <ul className="text-xs text-muted-foreground mt-1 list-disc pl-4 space-y-1">
+                  {genderCapWarnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              </div>
             )}
             {capacityBelowConfirmed && (
               <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm">

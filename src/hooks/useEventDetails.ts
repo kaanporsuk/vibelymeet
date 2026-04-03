@@ -19,10 +19,12 @@ export interface EventDetails {
   address: string;
   priceMale: number;
   priceFemale: number;
-  maxMen: number;
-  maxWomen: number;
-  currentMen: number;
-  currentWomen: number;
+  /** Total cap from DB; admission/FIFO logic uses this (and current_attendees), not per-gender fields. */
+  maxAttendees: number;
+  /** Confirmed headcount only (matches events.current_attendees). */
+  currentAttendees: number;
+  /** DB row status — use for cancelled / ended truth. */
+  status: string | null;
   tags: string[];
   isFree: boolean;
   eventVibes: string[];
@@ -47,13 +49,6 @@ export interface EventAttendee {
   photos: string[];
   vibeTags?: string[];
   photoVerified?: boolean;
-}
-
-// Helper to resolve photo URL via centralized utility
-import { getImageUrl } from "@/utils/imageUrl";
-
-function resolvePhotoUrl(path: string): string {
-  return getImageUrl(path);
 }
 
 export const useEventDetails = (eventId: string | undefined) => {
@@ -140,10 +135,9 @@ export const useEventDetails = (eventId: string | undefined) => {
         address: data.location_address || (data.is_location_specific ? "" : "Video Speed Dating"),
         priceMale: data.price_amount || 0,
         priceFemale: (data.price_amount || 0) * 0.6, // 40% discount for women
-        maxMen: data.max_male_attendees || Math.floor((data.max_attendees || 50) / 2),
-        maxWomen: data.max_female_attendees || Math.floor((data.max_attendees || 50) / 2),
-        currentMen: Math.floor((data.current_attendees || 0) / 2),
-        currentWomen: Math.ceil((data.current_attendees || 0) / 2),
+        maxAttendees: data.max_attendees ?? 50,
+        currentAttendees: data.current_attendees ?? 0,
+        status: data.status ?? null,
         tags: tags.map((t: string) => {
           if (t.includes("Electronic") || t.includes("Music")) return "🎧 " + t;
           if (t.includes("Tech") || t.includes("Gaming")) return "💻 " + t;

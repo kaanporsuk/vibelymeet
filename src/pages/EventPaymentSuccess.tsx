@@ -15,6 +15,7 @@ const EventPaymentSuccess = () => {
   const [searchParams] = useSearchParams();
   const eventId = searchParams.get("event_id");
   const [eventTitle, setEventTitle] = useState<string | null>(null);
+  const [eventRowStatus, setEventRowStatus] = useState<string | null>(null);
   const [admissionStatus, setAdmissionStatus] = useState<"confirmed" | "waitlisted" | "unknown">(
     "unknown"
   );
@@ -24,10 +25,13 @@ const EventPaymentSuccess = () => {
     (async () => {
       const { data } = await supabase
         .from("events")
-        .select("title")
+        .select("title, status")
         .eq("id", eventId)
         .maybeSingle();
-      if (data) setEventTitle(data.title);
+      if (data) {
+        setEventTitle(data.title);
+        setEventRowStatus(data.status ?? null);
+      }
     })();
 
     // Invalidate registration queries so UI updates when user navigates back
@@ -59,23 +63,29 @@ const EventPaymentSuccess = () => {
   }, [eventId, user?.id]);
 
   useEffect(() => {
+    if (!eventId || eventRowStatus === null) return;
+    if (eventRowStatus === "cancelled") return;
     confetti({
       particleCount: 120,
       spread: 80,
       origin: { y: 0.5 },
       colors: ["#a855f7", "#ec4899", "#06b6d4"],
     });
-  }, []);
+  }, [eventId, eventRowStatus]);
 
-  const headline =
-    admissionStatus === "waitlisted"
+  const isEventCancelled = eventRowStatus === "cancelled";
+
+  const headline = isEventCancelled
+    ? "This event was cancelled"
+    : admissionStatus === "waitlisted"
       ? "You're on the waitlist"
       : admissionStatus === "confirmed"
         ? "You're on the list! 🎉"
         : "Payment received";
 
-  const subline =
-    admissionStatus === "waitlisted"
+  const subline = isEventCancelled
+    ? "Your payment may still show here while things sync — open the event page for the latest status and booking options."
+    : admissionStatus === "waitlisted"
       ? "The event was full when your payment settled — we'll confirm you if a spot opens."
       : admissionStatus === "confirmed"
         ? "Check your email for confirmation"
