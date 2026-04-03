@@ -15,7 +15,7 @@ import {
   useEventDetails,
   useIsRegisteredForEvent,
   useRegisterForEvent,
-  useEventAttendees,
+  useEventAttendeePreview,
   useEventVibesSent,
   useEventVibesReceived,
   sendEventVibe,
@@ -63,7 +63,7 @@ export default function EventDetailScreen() {
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused } = useAccountPauseStatus();
 
-  const { data: attendees = [] } = useEventAttendees(id ?? undefined);
+  const { data: attendeePreview, isLoading: attendeePreviewLoading } = useEventAttendeePreview(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
 
@@ -71,12 +71,6 @@ export default function EventDetailScreen() {
     if (!id || !event) return;
     trackEvent('event_viewed', { event_id: id, event_title: event.title ?? '' });
   }, [id, event?.id]);
-
-  const attendeeDisplays: AttendeeDisplay[] = attendees.map((a) => ({
-    id: a.id,
-    name: a.name,
-    avatarUrl: avatarUrl(a.avatar_url ?? a.photos?.[0] ?? null),
-  }));
 
   const mutualVibes: EventVibeMutual[] = receivedVibes
     .filter((r) => sentVibeIds.includes(r.sender_id))
@@ -282,6 +276,7 @@ export default function EventDetailScreen() {
       refetchRegistration();
       queryClient.invalidateQueries({ queryKey: ['event-registration-check'] });
       queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+      queryClient.invalidateQueries({ queryKey: ['event-attendee-preview', id] });
       setShowManageBooking(false);
     } else {
       showDialog({
@@ -361,6 +356,24 @@ export default function EventDetailScreen() {
   const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
   const pricingBarBottomInset = floatingTabBarObstruction + spacing.xs;
   const pricingBarReserveSpace = 124 + pricingBarBottomInset;
+
+  const previewOk = attendeePreview?.success === true;
+  const revealedDisplays: AttendeeDisplay[] =
+    previewOk && isConfirmed
+      ? attendeePreview.revealed.map((r) => ({
+          id: r.profile_id,
+          name: r.name,
+          avatarUrl: avatarUrl(r.avatar_path),
+        }))
+      : [];
+
+  const totalOtherConfirmedFallback = Math.max(0, (event.current_attendees ?? 0) - (isConfirmed ? 1 : 0));
+  const teaserTotalOthers =
+    previewOk && user?.id
+      ? attendeePreview.total_other_confirmed
+      : hasAdmission
+        ? totalOtherConfirmedFallback
+        : event.current_attendees ?? 0;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -474,18 +487,28 @@ export default function EventDetailScreen() {
           <Text style={styles.inviteFriendsBtnText}>Invite friends to this event</Text>
         </Pressable>
 
-        <WhosGoingSection
-          attendees={attendeeDisplays}
-          totalCount={Math.max(event.current_attendees ?? 0, attendeeDisplays.length)}
-          onAttendeePress={(attendee) => {
-            if (attendee.id === user?.id) return;
-            if (!hasAdmission) {
-              router.push(`/user/${attendee.id}` as const);
-              return;
+        {isConfirmed ? (
+          <WhosGoingSection
+            mode="preview"
+            revealed={previewOk ? revealedDisplays : []}
+            obscuredCount={previewOk ? attendeePreview.obscured_remaining : 0}
+            totalOtherConfirmed={
+              previewOk ? attendeePreview.total_other_confirmed : totalOtherConfirmedFallback
             }
-            handleAttendeePress(attendee);
-          }}
-        />
+            visibleCohortCount={previewOk ? attendeePreview.visible_cohort_count : 0}
+            loading={!!user?.id && attendeePreviewLoading}
+            onAttendeePress={(attendee) => {
+              if (attendee.id === user?.id) return;
+              handleAttendeePress(attendee);
+            }}
+          />
+        ) : (
+          <WhosGoingSection
+            mode="aggregate"
+            viewerAdmission={isWaitlisted ? 'waitlisted' : 'none'}
+            totalOtherConfirmed={teaserTotalOthers}
+          />
+        )}
 
         {isConfirmed && mutualVibes.length > 0 && (
           <MutualVibesSection mutualVibes={mutualVibes} onProfilePress={() => {}} />

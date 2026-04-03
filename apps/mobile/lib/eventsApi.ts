@@ -485,6 +485,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
+      qc.invalidateQueries({ queryKey: ['event-attendee-preview', eventId] });
     },
   });
   const unregister = useMutation({
@@ -504,6 +505,7 @@ export function useRegisterForEvent() {
       qc.invalidateQueries({ queryKey: ['next-registered-event'] });
       qc.invalidateQueries({ queryKey: ['user-registered-event-ids'] });
       qc.invalidateQueries({ queryKey: ['event-attendees', eventId] });
+      qc.invalidateQueries({ queryKey: ['event-attendee-preview', eventId] });
     },
   });
   return {
@@ -607,7 +609,7 @@ export async function getSuperVibeRemaining(eventId: string, userId: string): Pr
   return Math.max(0, SUPER_VIBE_LIMIT_PER_EVENT - used);
 }
 
-// ─── Event attendees (Who's Going) ───
+// ─── Event attendees (Who's Going) — server preview, top-2 + aggregates ───
 export type EventAttendee = {
   id: string;
   name: string;
@@ -616,43 +618,100 @@ export type EventAttendee = {
   photos: string[] | null;
 };
 
-/** Fetch attendees for an event (event_registrations + profiles). */
-export function useEventAttendees(eventId: string | undefined) {
+export type PreviewRevealedAttendee = {
+  profile_id: string;
+  name: string;
+  age: number;
+  avatar_path: string | null;
+  shared_vibe_count: number;
+  super_vibe_toward_viewer: boolean;
+  vibe_label: string | null;
+};
+
+export type EventAttendeePreviewPayload =
+  | {
+      success: true;
+      viewer_admission: 'confirmed' | 'waitlisted' | 'none';
+      total_other_confirmed: number;
+      visible_cohort_count: number;
+      obscured_remaining: number;
+      revealed: PreviewRevealedAttendee[];
+    }
+  | { success: false; error?: string; code?: string };
+
+function parseAttendeePreview(data: unknown): EventAttendeePreviewPayload {
+  const row = data as Record<string, unknown> | null;
+  if (!row || row.success === false) {
+    return {
+      success: false,
+      error: typeof row?.error === 'string' ? row.error : 'unknown',
+      code: typeof row?.code === 'string' ? row.code : undefined,
+    };
+  }
+  let revealed: PreviewRevealedAttendee[] = [];
+  const raw = row.revealed;
+  if (Array.isArray(raw)) {
+    revealed = raw.map((r) => {
+      const o = r as Record<string, unknown>;
+      return {
+        profile_id: String(o.profile_id ?? ''),
+        name: String(o.name ?? ''),
+        age: Number(o.age ?? 0),
+        avatar_path: o.avatar_path == null ? null : String(o.avatar_path),
+        shared_vibe_count: Number(o.shared_vibe_count ?? 0),
+        super_vibe_toward_viewer: o.super_vibe_toward_viewer === true,
+        vibe_label: o.vibe_label == null ? null : String(o.vibe_label),
+      };
+    });
+  }
+  return {
+    success: true,
+    viewer_admission: row.viewer_admission as 'confirmed' | 'waitlisted' | 'none',
+    total_other_confirmed: Number(row.total_other_confirmed ?? 0),
+    visible_cohort_count: Number(row.visible_cohort_count ?? 0),
+    obscured_remaining: Number(row.obscured_remaining ?? 0),
+    revealed,
+  };
+}
+
+export function useEventAttendeePreview(eventId: string | undefined) {
   return useQuery({
-    queryKey: ['event-attendees', eventId],
+    queryKey: ['event-attendee-preview', eventId],
     enabled: !!eventId,
-    queryFn: async (): Promise<EventAttendee[]> => {
-      if (!eventId) return [];
+    queryFn: async (): Promise<EventAttendeePreviewPayload> => {
+      if (!eventId) return { success: false, error: 'missing_event' };
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user?.id) return [];
+      if (!user?.id) return { success: false, error: 'not_signed_in' };
 
-      const { data: visibleIds, error: visibleError } = await supabase.rpc(
-        'get_event_visible_attendees',
-        {
-          p_event_id: eventId,
-          p_viewer_id: user.id,
-        }
-      );
-      if (visibleError) return [];
-      const visibleIdList = (visibleIds ?? []).filter(Boolean) as string[];
-
-      if (visibleIdList.length === 0) return [];
-      const { data: profiles, error: profError } = await supabase
-        .from('profiles')
-        .select('id, name, age, avatar_url, photos')
-        .in('id', visibleIdList);
-      if (profError || !profiles?.length) return [];
-      return profiles.map((p) => ({
-        id: p.id,
-        name: p.name ?? 'Guest',
-        age: p.age ?? null,
-        avatar_url: p.avatar_url,
-        photos: (p.photos as string[] | null) ?? null,
-      }));
+      const { data, error } = await supabase.rpc('get_event_attendee_preview', {
+        p_event_id: eventId,
+        p_viewer_id: user.id,
+      });
+      if (error) {
+        if (__DEV__) console.warn('[eventsApi] get_event_attendee_preview', error.message);
+        return { success: false, error: error.message };
+      }
+      return parseAttendeePreview(data);
     },
   });
+}
+
+/** @deprecated Use `useEventAttendeePreview`; this maps `revealed` to legacy card rows (max 2). */
+export function useEventAttendees(eventId: string | undefined) {
+  const q = useEventAttendeePreview(eventId);
+  const mapped: EventAttendee[] =
+    q.data?.success === true
+      ? q.data.revealed.map((r) => ({
+          id: r.profile_id,
+          name: r.name,
+          age: r.age,
+          avatar_url: r.avatar_path,
+          photos: r.avatar_path ? [r.avatar_path] : null,
+        }))
+      : [];
+  return { ...q, data: mapped, preview: q.data };
 }
 
 // ─── Event vibes (pre-event interest) ───
