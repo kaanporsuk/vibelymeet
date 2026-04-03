@@ -9,6 +9,7 @@ import { typography, spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
 
 type Props = {
   sessionId: string;
@@ -17,10 +18,32 @@ type Props = {
   partnerName: string;
   partnerImage: string | null;
   eventId: string | undefined;
-  onSubmitVerdict: (liked: boolean) => Promise<{ mutual: boolean; match_id?: string } | null>;
+  onSubmitVerdict: (liked: boolean) => Promise<SubmitVerdictAndCheckMutualResult>;
   onMutualMatch: () => void;
   onDone: () => void;
 };
+
+function verdictFailureUserMessage(result: Extract<SubmitVerdictAndCheckMutualResult, { ok: false }>): string {
+  if (result.reason === 'network') {
+    return "Can't connect right now. Check your connection and try again.";
+  }
+  if (result.reason === 'unknown') {
+    return 'Something went wrong. Please try again.';
+  }
+  switch (result.code) {
+    case 'not_participant':
+      return "You can't submit feedback for this date.";
+    case 'session_not_found':
+      return 'This date session is no longer available.';
+    case 'invalid_request':
+    case 'rpc_failed':
+    case 'internal_error':
+    case 'unauthorized':
+    case 'forbidden':
+    default:
+      return 'Something went wrong. Please try again.';
+  }
+}
 
 export function PostDateSurvey({
   sessionId,
@@ -34,6 +57,7 @@ export function PostDateSurvey({
   const theme = Colors[colorScheme];
   const [step, setStep] = useState<'verdict' | 'celebration' | 'done'>('verdict');
   const [submitting, setSubmitting] = useState(false);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -47,13 +71,18 @@ export function PostDateSurvey({
   const handleVerdict = async (liked: boolean) => {
     if (submitting) return;
     setSubmitting(true);
+    setVerdictError(null);
     try {
       const result = await onSubmitVerdict(liked);
+      if (!result.ok) {
+        setVerdictError(verdictFailureUserMessage(result));
+        return;
+      }
       trackEvent('post_date_survey_completed', {
         session_id: sessionId,
         verdict: liked ? 'vibe' : 'pass',
       });
-      if (result?.mutual) {
+      if (result.mutual) {
         setStep('celebration');
         if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
         timeoutRef.current = setTimeout(() => {
@@ -66,9 +95,10 @@ export function PostDateSurvey({
         onDone();
       }
     } catch {
+      setVerdictError('Something went wrong. Please try again.');
+    } finally {
       setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   if (step === 'celebration') {
@@ -85,6 +115,11 @@ export function PostDateSurvey({
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Text style={[styles.title, { color: theme.text }]}>How was your date with {partnerName}?</Text>
+      {verdictError ? (
+        <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
+          {verdictError}
+        </Text>
+      ) : null}
       {partnerImage ? (
         <Image source={{ uri: partnerImage }} style={styles.avatar} />
       ) : (
@@ -133,8 +168,14 @@ const styles = StyleSheet.create({
   },
   title: {
     ...typography.titleMD,
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
     textAlign: 'center',
+  },
+  errorBanner: {
+    ...typography.body,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
   },
   avatar: {
     width: 96,
