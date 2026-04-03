@@ -55,6 +55,7 @@ export const useRegisterForEvent = () => {
       if (upErr) return false;
       await refreshProfile();
       await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
+      await queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
     }
 
     const { data, error } = await supabase.rpc("register_for_event", {
@@ -76,6 +77,7 @@ export const useRegisterForEvent = () => {
     if (result?.success === true) {
       await queryClient.invalidateQueries({ queryKey: ["user-registrations", user.id] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
+      await queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
     }
     return result?.success === true;
   };

@@ -48,6 +48,7 @@ export const useRealtimeEvents = () => {
           queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
           queryClient.invalidateQueries({ queryKey: ["next-registered-event"] });
           queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
+          queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
         }
       )
       .subscribe();

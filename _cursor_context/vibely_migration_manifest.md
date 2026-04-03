@@ -65,6 +65,7 @@ After the dedicated migration-repair workstream (2026-03-11), the **current hard
   - `20260311133000_video_date_state_machine.sql` — **Stream 2A:** introduce server-owned video-date state machine (`video_date_state`, `video_date_transition`) and move timing/phase ownership out of fragile client writes
   - `20260311153000_ready_gate_transition.sql` — **Stream 2B:** introduce server-owned Ready Gate transition RPC (`ready_gate_transition`) to replace fragile client-owned updates for ready/snooze/forfeit
   - `20260311160000_daily_drop_transition.sql` — **Stream 2C:** introduce server-owned Daily Drop transition RPC (`daily_drop_transition`) for view/opener/reply/pass, including match creation and idempotent terminal handling
+  - `20260410120000_get_event_attendee_preview.sql` — **Who's Going / attendee privacy:** `get_event_attendee_preview(p_event_id, p_viewer_id)` returns JSON (viewer admission, `total_other_confirmed`, cohort counts, top-2 revealed rows, obscured remainder); confirmed viewers only get identifiable previews; waitlisted and non-admitted get aggregate counts only.
 
 The parity repair was performed **via metadata-only history reconciliation** using `supabase migration repair`:
 - historical SQL bodies were **not** re-executed

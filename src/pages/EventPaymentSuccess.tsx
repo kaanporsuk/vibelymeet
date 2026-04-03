@@ -33,7 +33,8 @@ const EventPaymentSuccess = () => {
     // Invalidate registration queries so UI updates when user navigates back
     queryClient.invalidateQueries({ queryKey: ["event-registration-check", eventId] });
     queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-    queryClient.invalidateQueries({ queryKey: ["event-attendees", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-attendees", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", eventId] });
     queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
   }, [eventId, queryClient]);
 

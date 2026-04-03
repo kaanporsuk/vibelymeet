@@ -19,18 +19,17 @@ import { toast } from "sonner";
 import confetti from "canvas-confetti";
 import { format } from "date-fns";
 import VenueCard from "@/components/events/VenueCard";
-import MiniProfileModal from "@/components/events/MiniProfileModal";
 import TicketStub from "@/components/events/TicketStub";
 import GuestListTeaser from "@/components/events/GuestListTeaser";
-import GuestListRoster from "@/components/events/GuestListRoster";
+import GuestListRoster, { type GuestListRosterAttendee } from "@/components/events/GuestListRoster";
 import PricingBar from "@/components/events/PricingBar";
 import PaymentModal from "@/components/events/PaymentModal";
 import ManageBookingModal from "@/components/events/ManageBookingModal";
 import CancelBookingModal from "@/components/events/CancelBookingModal";
-import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useEventDetails, useEventAttendees, useIsRegisteredForEvent, EventAttendee } from "@/hooks/useEventDetails";
+import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
+import { useEventAttendeePreview } from "@/hooks/useEventAttendees";
 import { useRegisterForEvent } from "@/hooks/useRegistrations";
 import { useRealtimeEvents } from "@/hooks/useEvents";
 import { useEventVibes } from "@/hooks/useEventVibes";
@@ -55,7 +54,7 @@ const EventDetails = () => {
   
   // Fetch real event data
   const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
-  const { data: attendees = [] } = useEventAttendees(id);
+  const { data: attendeePreview, isLoading: attendeePreviewLoading } = useEventAttendeePreview(id);
   const { data: regSnapshot, refetch: refetchRegistration } = useIsRegisteredForEvent(id, user?.id);
   const isConfirmed = regSnapshot?.isConfirmed ?? false;
   const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
@@ -113,8 +112,6 @@ const EventDetails = () => {
   
   // UI state
   const [scrollY, setScrollY] = useState(0);
-  const [selectedProfile, setSelectedProfile] = useState<EventAttendee | null>(null);
-  const [fullProfileAttendee, setFullProfileAttendee] = useState<EventAttendee | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -154,11 +151,6 @@ const EventDetails = () => {
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  // Handler for Register to Match from mini profile modal - MUST be before early returns
-  const handleRegisterFromProfile = useCallback(() => {
-    purchasePressRef.current();
   }, []);
 
   const formatDate = (date: Date) => {
@@ -284,7 +276,7 @@ const EventDetails = () => {
     if (success) {
       await refetchRegistration();
       queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-      queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
+      queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", id] });
       
       setShowCancelModal(false);
       setShowManageBooking(false);
@@ -310,26 +302,23 @@ const EventDetails = () => {
     }
   };
 
-  // Transform attendees for teaser view (before registration)
-  const teaserAttendees = attendees.slice(0, 6).map(a => ({
-    id: a.id,
-    name: "???",
-    avatar: a.avatar,
-    vibeTags: a.vibeTags || [a.vibeTag],
-  }));
+  const preview = attendeePreview?.success === true ? attendeePreview : null;
+  const headlineOtherConfirmed =
+    preview?.total_other_confirmed ??
+    (event ? Math.max(0, event.currentMen + event.currentWomen) : 0);
 
-  // Transform attendees for roster view (after registration)
-  const rosterAttendees = attendees.map(a => ({
-    id: a.id,
-    name: a.name,
-    age: a.age,
-    avatar: a.avatar,
-    vibeTag: a.vibeTag,
-    matchPercent: a.matchPercent,
-    about_me: a.about_me,
-    photos: a.photos,
-    photoVerified: a.photoVerified,
-  }));
+  const rosterRevealed: GuestListRosterAttendee[] = preview
+    ? preview.revealed.map((r) => ({
+        id: r.profile_id,
+        name: r.name,
+        age: r.age,
+        avatar: resolvePhotoUrl(r.avatar_path || ""),
+        vibeTag: r.vibe_label || "Vibing",
+        matchPercent: Math.min(99, 42 + r.shared_vibe_count * 9),
+        sharedVibeCount: r.shared_vibe_count,
+        superVibeTowardViewer: r.super_vibe_toward_viewer,
+      }))
+    : [];
 
   return (
     <div className="min-h-screen bg-background pb-[100px] overflow-y-auto">
@@ -487,12 +476,24 @@ const EventDetails = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              <GuestListRoster
-                attendees={rosterAttendees}
-                totalCount={attendees.length}
-                onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
-                onTicketClick={() => setShowManageBooking(true)}
-              />
+              {attendeePreviewLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : preview ? (
+                <GuestListRoster
+                  revealed={rosterRevealed}
+                  obscuredRemaining={preview.obscured_remaining}
+                  visibleCohortCount={preview.visible_cohort_count}
+                  totalOtherConfirmed={preview.total_other_confirmed}
+                  onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
+                  onTicketClick={() => setShowManageBooking(true)}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  Could not load guest preview. Pull to refresh or try again shortly.
+                </p>
+              )}
             </motion.div>
           ) : (
             <motion.div
@@ -502,12 +503,12 @@ const EventDetails = () => {
               exit={{ opacity: 0, y: -20 }}
             >
               <GuestListTeaser
-                attendees={teaserAttendees}
-                totalCount={attendees.length}
+                viewerAdmission={isWaitlisted ? "waitlisted" : "none"}
+                totalOtherConfirmed={headlineOtherConfirmed}
               />
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Mutual Vibes Section - Only show for registered users with mutual vibes */}
         {isConfirmed && eventVibes.mutualVibes.length > 0 && (
@@ -621,53 +622,6 @@ const EventDetails = () => {
         onClose={() => setShowCancelModal(false)}
         onConfirm={handleCancelConfirm}
         eventTitle={event.title}
-      />
-
-      {/* Mini Profile Modal */}
-      <MiniProfileModal
-        profile={selectedProfile}
-        isOpen={!!selectedProfile}
-        onClose={() => setSelectedProfile(null)}
-        onRegister={handleRegisterFromProfile}
-        onViewFullProfile={(profileId) => {
-          const attendee = attendees.find(a => a.id === profileId);
-          if (attendee) {
-            setFullProfileAttendee(attendee);
-          }
-        }}
-        onSendVibe={(profileId) => eventVibes.sendVibe(profileId)}
-        onRemoveVibe={(profileId) => eventVibes.removeVibe(profileId)}
-        isViewerRegistered={isConfirmed}
-        hasSentVibe={selectedProfile ? eventVibes.hasSentVibe(selectedProfile.id) : false}
-        hasReceivedVibe={selectedProfile ? eventVibes.hasReceivedVibe(selectedProfile.id) : false}
-        isSendingVibe={eventVibes.isSendingVibe}
-        eventStatus={
-          new Date() >= event.eventDate
-            ? new Date() < new Date(event.eventDate.getTime() + event.durationMinutes * 60000)
-              ? "live"
-              : "ended"
-            : "upcoming"
-        }
-      />
-
-      {/* Full Profile Drawer */}
-      <ProfileDetailDrawer
-        match={{
-          id: fullProfileAttendee?.id || "",
-          name: fullProfileAttendee?.name || "",
-          age: fullProfileAttendee?.age || 0,
-          image: resolvePhotoUrl(fullProfileAttendee?.avatar) || "",
-          vibes: fullProfileAttendee?.vibeTags || [fullProfileAttendee?.vibeTag || ""],
-          compatibility: fullProfileAttendee?.matchPercent,
-          photos: (fullProfileAttendee?.photos || []).map(p => resolvePhotoUrl(p)).filter(Boolean) as string[],
-          aboutMe: fullProfileAttendee?.about_me,
-        }}
-        open={!!fullProfileAttendee}
-        onOpenChange={(open) => {
-          if (!open) setFullProfileAttendee(null);
-        }}
-        showActions={false}
-        mode="discovery"
       />
 
       {/* Ticket Stub */}

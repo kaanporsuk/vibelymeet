@@ -33,6 +33,7 @@ import {
   useRegisteredEventIds,
   type EventListItem,
   type EventAttendee,
+  type EventAttendeePreviewPayload,
   type DiscoverEventsParams,
 } from '@/lib/eventsApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -183,6 +184,7 @@ function FeaturedEventCard({
   isConfirmedSeat,
   isWaitlistedSeat,
   attendees,
+  attendeePreview,
 }: {
   event: EventListItem;
   theme: (typeof Colors)[keyof typeof Colors];
@@ -190,9 +192,12 @@ function FeaturedEventCard({
   isConfirmedSeat?: boolean;
   isWaitlistedSeat?: boolean;
   attendees?: EventAttendee[];
+  attendeePreview?: EventAttendeePreviewPayload;
 }) {
   const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
-  const avatarUrls = (attendees ?? []).slice(0, 3).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
+  const goingCount =
+    attendeePreview?.success === true ? attendeePreview.total_other_confirmed : event.attendees;
+  const avatarUrls = (attendees ?? []).slice(0, 2).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
   return (
     <Pressable
       style={({ pressed }) => [
@@ -277,7 +282,7 @@ function FeaturedEventCard({
                   ))}
             </View>
             <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
-              +{event.attendees} going
+              +{goingCount} going
             </Text>
           </View>
           <View
@@ -785,7 +790,7 @@ export default function EventsListScreen() {
   }, [upcomingEvents, registeredEventIds]);
   const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
-  const { data: featuredAttendees = [] } = useEventAttendees(featuredEvent?.id);
+  const { data: featuredAttendees = [], preview: featuredAttendeePreview } = useEventAttendees(featuredEvent?.id);
 
   const toggleTimeFilter = (key: string) => {
     setTimeFilter(prev => prev === key ? null : key);
@@ -974,6 +979,7 @@ export default function EventsListScreen() {
                 isConfirmedSeat={!!isRegisteredForFeatured?.isConfirmed}
                 isWaitlistedSeat={!!isRegisteredForFeatured?.isWaitlisted}
                 attendees={featuredAttendees}
+                attendeePreview={featuredAttendeePreview}
               />
             )}
 

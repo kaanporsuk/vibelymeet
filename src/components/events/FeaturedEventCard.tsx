@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { useEventAttendees } from "@/hooks/useEventAttendees";
 import { isEventExpired } from "@/utils/eventUtils";
-import { eventCoverHeroUrl } from "@/utils/imageUrl";
+import { eventCoverHeroUrl, getImageUrl } from "@/utils/imageUrl";
 import { getLanguageLabel } from "@/lib/eventLanguages";
 
 interface FeaturedEventCardProps {
@@ -37,7 +37,9 @@ export const FeaturedEventCard = ({
 }: FeaturedEventCardProps) => {
   const navigate = useNavigate();
   const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
-  const { data: eventAttendees = [] } = useEventAttendees(id, 5);
+  const { data: eventAttendees = [], preview: attendeePreview } = useEventAttendees(id, 5);
+  const goingCount =
+    attendeePreview?.success === true ? attendeePreview.total_other_confirmed : attendees;
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
   const expired = isEventExpired({ event_date: eventDate.toISOString(), duration_minutes: durationMinutes });
@@ -221,8 +223,9 @@ export const FeaturedEventCard = ({
           <div className="flex items-center gap-3">
             <div className="flex -space-x-2">
               {eventAttendees.length > 0 ? (
-                eventAttendees.slice(0, 3).map((attendee) => {
-                  const avatarUrl = attendee.avatar_url || attendee.photos?.[0];
+                eventAttendees.slice(0, 2).map((attendee) => {
+                  const path = attendee.avatar_url || attendee.photos?.[0];
+                  const avatarUrl = path ? getImageUrl(path) : null;
                   return (
                     <div
                       key={attendee.id}
@@ -254,7 +257,7 @@ export const FeaturedEventCard = ({
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Users className="w-4 h-4" />
-              <span className="font-medium">+{attendees} going</span>
+              <span className="font-medium">+{goingCount} going</span>
             </div>
           </div>
 
