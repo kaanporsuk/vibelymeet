@@ -299,11 +299,6 @@ export default function VideoDateScreen() {
       roomNameRef.current = null;
     }
     if (sessionId) await endVideoDate(sessionId);
-    if (eventId && user?.id) {
-      try {
-        await supabase.rpc('leave_matching_queue', { p_event_id: eventId });
-      } catch {}
-    }
     setLocalParticipant(null);
     setRemoteParticipant(null);
     setIsConnected(false);

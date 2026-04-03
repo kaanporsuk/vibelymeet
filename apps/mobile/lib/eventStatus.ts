@@ -17,7 +17,7 @@ export type ParticipantStatus =
   | 'offline'
   | 'idle';
 
-const HEARTBEAT_MS = 60000;
+const HEARTBEAT_MS = 30000;
 
 export function useEventStatus(eventId: string | undefined, userId: string | undefined, enabled = true) {
   const setStatus = useCallback(
@@ -37,15 +37,21 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
     (async () => {
       const { error } = await supabase
         .from('event_registrations')
-        .update({ queue_status: 'browsing', last_active_at: new Date().toISOString() })
+        .update({
+          queue_status: 'browsing',
+          last_active_at: new Date().toISOString(),
+        })
         .eq('event_id', eventId)
         .eq('profile_id', userId);
       if (error && __DEV__) console.warn('[eventStatus] initial status update failed:', error.message);
     })();
     const heartbeat = setInterval(async () => {
+      const nowIso = new Date().toISOString();
       const { error } = await supabase
         .from('event_registrations')
-        .update({ last_active_at: new Date().toISOString() })
+        .update({
+          last_active_at: nowIso,
+        })
         .eq('event_id', eventId)
         .eq('profile_id', userId);
       if (error && __DEV__) console.warn('[eventStatus] heartbeat update failed:', error.message);

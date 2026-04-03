@@ -52,7 +52,7 @@
       "migrations": 109,
       "public_tables": 41,
       "public_views": 1,
-      "public_functions": 25,
+      "public_functions": 26,
       "public_enums": 4,
       "public_assets": 23
     },
@@ -408,6 +408,7 @@
       "is_registered_for_event",
       "join_matching_queue",
       "leave_matching_queue",
+      "mark_lobby_foreground",
       "update_participant_status",
       "daily_drop_transition",
       "video_date_transition",
@@ -906,9 +907,9 @@
   ],
   "function_config_gaps": [],
   "migrations": {
-    "count": 101,
+    "count": 103,
     "first": "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
-    "last": "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
+    "last": "20260404191500_phase1_1_true_lobby_foreground.sql",
     "files": [
       "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
       "20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql",
@@ -1010,7 +1011,14 @@
       "20260309050102_0e98bf2b-3b08-4fa1-bd9c-b833a37f63e9.sql",
       "20260310003534_7dccf499-0724-4dae-a6e4-6b170816431e.sql",
       "20260310124808_84e1cfb5-c367-4e34-a610-b555e7907d5b.sql",
-      "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql"
+      "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
+      "20260404183000_phase1_presence_atomic_cleanup.sql",
+      "20260404191500_phase1_1_true_lobby_foreground.sql"
+    ],
+    "phase1_event_presence_updates": [
+      "update_participant_status(p_event_id, p_status) no longer writes last_lobby_foregrounded_at",
+      "mark_lobby_foreground(p_event_id) is the canonical foreground-proof stamp",
+      "handle_swipe and drain_match_queue continue enforcing 60s recency via last_lobby_foregrounded_at"
     ],
     "risk_flags": {
       "contains_destructive_resets": true,

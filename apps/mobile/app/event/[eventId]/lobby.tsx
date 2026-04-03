@@ -6,6 +6,8 @@ import {
   Pressable,
   Image,
   Dimensions,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -161,8 +163,42 @@ export default function EventLobbyScreen() {
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
+  const [isLobbyFocused, setIsLobbyFocused] = useState(false);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsLobbyFocused(true);
+      return () => setIsLobbyFocused(false);
+    }, [])
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!id || !user?.id) return;
+    if (!isLobbyFocused || appState !== 'active') return;
+
+    const stampForeground = async () => {
+      try {
+        await supabase.rpc('mark_lobby_foreground', { p_event_id: id });
+      } catch (err) {
+        if (__DEV__) console.warn('[lobby] mark_lobby_foreground failed:', err);
+      }
+    };
+
+    void stampForeground();
+    const intervalId = setInterval(() => {
+      void stampForeground();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [id, user?.id, isLobbyFocused, appState]);
 
   useEffect(() => {
     if (!user?.id) return;

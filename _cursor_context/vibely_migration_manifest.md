@@ -539,6 +539,23 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11e. Stream — events hardening Phase 1 + Phase 1.1 (2026-04-04)
+
+- **Migrations:**
+  - `supabase/migrations/20260404183000_phase1_presence_atomic_cleanup.sql`
+    - adds `event_registrations.last_lobby_foregrounded_at`
+    - hardens immediate-vs-queued behavior in `handle_swipe` and queued promotion in `drain_match_queue` to require queue status **and** recency (`last_lobby_foregrounded_at >= now() - 60s`)
+    - makes `ready_gate_transition('forfeit')` atomic by clearing `event_registrations` linkage server-side
+    - consolidates active date-end cleanup under `video_date_transition('end')`
+  - `supabase/migrations/20260404191500_phase1_1_true_lobby_foreground.sql`
+    - introduces `mark_lobby_foreground(p_event_id)` as the canonical foreground-proof RPC
+    - narrows `update_participant_status(p_event_id, p_status)` so it no longer stamps `last_lobby_foregrounded_at`
+- **Client-path implications:**
+  - active product path no longer calls `leave_matching_queue` in web/mobile date exit flows
+  - lobby foreground proof is refreshed only from actual lobby surfaces (web visibility/route gated; native focus + AppState gated)
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

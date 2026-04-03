@@ -809,6 +809,7 @@ export type Database = {
           id: string
           joined_queue_at: string | null
           last_active_at: string | null
+          last_lobby_foregrounded_at: string | null
           last_matched_at: string | null
           payment_status: string
           profile_id: string
@@ -830,6 +831,7 @@ export type Database = {
           id?: string
           joined_queue_at?: string | null
           last_active_at?: string | null
+          last_lobby_foregrounded_at?: string | null
           last_matched_at?: string | null
           payment_status?: string
           profile_id: string
@@ -851,6 +853,7 @@ export type Database = {
           id?: string
           joined_queue_at?: string | null
           last_active_at?: string | null
+          last_lobby_foregrounded_at?: string | null
           last_matched_at?: string | null
           payment_status?: string
           profile_id?: string
@@ -3347,6 +3350,10 @@ export type Database = {
       leave_matching_queue: {
         Args: { p_event_id: string }
         Returns: Json
+      }
+      mark_lobby_foreground: {
+        Args: { p_event_id: string }
+        Returns: undefined
       }
       mark_match_messages_read: {
         Args: { p_match_id: string }

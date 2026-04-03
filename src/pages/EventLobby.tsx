@@ -146,6 +146,44 @@ const EventLobby = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Canonical lobby foreground proof: stamp only while this lobby route is visible in the foreground.
+  useEffect(() => {
+    if (!eventId || !user?.id) return;
+
+    const expectedPath = `/event/${eventId}/lobby`;
+    const isOnLobbyRoute = location.pathname === expectedPath;
+    const canStampStatus = currentStatus === "browsing" || currentStatus === "idle";
+
+    if (!isOnLobbyRoute || !canStampStatus) return;
+
+    const stampForeground = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        await supabase.rpc("mark_lobby_foreground", {
+          p_event_id: eventId,
+        });
+      } catch {}
+    };
+
+    void stampForeground();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void stampForeground();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const intervalId = setInterval(() => {
+      void stampForeground();
+    }, 30000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(intervalId);
+    };
+  }, [eventId, user?.id, location.pathname, currentStatus]);
+
   // BUG 4 FIX: Check if user already has a pending ready gate on mount
   useEffect(() => {
     if (!user?.id || !eventId) return;
