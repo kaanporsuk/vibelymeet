@@ -118,6 +118,10 @@ verify_jwt = false
 [functions.date-reminder-cron]
 verify_jwt = false
 
+# Drains waitlist_promotion_notify_queue → send-notification (Bearer CRON_SECRET; see migration scheduling).
+[functions.process-waitlist-promotion-notify-queue]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 

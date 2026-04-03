@@ -39,6 +39,7 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   event_ended: 'notify_event_reminder',
   new_event_city: 'notify_event_reminder',
   event_almost_full: 'notify_event_reminder',
+  event_waitlist_promoted: 'notify_event_reminder',
   event_reminder: 'notify_event_reminder',
   event_live: 'notify_event_live',
   daily_drop: 'notify_daily_drop',
@@ -73,6 +74,10 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   drop_reply: { title: 'Reply received!', body: (ctx) => `${ctx?.senderName ?? 'Someone'} replied to your opener` },
   event_reminder_30m: { title: 'Event in 30 minutes ⏰', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} starts soon. Get ready!` },
   event_reminder_5m: { title: 'Starting in 5 minutes! 🎉', body: (ctx) => `${ctx?.eventTitle ?? 'Your event'} is about to begin` },
+  event_waitlist_promoted: {
+    title: "You're in! 🎉",
+    body: (ctx) => `A spot opened up — you're confirmed for ${ctx?.eventTitle ?? 'your event'}.`,
+  },
   event_live: { title: 'Event is LIVE 🔴', body: (ctx) => `${ctx?.eventTitle ?? 'Event'} has started. Enter the lobby now!` },
   vibe_received: { title: 'Someone vibed you! 💜', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a vibe at ${ctx?.eventTitle ?? 'an event'}` },
   super_vibe: { title: 'Super Vibe! ⭐', body: (ctx) => `${ctx?.senderName ?? 'Someone'} sent you a Super Vibe!` },

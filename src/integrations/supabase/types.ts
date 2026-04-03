@@ -812,8 +812,10 @@ export type Database = {
           last_matched_at: string | null
           payment_status: string
           profile_id: string
+          promoted_at: string | null
           queue_status: string | null
           registered_at: string
+          waitlisted_at: string | null
         }
         Insert: {
           admission_status?: string
@@ -831,8 +833,10 @@ export type Database = {
           last_matched_at?: string | null
           payment_status?: string
           profile_id: string
+          promoted_at?: string | null
           queue_status?: string | null
           registered_at?: string
+          waitlisted_at?: string | null
         }
         Update: {
           admission_status?: string
@@ -850,8 +854,10 @@ export type Database = {
           last_matched_at?: string | null
           payment_status?: string
           profile_id?: string
+          promoted_at?: string | null
           queue_status?: string | null
           registered_at?: string
+          waitlisted_at?: string | null
         }
         Relationships: [
           {
@@ -2812,6 +2818,45 @@ export type Database = {
           },
         ]
       }
+      waitlist_promotion_notify_queue: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          processed_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          processed_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          processed_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "waitlist_promotion_notify_queue_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "waitlist_promotion_notify_queue_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       push_notification_events_admin: {
@@ -2929,6 +2974,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_remove_event_registration: {
+        Args: { p_event_id: string; p_profile_id: string }
+        Returns: Json
+      }
       calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
       can_view_profile_photo: {
         Args: { photo_owner_id: string }
@@ -2951,6 +3000,7 @@ export type Database = {
         Returns: Json
       }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
+      cancel_event_registration: { Args: { p_event_id: string }; Returns: Json }
       clear_expired_pauses: { Args: never; Returns: number }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
       daily_drop_transition: {
@@ -3156,6 +3206,7 @@ export type Database = {
         Returns: Json
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
+      promote_waitlist_for_event: { Args: { p_event_id: string }; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
       settle_event_ticket_checkout: {
         Args: {

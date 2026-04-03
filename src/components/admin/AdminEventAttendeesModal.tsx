@@ -9,6 +9,7 @@ import {
   Search,
   Bell,
   UserCheck,
+  UserMinus,
   MoreHorizontal,
   ChevronDown,
   ChevronUp,
@@ -68,6 +69,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         .select(`
           id,
           registered_at,
+          admission_status,
           attended,
           attendance_marked,
           profile_id,
@@ -97,6 +99,25 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       }
       
       return filtered;
+    },
+  });
+
+  const removeRegistration = useMutation({
+    mutationFn: async (profileId: string) => {
+      const { data, error } = await supabase.rpc("admin_remove_event_registration", {
+        p_event_id: event.id,
+        p_profile_id: profileId,
+      });
+      if (error) throw error;
+      const result = data as { success?: boolean } | null;
+      if (!result?.success) throw new Error("Not removed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-event-attendees", event.id] });
+      toast.success("Registration removed");
+    },
+    onError: () => {
+      toast.error("Failed to remove registration");
     },
   });
 
@@ -203,18 +224,19 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     if (!registrations?.length) return;
     
     const csvContent = [
-      ['Name', 'Age', 'Gender', 'Registered', 'Status'].join(','),
+      ['Name', 'Age', 'Gender', 'Registered', 'Admission', 'Attendance'].join(','),
       ...registrations.map(reg => {
         const profile = reg.profiles as any;
-        const status = reg.attendance_marked 
-          ? (reg.attended ? 'Attended' : 'No Show') 
+        const att = reg.attendance_marked
+          ? (reg.attended ? 'Attended' : 'No Show')
           : 'Pending';
         return [
           profile?.name || 'Unknown',
           profile?.age || '',
           profile?.gender || '',
           format(new Date(reg.registered_at), 'yyyy-MM-dd HH:mm'),
-          status
+          String(reg.admission_status ?? ''),
+          att
         ].join(',');
       })
     ].join('\n');
@@ -482,6 +504,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                             Verified
                           </Badge>
                         )}
+                        {reg.admission_status === "waitlisted" && (
+                          <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-400">
+                            Waitlist
+                          </Badge>
+                        )}
+                        {reg.admission_status === "confirmed" && (
+                          <Badge variant="outline" className="text-xs border-emerald-500/40 text-emerald-400">
+                            Confirmed
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span>{profile?.age} · {profile?.gender}</span>
@@ -527,6 +559,23 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                           >
                             <XCircle className="w-4 h-4 text-red-500" />
                             Mark No Show
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (
+                                !window.confirm(
+                                  `Remove ${profile?.name ?? "this user"} from this event? This frees a confirmed seat and may promote the waitlist.`
+                                )
+                              ) {
+                                return;
+                              }
+                              removeRegistration.mutate(reg.profile_id);
+                            }}
+                            disabled={removeRegistration.isPending}
+                            className="gap-2 text-destructive focus:text-destructive"
+                          >
+                            <UserMinus className="w-4 h-4" />
+                            Remove registration
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => void sendNotifyAllRegistrants()}
