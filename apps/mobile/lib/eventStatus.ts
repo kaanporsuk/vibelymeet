@@ -35,15 +35,8 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
   useEffect(() => {
     if (!enabled || !eventId || !userId) return;
     (async () => {
-      const { error } = await supabase
-        .from('event_registrations')
-        .update({
-          queue_status: 'browsing',
-          last_active_at: new Date().toISOString(),
-        })
-        .eq('event_id', eventId)
-        .eq('profile_id', userId);
-      if (error && __DEV__) console.warn('[eventStatus] initial status update failed:', error.message);
+      const ok = await updateParticipantStatus(eventId, 'browsing');
+      if (!ok && __DEV__) console.warn('[eventStatus] initial status update failed');
     })();
     const heartbeat = setInterval(async () => {
       const nowIso = new Date().toISOString();
