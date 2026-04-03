@@ -1,6 +1,5 @@
 /**
- * Ticket stub modal: event title, date, time, venue, ticket number (VBL-{eventId first 8}).
- * Reference: src/components/events/TicketStub.tsx
+ * Ticket stub modal — web parity: admission label and virtual / in-person messaging.
  */
 
 import React from 'react';
@@ -9,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { spacing, radius, typography } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import type { BookingAdmissionStatus } from '@/components/events/ManageBookingModal';
 
 type Props = {
   visible: boolean;
@@ -19,6 +19,7 @@ type Props = {
   venue: string;
   ticketNumber: string;
   isVirtual?: boolean;
+  admissionStatus?: BookingAdmissionStatus;
 };
 
 export function TicketStub({
@@ -30,11 +31,19 @@ export function TicketStub({
   venue,
   ticketNumber,
   isVirtual = false,
+  admissionStatus = 'confirmed',
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const isWaitlisted = admissionStatus === 'waitlisted';
 
   if (!visible) return null;
+
+  const label = isWaitlisted
+    ? 'Waitlist spot'
+    : isVirtual
+      ? 'Vibely Registration'
+      : 'Vibely Ticket';
 
   return (
     <Modal visible transparent animationType="slide">
@@ -45,11 +54,9 @@ export function TicketStub({
             <View style={[styles.ticketIcon, { backgroundColor: theme.tint }]}>
               <Ionicons name="ticket" size={24} color="#fff" />
             </View>
-            <View>
-              <Text style={[styles.ticketLabel, { color: theme.mutedForeground }]}>
-                {isVirtual ? 'Vibely Registration' : 'Vibely Ticket'}
-              </Text>
-              <Text style={[styles.ticketNumber, { color: theme.text }]}>{ticketNumber}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.ticketLabel, { color: theme.mutedForeground }]}>{label}</Text>
+              {!isVirtual ? <Text style={[styles.ticketNumber, { color: theme.text }]}>{ticketNumber}</Text> : null}
             </View>
           </View>
           <Text style={[styles.eventTitle, { color: theme.text }]}>{eventTitle}</Text>
@@ -68,11 +75,32 @@ export function TicketStub({
             <View style={styles.row}>
               <Ionicons name="location-outline" size={20} color={theme.tint} />
               <Text style={[styles.label, { color: theme.mutedForeground }]}>Location</Text>
-              <Text style={[styles.value, { color: theme.text }]} numberOfLines={1}>
+              <Text style={[styles.value, { color: theme.text }]} numberOfLines={2}>
                 {isVirtual ? 'Virtual • Video Speed Dating' : venue}
               </Text>
             </View>
           </View>
+          {isVirtual ? (
+            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
+              <Ionicons name="videocam" size={28} color={theme.tint} />
+              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>
+                {isWaitlisted
+                  ? 'Enter Lobby is for confirmed guests. If you’re promoted from the waitlist, use Enter Lobby when the event is live.'
+                  : 'When the event goes live, use Enter Lobby from the event page to join.'}
+              </Text>
+            </View>
+          ) : isWaitlisted ? (
+            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
+              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>
+                Waitlist — not a confirmed seat yet. In-person check-in details appear if you’re promoted before the event.
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.extraBlock, { borderColor: theme.border }]}>
+              <Ionicons name="qr-code" size={48} color={theme.textSecondary} />
+              <Text style={[styles.extraText, { color: theme.mutedForeground }]}>Show this ticket at entry</Text>
+            </View>
+          )}
           <Text style={[styles.dismissHint, { color: theme.mutedForeground }]}>Tap outside to close</Text>
         </Pressable>
       </Pressable>
@@ -150,6 +178,19 @@ const styles = StyleSheet.create({
   value: {
     flex: 1,
     ...typography.body,
+  },
+  extraBlock: {
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  extraText: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   dismissHint: {
     ...typography.caption,

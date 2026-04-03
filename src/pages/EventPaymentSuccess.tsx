@@ -37,8 +37,8 @@ const EventPaymentSuccess = () => {
     // Invalidate registration queries so UI updates when user navigates back
     queryClient.invalidateQueries({ queryKey: ["event-registration-check", eventId] });
     queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
-      queryClient.invalidateQueries({ queryKey: ["event-attendees", eventId] });
-      queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", eventId] });
+    queryClient.invalidateQueries({ queryKey: ["event-attendees", eventId] });
+    queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", eventId] });
     queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
   }, [eventId, queryClient]);
 
@@ -65,13 +65,14 @@ const EventPaymentSuccess = () => {
   useEffect(() => {
     if (!eventId || eventRowStatus === null) return;
     if (eventRowStatus === "cancelled") return;
+    if (admissionStatus !== "confirmed") return;
     confetti({
       particleCount: 120,
       spread: 80,
       origin: { y: 0.5 },
       colors: ["#a855f7", "#ec4899", "#06b6d4"],
     });
-  }, [eventId, eventRowStatus]);
+  }, [eventId, eventRowStatus, admissionStatus]);
 
   const isEventCancelled = eventRowStatus === "cancelled";
 

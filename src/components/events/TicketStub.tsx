@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Calendar, Clock, MapPin, Ticket, QrCode, Video } from "lucide-react";
+import type { BookingAdmissionStatus } from "@/components/events/ManageBookingModal";
 
 interface TicketStubProps {
   eventTitle: string;
@@ -9,6 +10,7 @@ interface TicketStubProps {
   venue?: string;
   ticketNumber: string;
   onClose: () => void;
+  admissionStatus?: BookingAdmissionStatus;
 }
 
 const TicketStub = ({ 
@@ -18,8 +20,10 @@ const TicketStub = ({
   isVirtual, 
   venue,
   ticketNumber,
-  onClose 
+  onClose,
+  admissionStatus = "confirmed",
 }: TicketStubProps) => {
+  const isWaitlisted = admissionStatus === "waitlisted";
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -52,7 +56,11 @@ const TicketStub = ({
                 </div>
                 <div>
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    {isVirtual ? "Vibely Registration" : "Vibely Ticket"}
+                    {isWaitlisted
+                      ? "Waitlist spot"
+                      : isVirtual
+                        ? "Vibely Registration"
+                        : "Vibely Ticket"}
                   </span>
                   {!isVirtual && (
                     <p className="text-xs text-muted-foreground">
@@ -113,10 +121,16 @@ const TicketStub = ({
                   <div className="text-center">
                     <p className="text-sm font-semibold text-foreground">Virtual Event</p>
                     <p className="text-xs text-muted-foreground mt-1 max-w-[250px]">
-                      When the event goes live, tap "Enter Lobby" from the home page to join.
+                      {isWaitlisted
+                        ? "Enter Lobby is for confirmed guests. If you’re promoted from the waitlist, use Enter Lobby when the event is live."
+                        : 'When the event goes live, tap "Enter Lobby" from the home page to join.'}
                     </p>
                   </div>
                 </div>
+              ) : isWaitlisted ? (
+                <p className="text-center text-xs text-muted-foreground leading-relaxed pt-4 px-1">
+                  Waitlist — not a confirmed seat yet. In-person check-in details appear if you’re promoted before the event.
+                </p>
               ) : (
                 <>
                   <div className="flex items-center justify-center pt-4">

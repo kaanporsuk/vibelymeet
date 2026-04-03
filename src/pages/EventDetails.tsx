@@ -223,24 +223,39 @@ const EventDetails = () => {
     // but we handle it defensively here anyway.
 
     trackEvent('event_registered', { event_id: event.id, event_title: event.title, is_free: event.isFree });
-    await refetchRegistration();
+    const { data: freshSnap } = await refetchRegistration();
     queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
     queryClient.invalidateQueries({ queryKey: ["event-attendees", id] });
 
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ["#a855f7", "#ec4899", "#06b6d4"],
-    });
+    const nowConfirmed = freshSnap?.isConfirmed ?? false;
+    const nowWaitlisted = (freshSnap?.isWaitlisted ?? false) && !nowConfirmed;
 
-    toast.success("You're on the list! 🎉", {
-      description: event.isVirtual
-        ? "You'll be able to join when the event goes live"
-        : "Check your email for confirmation",
-    });
+    if (nowWaitlisted) {
+      toast.success("You're on the waitlist", {
+        description:
+          "The event was full when you joined — we'll confirm you if a spot opens. Check the event page for your status.",
+      });
+    } else if (nowConfirmed) {
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ["#a855f7", "#ec4899", "#06b6d4"],
+      });
+      toast.success("You're on the list! 🎉", {
+        description: event.isVirtual
+          ? "You'll be able to join when the event goes live"
+          : "Check your email for confirmation",
+      });
+    } else {
+      toast.success("Registration received", {
+        description: "Open the event page if your ticket or status doesn’t update right away.",
+      });
+    }
 
-    setTimeout(() => setShowTicket(true), 800);
+    if (nowConfirmed || nowWaitlisted) {
+      setTimeout(() => setShowTicket(true), 800);
+    }
   };
 
   const handlePurchasePress = async () => {
@@ -279,19 +294,32 @@ const EventDetails = () => {
   };
 
   const handleCancelConfirm = async () => {
+    const wasConfirmed = isConfirmed;
+    const wasWaitlisted = isWaitlisted;
     const success = await unregisterFromEvent(event.id);
-    
+
     if (success) {
       await refetchRegistration();
       queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
       queryClient.invalidateQueries({ queryKey: ["event-attendee-preview", id] });
-      
+
       setShowCancelModal(false);
       setShowManageBooking(false);
-      
-      toast.success("Spot cancelled", {
-        description: "Your spot has been released to the waitlist",
-      });
+
+      if (wasWaitlisted) {
+        toast.success("Left the waitlist", {
+          description: "You’re no longer on the waitlist for this event.",
+        });
+      } else if (wasConfirmed) {
+        toast.success("Spot released", {
+          description:
+            "Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules.",
+        });
+      } else {
+        toast.success("Booking updated", {
+          description: "Your registration for this event has been removed.",
+        });
+      }
     } else {
       toast.error("Failed to cancel. Please try again.");
     }
@@ -647,6 +675,7 @@ const EventDetails = () => {
         venue={event.venue}
         ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
         price={userPrice}
+        admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
       />
 
       <CancelBookingModal
@@ -654,6 +683,7 @@ const EventDetails = () => {
         onClose={() => setShowCancelModal(false)}
         onConfirm={handleCancelConfirm}
         eventTitle={event.title}
+        admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
       />
 
       {/* Ticket Stub */}
@@ -667,6 +697,7 @@ const EventDetails = () => {
             venue={event.venue}
             ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
             onClose={() => setShowTicket(false)}
+            admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
           />
         )}
       </AnimatePresence>
