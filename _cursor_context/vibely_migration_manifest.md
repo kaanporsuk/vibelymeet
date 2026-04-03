@@ -521,8 +521,9 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 - **Migrations:**
   - `supabase/migrations/20260407120000_paid_waitlist_promotion.sql` — `event_registrations.waitlisted_at`, `promoted_at`; `waitlist_promotion_notify_queue`; `on_registration_change` extended to **`UPDATE OF admission_status`** (so waitlist→confirmed updates `current_attendees`); `promote_waitlist_for_event_worker` / `promote_waitlist_for_event`; `cancel_event_registration`; `admin_remove_event_registration`; delete + `max_attendees` triggers calling the worker; `settle_event_ticket_checkout` sets `waitlisted_at` / enqueue notify on paid waitlist paths
-  - `supabase/migrations/20260407121000_schedule_waitlist_promotion_notify_cron.sql` — optional `pg_cron` → `process-waitlist-promotion-notify-queue` (requires `app.supabase_url` + `app.cron_secret`)
-- **Edge:** `supabase/functions/process-waitlist-promotion-notify-queue` — drains notify queue with `CRON_SECRET`, invokes `send-notification` with category `event_waitlist_promoted` (maps to `notify_event_reminder`)
+  - `supabase/migrations/20260407121000_schedule_waitlist_promotion_notify_cron.sql` — historical: first cron schedule for this job via DB GUCs `app.supabase_url` + `app.cron_secret` (often not settable on hosted Supabase); **superseded for this job** by the Vault-backed migration below (job name unchanged: unschedule + reschedule replaces command body)
+  - `supabase/migrations/20260408120000_waitlist_promotion_cron_vault.sql` — **`waitlist-promotion-notify-queue`** `pg_cron` job reads **`vault.decrypted_secrets`** rows named **`project_url`** and **`cron_secret`** (must match Edge `CRON_SECRET`); POSTs to `/functions/v1/process-waitlist-promotion-notify-queue`
+- **Edge:** `supabase/functions/process-waitlist-promotion-notify-queue` — drains notify queue with Bearer token (cron: Vault `cron_secret`; Edge runtime: secret `CRON_SECRET`), invokes `send-notification` with category `event_waitlist_promoted` (maps to `notify_event_reminder`)
 
 ---
 
