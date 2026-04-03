@@ -85,7 +85,7 @@ const EventPaymentSuccess = () => {
         : "Payment received";
 
   const subline = isEventCancelled
-    ? "Your payment may still show here while things sync — open the event page for the latest status and booking options."
+    ? "Your payment may still show here while things sync — open the event page for the latest status. Refund exceptions are handled manually by support."
     : admissionStatus === "waitlisted"
       ? "The event was full when your payment settled — we'll confirm you if a spot opens."
       : admissionStatus === "confirmed"

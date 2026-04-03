@@ -129,6 +129,9 @@ export function ManageBookingModal({
               <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>{price <= 0 ? 'Price' : 'Amount paid'}</Text>
               <Text style={[styles.priceValue, { color: theme.text }]}>{price <= 0 ? 'Free' : `€${price.toFixed(2)}`}</Text>
             </View>
+            {price > 0 ? (
+              <Text style={[styles.refundHint, { color: theme.textSecondary }]}>Refund exceptions are reviewed manually by support and are not automatic in-app.</Text>
+            ) : null}
             <VibelyButton label="Share Event" onPress={handleShare} variant="secondary" style={styles.shareBtn} />
             <Pressable onPress={onCancel} style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}>
               <Text style={[styles.cancelText, { color: theme.danger }]}>{releaseCta}</Text>
@@ -172,6 +175,7 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, borderRadius: radius.lg },
   priceLabel: { fontSize: 14 },
   priceValue: { fontSize: 18, fontWeight: '700' },
+  refundHint: { fontSize: 12, textAlign: 'center', marginTop: -8 },
   shareBtn: {},
   cancelBtn: { paddingVertical: spacing.md, alignItems: 'center' },
   cancelText: { fontSize: 14, fontWeight: '500' },

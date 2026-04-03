@@ -169,6 +169,11 @@ const ManageBookingModal = ({
                   {price <= 0 ? "Free" : `€${price.toFixed(2)}`}
                 </span>
               </div>
+              {price > 0 ? (
+                <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                  Refund exceptions are reviewed manually by support and are not processed automatically in the app.
+                </p>
+              ) : null}
 
               {/* Actions */}
               <div className="space-y-3">

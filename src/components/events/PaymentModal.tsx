@@ -160,7 +160,8 @@ const PaymentModal = ({
                   <span className="text-sm text-muted-foreground leading-relaxed">
                     I understand that this ticket secures my spot and is{" "}
                     <span className="text-destructive font-medium">non-refundable</span>.
-                    Cancellation will forfeit the ticket and release my spot to the waitlist.
+                    Cancellation will forfeit the ticket and release my spot to the waitlist. Refund exceptions are
+                    reviewed manually by support and are not automatic in-app.
                   </span>
                 </label>
               </div>
