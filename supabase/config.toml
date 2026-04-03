@@ -123,3 +123,6 @@ verify_jwt = false
 
 [functions.send-support-reply]
 verify_jwt = true
+
+[functions.admin-proof-selfie-sign]
+verify_jwt = true
