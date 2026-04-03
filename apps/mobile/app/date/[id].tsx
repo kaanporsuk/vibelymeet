@@ -97,6 +97,14 @@ function getTrack(
   kind: 'video' | 'audio'
 ): import('@daily-co/react-native-webrtc').MediaStreamTrack | null {
   if (!participant) return null;
+  const trackInfo = participant.tracks?.[kind];
+  // Do not feed DailyMediaView a "video off" track — persistentTrack can still show a stale last frame.
+  if (
+    trackInfo &&
+    (trackInfo.state === 'off' || trackInfo.state === 'blocked')
+  ) {
+    return null;
+  }
   const p = participant as unknown as {
     tracks?: { video?: { persistentTrack?: unknown }; audio?: { persistentTrack?: unknown } };
     videoTrack?: unknown;
@@ -108,6 +116,17 @@ function getTrack(
   }
   const dep = kind === 'video' ? p.videoTrack : p.audioTrack;
   return dep === false || dep === undefined ? null : (dep as import('@daily-co/react-native-webrtc').MediaStreamTrack);
+}
+
+/** Sync UI toggles from Daily participant track state (source of truth after join / reconnect). */
+function applyLocalMediaUiFromParticipant(p: DailyParticipant, setters: {
+  setIsVideoOff: (v: boolean) => void;
+  setIsMuted: (v: boolean) => void;
+}) {
+  const vState = p.tracks?.video?.state;
+  const aState = p.tracks?.audio?.state;
+  if (vState !== undefined) setters.setIsVideoOff(vState === 'off');
+  if (aState !== undefined) setters.setIsMuted(aState === 'off');
 }
 
 function resolveAvatar(path: string | null): string {
@@ -231,6 +250,22 @@ export default function VideoDateScreen() {
     }, [refreshCredits])
   );
 
+  /** After background/foreground or navigation, re-read Daily participant state so toggles match the call. */
+  useFocusEffect(
+    useCallback(() => {
+      const call = callRef.current;
+      if (!call || !isConnected) return;
+      const participants = call.participants();
+      const local = participants?.local;
+      if (local) {
+        setLocalParticipant(local);
+        applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
+      }
+      const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
+      if (remotes[0]) setRemoteParticipant(remotes[0] as DailyParticipant);
+    }, [isConnected])
+  );
+
   useEffect(() => {
     if (!sessionId || !isConnected || phase !== 'handshake') return;
     if (handshakeAnalyticsRef.current) return;
@@ -313,6 +348,8 @@ export default function VideoDateScreen() {
     setRemoteParticipant(null);
     setIsConnected(false);
     setIsConnecting(false);
+    setIsMuted(false);
+    setIsVideoOff(false);
   }, [sessionId, eventId, user?.id]);
 
   const handleCallEnd = useCallback(async () => {
@@ -487,8 +524,12 @@ export default function VideoDateScreen() {
       call.on('participant-updated', (event: { participant?: DailyParticipant }) => {
         if (!event?.participant) return;
         const p = event.participant;
-        if ((p as unknown as { local?: boolean }).local) setLocalParticipant(p);
-        else setRemoteParticipant(p);
+        if ((p as unknown as { local?: boolean }).local) {
+          setLocalParticipant(p);
+          applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
+        } else {
+          setRemoteParticipant(p);
+        }
       });
       call.on('participant-left', (event: { participant?: DailyParticipant }) => {
         if (event?.participant && !(event.participant as unknown as { local?: boolean }).local) {
@@ -525,7 +566,10 @@ export default function VideoDateScreen() {
         if (cancelled) return;
         const participants = call.participants();
         const local = participants?.local;
-        if (local) setLocalParticipant(local);
+        if (local) {
+          setLocalParticipant(local);
+          applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
+        }
         const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
         if (remotes.length > 0) {
           setIsConnected(true);
@@ -600,15 +644,18 @@ export default function VideoDateScreen() {
   const toggleMute = useCallback(() => {
     const call = callRef.current;
     if (!call) return;
-    call.setLocalAudio(!isMuted);
-    setIsMuted(!isMuted);
+    const nextMuted = !isMuted;
+    // Daily: setLocalAudio(true) = mic on, false = mic off (same semantics as web useVideoCall / useMatchCall).
+    call.setLocalAudio(!nextMuted);
+    setIsMuted(nextMuted);
   }, [isMuted]);
 
   const toggleVideo = useCallback(() => {
     const call = callRef.current;
     if (!call) return;
-    call.setLocalVideo(!isVideoOff);
-    setIsVideoOff(!isVideoOff);
+    const nextVideoOff = !isVideoOff;
+    call.setLocalVideo(!nextVideoOff);
+    setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
 
   const totalTime = phase === 'handshake' ? HANDSHAKE_SECONDS : DATE_SECONDS;
@@ -684,6 +731,10 @@ export default function VideoDateScreen() {
 
   const partnerName = fullPartner?.name ?? basicPartner?.name ?? 'Your date';
 
+  const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
+  const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
+  const localVideoTrack = localParticipant ? getTrack(localParticipant, 'video') : null;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <LiveSurfaceOfflineStrip />
@@ -691,12 +742,19 @@ export default function VideoDateScreen() {
         {remoteParticipant ? (
           <>
             <DailyMediaView
-              videoTrack={getTrack(remoteParticipant, 'video')}
-              audioTrack={getTrack(remoteParticipant, 'audio')}
+              videoTrack={remoteVideoTrack}
+              audioTrack={remoteAudioTrack}
               mirror={false}
               zOrder={0}
               style={StyleSheet.absoluteFill}
             />
+            {!remoteVideoTrack && (
+              <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
+                <Text style={[styles.placeholderText, { color: theme.mutedForeground }]}>
+                  {partnerName} — camera off
+                </Text>
+              </View>
+            )}
             {phase === 'handshake' && blurIntensity > 0 && (
               <BlurView intensity={blurIntensity} style={StyleSheet.absoluteFill} tint="dark" />
             )}
@@ -711,9 +769,9 @@ export default function VideoDateScreen() {
       </View>
 
       <View style={[styles.localPip, { borderColor: theme.tint }]}>
-        {localParticipant ? (
+        {localParticipant && localVideoTrack ? (
           <DailyMediaView
-            videoTrack={getTrack(localParticipant, 'video')}
+            videoTrack={localVideoTrack}
             audioTrack={null}
             mirror={true}
             zOrder={1}
@@ -721,7 +779,9 @@ export default function VideoDateScreen() {
           />
         ) : (
           <View style={[styles.localVideo, styles.placeholderLocal, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.placeholderTextSmall, { color: theme.mutedForeground }]}>You</Text>
+            <Text style={[styles.placeholderTextSmall, { color: theme.mutedForeground }]}>
+              {localParticipant ? 'Camera off' : 'You'}
+            </Text>
           </View>
         )}
         {isMuted && (
