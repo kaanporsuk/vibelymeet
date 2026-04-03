@@ -372,12 +372,12 @@ The function exists in source but is not represented in `supabase/config.toml`.
 
 ### `process-waitlist-promotion-notify-queue` (2026-04)
 - **Purpose:** drains `waitlist_promotion_notify_queue` in batches and invokes `send-notification` with category `event_waitlist_promoted` for users promoted from paid waitlist to confirmed
-- **Auth posture:** Class B — `verify_jwt = false`; requires `Authorization: Bearer` matching Edge secret `CRON_SECRET` (same pattern as `credit-replenish`)
+- **Auth posture:** Class B — `verify_jwt = false`; requires `Authorization: Bearer` matching Edge secret **`CRON_SECRET`** (function runtime) and the **same string** stored in Vault as **`cron_secret`** when invoked by `pg_cron` (migration `20260408120000_waitlist_promotion_cron_vault.sql`; base URL from Vault **`project_url`** — **not** DB GUC `app.*`)
 - **Frontend call sites:** none (pg_cron / operator HTTP only)
-- **Primary tables touched:** `waitlist_promotion_notify_queue`, `events` (title lookup)
+- **Primary tables touched:** `waitlist_promotion_notify_queue`, `events` (title lookup); cron path reads **`vault.decrypted_secrets`**
 - **External services:** OneSignal (via `send-notification`)
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`
-- **Rebuild notes:** optional until migrations + cron URL/secret are configured; queue rows remain pending until this function runs
+- **Rebuild notes:** ensure Vault secrets **`project_url`** and **`cron_secret`** exist before expecting the minutely job to succeed; queue rows remain pending until this function runs successfully
 
 ### `daily-drop-actions` (Stream 2C)
 - **Purpose:** wraps `daily_drop_transition` for opener/reply flows and couples them with server-owned push notifications
