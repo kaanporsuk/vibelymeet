@@ -9,7 +9,7 @@ COMMENT ON COLUMN public.video_sessions.queued_expires_at IS
 
 -- Backfill queued TTL for existing queued rows that predate this column.
 UPDATE public.video_sessions
-SET queued_expires_at = COALESCE(queued_expires_at, created_at + interval '10 minutes')
+SET queued_expires_at = COALESCE(queued_expires_at, COALESCE(started_at, now()) + interval '10 minutes')
 WHERE ready_gate_status = 'queued'
   AND ended_at IS NULL;
 
@@ -280,7 +280,7 @@ BEGIN
     FROM public.video_sessions
     WHERE ended_at IS NULL
       AND ready_gate_status = 'queued'
-      AND COALESCE(queued_expires_at, created_at + interval '10 minutes') <= v_now
+      AND COALESCE(queued_expires_at, COALESCE(started_at, v_now) + interval '10 minutes') <= v_now
     ORDER BY id
     FOR UPDATE SKIP LOCKED
   LOOP
@@ -428,9 +428,9 @@ BEGIN
   WHERE event_id = p_event_id
     AND ready_gate_status = 'queued'
     AND ended_at IS NULL
-    AND COALESCE(queued_expires_at, created_at + interval '10 minutes') > now()
+    AND COALESCE(queued_expires_at, COALESCE(started_at, now()) + interval '10 minutes') > now()
     AND ((participant_1_id = v_uid) OR (participant_2_id = v_uid))
-  ORDER BY created_at ASC
+  ORDER BY started_at ASC
   LIMIT 1
   FOR UPDATE SKIP LOCKED;
 
