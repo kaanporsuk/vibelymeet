@@ -19,6 +19,16 @@ export type VideoDateSession = {
   date_started_at: string | null;
   daily_room_name: string | null;
   daily_room_url: string | null;
+  reconnect_grace_ends_at?: string | null;
+  participant_1_away_at?: string | null;
+  participant_2_away_at?: string | null;
+};
+
+export type SyncReconnectPayload = {
+  reconnect_grace_ends_at: string | null;
+  ended: boolean;
+  ended_reason: string | null;
+  partner_marked_away: boolean;
 };
 
 export type VideoDatePartner = {
@@ -277,6 +287,41 @@ export async function enterHandshake(sessionId: string): Promise<EnterHandshakeR
   }
 
   return { ok: true };
+}
+
+/** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */
+export async function syncVideoDateReconnect(sessionId: string): Promise<SyncReconnectPayload | null> {
+  const { data, error } = await supabase.rpc('video_date_transition', {
+    p_session_id: sessionId,
+    p_action: 'sync_reconnect',
+  });
+  if (error) return null;
+  const p = data as {
+    reconnect_grace_ends_at?: string | null;
+    ended?: boolean;
+    ended_reason?: string | null;
+    partner_marked_away?: boolean;
+  } | null;
+  return {
+    reconnect_grace_ends_at: p?.reconnect_grace_ends_at ?? null,
+    ended: p?.ended === true,
+    ended_reason: p?.ended_reason ?? null,
+    partner_marked_away: p?.partner_marked_away === true,
+  };
+}
+
+export async function markReconnectPartnerAway(sessionId: string): Promise<void> {
+  await supabase.rpc('video_date_transition', {
+    p_session_id: sessionId,
+    p_action: 'mark_reconnect_partner_away',
+  });
+}
+
+export async function markReconnectReturn(sessionId: string): Promise<void> {
+  await supabase.rpc('video_date_transition', {
+    p_session_id: sessionId,
+    p_action: 'mark_reconnect_return',
+  });
 }
 
 /** Server-owned: end the date. Idempotent. */

@@ -107,8 +107,8 @@ const VideoDate = () => {
 
   const reconnection = useReconnection({
     sessionId: id,
-    eventId,
     isConnected,
+    phase,
     onReconnected: () => {
       toast("They're back! 💚", { duration: 2000 });
     },
@@ -393,19 +393,7 @@ const VideoDate = () => {
           body: JSON.stringify({ p_session_id: id, p_action: "end", p_reason: "beforeunload" }),
           keepalive: true,
         }).catch(() => {});
-
-        if (eventId) {
-          fetch(`${baseUrl}/rest/v1/rpc/update_participant_status`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-              apikey: SUPABASE_PUBLISHABLE_KEY,
-            },
-            body: JSON.stringify({ p_event_id: eventId, p_status: "offline" }),
-            keepalive: true,
-          }).catch(() => {});
-        }
+        // video_date_transition(end, beforeunload) sets queue_status = offline on server
       }
 
       // Best-effort Daily room cleanup (requires JWT when daily-room has verify_jwt = true)
@@ -458,7 +446,6 @@ const VideoDate = () => {
 
       if ((result as any)?.state === "date") {
         setShowMutualToast(true);
-        setStatus("in_date");
       } else {
         toast("Great meeting you! 👋", { duration: 2500 });
         endCall();
@@ -505,9 +492,7 @@ const VideoDate = () => {
     });
     setPhase("ended");
     setShowFeedback(true);
-    setStatus("in_survey");
 
-    // Server-owned end (idempotent)
     if (id) {
       try {
         await supabase.rpc("video_date_transition", {
@@ -517,6 +502,7 @@ const VideoDate = () => {
         });
       } catch {}
     }
+    setStatus("in_survey");
   }, [id, setStatus, phase, timeLeft]);
 
   const handleLeave = useCallback(async () => {

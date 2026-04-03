@@ -33,6 +33,9 @@ import {
   deleteDailyRoom,
   recordVibe,
   completeHandshake,
+  syncVideoDateReconnect,
+  markReconnectPartnerAway,
+  markReconnectReturn,
   updateParticipantStatus,
   fetchPartnerProfile,
   getOrSeedVibeQuestions,
@@ -158,7 +161,7 @@ export default function VideoDateScreen() {
   const [blurIntensity, setBlurIntensity] = useState(80);
   const [credits, setCredits] = useState({ extraTime: 0, extendedVibe: 0 });
   const [isExtending, setIsExtending] = useState(false);
-  const [reconnectionGrace, setReconnectionGrace] = useState(60);
+  const [reconnectionGrace, setReconnectionGrace] = useState(0);
   const [isPartnerDisconnected, setIsPartnerDisconnected] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
 
@@ -166,8 +169,10 @@ export default function VideoDateScreen() {
   const roomNameRef = useRef<string | null>(null);
   const hasStartedJoinRef = useRef(false);
   const phaseRef = useRef(phase);
-  const reconnectionTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wasConnectedRef = useRef(false);
+  const hadConnectedOnceRef = useRef(false);
+  const prevIsConnectedRef = useRef(false);
+  const graceExpiredFiredRef = useRef(false);
+  const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
 
@@ -273,56 +278,11 @@ export default function VideoDateScreen() {
     trackEvent('video_date_started', { session_id: sessionId, phase: 'handshake' });
   }, [sessionId, isConnected, phase]);
 
-  useEffect(() => {
-    if (eventId && user?.id) {
-      if (phase === 'handshake') updateParticipantStatus(eventId, 'in_handshake');
-      if (phase === 'date') updateParticipantStatus(eventId, 'in_date');
-    }
-  }, [eventId, user?.id, phase]);
-
-  useEffect(() => {
-    if (showFeedback && eventId && user?.id) {
-      updateParticipantStatus(eventId, 'in_survey');
-    }
-  }, [showFeedback, eventId, user?.id]);
-
-  const startReconnectionGrace = useCallback(() => {
-    if (!wasConnectedRef.current) return;
+  const onPartnerLeftReconnect = useCallback(() => {
+    if (!hadConnectedOnceRef.current || !sessionId || phase === 'ended') return;
     setIsPartnerDisconnected(true);
-    setIsTimerPaused(true);
-    setReconnectionGrace(60);
-    if (reconnectionTimerRef.current) clearInterval(reconnectionTimerRef.current);
-    reconnectionTimerRef.current = setInterval(() => {
-      setReconnectionGrace((prev) => {
-        if (prev <= 1) {
-          if (reconnectionTimerRef.current) clearInterval(reconnectionTimerRef.current);
-          reconnectionTimerRef.current = null;
-          handleCallEnd();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
-
-  useEffect(() => {
-    if (isConnected && wasConnectedRef.current && isPartnerDisconnected) {
-      setIsPartnerDisconnected(false);
-      setIsTimerPaused(false);
-      setReconnectionGrace(60);
-      if (reconnectionTimerRef.current) {
-        clearInterval(reconnectionTimerRef.current);
-        reconnectionTimerRef.current = null;
-      }
-    }
-    if (isConnected) wasConnectedRef.current = true;
-  }, [isConnected, isPartnerDisconnected]);
-
-  useEffect(() => {
-    return () => {
-      if (reconnectionTimerRef.current) clearInterval(reconnectionTimerRef.current);
-    };
-  }, []);
+    void markReconnectPartnerAway(sessionId);
+  }, [sessionId, phase]);
 
   const leaveAndCleanup = useCallback(async () => {
     const call = callRef.current;
@@ -359,9 +319,62 @@ export default function VideoDateScreen() {
     }
     Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (user)', level: 'info', data: { sessionId } });
     setShowFeedback(true);
-    if (eventId && user?.id) updateParticipantStatus(eventId, 'in_survey');
     await leaveAndCleanup();
   }, [leaveAndCleanup, eventId, user?.id, sessionId]);
+
+  useEffect(() => {
+    handleCallEndRef.current = handleCallEnd;
+  }, [handleCallEnd]);
+
+  useEffect(() => {
+    if (!sessionId || phase === 'ended') return;
+    let cancelled = false;
+    const tick = async () => {
+      const r = await syncVideoDateReconnect(sessionId);
+      if (cancelled || !r) return;
+      if (r.ended) {
+        if (r.ended_reason === 'reconnect_grace_expired' && !graceExpiredFiredRef.current) {
+          graceExpiredFiredRef.current = true;
+          void handleCallEndRef.current?.();
+        }
+        setIsPartnerDisconnected(false);
+        setIsTimerPaused(false);
+        setReconnectionGrace(0);
+        return;
+      }
+      graceExpiredFiredRef.current = false;
+      const hasGrace = !!r.reconnect_grace_ends_at;
+      const show = hasGrace && r.partner_marked_away;
+      setIsPartnerDisconnected(show);
+      setIsTimerPaused(show);
+      if (hasGrace && r.reconnect_grace_ends_at) {
+        setReconnectionGrace(
+          Math.max(0, Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000)),
+        );
+      } else {
+        setReconnectionGrace(0);
+      }
+    };
+    void tick();
+    const iv = setInterval(() => void tick(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [sessionId, phase]);
+
+  useEffect(() => {
+    const prev = prevIsConnectedRef.current;
+    prevIsConnectedRef.current = isConnected;
+    if (!isConnected) return;
+    if (!hadConnectedOnceRef.current) {
+      hadConnectedOnceRef.current = true;
+      return;
+    }
+    if (!prev && sessionId && phase !== 'ended') {
+      void markReconnectReturn(sessionId);
+    }
+  }, [isConnected, sessionId, phase]);
 
   const handleLeave = useCallback(async () => {
     await leaveAndCleanup();
@@ -378,8 +391,7 @@ export default function VideoDateScreen() {
   const handleMutualToastComplete = useCallback(() => {
     setShowMutualToast(false);
     setLocalTimeLeft(DATE_SECONDS);
-    if (eventId && user?.id) updateParticipantStatus(eventId, 'in_date');
-  }, [eventId, user?.id]);
+  }, []);
 
   const handleExtend = useCallback(
     async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<boolean> => {
@@ -505,9 +517,6 @@ export default function VideoDateScreen() {
           return;
         }
       }
-      if (eventId && user?.id) {
-        void updateParticipantStatus(eventId, 'in_handshake');
-      }
       const call = Daily.createCallObject();
       callRef.current = call;
       roomNameRef.current = tokenResult.room_name;
@@ -536,7 +545,7 @@ export default function VideoDateScreen() {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
           setIsConnected(false);
           setRemoteParticipant(null);
-          startReconnectionGrace();
+          onPartnerLeftReconnect();
         }
       });
       call.on('left-meeting', () => {
@@ -603,7 +612,7 @@ export default function VideoDateScreen() {
     sessionError,
     phase,
     requestPermissions,
-    startReconnectionGrace,
+    onPartnerLeftReconnect,
   ]);
 
   useEffect(() => {

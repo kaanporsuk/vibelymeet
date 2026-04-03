@@ -45,7 +45,7 @@ const ReadyGate = () => {
 
   const handleBothReady = useCallback(() => {
     setIsTransitioning(true);
-    setStatus("in_handshake");
+    // queue_status stays in_ready_gate until VideoDate succeeds at enter_handshake (server sets in_handshake)
     toast.success("Both ready! Connecting... 💚", { duration: 1500 });
     setTimeout(() => {
       navigate(`/date/${id}`);
