@@ -32,6 +32,10 @@ function getTrack(
   kind: 'video' | 'audio'
 ): import('@daily-co/react-native-webrtc').MediaStreamTrack | null {
   if (!participant) return null;
+  const trackInfo = participant.tracks?.[kind];
+  if (trackInfo && (trackInfo.state === 'off' || trackInfo.state === 'blocked')) {
+    return null;
+  }
   const p = participant as unknown as {
     tracks?: { video?: { persistentTrack?: unknown }; audio?: { persistentTrack?: unknown } };
     videoTrack?: unknown;
@@ -43,6 +47,17 @@ function getTrack(
   }
   const dep = kind === 'video' ? p.videoTrack : p.audioTrack;
   return dep === false || dep === undefined ? null : (dep as import('@daily-co/react-native-webrtc').MediaStreamTrack);
+}
+
+function applyLocalMediaUiFromParticipant(
+  p: DailyParticipant,
+  setIsVideoOff: (v: boolean) => void,
+  setIsMuted: (v: boolean) => void
+) {
+  const vState = p.tracks?.video?.state;
+  const aState = p.tracks?.audio?.state;
+  if (vState !== undefined) setIsVideoOff(vState === 'off');
+  if (aState !== undefined) setIsMuted(aState === 'off');
 }
 
 export function useMatchCall({ matchId, currentUserId, onCallEnded }: UseMatchCallOptions) {
@@ -109,6 +124,8 @@ export function useMatchCall({ matchId, currentUserId, onCallEnded }: UseMatchCa
     setLocalParticipant(null);
     setRemoteParticipant(null);
     setIncomingCall(null);
+    setIsMuted(false);
+    setIsVideoOff(false);
     onCallEnded?.();
   }, [stopDurationTimer, callDuration, onCallEnded]);
 
@@ -168,7 +185,10 @@ export function useMatchCall({ matchId, currentUserId, onCallEnded }: UseMatchCa
         await co.join({ url: result.room_url, token: result.token });
         const participants = co.participants();
         const local = participants?.local;
-        if (local) setLocalParticipant(local);
+        if (local) {
+          setLocalParticipant(local);
+          applyLocalMediaUiFromParticipant(local, setIsVideoOff, setIsMuted);
+        }
 
         // Auto-miss after 30s if no one joined
         setTimeout(() => {
@@ -214,7 +234,10 @@ export function useMatchCall({ matchId, currentUserId, onCallEnded }: UseMatchCa
 
       await co.join({ url: result.room_url, token: result.token });
       const local = co.participants()?.local;
-      if (local) setLocalParticipant(local);
+      if (local) {
+        setLocalParticipant(local);
+        applyLocalMediaUiFromParticipant(local, setIsVideoOff, setIsMuted);
+      }
 
       await updateMatchCallStatus(incomingCall.callId, 'active', {
         started_at: new Date().toISOString(),
@@ -238,16 +261,18 @@ export function useMatchCall({ matchId, currentUserId, onCallEnded }: UseMatchCa
   const toggleMute = useCallback(() => {
     const co = callObjectRef.current;
     if (co) {
-      co.setLocalAudio(!isMuted); // false = muted
-      setIsMuted(!isMuted);
+      const nextMuted = !isMuted;
+      co.setLocalAudio(!nextMuted);
+      setIsMuted(nextMuted);
     }
   }, [isMuted]);
 
   const toggleVideo = useCallback(() => {
     const co = callObjectRef.current;
     if (co) {
-      co.setLocalVideo(!isVideoOff); // false = video off
-      setIsVideoOff(!isVideoOff);
+      const nextVideoOff = !isVideoOff;
+      co.setLocalVideo(!nextVideoOff);
+      setIsVideoOff(nextVideoOff);
     }
   }, [isVideoOff]);
 
