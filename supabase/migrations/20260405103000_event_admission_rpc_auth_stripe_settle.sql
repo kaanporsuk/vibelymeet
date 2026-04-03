@@ -133,7 +133,8 @@ BEGIN
   WHERE e.id = p_event_id
     AND e.archived_at IS NULL
     AND e.status IS NOT NULL
-    AND e.status NOT IN ('draft', 'cancelled', 'ended');
+    AND e.status NOT IN ('draft', 'cancelled', 'ended')
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('success', false, 'error', 'Event not found or not open for registration');
