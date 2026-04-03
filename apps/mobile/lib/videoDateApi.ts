@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 
 export type VideoDateSession = {
@@ -483,11 +484,41 @@ export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[
   return (updated?.vibe_questions as string[]) ?? shuffled;
 }
 
-export type PostDateVerdictResult = {
-  mutual: boolean;
+/** Discriminated outcome for `post-date-verdict` (explicit backend failure vs network vs success paths). */
+export type SubmitVerdictAndCheckMutualResult =
+  | {
+      ok: true;
+      mutual: boolean;
+      match_id?: string;
+      persistent_match_created?: boolean | null;
+      already_matched?: boolean;
+    }
+  | { ok: false; reason: 'backend'; code: string; message?: string }
+  | { ok: false; reason: 'network' }
+  | { ok: false; reason: 'unknown' };
+
+type PostDateVerdictResponseBody = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  mutual?: boolean;
   match_id?: string;
   persistent_match_created?: boolean | null;
+  already_matched?: boolean;
+  verdict_recorded?: boolean;
 };
+
+function verdictBreadcrumb(
+  message: 'verdict_backend_rejected' | 'verdict_invoke_failed',
+  data: Record<string, string | number | boolean | undefined>
+) {
+  Sentry.addBreadcrumb({
+    category: 'post-date-verdict',
+    message,
+    level: message === 'verdict_backend_rejected' ? 'warning' : 'error',
+    data,
+  });
+}
 
 /**
  * Post-date survey screen 1: single backend path (`post-date-verdict` Edge → `submit_post_date_verdict` RPC).
@@ -498,18 +529,72 @@ export async function submitVerdictAndCheckMutual(
   _userId: string,
   _partnerId: string,
   liked: boolean
-): Promise<PostDateVerdictResult | null> {
-  const { data, error } = await supabase.functions.invoke('post-date-verdict', {
+): Promise<SubmitVerdictAndCheckMutualResult> {
+  const { data, error, response } = await supabase.functions.invoke<PostDateVerdictResponseBody>('post-date-verdict', {
     body: { session_id: sessionId, liked },
   });
-  if (error) return null;
-  const row = data as { success?: boolean; mutual?: boolean; match_id?: string; persistent_match_created?: boolean | null } | null;
-  if (row && row.success === false) return null;
-  const mutual = row?.mutual === true;
+
+  if (error) {
+    const errName = error instanceof Error ? error.name : 'unknown';
+
+    if (errName === 'FunctionsFetchError' || errName === 'FunctionsRelayError') {
+      verdictBreadcrumb('verdict_invoke_failed', { errName });
+      return { ok: false, reason: 'network' };
+    }
+
+    if (response && typeof (response as Response).clone === 'function') {
+      const res = response as Response;
+      const status = res.status;
+      let body: PostDateVerdictResponseBody | null = null;
+      try {
+        body = await res.clone().json();
+      } catch {
+        /* non-JSON */
+      }
+      if (body?.success === false && body.error) {
+        verdictBreadcrumb('verdict_backend_rejected', { code: body.error });
+        return { ok: false, reason: 'backend', code: body.error, message: body.message };
+      }
+      if (status === 401 || body?.error === 'Unauthorized') {
+        verdictBreadcrumb('verdict_backend_rejected', { code: 'unauthorized' });
+        return { ok: false, reason: 'backend', code: 'unauthorized' };
+      }
+      verdictBreadcrumb('verdict_invoke_failed', { errName, httpStatus: status });
+      return { ok: false, reason: 'unknown' };
+    }
+
+    verdictBreadcrumb('verdict_invoke_failed', { errName });
+    return { ok: false, reason: 'unknown' };
+  }
+
+  const row = data as PostDateVerdictResponseBody | null;
+  if (!row || typeof row !== 'object') {
+    verdictBreadcrumb('verdict_invoke_failed', { detail: 'missing_body' });
+    return { ok: false, reason: 'unknown' };
+  }
+
+  if (row.success === false) {
+    verdictBreadcrumb('verdict_backend_rejected', { code: row.error ?? 'unknown' });
+    return {
+      ok: false,
+      reason: 'backend',
+      code: row.error ?? 'unknown',
+      message: row.message,
+    };
+  }
+
+  if (row.error === 'Unauthorized') {
+    verdictBreadcrumb('verdict_backend_rejected', { code: 'unauthorized' });
+    return { ok: false, reason: 'backend', code: 'unauthorized' };
+  }
+
+  const mutual = row.mutual === true;
   return {
+    ok: true,
     mutual,
-    match_id: typeof row?.match_id === 'string' ? row.match_id : undefined,
-    persistent_match_created: row?.persistent_match_created,
+    match_id: typeof row.match_id === 'string' ? row.match_id : undefined,
+    persistent_match_created: row.persistent_match_created,
+    already_matched: typeof row.already_matched === 'boolean' ? row.already_matched : undefined,
   };
 }
 
