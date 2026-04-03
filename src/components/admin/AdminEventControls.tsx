@@ -35,13 +35,13 @@ const AdminEventControls = ({
 
     if (registrations) {
       await Promise.allSettled(
-        registrations.map((r) =>
+        registrations.filter((r) => Boolean(r.profile_id)).map((r) =>
           sendNotification({
             user_id: r.profile_id,
             category,
             title,
             body,
-            data: { url: `/event/${eventId}/lobby`, event_id: eventId },
+            data: { url: `/event/${eventId}/lobby`, event_id: eventId, admission_status: "confirmed" },
           })
         )
       );
@@ -50,22 +50,30 @@ const AdminEventControls = ({
   };
 
   /** Confirmed + waitlisted (everyone on the guest list except canceled/other statuses). */
-  const notifyRegistrantsConfirmedAndWaitlist = async (category: string, title: string, body: string) => {
+  const notifyRegistrantsConfirmedAndWaitlist = async (
+    category: string,
+    title: string,
+    confirmedBody: string,
+    waitlistedBody: string
+  ) => {
     const { data: registrations } = await supabase
       .from("event_registrations")
-      .select("profile_id")
+      .select("profile_id, admission_status")
       .eq("event_id", eventId)
       .in("admission_status", ["confirmed", "waitlisted"]);
 
     if (registrations) {
       await Promise.allSettled(
-        registrations.map((r) =>
+        registrations.filter((r) => Boolean(r.profile_id)).map((r) =>
           sendNotification({
             user_id: r.profile_id,
             category,
             title,
-            body,
-            data: { url: `/event/${eventId}/lobby`, event_id: eventId },
+            body: r.admission_status === "waitlisted" ? waitlistedBody : confirmedBody,
+            data: {
+              event_id: eventId,
+              admission_status: r.admission_status,
+            },
           })
         )
       );
@@ -150,7 +158,8 @@ const AdminEventControls = ({
       const count = await notifyRegistrantsConfirmedAndWaitlist(
         "event_reminder",
         `${eventTitle} starts soon! ⏰`,
-        "Get ready — starting in 15 minutes"
+        "Get ready — starting in 15 minutes",
+        "You’re still on the waitlist. Keep an eye on the event page for status updates."
       );
       setReminderSentAt(Date.now());
       toast.success(
@@ -194,7 +203,7 @@ const AdminEventControls = ({
               variant="default"
               className="gap-1.5"
               onClick={handleGoLive}
-              title="Sets event live and notifies confirmed attendees only (not waitlist)"
+              title="Sets the event live and notifies confirmed attendees only. Waitlisted users do not get a live push."
             >
               Go Live
             </Button>
@@ -234,7 +243,7 @@ const AdminEventControls = ({
             className="gap-1.5"
             onClick={handleSendReminder}
             disabled={isSendingReminder || !!reminderCooldown}
-            title="Notifies confirmed attendees and waitlisted users (guest list)"
+            title="Notifies confirmed attendees with lobby access copy and waitlisted users with status-only copy."
           >
             <Bell className="w-3.5 h-3.5" />
             {reminderCooldown ? "Sent" : "Reminder (confirmed + waitlist)"}
