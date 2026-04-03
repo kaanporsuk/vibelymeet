@@ -27,7 +27,7 @@ Correctness packaging only for queued TTL canonicalization, deterministic backen
 ## Expiry cleanup behavior
 
 - New RPC: `expire_stale_video_sessions()`
-  - expires queued sessions whose `queued_expires_at` elapsed (fallback `created_at + 10 minutes` for safety)
+  - expires queued sessions whose `queued_expires_at` elapsed (fallback `started_at + 10 minutes`, then current time if null)
   - expires active ready-gate sessions whose `ready_gate_expires_at` elapsed
   - wakes snoozed sessions when `snooze_expires_at` elapsed
 - Cleanup is called in active RPC paths (`drain_match_queue`, `ready_gate_transition`) and is also scheduled every minute via `pg_cron` (best-effort scheduling in environments where cron extension is unavailable).
