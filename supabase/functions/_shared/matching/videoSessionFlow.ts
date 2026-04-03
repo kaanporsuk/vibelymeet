@@ -53,3 +53,19 @@ export function buildEventLobbyPendingSessionUrl(eventId: string, videoSessionId
   const enc = encodeURIComponent(videoSessionId);
   return `/event/${eventId}/lobby?pendingVideoSession=${enc}&pendingMatch=${enc}`;
 }
+
+/** `handle_swipe` results where the lobby deck should not advance the current card. */
+export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
+  "blocked",
+  "reported",
+  "not_registered",
+  "target_not_found",
+  "limit_reached",
+  "already_super_vibed_recently",
+  "already_matched",
+]);
+
+export function shouldAdvanceLobbyDeckAfterSwipe(result: string | null | undefined): boolean {
+  if (result == null || result === "") return false;
+  return !LOBBY_SWIPE_NO_ADVANCE_RESULTS.has(result);
+}

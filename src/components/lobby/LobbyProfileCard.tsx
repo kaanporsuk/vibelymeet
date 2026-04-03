@@ -29,12 +29,13 @@ function formatHeightCm(cm: number | null | undefined): string | null {
 }
 
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
+  void userVibes; // Partner vibe tags come from `get_event_deck.shared_vibe_count` only (avoid per-card profile_vibes fetches).
   const navigate = useNavigate();
-  const [vibeLabels, setVibeLabels] = useState<string[]>([]);
   const [profileBadge, setProfileBadge] = useState<"premium" | "vip" | null>(null);
   const [photoVerified, setPhotoVerified] = useState(false);
 
   useEffect(() => {
+    if (isBehind) return;
     (async () => {
       const { data } = await supabase
         .from("profiles")
@@ -44,35 +45,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       setProfileBadge(getUserBadge(data?.subscription_tier as string | null | undefined));
       setPhotoVerified(Boolean(data?.photo_verified));
     })();
-  }, [profile.profile_id]);
+  }, [profile.profile_id, isBehind]);
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("profile_vibes")
-        .select("vibe_tags(label, emoji)")
-        .eq("profile_id", profile.profile_id);
-
-      if (data) {
-        const labels = data
-          .map((v) => {
-            const raw = v.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
-            const tag = Array.isArray(raw) ? raw[0] : raw;
-            return tag?.label ? `${tag.emoji ?? ""} ${tag.label}`.trim() : null;
-          })
-          .filter(Boolean) as string[];
-        setVibeLabels(labels);
-      }
-    })();
-  }, [profile.profile_id]);
-
-  const sharedCount =
-    profile.shared_vibe_count > 0
-      ? profile.shared_vibe_count
-      : vibeLabels.filter((v) => {
-          const label = v.replace(/^\S+\s/, "");
-          return userVibes.includes(label);
-        }).length;
+  const sharedCount = profile.shared_vibe_count;
 
   const inSession = profile.queue_status && !["browsing", "idle"].includes(profile.queue_status);
   const heightLabel = formatHeightCm(profile.height_cm);
@@ -214,33 +189,6 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
               </span>
             )}
             {heightLabel && <span className="text-white/45 tabular-nums">{heightLabel}</span>}
-          </div>
-        )}
-
-        {vibeLabels.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
-            {vibeLabels.slice(0, 2).map((tag) => {
-              const label = tag.replace(/^\S+\s/, "");
-              const isShared = userVibes.includes(label);
-              return (
-                <span
-                  key={tag}
-                  className={cn(
-                    "shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium backdrop-blur-md border",
-                    isShared
-                      ? "bg-primary/25 border-primary/40 text-primary"
-                      : "bg-white/10 border-white/15 text-white/90",
-                  )}
-                >
-                  {tag}
-                </span>
-              );
-            })}
-            {vibeLabels.length > 2 && (
-              <span className="shrink-0 px-2 py-1 rounded-full text-[11px] font-medium bg-black/30 border border-white/10 text-white/55">
-                +{vibeLabels.length - 2}
-              </span>
-            )}
           </div>
         )}
 

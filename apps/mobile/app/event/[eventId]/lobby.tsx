@@ -5,11 +5,11 @@ import {
   Text,
   Pressable,
   Image,
-  ScrollView,
   Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -46,6 +46,7 @@ import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import {
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
+  shouldAdvanceLobbyDeckAfterSwipe,
 } from '@shared/matching/videoSessionFlow';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
@@ -123,6 +124,13 @@ export default function EventLobbyScreen() {
     id,
     user?.id ?? null,
     deckQueryEnabled
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id || !user?.id || !deckQueryEnabled) return;
+      void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
+    }, [id, user?.id, deckQueryEnabled, queryClient])
   );
 
   const seenProfileIdsRef = useRef<Set<string>>(new Set());
@@ -492,13 +500,20 @@ export default function EventLobbyScreen() {
         case 'swipe_recorded':
           break;
         case 'match':
+          show({
+            title: "It's a match!",
+            message: 'Opening Ready Gate…',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           break;
         case 'match_queued':
           show({
-            title: 'Video date queued',
-            message: 'It’ll start when your partner is free. 💚',
+            title: "You're matched!",
+            message:
+              "We'll bring you to Ready Gate when your partner is free — keep browsing.",
             variant: 'success',
-            primaryAction: { label: 'Nice', onPress: () => {} },
+            primaryAction: { label: 'Got it', onPress: () => {} },
           });
           break;
         case 'super_vibe_sent':
@@ -622,21 +637,13 @@ export default function EventLobbyScreen() {
         refreshQueueAndSuperVibe();
       }
 
-      const noDeckAdvance = new Set([
-        'blocked',
-        'reported',
-        'not_registered',
-        'target_not_found',
-        'limit_reached',
-        'already_super_vibed_recently',
-        'already_matched',
-      ]);
-      if (noDeckAdvance.has(code)) {
+      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
         return;
       }
 
       seenProfileIdsRef.current.add(targetId);
       setDeckNonce((n) => n + 1);
+      void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
       const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.profile_id)).length;
       if (remainingVisible === 0) {
         void refetchDeck();
@@ -705,7 +712,7 @@ export default function EventLobbyScreen() {
             <View style={styles.deckProgressLabels}>
               <Text style={[styles.deckProgressLabel, { color: theme.textSecondary }]}>Deck</Text>
               <Text style={[styles.deckProgressCount, { color: theme.text }]}>
-                {sortedProfiles.length > 0 ? `1 / ${sortedProfiles.length}` : '—'}
+                {sortedProfiles.length > 0 ? `1 / ${sortedProfiles.length} left` : '—'}
               </Text>
             </View>
             <View style={[styles.deckProgressTrack, { backgroundColor: withAlpha(theme.text, 0.08) }]}>
@@ -841,7 +848,7 @@ export default function EventLobbyScreen() {
                   </View>
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>No more profiles</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    Check back soon or try Mystery Match
+                    The deck refreshes every few seconds — or try Mystery Match (native).
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
@@ -971,6 +978,9 @@ export default function EventLobbyScreen() {
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
             setActiveSessionPartnerImage(null);
+            if (user?.id) {
+              void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
+            }
           }}
         />
       ) : null}
@@ -994,44 +1004,22 @@ function LobbyProfileCard({
   userVibes: string[];
   isBehind?: boolean;
 }) {
-  const [vibeLabels, setVibeLabels] = useState<string[]>([]);
+  void userVibes;
   const [photoVerified, setPhotoVerified] = useState(false);
 
   useEffect(() => {
+    if (isBehind) return;
     (async () => {
-      const pid = profile.profile_id;
-      const [vibesRes, profileRes] = await Promise.all([
-        supabase.from('profile_vibes').select('vibe_tags(label, emoji)').eq('profile_id', pid),
-        supabase.from('profiles').select('photo_verified').eq('id', pid).maybeSingle(),
-      ]);
-      if (vibesRes.data) {
-        const labels: string[] = [];
-        for (const row of vibesRes.data as { vibe_tags?: { label: string; emoji: string } | { label: string; emoji: string }[] }[]) {
-          const tag = row.vibe_tags;
-          if (Array.isArray(tag)) {
-            tag.forEach((t) => labels.push(`${t.emoji} ${t.label}`));
-          } else if (tag && typeof tag === 'object' && 'label' in tag) {
-            labels.push(`${tag.emoji} ${tag.label}`);
-          }
-        }
-        setVibeLabels(labels);
-      }
-      const pr = profileRes.data as { photo_verified?: boolean } | null;
-      if (pr?.photo_verified) setPhotoVerified(true);
+      const { data } = await supabase.from('profiles').select('photo_verified').eq('id', profile.profile_id).maybeSingle();
+      const pr = data as { photo_verified?: boolean } | null;
+      setPhotoVerified(Boolean(pr?.photo_verified));
     })();
-  }, [profile.profile_id]);
+  }, [profile.profile_id, isBehind]);
 
   const photo = profile.avatar_url ?? profile.photos?.[0];
   const uri = photo ? avatarUrl(photo) : '';
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
-  const sharedFromDeck = profile.shared_vibe_count > 0 ? profile.shared_vibe_count : 0;
-  const sharedCount =
-    sharedFromDeck > 0
-      ? sharedFromDeck
-      : vibeLabels.filter((v) => {
-          const label = v.replace(/^\S+\s/, '');
-          return userVibes.includes(label);
-        }).length;
+  const sharedCount = profile.shared_vibe_count;
   const heightLabel = formatHeightCm(profile.height_cm);
   const showTrustStrip =
     profile.has_met_before || profile.is_already_connected || photoVerified || sharedCount > 0;
@@ -1179,32 +1167,6 @@ function LobbyProfileCard({
             {heightLabel ? <Text style={styles.heightMeta}>{heightLabel}</Text> : null}
           </View>
         ) : null}
-        {vibeLabels.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.vibeTagsScroll} contentContainerStyle={styles.vibeTagsContent}>
-            {vibeLabels.slice(0, 2).map((tag) => {
-              const label = tag.replace(/^\S+\s/, '');
-              const isShared = userVibes.includes(label);
-              return (
-                <View
-                  key={tag}
-                  style={[
-                    styles.vibeTagChip,
-                    isShared
-                      ? { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.45) }
-                      : { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.14)' },
-                  ]}
-                >
-                  <Text style={[styles.vibeTagText, isShared && { color: theme.tint }]}>{tag}</Text>
-                </View>
-              );
-            })}
-            {vibeLabels.length > 2 ? (
-              <View style={[styles.vibeTagChip, { backgroundColor: 'rgba(0,0,0,0.35)', borderColor: 'rgba(255,255,255,0.08)' }]}>
-                <Text style={[styles.vibeTagText, { opacity: 0.75 }]}>+{vibeLabels.length - 2}</Text>
-              </View>
-            ) : null}
-          </ScrollView>
-        )}
         {profile.about_me ? (
           <Text style={styles.cardBio} numberOfLines={2}>
             {profile.about_me}

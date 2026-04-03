@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef, SetStateAction } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,10 +20,12 @@ import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { shouldAdvanceLobbyDeckAfterSwipe } from "@shared/matching/videoSessionFlow";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, refreshProfile } = useUserProfile();
   const queryClient = useQueryClient();
   const [endingBreak, setEndingBreak] = useState(false);
@@ -33,7 +35,12 @@ const EventLobby = () => {
   const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
   const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
   const deckEnabled = Boolean(eventId && user?.id && !user.isPaused);
-  const { profiles, isLoading: deckLoading, refetch: refetchDeck } = useEventDeck({
+  const {
+    profiles,
+    isLoading: deckLoading,
+    isError: deckError,
+    refetch: refetchDeck,
+  } = useEventDeck({
     eventId: eventId || "",
     enabled: deckEnabled,
   });
@@ -56,13 +63,15 @@ const EventLobby = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Track seen profile IDs to prevent duplicates on refetch
+  // Track seen profile IDs to prevent duplicates on refetch (bump deckNonce when this changes).
   const seenProfileIds = useRef<Set<string>>(new Set());
+  const [deckNonce, setDeckNonce] = useState(0);
 
-  // Current card index in the local deck
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [exitDirection, setExitDirection] = useState<"left" | "right" | null>(null);
-  const [isAnimating, setIsAnimating] = useState(false);
+  useEffect(() => {
+    seenProfileIds.current = new Set();
+    setDeckNonce((n) => n + 1);
+  }, [eventId]);
+
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
   const [superVibeRemaining, setSuperVibeRemaining] = useState(3);
   const [userVibes, setUserVibes] = useState<string[]>([]);
@@ -154,6 +163,17 @@ const EventLobby = () => {
     checkExisting();
   }, [user?.id, eventId, activeSessionId]);
 
+  // Returning from video date / survey: fresh deck, no stale overlay.
+  useEffect(() => {
+    const st = location.state as { lobbyRefresh?: boolean } | null;
+    if (!st?.lobbyRefresh || !eventId || !user?.id) return;
+    seenProfileIds.current = new Set();
+    setDeckNonce((n) => n + 1);
+    setActiveSessionId(null);
+    void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+    navigate(location.pathname + location.search, { replace: true, state: {} });
+  }, [location.state, location.pathname, location.search, eventId, user?.id, navigate, queryClient]);
+
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
   // Uses profile_id filter for efficiency — only fires for THIS user's row
   useEffect(() => {
@@ -236,69 +256,73 @@ const EventLobby = () => {
 
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
-    const filtered = profiles.filter(p => !seenProfileIds.current.has(p.profile_id));
+    const filtered = profiles.filter((p) => !seenProfileIds.current.has(p.profile_id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
       return 0;
     });
     return filtered;
-  }, [profiles]);
+  }, [profiles, deckNonce]);
 
-  const currentProfile = sortedProfiles[currentIndex] || null;
-  const nextProfile = sortedProfiles[currentIndex + 1] || null;
+  const currentProfile = sortedProfiles[0] || null;
+  const nextProfile = sortedProfiles[1] || null;
+  const thirdProfile = sortedProfiles[2] || null;
 
-  // Reset index only if it's past the end (new data with fewer items)
-  useEffect(() => {
-    if (currentIndex >= sortedProfiles.length && sortedProfiles.length > 0) {
-      setCurrentIndex(0);
-    }
-  }, [sortedProfiles.length, currentIndex]);
+  const afterSuccessfulSwipe = useCallback(
+    (targetId: string) => {
+      seenProfileIds.current.add(targetId);
+      setDeckNonce((n) => n + 1);
+      void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+    },
+    [queryClient, eventId, user?.id]
+  );
 
-  const advanceCard = useCallback((direction: "left" | "right") => {
-    setExitDirection(direction);
-    setIsAnimating(true);
-    setTimeout(() => {
-      setCurrentIndex((prev) => prev + 1);
-      setExitDirection(null);
-      setIsAnimating(false);
-    }, 300);
-  }, []);
-
-  // Mark profile as seen and advance
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || isAnimating) return;
-    haptics.light();
+    if (!currentProfile || isProcessing) return;
     const targetId = currentProfile.profile_id;
-    seenProfileIds.current.add(targetId);
-    advanceCard("right");
-
+    haptics.light();
     const result = await swipe(targetId, "vibe");
-    if (result && ((result as any).result === "match" || (result as any).result === "match_queued")) {
+    if (!result || result.success === false) return;
+
+    const code = result.result === "swipe_recorded" ? "vibe_recorded" : result.result;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+
+    if (code === "match" || code === "match_queued") {
       haptics.medium();
     }
-  }, [currentProfile, isAnimating, swipe, advanceCard]);
+
+    afterSuccessfulSwipe(targetId);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || isAnimating) return;
+    if (!currentProfile || isProcessing) return;
     const targetId = currentProfile.profile_id;
-    seenProfileIds.current.add(targetId);
-    advanceCard("left");
-    await swipe(targetId, "pass");
-  }, [currentProfile, isAnimating, swipe, advanceCard]);
+    const result = await swipe(targetId, "pass");
+    if (!result || result.success === false) return;
+
+    const code = result.result;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+
+    afterSuccessfulSwipe(targetId);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || isAnimating) return;
+    if (!currentProfile || isProcessing) return;
     haptics.light();
     const targetId = currentProfile.profile_id;
-    seenProfileIds.current.add(targetId);
-    advanceCard("right");
-
     const result = await swipe(targetId, "super_vibe");
-    if (result && (result as any).result === "super_vibe_sent") {
+    if (!result || result.success === false) return;
+
+    const code = result.result;
+    if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
+
+    if (code === "super_vibe_sent") {
       setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
     }
-  }, [currentProfile, isAnimating, swipe, advanceCard]);
+
+    afterSuccessfulSwipe(targetId);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
 
   // Loading state
   if (eventLoading || regLoading) {
@@ -309,10 +333,11 @@ const EventLobby = () => {
     );
   }
 
-  const isEmpty = currentIndex >= sortedProfiles.length;
-  const deckTotal = sortedProfiles.length;
-  const deckPosition = deckTotal > 0 ? Math.min(currentIndex + 1, deckTotal) : 0;
-  const deckProgress = deckTotal > 0 ? currentIndex / deckTotal : 0;
+  const isEmpty = sortedProfiles.length === 0;
+  const deckRemaining = sortedProfiles.length;
+  const deckPosition = deckRemaining > 0 ? 1 : 0;
+  const deckProgress =
+    profiles.length > 0 ? Math.min(1, (profiles.length - deckRemaining) / profiles.length) : 0;
   const timerUrgent =
     timeRemaining &&
     timeRemaining !== "Ended" &&
@@ -387,7 +412,7 @@ const EventLobby = () => {
             </div>
           </div>
 
-          {!isEmpty && deckTotal > 0 && (
+          {!isEmpty && deckRemaining > 0 && (
             <div className="mt-3 space-y-1.5">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-white/40">
                 <span className="flex items-center gap-1">
@@ -395,7 +420,7 @@ const EventLobby = () => {
                   Deck
                 </span>
                 <span className="text-white/55 tabular-nums">
-                  {deckPosition} / {deckTotal}
+                  {deckPosition} / {deckRemaining} left
                 </span>
               </div>
               <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
@@ -459,7 +484,22 @@ const EventLobby = () => {
               {endingBreak ? "Ending break…" : "End break & start discovering"}
             </Button>
           </div>
-        ) : deckLoading && sortedProfiles.length === 0 ? (
+        ) : deckError && deckEnabled && profiles.length === 0 && !deckLoading ? (
+          <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full gap-4">
+            <p className="text-lg font-display font-semibold text-white">Couldn&apos;t load deck</p>
+            <p className="text-sm text-white/55">
+              Check your connection and try again. People in the room couldn&apos;t be loaded.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="border-white/20 bg-white/[0.06] text-white hover:bg-white/10"
+              onClick={() => void refetchDeck()}
+            >
+              Retry
+            </Button>
+          </div>
+        ) : deckLoading && sortedProfiles.length === 0 && !deckError ? (
           <CardSkeleton />
         ) : isEmpty ? (
           <LobbyEmptyState onRefresh={refetchDeck} />
@@ -470,72 +510,27 @@ const EventLobby = () => {
               <p className="text-sm text-white/70 font-medium mt-0.5">Swipe fast — vibes are live in this room</p>
             </div>
           <div className="relative w-full" style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}>
-            {/* Third card (deepest stack layer) */}
-            {sortedProfiles[currentIndex + 2] && (
+            {thirdProfile && (
               <div className="absolute inset-0 scale-[0.92] opacity-30 pointer-events-none translate-y-2">
-                <LobbyProfileCard
-                  profile={sortedProfiles[currentIndex + 2]}
-                  userVibes={userVibes}
-                  isBehind
-                />
+                <LobbyProfileCard profile={thirdProfile} userVibes={userVibes} isBehind />
               </div>
             )}
-            {/* Second card (behind current) */}
             {nextProfile && (
               <div className="absolute inset-0 scale-[0.96] opacity-60 pointer-events-none translate-y-1">
-                <LobbyProfileCard
-                  profile={nextProfile}
-                  userVibes={userVibes}
-                  isBehind
-                />
+                <LobbyProfileCard profile={nextProfile} userVibes={userVibes} isBehind />
               </div>
             )}
 
-            {/* Current card */}
             <AnimatePresence mode="wait">
-              {currentProfile && !exitDirection && (
+              {currentProfile && (
                 <SwipeableCard
                   key={currentProfile.profile_id}
                   profile={currentProfile}
                   userVibes={userVibes}
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
-                  disabled={isAnimating}
+                  disabled={isProcessing}
                 />
-              )}
-              {currentProfile && exitDirection && (
-                <motion.div
-                  key={`exit-${currentProfile.profile_id}`}
-                  className="absolute inset-0"
-                  initial={{ x: 0, opacity: 1, rotate: 0 }}
-                  animate={{
-                    x: exitDirection === "left" ? -500 : 500,
-                    opacity: 0,
-                    rotate: exitDirection === "left" ? -5 : 5,
-                  }}
-                  transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                >
-                  {/* Stamp overlay during fly-off */}
-                  <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                    <motion.div
-                      initial={{ scale: 0.5, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 0.8 }}
-                      className={`px-6 py-3 rounded-xl border-4 ${
-                        exitDirection === "right"
-                          ? "border-green-400 bg-green-500/20"
-                          : "border-destructive bg-destructive/20"
-                      } backdrop-blur-sm`}
-                      style={{ transform: `rotate(${exitDirection === "right" ? -15 : 15}deg)` }}
-                    >
-                      <span className={`font-display font-bold text-2xl ${
-                        exitDirection === "right" ? "text-green-400" : "text-destructive"
-                      }`}>
-                        {exitDirection === "right" ? "VIBE ✨" : "PASS"}
-                      </span>
-                    </motion.div>
-                  </div>
-                  <LobbyProfileCard profile={currentProfile} userVibes={userVibes} />
-                </motion.div>
               )}
             </AnimatePresence>
           </div>
@@ -554,7 +549,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handlePass}
-              disabled={isAnimating}
+              disabled={isProcessing}
               className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
               aria-label="Pass"
             >
@@ -565,7 +560,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleSuperVibe}
-              disabled={isAnimating || superVibeRemaining <= 0}
+              disabled={isProcessing || superVibeRemaining <= 0}
               className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
               aria-label="Super vibe"
             >
@@ -581,7 +576,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleVibe}
-              disabled={isAnimating}
+              disabled={isProcessing}
               className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
               aria-label="Vibe"
             >
@@ -604,6 +599,9 @@ const EventLobby = () => {
             onClose={() => {
               setActiveSessionId(null);
               setStatus("browsing");
+              if (eventId && user?.id) {
+                void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+              }
             }}
           />
         )}
