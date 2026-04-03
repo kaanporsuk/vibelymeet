@@ -35,11 +35,28 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
   const [isParticipant1, setIsParticipant1] = useState(false);
   const onBothReadyRef = useRef(onBothReady);
   const onForfeitedRef = useRef(onForfeited);
+  const terminalHandledRef = useRef<ReadyGateStatus | null>(null);
 
   useEffect(() => {
     onBothReadyRef.current = onBothReady;
     onForfeitedRef.current = onForfeited;
   }, [onBothReady, onForfeited]);
+
+  useEffect(() => {
+    terminalHandledRef.current = null;
+  }, [sessionId]);
+
+  const notifyTerminal = useCallback((status: ReadyGateStatus) => {
+    if (terminalHandledRef.current === status) return;
+    terminalHandledRef.current = status;
+    if (status === ReadyGateStatus.BothReady) {
+      onBothReadyRef.current();
+      return;
+    }
+    if (status === ReadyGateStatus.Forfeited || status === ReadyGateStatus.Expired) {
+      onForfeitedRef.current("timeout");
+    }
+  }, []);
 
   const fetchSession = useCallback(async () => {
       if (!sessionId || !user?.id) return;
@@ -77,12 +94,17 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         expiresAt: session.ready_gate_expires_at,
       });
 
-      if (session.ready_gate_status === ReadyGateStatus.BothReady) {
-        onBothReadyRef.current();
-      } else if (session.ready_gate_status === ReadyGateStatus.Forfeited || session.ready_gate_status === ReadyGateStatus.Expired) {
-        onForfeitedRef.current("timeout");
+      const nextStatus = session.ready_gate_status as ReadyGateStatus;
+      if (
+        nextStatus === ReadyGateStatus.BothReady ||
+        nextStatus === ReadyGateStatus.Forfeited ||
+        nextStatus === ReadyGateStatus.Expired
+      ) {
+        notifyTerminal(nextStatus);
+      } else {
+        terminalHandledRef.current = null;
       }
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, notifyTerminal]);
 
   // Fetch initial state and determine participant position
   useEffect(() => {
@@ -121,10 +143,15 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
             expiresAt: s.ready_gate_expires_at,
           }));
 
-          if (s.ready_gate_status === ReadyGateStatus.BothReady) {
-            onBothReadyRef.current();
-          } else if (s.ready_gate_status === ReadyGateStatus.Forfeited || s.ready_gate_status === ReadyGateStatus.Expired) {
-            onForfeitedRef.current("timeout");
+          const nextStatus = s.ready_gate_status as ReadyGateStatus;
+          if (
+            nextStatus === ReadyGateStatus.BothReady ||
+            nextStatus === ReadyGateStatus.Forfeited ||
+            nextStatus === ReadyGateStatus.Expired
+          ) {
+            notifyTerminal(nextStatus);
+          } else {
+            terminalHandledRef.current = null;
           }
         }
       )
@@ -133,7 +160,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, notifyTerminal]);
 
   // Fallback sync while ready gate is active in case realtime misses transitions.
   useEffect(() => {
@@ -181,6 +208,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
   return {
     ...state,
+    isSnoozed: state.status === ReadyGateStatus.Snoozed,
     markReady,
     skip,
     snooze,
