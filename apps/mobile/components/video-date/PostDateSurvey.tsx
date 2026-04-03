@@ -1,7 +1,6 @@
 /**
  * Post-date survey: Screen 1 (mandatory) — Did you vibe? Vibe or Pass.
- * Writes participant_X_liked and runs check_mutual_vibe_and_match.
- * If mutual: show celebration then navigate to matches/lobby. Else: warm message, navigate to lobby/dashboard.
+ * Verdict is submitted via `post-date-verdict` (backend single-writer); do not patch session/feedback here.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -18,7 +17,7 @@ type Props = {
   partnerName: string;
   partnerImage: string | null;
   eventId: string | undefined;
-  onSubmitVerdict: (liked: boolean) => Promise<{ mutual: boolean } | null>;
+  onSubmitVerdict: (liked: boolean) => Promise<{ mutual: boolean; match_id?: string } | null>;
   onMutualMatch: () => void;
   onDone: () => void;
 };

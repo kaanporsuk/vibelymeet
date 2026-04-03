@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -13,7 +13,6 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
-import { sendNotification } from "@/lib/notifications";
 import { trackEvent } from "@/lib/analytics";
 import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 
@@ -40,25 +39,9 @@ export const PostDateSurvey = ({
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId });
   const [step, setStep] = useState<SurveyStep>("verdict");
-  const [feedbackId, setFeedbackId] = useState<string | null>(null);
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isParticipant1, setIsParticipant1] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
-
-  // Determine if current user is participant_1 or participant_2
-  useEffect(() => {
-    if (!sessionId || !user?.id) return;
-    const detect = async () => {
-      const { data } = await supabase
-        .from("video_sessions")
-        .select("participant_1_id")
-        .eq("id", sessionId)
-        .maybeSingle();
-      if (data) setIsParticipant1(data.participant_1_id === user.id);
-    };
-    detect();
-  }, [sessionId, user?.id]);
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
@@ -100,63 +83,44 @@ export const PostDateSurvey = ({
     }
   }, [navigate, eventId, setStatus, checkEventActive]);
 
-  // Screen 1: Verdict (mandatory)
+  // Screen 1: Verdict (mandatory) — single backend path (RPC via Edge: persist + mutual match + server push when new match)
   const handleVerdict = useCallback(
     async (liked: boolean) => {
       if (!user?.id || isSubmitting) return;
       setIsSubmitting(true);
 
       try {
-        const likedField = isParticipant1 ? "participant_1_liked" : "participant_2_liked";
-        await supabase
-          .from("video_sessions")
-          .update({ [likedField]: liked })
-          .eq("id", sessionId);
-
-        const { data: feedback, error } = await supabase
-          .from("date_feedback")
-          .upsert(
-            {
-              session_id: sessionId,
-              user_id: user.id,
-              target_id: partnerId,
-              liked,
-            },
-            { onConflict: "session_id,user_id" }
-          )
-          .select("id")
-          .single();
-
-        if (error) throw error;
-        if (feedback) setFeedbackId(feedback.id);
-
-        trackEvent('post_date_survey_completed', { session_id: sessionId, verdict: liked ? 'vibe' : 'pass' });
-
-        const { data: result } = await supabase.rpc("check_mutual_vibe_and_match", {
-          p_session_id: sessionId,
+        const { data, error } = await supabase.functions.invoke("post-date-verdict", {
+          body: { session_id: sessionId, liked },
         });
 
-        const mutualResult = result as { mutual?: boolean; match_id?: string } | null;
-        if (mutualResult?.mutual) {
+        if (error) throw error;
+
+        const result = data as {
+          success?: boolean;
+          error?: string;
+          mutual?: boolean;
+          verdict_recorded?: boolean;
+        } | null;
+
+        if (result && result.success === false) {
+          toast.error(
+            result.error === "not_participant"
+              ? "You can't submit feedback for this date."
+              : result.error === "session_not_found"
+                ? "This date session is no longer available."
+                : "Something went wrong. Please try again.",
+          );
+          return;
+        }
+
+        trackEvent("post_date_survey_completed", { session_id: sessionId, verdict: liked ? "vibe" : "pass" });
+
+        if (result?.mutual) {
           setStep("celebration");
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
-          const matchId = mutualResult.match_id;
-          await sendNotification({
-            user_id: partnerId,
-            category: "new_match",
-            title: "It's a match! 🎉",
-            body: "You both vibed — start chatting now!",
-            data: { url: "/matches", ...(matchId ? { match_id: matchId } : {}) },
-          });
-          await sendNotification({
-            user_id: user.id,
-            category: "new_match",
-            title: "It's a match! 🎉",
-            body: "You both vibed — start chatting now!",
-            data: { url: "/matches", ...(matchId ? { match_id: matchId } : {}) },
-          });
         } else {
           setStep("highlights");
         }
@@ -167,7 +131,7 @@ export const PostDateSurvey = ({
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, partnerId, isSubmitting, isParticipant1]
+    [user?.id, sessionId, isSubmitting]
   );
 
   // Screen 2: Highlights (optional)

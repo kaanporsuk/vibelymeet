@@ -483,34 +483,34 @@ export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[
   return (updated?.vibe_questions as string[]) ?? shuffled;
 }
 
-/** Post-date survey: write participant_X_liked and run check_mutual_vibe_and_match. Returns { mutual: boolean }. */
+export type PostDateVerdictResult = {
+  mutual: boolean;
+  match_id?: string;
+  persistent_match_created?: boolean | null;
+};
+
+/**
+ * Post-date survey screen 1: single backend path (`post-date-verdict` Edge → `submit_post_date_verdict` RPC).
+ * Do not write video_sessions / date_feedback for the mandatory verdict from the client.
+ */
 export async function submitVerdictAndCheckMutual(
   sessionId: string,
-  userId: string,
-  partnerId: string,
+  _userId: string,
+  _partnerId: string,
   liked: boolean
-): Promise<{ mutual: boolean } | null> {
-  const { data: session, error: sessionError } = await supabase
-    .from('video_sessions')
-    .select('participant_1_id')
-    .eq('id', sessionId)
-    .maybeSingle();
-  if (sessionError || !session) return null;
-  const isP1 = session.participant_1_id === userId;
-  const field = isP1 ? 'participant_1_liked' : 'participant_2_liked';
-  const { error: updateError } = await supabase.from('video_sessions').update({ [field]: liked }).eq('id', sessionId);
-  if (updateError) return null;
-
-  const { error: feedbackError } = await supabase.from('date_feedback').upsert(
-    { session_id: sessionId, user_id: userId, target_id: partnerId, liked },
-    { onConflict: 'session_id,user_id' }
-  );
-  if (feedbackError) return null;
-
-  const { data: result, error: rpcError } = await supabase.rpc('check_mutual_vibe_and_match', { p_session_id: sessionId });
-  if (rpcError) return null;
-  const mutual = (result as { mutual?: boolean } | null)?.mutual === true;
-  return { mutual };
+): Promise<PostDateVerdictResult | null> {
+  const { data, error } = await supabase.functions.invoke('post-date-verdict', {
+    body: { session_id: sessionId, liked },
+  });
+  if (error) return null;
+  const row = data as { success?: boolean; mutual?: boolean; match_id?: string; persistent_match_created?: boolean | null } | null;
+  if (row && row.success === false) return null;
+  const mutual = row?.mutual === true;
+  return {
+    mutual,
+    match_id: typeof row?.match_id === 'string' ? row.match_id : undefined,
+    persistent_match_created: row?.persistent_match_created,
+  };
 }
 
 /** Fetch user credits for +Time (extra_time_credits, extended_vibe_credits). */
