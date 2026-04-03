@@ -39,10 +39,25 @@ export function useReadyGate(
 
   const onBothReadyRef = useRef(options?.onBothReady);
   const onForfeitedRef = useRef(options?.onForfeited);
+  const terminalHandledRef = useRef<string | null>(null);
   useEffect(() => {
     onBothReadyRef.current = options?.onBothReady;
     onForfeitedRef.current = options?.onForfeited;
   }, [options?.onBothReady, options?.onForfeited]);
+
+  useEffect(() => {
+    terminalHandledRef.current = null;
+  }, [sessionId]);
+
+  const notifyTerminal = useCallback((status: string) => {
+    if (terminalHandledRef.current === status) return;
+    terminalHandledRef.current = status;
+    if (status === BOTH_READY) {
+      onBothReadyRef.current?.();
+    } else if (status === FORFEITED || status === EXPIRED) {
+      onForfeitedRef.current?.('timeout');
+    }
+  }, []);
 
   const fetchSession = useCallback(async () => {
     if (!sessionId || !userId) return;
@@ -77,12 +92,12 @@ export function useReadyGate(
       expiresAt: session.ready_gate_expires_at ?? null,
     });
 
-    if (status === BOTH_READY) {
-      onBothReadyRef.current?.();
-    } else if (status === FORFEITED || status === EXPIRED) {
-      onForfeitedRef.current?.('timeout');
+    if (status === BOTH_READY || status === FORFEITED || status === EXPIRED) {
+      notifyTerminal(status);
+    } else {
+      terminalHandledRef.current = null;
     }
-  }, [sessionId, userId]);
+  }, [sessionId, userId, notifyTerminal]);
 
   useEffect(() => {
     fetchSession();
@@ -112,10 +127,10 @@ export function useReadyGate(
             expiresAt: (s.ready_gate_expires_at as string) ?? null,
           }));
 
-          if (nextStatus === BOTH_READY) {
-            onBothReadyRef.current?.();
-          } else if (nextStatus === FORFEITED || nextStatus === EXPIRED) {
-            onForfeitedRef.current?.('timeout');
+          if (nextStatus === BOTH_READY || nextStatus === FORFEITED || nextStatus === EXPIRED) {
+            notifyTerminal(nextStatus);
+          } else {
+            terminalHandledRef.current = null;
           }
         },
       )
@@ -123,7 +138,7 @@ export function useReadyGate(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, userId]);
+  }, [sessionId, userId, notifyTerminal]);
 
   // Fallback sync while ready gate is active in case realtime misses transitions.
   useEffect(() => {

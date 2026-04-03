@@ -40,7 +40,6 @@ const ReadyGate = () => {
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [isSnoozed, setIsSnoozed] = useState(false);
   const [snoozeTimeLeft, setSnoozeTimeLeft] = useState(120);
 
   const handleBothReady = useCallback(() => {
@@ -73,6 +72,7 @@ const ReadyGate = () => {
     partnerName,
     snoozedByPartner,
     snoozeExpiresAt,
+    isSnoozed,
     markReady,
     skip,
     snooze,
@@ -142,7 +142,6 @@ const ReadyGate = () => {
     if (isTransitioning || iAmReady) return;
 
     if (snoozedByPartner) {
-      setIsSnoozed(true);
       if (snoozeExpiresAt) {
         const remaining = Math.max(
           0,
@@ -418,7 +417,6 @@ const ReadyGate = () => {
                 <button
                   onClick={() => {
                     snooze();
-                    setIsSnoozed(true);
                     setSnoozeTimeLeft(120);
                     toast("Take your time! Your match will wait 💚", { duration: 2000 });
                   }}

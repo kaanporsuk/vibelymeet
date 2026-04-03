@@ -44,7 +44,7 @@ export default function EventPaymentSuccessScreen() {
   useEffect(() => {
     if (!id || !user?.id) return;
     let cancelled = false;
-    (async () => {
+    const refreshAdmission = async () => {
       const { data, error } = await supabase
         .from('event_registrations')
         .select('admission_status')
@@ -55,9 +55,27 @@ export default function EventPaymentSuccessScreen() {
       const s = data?.admission_status;
       if (s === 'confirmed' || s === 'waitlisted') setAdmissionStatus(s);
       else setAdmissionStatus('unknown');
-    })();
+    };
+
+    void refreshAdmission();
+
+    // Brief polling window to absorb async settlement lag after redirect.
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let stopPollingTimeoutId: ReturnType<typeof setTimeout> | null = null;
+    const timeoutId = setTimeout(() => {
+      intervalId = setInterval(() => {
+        void refreshAdmission();
+      }, 3000);
+      stopPollingTimeoutId = setTimeout(() => {
+        if (intervalId) clearInterval(intervalId);
+      }, 30000);
+    }, 1000);
+
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      if (stopPollingTimeoutId) clearTimeout(stopPollingTimeoutId);
+      if (intervalId) clearInterval(intervalId);
     };
   }, [id, user?.id]);
 
