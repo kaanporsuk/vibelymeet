@@ -721,13 +721,19 @@ export default function EventsListScreen() {
   const sheetFilterCount = countActiveFilters(filters);
   const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
   const isFiltering = searchQuery.length > 0 || timeFilter !== null || sheetFilterCount > 0;
-  const liveEvents = useMemo(() => events.filter((e) => e.status === 'live'), [events]);
-  const upcomingEvents = useMemo(() => events.filter((e) => e.status !== 'live'), [events]);
+  const liveEvents = useMemo(
+    () => events.filter((e) => e.status !== 'cancelled' && e.status === 'live'),
+    [events],
+  );
+  const upcomingEvents = useMemo(
+    () => events.filter((e) => e.status !== 'cancelled' && e.status !== 'live'),
+    [events],
+  );
 
   const filteredEvents = useMemo(() => {
     const registered = new Set(registeredEventIds);
     const now = new Date();
-    let list: EventListItem[] = [...events];
+    let list: EventListItem[] = events.filter((e) => e.status !== 'cancelled');
 
     // 1. Upcoming-only filter (default ON — hides ended events)
     if (filters.upcomingOnly) {
