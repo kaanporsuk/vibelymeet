@@ -57,6 +57,7 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
   return {
     profiles: query.data || [],
     isLoading: query.isLoading,
+    isError: query.isError,
     error: query.error,
     refetch: query.refetch,
   };

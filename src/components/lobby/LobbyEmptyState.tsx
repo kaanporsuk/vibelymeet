@@ -41,7 +41,7 @@ const LobbyEmptyState = ({ onRefresh }: LobbyEmptyStateProps) => {
               You&apos;ve seen everyone for now
             </h3>
             <p className="text-sm text-white/55 leading-relaxed">
-              More people are joining the room — we&apos;ll refresh your deck automatically. Pull refresh anytime.
+              More people may join the room — your deck refreshes every few seconds. Tap refresh if you don&apos;t want to wait.
             </p>
           </div>
 

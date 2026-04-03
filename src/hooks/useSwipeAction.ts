@@ -90,15 +90,19 @@ export const useSwipeAction = ({
               level: "info",
             });
             if (raw.immediate && sessionId) {
+              toast.success("It's a match! Opening Ready Gate…", { duration: 2800 });
               onVideoSessionReady?.(sessionId);
               onMatch?.(sessionId);
+            } else {
+              toast.success("It's a match! Ready Gate will open in a moment.", { duration: 2800 });
             }
             return raw;
 
           case "match_queued":
-            toast("Video date queued — it’ll start when your partner is free 💚", {
-              duration: 3000,
-            });
+            toast.success(
+              "You're matched! We'll bring you to Ready Gate when your partner is free — keep browsing.",
+              { duration: 4000 }
+            );
             if (sessionId) {
               onVideoSessionQueued?.(sessionId);
               onMatchQueued?.(sessionId);

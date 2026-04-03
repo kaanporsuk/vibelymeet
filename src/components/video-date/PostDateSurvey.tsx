@@ -73,7 +73,7 @@ export const PostDateSurvey = ({
       setSurveyStatus("browsing");
       toast("Back in the mix! 💚", { duration: 2000 });
       if (eventId) {
-        navigate(`/event/${eventId}/lobby`);
+        navigate(`/event/${eventId}/lobby`, { state: { lobbyRefresh: true } });
       } else {
         navigate("/home");
       }
