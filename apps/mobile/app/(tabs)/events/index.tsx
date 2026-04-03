@@ -180,13 +180,15 @@ function FeaturedEventCard({
   event,
   theme,
   onPress,
-  isRegistered,
+  isConfirmedSeat,
+  isWaitlistedSeat,
   attendees,
 }: {
   event: EventListItem;
   theme: (typeof Colors)[keyof typeof Colors];
   onPress: () => void;
-  isRegistered?: boolean;
+  isConfirmedSeat?: boolean;
+  isWaitlistedSeat?: boolean;
   attendees?: EventAttendee[];
 }) {
   const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
@@ -278,8 +280,21 @@ function FeaturedEventCard({
               +{event.attendees} going
             </Text>
           </View>
-          <View style={[featuredStyles.cta, { backgroundColor: isRegistered ? theme.neonCyan : theme.accent }]}>
-            <Text style={featuredStyles.ctaLabel}>{isRegistered ? 'View Ticket' : 'Get Tickets'}</Text>
+          <View
+            style={[
+              featuredStyles.cta,
+              {
+                backgroundColor: isConfirmedSeat
+                  ? theme.neonCyan
+                  : isWaitlistedSeat
+                    ? '#d97706'
+                    : theme.accent,
+              },
+            ]}
+          >
+            <Text style={featuredStyles.ctaLabel}>
+              {isConfirmedSeat ? 'View Ticket' : isWaitlistedSeat ? 'On waitlist' : 'Get Tickets'}
+            </Text>
             <Ionicons name="arrow-forward" size={16} color="#fff" />
           </View>
         </View>
@@ -956,7 +971,8 @@ export default function EventsListScreen() {
                 event={featuredEvent}
                 theme={theme}
                 onPress={() => handleEventPress(featuredEvent.id)}
-                isRegistered={!!isRegisteredForFeatured}
+                isConfirmedSeat={!!isRegisteredForFeatured?.isConfirmed}
+                isWaitlistedSeat={!!isRegisteredForFeatured?.isWaitlisted}
                 attendees={featuredAttendees}
               />
             )}

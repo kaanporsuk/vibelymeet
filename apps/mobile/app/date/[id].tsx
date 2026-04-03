@@ -275,14 +275,14 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (eventId && user?.id) {
-      if (phase === 'handshake') updateParticipantStatus(eventId, user.id, 'in_handshake');
-      if (phase === 'date') updateParticipantStatus(eventId, user.id, 'in_date');
+      if (phase === 'handshake') updateParticipantStatus(eventId, 'in_handshake');
+      if (phase === 'date') updateParticipantStatus(eventId, 'in_date');
     }
   }, [eventId, user?.id, phase]);
 
   useEffect(() => {
     if (showFeedback && eventId && user?.id) {
-      updateParticipantStatus(eventId, user.id, 'in_survey');
+      updateParticipantStatus(eventId, 'in_survey');
     }
   }, [showFeedback, eventId, user?.id]);
 
@@ -341,7 +341,7 @@ export default function VideoDateScreen() {
     if (sessionId) await endVideoDate(sessionId);
     if (eventId && user?.id) {
       try {
-        await supabase.rpc('leave_matching_queue', { p_event_id: eventId, p_user_id: user.id });
+        await supabase.rpc('leave_matching_queue', { p_event_id: eventId });
       } catch {}
     }
     setLocalParticipant(null);
@@ -359,7 +359,7 @@ export default function VideoDateScreen() {
     }
     Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (user)', level: 'info', data: { sessionId } });
     setShowFeedback(true);
-    if (eventId && user?.id) updateParticipantStatus(eventId, user.id, 'in_survey');
+    if (eventId && user?.id) updateParticipantStatus(eventId, 'in_survey');
     await leaveAndCleanup();
   }, [leaveAndCleanup, eventId, user?.id, sessionId]);
 
@@ -378,7 +378,7 @@ export default function VideoDateScreen() {
   const handleMutualToastComplete = useCallback(() => {
     setShowMutualToast(false);
     setLocalTimeLeft(DATE_SECONDS);
-    if (eventId && user?.id) updateParticipantStatus(eventId, user.id, 'in_date');
+    if (eventId && user?.id) updateParticipantStatus(eventId, 'in_date');
   }, [eventId, user?.id]);
 
   const handleExtend = useCallback(
@@ -506,7 +506,7 @@ export default function VideoDateScreen() {
         }
       }
       if (eventId && user?.id) {
-        void updateParticipantStatus(eventId, user.id, 'in_handshake');
+        void updateParticipantStatus(eventId, 'in_handshake');
       }
       const call = Daily.createCallObject();
       callRef.current = call;
@@ -674,7 +674,7 @@ export default function VideoDateScreen() {
   }, [eventId]);
 
   const handleSurveyDone = useCallback(() => {
-    if (eventId && user?.id) updateParticipantStatus(eventId, user.id, 'browsing');
+    if (eventId && user?.id) updateParticipantStatus(eventId, 'browsing');
     if (eventId) router.replace(`/event/${eventId}/lobby`);
     else router.replace('/(tabs)/events');
   }, [eventId, user?.id]);

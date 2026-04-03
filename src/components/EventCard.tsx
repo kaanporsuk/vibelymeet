@@ -31,14 +31,15 @@ export const EventCard = ({
   language,
 }: EventCardProps) => {
   const navigate = useNavigate();
-  const { data: userRegistrations = [] } = useUserRegistrations();
-  
-  const [isRegistered, setIsRegistered] = useState(initialRegistered);
+  const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
 
-  // Sync with server registration state
+  const [isConfirmed, setIsConfirmed] = useState(initialRegistered);
+  const [isWaitlisted, setIsWaitlisted] = useState(false);
+
   useEffect(() => {
-    setIsRegistered(userRegistrations.includes(id));
-  }, [userRegistrations, id]);
+    setIsConfirmed(admission.confirmedEventIds.includes(id));
+    setIsWaitlisted(admission.waitlistedEventIds.includes(id));
+  }, [admission.confirmedEventIds, admission.waitlistedEventIds, id]);
 
   const handleCardClick = () => {
     navigate(`/events/${id}`);
@@ -94,16 +95,12 @@ export const EventCard = ({
         </div>
 
         <Button
-          variant={isRegistered ? "outline" : "gradient"}
+          variant={isConfirmed || isWaitlisted ? "outline" : "gradient"}
           size="sm"
-          className={cn("w-full", isRegistered && "border-neon-cyan text-neon-cyan")}
+          className={cn("w-full", (isConfirmed || isWaitlisted) && "border-neon-cyan text-neon-cyan")}
           onClick={handleOpenDetails}
         >
-          {isRegistered ? (
-            "View Ticket"
-          ) : (
-            "Get Tickets"
-          )}
+          {isConfirmed ? "View Ticket" : isWaitlisted ? "On waitlist" : "Get Tickets"}
         </Button>
       </div>
     </div>

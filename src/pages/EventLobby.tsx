@@ -30,7 +30,8 @@ const EventLobby = () => {
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);
-  const { data: isRegistered, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
+  const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
+  const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
   const deckEnabled = Boolean(eventId && user?.id && !user.isPaused);
   const { profiles, isLoading: deckLoading, refetch: refetchDeck } = useEventDeck({
     eventId: eventId || "",
@@ -222,11 +223,16 @@ const EventLobby = () => {
       return;
     }
 
-    if (isRegistered === false) {
-      toast("Register for this event first!", { duration: 2500 });
+    if (!isConfirmedSeat) {
+      toast(
+        regSnapshot?.isWaitlisted
+          ? "You're on the waitlist — we'll notify you if a spot opens."
+          : "Register for this event first!",
+        { duration: 3000 }
+      );
       navigate(`/events/${eventId}`, { replace: true });
     }
-  }, [event, eventLoading, regLoading, isRegistered, eventId, navigate]);
+  }, [event, eventLoading, regLoading, regSnapshot, isConfirmedSeat, eventId, navigate]);
 
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {

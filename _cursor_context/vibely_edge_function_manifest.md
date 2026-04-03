@@ -188,10 +188,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** processes Stripe webhook events and updates subscription / registration / credit state
 - **Auth posture:** Class B — public webhook endpoint; verifies incoming Stripe signature itself
 - **Frontend call sites:** none; provider webhook target
-- **Primary tables touched:** `subscriptions`, `profiles`, `event_registrations`, `user_credits`
+- **Primary tables touched:** `subscriptions`, `profiles`, `event_registrations`, `user_credits`, `stripe_event_ticket_settlements` (event-ticket checkout path)
 - **External services:** Stripe
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_ANNUAL_PRICE_ID`
-- **Rebuild notes:** webhook endpoint registration outside the repo must match the deployed function URL; signature secret must align exactly
+- **Rebuild notes:** webhook endpoint registration outside the repo must match the deployed function URL; signature secret must align exactly. **Event tickets** (`metadata.type = event_ticket`): completion is applied via RPC **`settle_event_ticket_checkout`** (canonical capacity + paid waitlist + idempotency), not via a direct client/table upsert from this function.
 
 ---
 

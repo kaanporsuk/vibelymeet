@@ -24,7 +24,7 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
     async (status: ParticipantStatus) => {
       if (!eventId || !userId) return;
       try {
-        await updateParticipantStatus(eventId, userId, status);
+        await updateParticipantStatus(eventId, status);
       } catch (err) {
         if (__DEV__) console.warn('eventStatus setStatus', err);
       }
@@ -52,7 +52,7 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);
-      updateParticipantStatus(eventId, userId, 'offline').catch(() => {});
+      updateParticipantStatus(eventId, 'offline').catch(() => {});
     };
   }, [enabled, eventId, userId]);
 

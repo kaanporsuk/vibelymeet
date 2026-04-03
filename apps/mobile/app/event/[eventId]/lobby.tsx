@@ -103,7 +103,8 @@ export default function EventLobbyScreen() {
   const id = eventId ?? '';
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
-  const { data: isRegistered } = useIsRegisteredForEvent(id, user?.id);
+  const { data: regSnapshot } = useIsRegisteredForEvent(id, user?.id);
+  const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
 
   const eventEndTime = useMemo(
     () => (event ? getEventEndTime(event.event_date, event.duration_minutes) : null),
@@ -175,9 +176,9 @@ export default function EventLobbyScreen() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!id || !user?.id || isRegistered !== true || !isLiveWindow || pauseStatus.isPaused) return;
+    if (!id || !user?.id || !isConfirmedSeat || !isLiveWindow || pauseStatus.isPaused) return;
     trackEvent('lobby_entered', { event_id: id });
-  }, [id, user?.id, isRegistered, isLiveWindow, pauseStatus.isPaused]);
+  }, [id, user?.id, isConfirmedSeat, isLiveWindow, pauseStatus.isPaused]);
 
   const openReadyGateWithSession = useCallback(
     async (sessionId: string) => {
@@ -365,7 +366,7 @@ export default function EventLobbyScreen() {
       user?.id &&
       event &&
       !eventLoading &&
-      isRegistered === true &&
+      isConfirmedSeat &&
       !pauseStatus.isPaused &&
       isLiveWindow
   );
@@ -418,13 +419,17 @@ export default function EventLobbyScreen() {
     );
   }
 
-  if (!isRegistered) {
+  if (!isConfirmedSeat) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
-            title="Register first"
-            message="Register for this event to view the lobby and meet people."
+            title={regSnapshot?.isWaitlisted ? 'On the paid waitlist' : 'Register first'}
+            message={
+              regSnapshot?.isWaitlisted
+                ? 'The event was full when your payment settled. We’ll let you in if a spot opens — the lobby is for confirmed guests only.'
+                : 'Register for this event to view the lobby and meet people.'
+            }
             actionLabel="Go back"
             onActionPress={() => router.back()}
           />

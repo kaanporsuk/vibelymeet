@@ -226,7 +226,8 @@ export const useNextRegisteredEvent = () => {
     queryKey: ["next-registered-event", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
-      if (!user?.id) return { event: null, isRegistered: false };
+      if (!user?.id)
+        return { event: null, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
 
       const now = new Date();
 
@@ -235,6 +236,7 @@ export const useNextRegisteredEvent = () => {
         .from("event_registrations")
         .select(`
           event_id,
+          admission_status,
           events:event_id (
             id, title, cover_image, event_date, current_attendees, duration_minutes,
             scope, city, country, latitude, longitude
@@ -244,9 +246,14 @@ export const useNextRegisteredEvent = () => {
 
       if (regError) throw regError;
 
-      // Filter to include upcoming AND live events (not ended)
+      type RegRow = {
+        event_id: string;
+        admission_status?: string | null;
+        events: unknown;
+      };
+
       const activeRegistered = (registeredEvents || [])
-        .filter((r) => {
+        .filter((r: RegRow) => {
           if (!r.events) return false;
           const ev = (Array.isArray(r.events) ? r.events[0] : r.events) as {
             event_date: string;
@@ -255,22 +262,20 @@ export const useNextRegisteredEvent = () => {
           const eventStart = new Date(ev.event_date);
           const durationMs = (ev.duration_minutes ?? 60) * 60 * 1000;
           const eventEnd = new Date(eventStart.getTime() + durationMs);
-          return now < eventEnd; // Event hasn't ended yet
+          return now < eventEnd;
         })
-        .sort((a, b) => {
-          const evA = (Array.isArray(a.events) ? a.events[0] : a.events) as {
-            event_date: string;
-          };
-          const evB = (Array.isArray(b.events) ? b.events[0] : b.events) as {
-            event_date: string;
-          };
+        .sort((a: RegRow, b: RegRow) => {
+          const stA = a.admission_status === "confirmed" ? 0 : a.admission_status === "waitlisted" ? 1 : 2;
+          const stB = b.admission_status === "confirmed" ? 0 : b.admission_status === "waitlisted" ? 1 : 2;
+          if (stA !== stB) return stA - stB;
+          const evA = (Array.isArray(a.events) ? a.events[0] : a.events) as { event_date: string };
+          const evB = (Array.isArray(b.events) ? b.events[0] : b.events) as { event_date: string };
           return new Date(evA.event_date).getTime() - new Date(evB.event_date).getTime();
         });
 
       if (activeRegistered.length > 0) {
-        const event = (Array.isArray(activeRegistered[0].events)
-          ? activeRegistered[0].events[0]
-          : activeRegistered[0].events) as {
+        const first = activeRegistered[0] as RegRow;
+        const event = (Array.isArray(first.events) ? first.events[0] : first.events) as {
           id: string;
           title: string;
           cover_image: string;
@@ -283,6 +288,8 @@ export const useNextRegisteredEvent = () => {
         const eventEnd = new Date(eventDate.getTime() + durationMs);
         const isLive = now >= eventDate && now < eventEnd;
         const currentAttendees = event.current_attendees ?? 0;
+        const isConfirmed = first.admission_status === "confirmed";
+        const isWaitlisted = first.admission_status === "waitlisted";
 
         return {
           event: {
@@ -295,7 +302,9 @@ export const useNextRegisteredEvent = () => {
             isLive,
             currentAttendees,
           },
-          isRegistered: true,
+          isRegistered: isConfirmed,
+          isWaitlisted,
+          hasEventAdmission: isConfirmed || isWaitlisted,
         };
       }
 
@@ -325,7 +334,8 @@ export const useNextRegisteredEvent = () => {
         return now < eventEnd;
       });
 
-      if (!activeEvents.length) return { event: null, isRegistered: false };
+      if (!activeEvents.length)
+        return { event: null, isRegistered: false, isWaitlisted: false, hasEventAdmission: false };
 
       const event = activeEvents[0];
       const eventDate = new Date(event.event_date);
@@ -347,6 +357,8 @@ export const useNextRegisteredEvent = () => {
           currentAttendees,
         },
         isRegistered: false,
+        isWaitlisted: false,
+        hasEventAdmission: false,
       };
     },
   });

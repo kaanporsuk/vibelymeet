@@ -230,7 +230,10 @@ const Dashboard = () => {
   }, []);
 
   const nextEvent = nextEventData?.event;
-  const isRegisteredForNextEvent = nextEventData?.isRegistered || false;
+  const isConfirmedForNextEvent = nextEventData?.isRegistered || false;
+  const isWaitlistedForNextEvent = nextEventData?.isWaitlisted || false;
+  const hasEventAdmissionForNext =
+    nextEventData?.hasEventAdmission ?? (isConfirmedForNextEvent || isWaitlistedForNextEvent);
   const isLiveEvent = nextEvent?.isLive === true;
 
   const hoursUntilNext = useMemo(() => {
@@ -241,12 +244,12 @@ const Dashboard = () => {
   const startingSoonWithin2h = useMemo(() => {
     return (
       !!nextEvent &&
-      isRegisteredForNextEvent &&
+      hasEventAdmissionForNext &&
       !isLiveEvent &&
       hoursUntilNext > 0 &&
       hoursUntilNext <= 2
     );
-  }, [nextEvent, isRegisteredForNextEvent, isLiveEvent, hoursUntilNext]);
+  }, [nextEvent, hasEventAdmissionForNext, isLiveEvent, hoursUntilNext]);
 
   const profileCompletenessPercent = useMemo(() => {
     const photoScore = Math.min((homeProfile?.photos?.length ?? 0) / 2, 1);
@@ -336,7 +339,8 @@ const Dashboard = () => {
     "there";
 
   const contextualSubline = useMemo(() => {
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) return "Your event is live now";
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) return "Your event is live now";
+    if (isLiveEvent && isWaitlistedForNextEvent && nextEvent) return "Your event is live — you're on the waitlist";
     if (startingSoonWithin2h && nextEvent)
       return `Get ready — ${nextEvent.title} starts soon`;
     if (newMatchCount > 0)
@@ -345,7 +349,8 @@ const Dashboard = () => {
     return "Let's find your vibe today";
   }, [
     isLiveEvent,
-    isRegisteredForNextEvent,
+    isConfirmedForNextEvent,
+    isWaitlistedForNextEvent,
     nextEvent,
     startingSoonWithin2h,
     newMatchCount,
@@ -358,7 +363,7 @@ const Dashboard = () => {
     type QA = { key: string; icon: ReactNode; label: string; className: string; onClick: () => void };
     const actions: QA[] = [];
 
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) {
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) {
       actions.push({
         key: "lobby",
         icon: <Radio className="w-4 h-4 shrink-0" />,
@@ -395,7 +400,7 @@ const Dashboard = () => {
         onClick: () => navigate("/profile"),
       });
     }
-    if (!isRegisteredForNextEvent) {
+    if (!hasEventAdmissionForNext) {
       actions.push({
         key: "browse",
         icon: <Search className="w-4 h-4 shrink-0" />,
@@ -593,7 +598,7 @@ const Dashboard = () => {
           </div>
         )}
 
-        {!showHeroSkeleton && isLiveEvent && isRegisteredForNextEvent && nextEvent && (
+        {!showHeroSkeleton && isLiveEvent && isConfirmedForNextEvent && nextEvent && (
           <motion.section
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -632,7 +637,7 @@ const Dashboard = () => {
           !isLiveEvent &&
           startingSoonWithin2h &&
           nextEvent &&
-          isRegisteredForNextEvent && (
+          hasEventAdmissionForNext && (
             <motion.section
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -684,7 +689,7 @@ const Dashboard = () => {
           !isLiveEvent &&
           !startingSoonWithin2h &&
           nextEvent &&
-          isRegisteredForNextEvent && (
+          hasEventAdmissionForNext && (
             <motion.section
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -703,7 +708,7 @@ const Dashboard = () => {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-background via-background/65 to-black/20 pointer-events-none" />
                   <div className="absolute top-3 right-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
-                    You&apos;re registered ✓
+                    {isWaitlistedForNextEvent ? "On waitlist" : "You're registered ✓"}
                   </div>
                   <div className="absolute bottom-3 left-3 pr-3">
                     <h3 className="text-lg font-display font-bold text-white drop-shadow-md">{nextEvent.title}</h3>
@@ -744,7 +749,7 @@ const Dashboard = () => {
             </motion.section>
           )}
 
-        {!showHeroSkeleton && !isRegisteredForNextEvent && (
+        {!showHeroSkeleton && !hasEventAdmissionForNext && (
           <div className="glass-card space-y-4 border border-white/10 p-8 text-center">
             <Sparkles className="mx-auto h-10 w-10 text-primary" />
             <h3 className="text-xl font-display font-bold text-foreground">Find your next vibe</h3>

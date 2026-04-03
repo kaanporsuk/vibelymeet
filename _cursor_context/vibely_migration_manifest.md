@@ -506,6 +506,17 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11b. Stream — canonical event admission + Stripe ticket settlement (2026-04-05)
+
+- **Migration:** `supabase/migrations/20260405103000_event_admission_rpc_auth_stripe_settle.sql`
+- **Table:** `public.stripe_event_ticket_settlements` — idempotency ledger for processing `checkout.session.completed` when `metadata.type = 'event_ticket'`
+- **Column:** `public.event_registrations.admission_status` — `confirmed` | `waitlisted` | `canceled`; **`events.current_attendees` is maintained from confirmed rows only** (trigger `update_event_attendees`)
+- **RLS:** `event_registrations` SELECT — own row, or any row for events where the viewer has a **confirmed** registration (cohort visibility)
+- **RPCs (high level):** `register_for_event(p_event_id)` uses `auth.uid()` only for free confirmed admission; **`settle_event_ticket_checkout`** (service role) is the canonical paid settlement entrypoint; event-path mutations (`handle_swipe`, queue drain/leave/status, `join_matching_queue`, `find_video_date_match`, deck/visible-events helpers) bind **`auth.uid()`** and confirmed-admission rules where applicable
+- **Note:** `ready_gate_transition`, `video_date_transition`, and `submit_post_date_verdict` already enforced participant identity via `auth.uid()` in earlier migrations; this stream did not need to redefine them
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

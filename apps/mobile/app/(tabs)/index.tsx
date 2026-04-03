@@ -217,7 +217,10 @@ export default function DashboardScreen() {
   );
 
   const nextEvent = nextEventData?.event ?? null;
-  const isRegisteredForNextEvent = nextEventData?.isRegistered ?? false;
+  const isConfirmedForNextEvent = nextEventData?.isRegistered ?? false;
+  const isWaitlistedForNextEvent = nextEventData?.isWaitlisted ?? false;
+  const hasEventAdmissionForNext =
+    nextEventData?.hasEventAdmission ?? (isConfirmedForNextEvent || isWaitlistedForNextEvent);
   const isLiveEvent = nextEvent?.status === 'live';
 
   const hoursUntilNext = useMemo(() => {
@@ -373,12 +376,13 @@ export default function DashboardScreen() {
     'there';
 
   const getSubline = (): string | null => {
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) return "You're live tonight";
-    if (nextEvent && isRegisteredForNextEvent && hoursUntilNext < 24) return 'Tonight looks promising';
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) return "You're live tonight";
+    if (isLiveEvent && isWaitlistedForNextEvent && nextEvent) return "Event is live — you're on the waitlist";
+    if (nextEvent && hasEventAdmissionForNext && hoursUntilNext < 24) return 'Tonight looks promising';
     if (unreadMessageCount > 0)
       return `${unreadMessageCount} fresh conversation${unreadMessageCount > 1 ? 's' : ''}`;
     if (newMatchCount > 0) return 'Someone new vibed with you';
-    if (nextEvent && isRegisteredForNextEvent) return 'Your next event is coming up';
+    if (nextEvent && hasEventAdmissionForNext) return 'Your next event is coming up';
     return null;
   };
 
@@ -395,7 +399,7 @@ export default function DashboardScreen() {
       );
     }
 
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) {
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) {
       return (
         <View style={[styles.heroCard, { borderColor: theme.glassBorder }]}>
           <View style={[styles.heroCoverWrap, { height: 200 }]}>
@@ -426,7 +430,34 @@ export default function DashboardScreen() {
       );
     }
 
-    if (nextEvent && isRegisteredForNextEvent && hoursUntilNext <= 24) {
+    if (isLiveEvent && isWaitlistedForNextEvent && nextEvent) {
+      return (
+        <View style={[styles.heroCard, { borderColor: theme.glassBorder }]}>
+          <View style={[styles.heroCoverWrap, { height: 180 }]}>
+            <Image source={{ uri: eventCoverUrl(nextEvent.image) }} style={styles.heroCover} resizeMode="cover" />
+            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.heroGradient} />
+            <View style={[styles.liveBadge, { backgroundColor: theme.dangerSoft, borderColor: theme.danger }]}>
+              <PulsingLiveDot color={theme.danger} />
+              <Text style={[styles.liveBadgeText, { color: theme.danger }]}>Live Now</Text>
+            </View>
+            <View style={styles.heroContentAbs}>
+              <Text style={styles.heroTitle}>{nextEvent.title}</Text>
+              <Text style={styles.heroSubtitle}>You're on the paid waitlist</Text>
+            </View>
+          </View>
+          <View style={[styles.heroContent, { backgroundColor: theme.secondary }]}>
+            <VibelyButton
+              label="View event"
+              variant="primary"
+              onPress={() => router.push(`/events/${nextEvent.id}` as const)}
+              style={styles.ctaFull}
+            />
+          </View>
+        </View>
+      );
+    }
+
+    if (nextEvent && hasEventAdmissionForNext && hoursUntilNext <= 24) {
       return (
         <View style={[styles.heroCard, { borderColor: theme.glassBorder }]}>
           <View style={[styles.heroCoverWrap, { height: 180 }]}>
@@ -438,7 +469,9 @@ export default function DashboardScreen() {
                 { backgroundColor: withAlpha(theme.neonCyan, 0.2), borderColor: withAlpha(theme.neonCyan, 0.3) },
               ]}
             >
-              <Text style={[styles.registeredText, { color: theme.neonCyan }]}>✓ Registered</Text>
+              <Text style={[styles.registeredText, { color: theme.neonCyan }]}>
+                {isWaitlistedForNextEvent ? 'On waitlist' : '✓ Registered'}
+              </Text>
             </View>
             <View style={styles.heroContentAbs}>
               <Text style={styles.heroTitle}>{nextEvent.title}</Text>
@@ -472,7 +505,7 @@ export default function DashboardScreen() {
       );
     }
 
-    if (nextEvent && isRegisteredForNextEvent) {
+    if (nextEvent && hasEventAdmissionForNext) {
       return (
         <View style={[styles.heroCard, { borderColor: theme.glassBorder }]}>
           <View style={[styles.heroCoverWrap, { height: 140 }]}>
@@ -484,7 +517,9 @@ export default function DashboardScreen() {
                 { backgroundColor: withAlpha(theme.neonCyan, 0.2), borderColor: withAlpha(theme.neonCyan, 0.3) },
               ]}
             >
-              <Text style={[styles.registeredText, { color: theme.neonCyan }]}>✓ Registered</Text>
+              <Text style={[styles.registeredText, { color: theme.neonCyan }]}>
+                {isWaitlistedForNextEvent ? 'On waitlist' : '✓ Registered'}
+              </Text>
             </View>
             <View style={styles.heroContentAbs}>
               <Text style={styles.heroTitle}>{nextEvent.title}</Text>
@@ -528,7 +563,7 @@ export default function DashboardScreen() {
   function QuickActionsRail() {
     const actions: Array<{ icon: keyof typeof Ionicons.glyphMap; label: string; color: string; onPress: () => void }> = [];
 
-    if (isLiveEvent && isRegisteredForNextEvent && nextEvent) {
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) {
       actions.push({
         icon: 'radio-outline',
         label: 'Lobby is live',

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
-import { useUserProfile } from "@/contexts/AuthContext";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 
 export type ParticipantStatus =
   | "browsing"
@@ -18,8 +18,14 @@ interface UseEventStatusOptions {
 
 export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOptions) => {
   const { user } = useUserProfile();
+  const { session } = useAuth();
+  const accessTokenRef = useRef<string | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
+
+  useEffect(() => {
+    accessTokenRef.current = session?.access_token ?? null;
+  }, [session?.access_token]);
 
   const setStatus = useCallback(
     async (status: ParticipantStatus) => {
@@ -29,7 +35,6 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
       try {
         await supabase.rpc("update_participant_status", {
           p_event_id: eventId,
-          p_user_id: user.id,
           p_status: status,
         });
       } catch (err) {
@@ -63,19 +68,22 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
     if (!enabled || !eventId || !user?.id) return;
 
     const handleBeforeUnload = () => {
-      // Use sendBeacon for reliability on page close
-      // Include apikey as query param since sendBeacon can't set custom headers
-      // update_participant_status is SECURITY DEFINER so anon key is sufficient
-      const url = `${SUPABASE_URL}/rest/v1/rpc/update_participant_status?apikey=${SUPABASE_PUBLISHABLE_KEY}`;
-      const body = JSON.stringify({
-        p_event_id: eventId,
-        p_user_id: user.id,
-        p_status: "offline",
-      });
-      navigator.sendBeacon(
-        url,
-        new Blob([body], { type: "application/json" })
-      );
+      const token = accessTokenRef.current;
+      if (!token) return;
+      const url = `${SUPABASE_URL}/rest/v1/rpc/update_participant_status`;
+      void fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
+          p_event_id: eventId,
+          p_status: "offline",
+        }),
+        keepalive: true,
+      }).catch(() => {});
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
