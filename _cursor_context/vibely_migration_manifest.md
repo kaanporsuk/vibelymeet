@@ -527,6 +527,14 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11d. Stream — Ready Gate / queue_status phase sync + server-owned reconnect grace (2026-04-09)
+
+- **Migration:** `supabase/migrations/20260409100000_video_date_reconnect_grace_queue_sync.sql`
+- **Table `public.video_sessions`:** `reconnect_grace_ends_at`, `participant_1_away_at`, `participant_2_away_at` — 30s server-owned grace, away markers cleared on return
+- **`video_date_transition`:** extends with `sync_reconnect`, `mark_reconnect_partner_away`, `mark_reconnect_return`; lazy expiry at RPC entry when `reconnect_grace_ends_at <= now()` → `ended` / `ended_reason = reconnect_grace_expired`, registrations reset to `idle`; `enter_handshake` / `end` / vibe paths align `event_registrations.queue_status` with handshake vs date vs survey/offline (no FIFO / `drain_match_queue` ordering changes)
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

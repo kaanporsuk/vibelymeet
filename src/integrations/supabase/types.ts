@@ -2726,8 +2726,10 @@ export type Database = {
           event_id: string
           handshake_started_at: string | null
           id: string
+          participant_1_away_at: string | null
           participant_1_id: string
           participant_1_liked: boolean | null
+          participant_2_away_at: string | null
           participant_2_id: string
           participant_2_liked: boolean | null
           phase: string
@@ -2735,6 +2737,7 @@ export type Database = {
           ready_gate_status: string
           ready_participant_1_at: string | null
           ready_participant_2_at: string | null
+          reconnect_grace_ends_at: string | null
           snooze_expires_at: string | null
           snoozed_by: string | null
           started_at: string
@@ -2752,8 +2755,10 @@ export type Database = {
           event_id: string
           handshake_started_at?: string | null
           id?: string
+          participant_1_away_at?: string | null
           participant_1_id: string
           participant_1_liked?: boolean | null
+          participant_2_away_at?: string | null
           participant_2_id: string
           participant_2_liked?: boolean | null
           phase?: string
@@ -2761,6 +2766,7 @@ export type Database = {
           ready_gate_status?: string
           ready_participant_1_at?: string | null
           ready_participant_2_at?: string | null
+          reconnect_grace_ends_at?: string | null
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string
@@ -2778,8 +2784,10 @@ export type Database = {
           event_id?: string
           handshake_started_at?: string | null
           id?: string
+          participant_1_away_at?: string | null
           participant_1_id?: string
           participant_1_liked?: boolean | null
+          participant_2_away_at?: string | null
           participant_2_id?: string
           participant_2_liked?: boolean | null
           phase?: string
@@ -2787,6 +2795,7 @@ export type Database = {
           ready_gate_status?: string
           ready_participant_1_at?: string | null
           ready_participant_2_at?: string | null
+          reconnect_grace_ends_at?: string | null
           snooze_expires_at?: string | null
           snoozed_by?: string | null
           started_at?: string

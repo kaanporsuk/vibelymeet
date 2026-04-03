@@ -32,11 +32,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
     setIsTransitioning(true);
-    setStatus("in_date");
     setTimeout(() => {
       navigate(`/date/${sessionId}`);
     }, 1200);
-  }, [navigate, sessionId, setStatus]);
+  }, [navigate, sessionId]);
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {

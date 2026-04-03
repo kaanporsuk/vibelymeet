@@ -2,70 +2,149 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 
+export type VideoDatePhase = "handshake" | "date" | "ended";
+
 interface UseReconnectionOptions {
   sessionId: string | undefined;
-  eventId: string | undefined;
   isConnected: boolean;
+  phase: VideoDatePhase;
   onReconnected?: () => void;
+  /** Fired when server ends session due to reconnect grace expiry only */
   onGraceExpired?: () => void;
 }
 
+type SyncPayload = {
+  reconnect_grace_ends_at: string | null;
+  ended: boolean;
+  ended_reason: string | null;
+  partner_marked_away: boolean;
+};
+
 export const useReconnection = ({
   sessionId,
-  eventId,
   isConnected,
+  phase,
   onReconnected,
   onGraceExpired,
 }: UseReconnectionOptions) => {
   const { user } = useUserProfile();
-  const [isPartnerDisconnected, setIsPartnerDisconnected] = useState(false);
-  const [graceTimeLeft, setGraceTimeLeft] = useState(60);
-  const [isTimerPaused, setIsTimerPaused] = useState(false);
-  const graceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wasConnectedRef = useRef(false);
+  const [graceTimeLeft, setGraceTimeLeft] = useState(0);
+  /** True when Daily reports partner left or server marks partner away */
+  const [inReconnectGraceUi, setInReconnectGraceUi] = useState(false);
+  /** After we've had at least one Daily connected state (used for partner-away RPC + reconnect return). */
+  const hadConnectedOnceRef = useRef(false);
+  const prevIsConnectedRef = useRef(false);
+  const onGraceExpiredRef = useRef(onGraceExpired);
+  const onReconnectedRef = useRef(onReconnected);
+  const graceExpiredFiredRef = useRef(false);
 
-  // Track connection state changes for partner disconnect detection
   useEffect(() => {
-    if (isConnected) {
-      if (wasConnectedRef.current && isPartnerDisconnected) {
-        // Partner reconnected!
-        setIsPartnerDisconnected(false);
-        setIsTimerPaused(false);
-        setGraceTimeLeft(60);
-        if (graceTimerRef.current) {
-          clearInterval(graceTimerRef.current);
-          graceTimerRef.current = null;
+    onGraceExpiredRef.current = onGraceExpired;
+    onReconnectedRef.current = onReconnected;
+  }, [onGraceExpired, onReconnected]);
+
+  const fetchSync = useCallback(async (): Promise<SyncPayload | null> => {
+    if (!sessionId) return null;
+    const { data, error } = await supabase.rpc("video_date_transition", {
+      p_session_id: sessionId,
+      p_action: "sync_reconnect",
+    });
+    if (error) return null;
+    const p = data as {
+      success?: boolean;
+      reconnect_grace_ends_at?: string | null;
+      ended?: boolean;
+      ended_reason?: string | null;
+      partner_marked_away?: boolean;
+    } | null;
+    return {
+      reconnect_grace_ends_at: p?.reconnect_grace_ends_at ?? null,
+      ended: p?.ended === true,
+      ended_reason: p?.ended_reason ?? null,
+      partner_marked_away: p?.partner_marked_away === true,
+    };
+  }, [sessionId]);
+
+  // Server-owned grace: poll sync_reconnect (applies lazy expiry on server)
+  useEffect(() => {
+    if (!sessionId || phase === "ended") return;
+
+    let cancelled = false;
+
+    const tick = async () => {
+      const r = await fetchSync();
+      if (cancelled || !r) return;
+
+      if (r.ended) {
+        if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
+          graceExpiredFiredRef.current = true;
+          onGraceExpiredRef.current?.();
         }
-        onReconnected?.();
+        setInReconnectGraceUi(false);
+        setGraceTimeLeft(0);
+        return;
       }
-      wasConnectedRef.current = true;
+
+      graceExpiredFiredRef.current = false;
+
+      const hasGrace = !!r.reconnect_grace_ends_at;
+      const show = hasGrace && r.partner_marked_away;
+      setInReconnectGraceUi(show);
+
+      if (hasGrace && r.reconnect_grace_ends_at) {
+        const sec = Math.max(
+          0,
+          Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000),
+        );
+        setGraceTimeLeft(sec);
+      } else {
+        setGraceTimeLeft(0);
+      }
+    };
+
+    void tick();
+    const iv = setInterval(() => void tick(), 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [sessionId, phase, fetchSync]);
+
+  useEffect(() => {
+    const prev = prevIsConnectedRef.current;
+    prevIsConnectedRef.current = isConnected;
+
+    if (!isConnected) {
+      return;
     }
-  }, [isConnected, isPartnerDisconnected, onReconnected]);
 
-  // Start grace window when partner disconnects
-  const startGraceWindow = useCallback(() => {
-    if (!wasConnectedRef.current) return; // Never was connected
+    if (!hadConnectedOnceRef.current) {
+      hadConnectedOnceRef.current = true;
+      return;
+    }
 
-    setIsPartnerDisconnected(true);
-    setIsTimerPaused(true);
-    setGraceTimeLeft(60);
-
-    if (graceTimerRef.current) clearInterval(graceTimerRef.current);
-
-    graceTimerRef.current = setInterval(() => {
-      setGraceTimeLeft((prev) => {
-        if (prev <= 1) {
-          if (graceTimerRef.current) clearInterval(graceTimerRef.current);
-          graceTimerRef.current = null;
-          onGraceExpired?.();
-          return 0;
-        }
-        return prev - 1;
+    // Disconnected → connected again: clear our away slot (partner may have reported us while we were gone).
+    if (!prev && sessionId && phase !== "ended") {
+      void supabase.rpc("video_date_transition", {
+        p_session_id: sessionId,
+        p_action: "mark_reconnect_return",
       });
-    }, 1000);
-  }, [onGraceExpired]);
+      setInReconnectGraceUi(false);
+      onReconnectedRef.current?.();
+    }
+  }, [isConnected, sessionId, phase]);
 
-  // Check for active session on mount (for reconnection after browser close)
+  const startGraceWindow = useCallback(() => {
+    if (!hadConnectedOnceRef.current || !sessionId || phase === "ended") return;
+
+    setInReconnectGraceUi(true);
+
+    void supabase.rpc("video_date_transition", {
+      p_session_id: sessionId,
+      p_action: "mark_reconnect_partner_away",
+    });
+  }, [sessionId, phase]);
+
   const checkActiveSession = useCallback(async (): Promise<{
     hasActiveSession: boolean;
     sessionId?: string;
@@ -73,7 +152,6 @@ export const useReconnection = ({
   }> => {
     if (!user?.id) return { hasActiveSession: false };
 
-    // Check if user has an active registration with in_handshake or in_date status
     const { data: reg } = await supabase
       .from("event_registrations")
       .select("event_id, current_room_id, queue_status")
@@ -82,7 +160,6 @@ export const useReconnection = ({
       .maybeSingle();
 
     if (reg?.current_room_id) {
-      // Verify the video session is still active (not ended)
       const { data: session } = await supabase
         .from("video_sessions")
         .select("id, ended_at")
@@ -102,12 +179,8 @@ export const useReconnection = ({
     return { hasActiveSession: false };
   }, [user?.id]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (graceTimerRef.current) clearInterval(graceTimerRef.current);
-    };
-  }, []);
+  const isPartnerDisconnected = inReconnectGraceUi;
+  const isTimerPaused = inReconnectGraceUi;
 
   return {
     isPartnerDisconnected,
