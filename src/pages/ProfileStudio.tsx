@@ -28,7 +28,6 @@ import {
   Calendar,
   Trash2,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,6 +43,8 @@ import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector } from "@/components/HeightSelector";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
+import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
 import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScoreIncompleteActions";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
@@ -233,91 +234,6 @@ function VibeScoreHeroCircle({ score }: { score: number }) {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Fullscreen HLS player (copied from legacy)
-// ────────────────────────────────────────────────────────────────────
-
-const FullscreenVibePlayer = ({
-  show,
-  bunnyVideoUid,
-  bunnyVideoStatus,
-  vibeCaption,
-  onClose,
-}: {
-  show: boolean;
-  bunnyVideoUid: string | null;
-  bunnyVideoStatus: string;
-  vibeCaption: string;
-  onClose: () => void;
-}) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (!show || !bunnyVideoUid || bunnyVideoStatus !== "ready") return;
-    const videoEl = videoRef.current;
-    if (!videoEl) return;
-    const src = `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`;
-    if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-      videoEl.src = src;
-      videoEl.play().catch(() => {});
-    } else {
-      import("hls.js").then(({ default: Hls }) => {
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(videoEl);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
-        }
-      });
-    }
-    return () => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-      if (videoEl) { videoEl.pause(); videoEl.removeAttribute("src"); videoEl.load(); }
-    };
-  }, [show, bunnyVideoUid, bunnyVideoStatus]);
-
-  return (
-    <AnimatePresence>
-      {show && bunnyVideoUid && bunnyVideoStatus === "ready" && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black flex items-center justify-center z-[9999]"
-          style={{ height: "100dvh" }}
-          onClick={onClose}
-        >
-          <button
-            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
-            onClick={onClose}
-          >
-            <span className="text-white text-lg">✕</span>
-          </button>
-          <video
-            ref={videoRef}
-            className="w-full h-full object-contain"
-            poster={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/thumbnail.jpg`}
-            playsInline
-            loop
-            onClick={(e) => e.stopPropagation()}
-          />
-          {vibeCaption && (
-            <div className="absolute bottom-0 left-0 right-0 px-6 pb-8 pointer-events-none bg-gradient-to-t from-black/75 to-transparent">
-              <p className="text-[10px] font-semibold uppercase tracking-widest bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent mb-1">
-                Vibing on
-              </p>
-              <p className="text-white font-bold text-lg">{vibeCaption}</p>
-            </div>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
-
-// ────────────────────────────────────────────────────────────────────
 // Main component
 // ────────────────────────────────────────────────────────────────────
 
@@ -334,7 +250,6 @@ const ProfileStudio = () => {
   const [showVibeScoreDrawer, setShowVibeScoreDrawer] = useState(false);
   const [showVibeStudio, setShowVibeStudio] = useState(false);
   const [showVibePlayer, setShowVibePlayer] = useState(false);
-  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
@@ -451,18 +366,31 @@ const ProfileStudio = () => {
   }, [profileRefreshKey]);
 
   useEffect(() => {
-    setThumbnailError(false);
-    if (profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready") {
-      setVibeVideoPlaybackUrl(`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`);
-    } else {
-      setVibeVideoPlaybackUrl(null);
-    }
-  }, [profile.bunnyVideoUid, profile.bunnyVideoStatus]);
-
-  useEffect(() => {
     if (!showVibeStudio) return;
     if (profile.bunnyVideoStatus === "failed") setProfile((prev) => ({ ...prev, bunnyVideoStatus: "none" }));
   }, [showVibeStudio]);
+
+  const vibeVideoInfo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunnyVideoUid: profile.bunnyVideoUid,
+        bunnyVideoStatus: profile.bunnyVideoStatus,
+        vibeCaption: profile.vibeCaption,
+      }),
+    [profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.vibeCaption],
+  );
+  const vibeVideoPlaybackUrl = vibeVideoInfo.playbackUrl;
+  const hasVibeVideo = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.playbackUrl;
+  const isVibeVideoProcessing =
+    vibeVideoInfo.state === "processing" || vibeVideoInfo.state === "uploading";
+  const isVibeVideoFailed = vibeVideoInfo.state === "failed";
+  const isVibeVideoDataError = vibeVideoInfo.state === "error";
+  const readyAwaitingPlaybackUrl = vibeVideoInfo.state === "ready" && !vibeVideoInfo.playbackUrl;
+  const thumbnailUrl = vibeVideoInfo.thumbnailUrl;
+
+  useEffect(() => {
+    setThumbnailError(false);
+  }, [thumbnailUrl]);
 
   // ── Derived data ──────────────────────────────────────────────
 
@@ -488,10 +416,6 @@ const ProfileStudio = () => {
     }),
     [profile, phoneVerified, emailVerified],
   );
-  const hasVibeVideo = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready");
-  const isVibeVideoProcessing = !!(profile.bunnyVideoUid && (profile.bunnyVideoStatus === "uploading" || profile.bunnyVideoStatus === "processing"));
-  const isVibeVideoFailed = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "failed");
-  const thumbnailUrl = profile.bunnyVideoUid ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg` : null;
   const filledPromptCount = profile.prompts.filter((p) => p.question?.trim() && p.answer?.trim()).length;
   const storedMeetingPref = profile.lifestyle?.meeting_preference ?? "both";
 
@@ -1021,7 +945,7 @@ const ProfileStudio = () => {
               <Video className="h-[18px] w-[18px] text-primary" />
               <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
             </div>
-            {profile.bunnyVideoUid?.trim() ? (
+            {vibeVideoInfo.uid ? (
               <button
                 type="button"
                 onClick={() => openDrawer("vibe-video")}
@@ -1035,20 +959,39 @@ const ProfileStudio = () => {
           {isVibeVideoProcessing ? (
             <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10">
               <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
-              <p className="text-base font-display font-semibold text-white">Processing your video…</p>
-              <p className="text-sm text-gray-400 text-center px-6">This usually takes 15–30 seconds</p>
+              <p className="text-base font-display font-semibold text-white">Processing your Vibe Video…</p>
+              <p className="text-sm text-gray-400 text-center px-6">Usually 15–30 seconds while we get it ready to play</p>
             </div>
           ) : isVibeVideoFailed ? (
             <div className="rounded-2xl bg-white/5 backdrop-blur border border-red-500/20 flex flex-col items-center justify-center gap-3 py-10">
               <Video className="w-12 h-12 text-red-400/50" />
-              <p className="text-base font-display font-semibold text-white">Processing failed</p>
-              <p className="text-sm text-gray-400 text-center px-6">Something went wrong — try recording again</p>
+              <p className="text-base font-display font-semibold text-white">Couldn&apos;t finish processing</p>
+              <p className="text-sm text-gray-400 text-center px-6">Try recording again — your clip didn&apos;t make it through</p>
               <button
                 onClick={() => setShowVibeStudio(true)}
                 className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
               >
                 Record again
               </button>
+            </div>
+          ) : isVibeVideoDataError ? (
+            <div className="rounded-2xl bg-white/5 backdrop-blur border border-amber-500/20 flex flex-col items-center justify-center gap-3 py-10 px-6">
+              <Video className="w-12 h-12 text-amber-400/70" />
+              <p className="text-base font-display font-semibold text-white text-center">Video status looks inconsistent</p>
+              <p className="text-sm text-gray-400 text-center">Open Manage to refresh or re-upload if this persists.</p>
+              <button
+                type="button"
+                onClick={() => openDrawer("vibe-video")}
+                className="mt-2 px-6 py-2.5 rounded-xl bg-white/10 text-white font-semibold text-sm"
+              >
+                Manage
+              </button>
+            </div>
+          ) : readyAwaitingPlaybackUrl ? (
+            <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10 px-6">
+              <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
+              <p className="text-base font-display font-semibold text-white text-center">Ready on our side</p>
+              <p className="text-sm text-gray-400 text-center">Preview link isn&apos;t loading — check connection or try again shortly.</p>
             </div>
           ) : hasVibeVideo ? (
             <div className="relative w-full rounded-2xl overflow-hidden bg-secondary" style={{ aspectRatio: "16/9" }}>
@@ -1062,7 +1005,7 @@ const ProfileStudio = () => {
               {/* Live badge */}
               <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                <span className="text-[9px] font-semibold tracking-widest text-green-500">LIVE</span>
+                <span className="text-[9px] font-semibold tracking-widest text-green-500">READY</span>
               </div>
 
               {/* Play button */}
@@ -1908,7 +1851,13 @@ const ProfileStudio = () => {
         onPhotosChanged={() => setProfileRefreshKey((k) => k + 1)}
       />
 
-      <FullscreenVibePlayer show={showVibePlayer} bunnyVideoUid={profile.bunnyVideoUid} bunnyVideoStatus={profile.bunnyVideoStatus} vibeCaption={profile.vibeCaption} onClose={() => setShowVibePlayer(false)} />
+      <VibeVideoFullscreenPlayer
+        show={showVibePlayer}
+        bunnyVideoUid={profile.bunnyVideoUid}
+        bunnyVideoStatus={profile.bunnyVideoStatus}
+        vibeCaption={profile.vibeCaption}
+        onClose={() => setShowVibePlayer(false)}
+      />
 
       <BottomNav />
     </div>

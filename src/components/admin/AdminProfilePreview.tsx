@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -24,6 +24,7 @@ import { getImageUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 interface AdminProfilePreviewProps {
   userId: string;
@@ -33,8 +34,6 @@ interface AdminProfilePreviewProps {
 
 const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewProps) => {
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
-  const [vibeVideoPlaybackUrl, setVibeVideoPlaybackUrl] = useState<string | null>(null);
-  const [isResolvingVideo, setIsResolvingVideo] = useState(false);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
 
   // Fetch user profile
@@ -80,18 +79,17 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
     setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
   }, [profile?.photos]);
 
-  // Resolve Bunny CDN video URL
-  useEffect(() => {
-    if (!profile?.bunny_video_uid || (profile as any).bunny_video_status !== "ready") {
-      setVibeVideoPlaybackUrl(null);
-      setIsResolvingVideo(false);
-      return;
-    }
-    setVibeVideoPlaybackUrl(
-      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunny_video_uid}/playlist.m3u8`
-    );
-    setIsResolvingVideo(false);
-  }, [profile?.bunny_video_uid, (profile as any)?.bunny_video_status]);
+  const vibeVideo = useMemo(
+    () =>
+      profile
+        ? resolveWebVibeVideoState({
+            bunny_video_uid: profile.bunny_video_uid,
+            bunny_video_status: profile.bunny_video_status,
+            vibe_caption: profile.vibe_caption,
+          })
+        : null,
+    [profile],
+  );
 
   if (!isOpen) return null;
 
@@ -194,40 +192,54 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                 </div>
               )}
 
-              {/* Video Intro */}
-              {profile.bunny_video_uid && (profile as any).bunny_video_status === "ready" && (
+              {/* Vibe Video — canonical admin truth */}
+              {vibeVideo && vibeVideo.state !== "none" && (
                 <div className="glass-card p-4 rounded-xl">
                   <div className="flex items-center gap-2 mb-3">
                     <Video className="w-4 h-4 text-cyan-400" />
                     <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+                    <span className="text-xs text-muted-foreground/80">({vibeVideo.state})</span>
                   </div>
-                  <div
-                    className="relative aspect-video rounded-lg overflow-hidden bg-secondary/50 cursor-pointer"
-                    onClick={() => vibeVideoPlaybackUrl && setShowVideoPlayer(!showVideoPlayer)}
-                  >
-                    {isResolvingVideo && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-                    {vibeVideoPlaybackUrl && (
-                      <>
-                        <VibePlayer
-                          videoUrl={vibeVideoPlaybackUrl}
-                          autoPlay={showVideoPlayer}
-                          showControls
-                          className="w-full h-full"
-                        />
-                        {!showVideoPlayer && (
-                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                            <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
-                              <Play className="w-5 h-5 text-background ml-1" fill="currentColor" />
-                            </div>
+                  {vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+                    <div className="relative aspect-video rounded-lg overflow-hidden bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
+                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">Processing — not playable yet</p>
+                    </div>
+                  ) : vibeVideo.state === "failed" ? (
+                    <div className="aspect-video rounded-lg bg-secondary/50 flex items-center justify-center p-4">
+                      <p className="text-sm text-destructive text-center">Encoding failed</p>
+                    </div>
+                  ) : vibeVideo.state === "error" ? (
+                    <div className="aspect-video rounded-lg bg-secondary/50 flex items-center justify-center p-4">
+                      <p className="text-sm text-muted-foreground text-center">Inconsistent profile data</p>
+                    </div>
+                  ) : vibeVideo.state === "ready" && vibeVideo.playbackUrl ? (
+                    <div
+                      className="relative aspect-video rounded-lg overflow-hidden bg-secondary/50 cursor-pointer"
+                      onClick={() => setShowVideoPlayer(!showVideoPlayer)}
+                    >
+                      <VibePlayer
+                        videoUrl={vibeVideo.playbackUrl}
+                        thumbnailUrl={vibeVideo.thumbnailUrl ?? undefined}
+                        vibeCaption={vibeVideo.caption ?? undefined}
+                        autoPlay={showVideoPlayer}
+                        showControls
+                        className="w-full h-full"
+                        backendReportsReady
+                      />
+                      {!showVideoPlayer && (
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center pointer-events-none">
+                          <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+                            <Play className="w-5 h-5 text-background ml-1" fill="currentColor" />
                           </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : vibeVideo.state === "ready" && !vibeVideo.playbackUrl ? (
+                    <div className="aspect-video rounded-lg bg-secondary/50 flex items-center justify-center p-4">
+                      <p className="text-sm text-muted-foreground text-center">Ready in DB — no playback URL (CDN/env)</p>
+                    </div>
+                  ) : null}
                 </div>
               )}
 

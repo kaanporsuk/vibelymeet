@@ -28,6 +28,7 @@ import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 
 interface ProfileDetailDrawerProps {
@@ -88,7 +89,6 @@ export const ProfileDetailDrawer = ({
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(true);
-  const [signedVideoUrl, setSignedVideoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -127,19 +127,18 @@ export const ProfileDetailDrawer = ({
   const bunnyUid = fetchedProfile?.bunny_video_uid ?? match.bunnyVideoUid ?? null;
   const bunnyStatus = fetchedProfile?.bunny_video_status ?? match.bunnyVideoStatus ?? "none";
   const vibeCaption = fetchedProfile?.vibe_caption ?? match.vibeCaption ?? "";
-  const hasVideoIntro = !!bunnyUid && bunnyStatus === "ready";
   const compatibility = match.compatibility ?? 0;
 
-  // Resolve Bunny CDN URL for video playback
-  useEffect(() => {
-    if (!open || !bunnyUid || bunnyStatus !== "ready") {
-      setSignedVideoUrl(null);
-      return;
-    }
-    setSignedVideoUrl(
-      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyUid}/playlist.m3u8`
-    );
-  }, [open, bunnyUid, bunnyStatus]);
+  const vibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunny_video_uid: bunnyUid,
+        bunny_video_status: bunnyStatus,
+        vibe_caption: vibeCaption,
+      }),
+    [bunnyUid, bunnyStatus, vibeCaption],
+  );
+  const hasVideoIntro = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
 
   // Hide scroll hint after a few seconds
   useEffect(() => {
@@ -411,14 +410,15 @@ export const ProfileDetailDrawer = ({
                   <span className="text-sm">Watch Intro</span>
                 </motion.button>
               </>
-            ) : hasVideoIntro && showVideoOverlay && signedVideoUrl ? (
+            ) : hasVideoIntro && showVideoOverlay && vibeVideo.playbackUrl ? (
               <VibePlayer
-                videoUrl={signedVideoUrl}
+                videoUrl={vibeVideo.playbackUrl}
                 thumbnailUrl={photos[0]}
                 vibeCaption={vibeCaption}
                 autoPlay={true}
                 showControls={true}
                 className="w-full h-full"
+                backendReportsReady
               />
             ) : (
               <>
