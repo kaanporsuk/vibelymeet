@@ -63,6 +63,9 @@ export const useRegisterForEvent = () => {
     });
     if (error) return false;
     const result = data as { success?: boolean; error?: string } | null;
+    if (result?.success === true) {
+      await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
+    }
     return result?.success === true;
   };
 
@@ -76,6 +79,7 @@ export const useRegisterForEvent = () => {
     const result = data as { success?: boolean } | null;
     if (result?.success === true) {
       await queryClient.invalidateQueries({ queryKey: ["user-registrations", user.id] });
+      await queryClient.invalidateQueries({ queryKey: ["event-registration-check"] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
       await queryClient.invalidateQueries({ queryKey: ["event-attendee-preview"] });
     }

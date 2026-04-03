@@ -186,6 +186,34 @@ export default function EventDetailScreen() {
         event_title: event.title,
         is_free: ev?.is_free !== false,
       });
+      const { data: regSnap } = await refetchRegistration();
+      const evRow = event as EventDetailsRow;
+      const registrationIsVirtual = !evRow.is_location_specific;
+      if (regSnap?.isWaitlisted) {
+        showDialog({
+          title: 'You’re on the waitlist',
+          message:
+            'The event was full when you joined — we’ll confirm you if a spot opens. Check this page for your status.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      } else if (regSnap?.isConfirmed) {
+        showDialog({
+          title: 'You’re in!',
+          message: registrationIsVirtual
+            ? 'Your spot is confirmed. You’ll be able to join when the event goes live.'
+            : 'Your spot is confirmed. Check your email for details.',
+          variant: 'success',
+          primaryAction: { label: 'Great', onPress: () => {} },
+        });
+      } else {
+        showDialog({
+          title: 'Registration received',
+          message: 'Hang tight while we sync your booking on this page.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      }
     } else {
       showDialog({
         title: 'Couldn’t register',
@@ -194,7 +222,16 @@ export default function EventDetailScreen() {
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     }
-  }, [event, ev?.is_free, registerForEvent, canAccessPremiumEvents, canAccessVipEvents, showDialog, router]);
+  }, [
+    event,
+    ev?.is_free,
+    registerForEvent,
+    refetchRegistration,
+    canAccessPremiumEvents,
+    canAccessVipEvents,
+    showDialog,
+    router,
+  ]);
 
   const handleRegister = useCallback(async () => {
     if (!event) return;
@@ -289,6 +326,8 @@ export default function EventDetailScreen() {
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
+    const wasConfirmed = isConfirmed;
+    const wasWaitlisted = isWaitlisted;
     const ok = await unregisterFromEvent(event.id);
     if (ok) {
       refetchRegistration();
@@ -296,6 +335,29 @@ export default function EventDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['event-details', id] });
       queryClient.invalidateQueries({ queryKey: ['event-attendee-preview', id] });
       setShowManageBooking(false);
+      if (wasWaitlisted) {
+        showDialog({
+          title: 'Left the waitlist',
+          message: 'You’re no longer on the waitlist for this event.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      } else if (wasConfirmed) {
+        showDialog({
+          title: 'Spot released',
+          message:
+            'Your confirmed seat is cancelled for this event. If a waitlist is in use, the next person may be offered the seat according to usual rules.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      } else {
+        showDialog({
+          title: 'Booking updated',
+          message: 'Your registration for this event has been removed.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      }
     } else {
       showDialog({
         title: 'Couldn’t cancel',
@@ -304,19 +366,40 @@ export default function EventDetailScreen() {
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     }
-  }, [event, unregisterFromEvent, refetchRegistration, queryClient, id, showDialog]);
+  }, [
+    event,
+    isConfirmed,
+    isWaitlisted,
+    unregisterFromEvent,
+    refetchRegistration,
+    queryClient,
+    id,
+    showDialog,
+  ]);
 
   const openCancelConfirm = useCallback(() => {
     if (!event) return;
     setShowManageBooking(false);
-    showDialog({
-      title: 'Cancel your spot?',
-      message: `Release your spot for ${event.title}?`,
-      variant: 'destructive',
-      primaryAction: { label: 'Cancel spot', onPress: () => void handleUnregister() },
-      secondaryAction: { label: 'Keep my spot', onPress: () => {} },
-    });
-  }, [event, handleUnregister, showDialog]);
+    const refundNote =
+      'Refunds aren’t handled in this app. Check your payment confirmation or reach out to support if you think you’re eligible for one.';
+    if (isWaitlisted) {
+      showDialog({
+        title: 'Leave the waitlist?',
+        message: `You’ll leave the paid waitlist for ${event.title}. You can join again later if the event still has capacity.\n\n${refundNote}`,
+        variant: 'destructive',
+        primaryAction: { label: 'Leave waitlist', onPress: () => void handleUnregister() },
+        secondaryAction: { label: 'Stay on waitlist', onPress: () => {} },
+      });
+    } else {
+      showDialog({
+        title: 'Release your spot?',
+        message: `You’re about to release your confirmed spot for ${event.title}. If this event uses a waitlist, the next person may be offered your seat according to Vibely’s usual rules.\n\n${refundNote}`,
+        variant: 'destructive',
+        primaryAction: { label: 'Release spot', onPress: () => void handleUnregister() },
+        secondaryAction: { label: 'Keep my spot', onPress: () => {} },
+      });
+    }
+  }, [event, isWaitlisted, handleUnregister, showDialog]);
 
   // Conditional returns — after ALL hooks
   if (isLoading && !event) {
@@ -758,6 +841,7 @@ export default function EventDetailScreen() {
         ticketNumber={ticketNumber}
         price={userPrice}
         isVirtual={isVirtual}
+        admissionStatus={isConfirmed ? 'confirmed' : 'waitlisted'}
       />
 
       <TicketStub
@@ -769,6 +853,7 @@ export default function EventDetailScreen() {
         venue={isVirtual ? 'Digital Lobby' : (eventRow.location_name ?? 'TBA')}
         ticketNumber={ticketNumber}
         isVirtual={isVirtual}
+        admissionStatus={isConfirmed ? 'confirmed' : 'waitlisted'}
       />
 
       <InviteFriendsSheet

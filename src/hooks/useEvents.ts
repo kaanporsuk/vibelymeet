@@ -240,7 +240,9 @@ export const useNextRegisteredEvent = () => {
           admission_status,
           events:event_id (
             id, title, cover_image, event_date, current_attendees, duration_minutes,
-            scope, city, country, latitude, longitude
+            scope, city, country, latitude, longitude,
+            status,
+            archived_at
           )
         `)
         .eq("profile_id", user.id);
@@ -259,7 +261,19 @@ export const useNextRegisteredEvent = () => {
           const ev = (Array.isArray(r.events) ? r.events[0] : r.events) as {
             event_date: string;
             duration_minutes?: number | null;
+            status?: string | null;
+            archived_at?: string | null;
           };
+          if (ev.archived_at) return false;
+          if (
+            !isEventVisible({
+              event_date: ev.event_date,
+              duration_minutes: ev.duration_minutes,
+              status: ev.status ?? null,
+            })
+          ) {
+            return false;
+          }
           const eventStart = new Date(ev.event_date);
           const durationMs = (ev.duration_minutes ?? 60) * 60 * 1000;
           const eventEnd = new Date(eventStart.getTime() + durationMs);
@@ -312,13 +326,13 @@ export const useNextRegisteredEvent = () => {
       // No registered events - fetch a recommended event (upcoming only)
       const { data: recommendedEvent, error: recError } = await supabase
         .from("events")
-        .select("id, title, cover_image, event_date, current_attendees, duration_minutes")
+        .select("id, title, cover_image, event_date, current_attendees, duration_minutes, status, archived_at")
         .order("event_date", { ascending: true })
         .limit(20); // Fetch more to filter
 
       if (recError) throw recError;
       
-      // Filter to events that haven't ended
+      // Filter to viable upcoming/live events (parity with native: exclude cancelled/draft/archived/non-visible).
       const recRows = (recommendedEvent ?? []) as Array<{
         id: string;
         title: string;
@@ -326,9 +340,21 @@ export const useNextRegisteredEvent = () => {
         event_date: string;
         current_attendees: number | null;
         duration_minutes: number | null;
+        status: string | null;
+        archived_at: string | null;
       }>;
 
       const activeEvents = recRows.filter((event) => {
+        if (event.archived_at) return false;
+        if (
+          !isEventVisible({
+            event_date: event.event_date,
+            duration_minutes: event.duration_minutes,
+            status: event.status,
+          })
+        ) {
+          return false;
+        }
         const eventStart = new Date(event.event_date);
         const durationMs = (event.duration_minutes || 60) * 60 * 1000;
         const eventEnd = new Date(eventStart.getTime() + durationMs);

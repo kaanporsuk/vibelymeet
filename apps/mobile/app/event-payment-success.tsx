@@ -68,7 +68,7 @@ export default function EventPaymentSuccessScreen() {
     : admissionStatus === 'waitlisted'
       ? "You're on the waitlist"
       : admissionStatus === 'confirmed'
-        ? "You're on the list!"
+        ? "You're on the list! 🎉"
         : 'Payment received';
 
   const subline = isEventCancelled

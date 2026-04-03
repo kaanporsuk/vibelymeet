@@ -1,13 +1,15 @@
 /**
- * Manage booking modal — parity with web: event title, date/time, venue, ticket ref, amount paid, share, cancel.
+ * Manage booking modal — parity with web: admission (confirmed vs waitlist), venue, share, cancel.
  */
 import React from 'react';
 import { View, Text, Modal, Pressable, StyleSheet, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { Card, VibelyButton } from '@/components/ui';
+import { VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
+
+export type BookingAdmissionStatus = 'confirmed' | 'waitlisted';
 
 type ManageBookingModalProps = {
   visible: boolean;
@@ -20,6 +22,8 @@ type ManageBookingModalProps = {
   ticketNumber: string;
   price: number;
   isVirtual?: boolean;
+  /** Confirmed = lobby-eligible when live; waitlist must not imply lobby access. */
+  admissionStatus?: BookingAdmissionStatus;
 };
 
 export function ManageBookingModal({
@@ -33,8 +37,12 @@ export function ManageBookingModal({
   ticketNumber,
   price,
   isVirtual = false,
+  admissionStatus = 'confirmed',
 }: ManageBookingModalProps) {
   const theme = Colors[useColorScheme()];
+  const isWaitlisted = admissionStatus === 'waitlisted';
+  const headerTitle = isWaitlisted ? 'Your waitlist spot' : 'Your Ticket';
+  const releaseCta = isWaitlisted ? 'Leave waitlist' : 'Cancel My Spot';
 
   const handleShare = async () => {
     try {
@@ -63,7 +71,7 @@ export function ManageBookingModal({
                 <Ionicons name="ticket" size={28} color="#fff" />
               </View>
               <View>
-                <Text style={[styles.sheetTitle, { color: theme.text }]}>Your Ticket</Text>
+                <Text style={[styles.sheetTitle, { color: theme.text }]}>{headerTitle}</Text>
                 <Text style={[styles.ticketRef, { color: theme.textSecondary }]}>{ticketNumber}</Text>
               </View>
             </View>
@@ -86,24 +94,44 @@ export function ManageBookingModal({
             </View>
             {!isVirtual ? (
               <View style={[styles.qrBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Ionicons name="qr-code" size={64} color={theme.textSecondary} />
-                <Text style={[styles.qrHint, { color: theme.textSecondary }]}>Show this at the door for check-in</Text>
+                {isWaitlisted ? (
+                  <Text style={[styles.qrHint, { color: theme.textSecondary }]}>
+                    You have a paid waitlist spot, not a confirmed seat yet. In-person check-in details appear if you’re promoted
+                    before the event — keep an eye on the event page.
+                  </Text>
+                ) : (
+                  <>
+                    <Ionicons name="qr-code" size={64} color={theme.textSecondary} />
+                    <Text style={[styles.qrHint, { color: theme.textSecondary }]}>Show this at the door for check-in</Text>
+                  </>
+                )}
               </View>
             ) : (
               <View style={[styles.qrBlock, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <Ionicons name="videocam" size={40} color={theme.tint} />
                 <Text style={[styles.qrHint, { color: theme.textSecondary }]}>
-                  Join via the <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> button when the event is live
+                  {isWaitlisted ? (
+                    <>
+                      The live lobby is for <Text style={{ fontWeight: '600', color: theme.text }}>confirmed</Text> guests. On the
+                      waitlist, you’ll only use <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> if you’re
+                      promoted to a confirmed seat — we’ll update your status here when that happens.
+                    </>
+                  ) : (
+                    <>
+                      Join via the <Text style={{ fontWeight: '600', color: theme.text }}>Enter Lobby</Text> button when the event is
+                      live
+                    </>
+                  )}
                 </Text>
               </View>
             )}
             <View style={[styles.priceRow, { backgroundColor: theme.surfaceSubtle }]}>
-              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>Amount Paid</Text>
-              <Text style={[styles.priceValue, { color: theme.text }]}>€{price.toFixed(2)}</Text>
+              <Text style={[styles.priceLabel, { color: theme.textSecondary }]}>{price <= 0 ? 'Price' : 'Amount paid'}</Text>
+              <Text style={[styles.priceValue, { color: theme.text }]}>{price <= 0 ? 'Free' : `€${price.toFixed(2)}`}</Text>
             </View>
             <VibelyButton label="Share Event" onPress={handleShare} variant="secondary" style={styles.shareBtn} />
             <Pressable onPress={onCancel} style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.cancelText, { color: theme.danger }]}>Cancel My Spot</Text>
+              <Text style={[styles.cancelText, { color: theme.danger }]}>{releaseCta}</Text>
             </Pressable>
           </View>
         </Pressable>

@@ -3,6 +3,8 @@ import { X, Ticket, Calendar, Clock, MapPin, QrCode, Share2, Video } from "lucid
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+export type BookingAdmissionStatus = "confirmed" | "waitlisted";
+
 interface ManageBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -14,6 +16,8 @@ interface ManageBookingModalProps {
   ticketNumber: string;
   price: number;
   isVirtual?: boolean;
+  /** Confirmed = lobby-eligible when live; waitlist must not imply lobby access. */
+  admissionStatus?: BookingAdmissionStatus;
 }
 
 const ManageBookingModal = ({
@@ -27,7 +31,10 @@ const ManageBookingModal = ({
   ticketNumber,
   price,
   isVirtual = false,
+  admissionStatus = "confirmed",
 }: ManageBookingModalProps) => {
+  const isWaitlisted = admissionStatus === "waitlisted";
+
   const handleShare = async () => {
     try {
       await navigator.share({
@@ -41,6 +48,9 @@ const ManageBookingModal = ({
   };
 
   if (!isOpen) return null;
+
+  const headerTitle = isWaitlisted ? "Your waitlist spot" : "Your Ticket";
+  const releaseCta = isWaitlisted ? "Leave waitlist" : "Cancel My Spot";
 
   return (
     <AnimatePresence>
@@ -86,7 +96,7 @@ const ManageBookingModal = ({
                   <Ticket className="w-7 h-7 text-primary-foreground" />
                 </motion.div>
                 <div>
-                  <h3 className="text-xl font-bold text-foreground">Your Ticket</h3>
+                  <h3 className="text-xl font-bold text-foreground">{headerTitle}</h3>
                   <p className="text-sm text-muted-foreground">{ticketNumber}</p>
                 </div>
               </div>
@@ -97,7 +107,7 @@ const ManageBookingModal = ({
               {/* Event Details */}
               <div className="glass-card p-4 rounded-2xl space-y-3">
                 <h4 className="font-semibold text-foreground text-lg">{eventTitle}</h4>
-                
+
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
                     <Calendar className="w-4 h-4 text-primary" />
@@ -117,38 +127,52 @@ const ManageBookingModal = ({
               {/* QR Code or Virtual Instructions */}
               {!isVirtual ? (
                 <div className="glass-card p-6 rounded-2xl flex flex-col items-center gap-3">
-                  <div className="w-32 h-32 rounded-2xl bg-white flex items-center justify-center">
-                    <QrCode className="w-20 h-20 text-gray-900" />
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    Show this at the door for check-in
-                  </p>
+                  {isWaitlisted ? (
+                    <>
+                      <p className="text-xs text-muted-foreground text-center leading-relaxed">
+                        You have a paid waitlist spot, not a confirmed seat yet. In-person check-in details appear if you’re
+                        promoted before the event — keep an eye on the event page.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-32 h-32 rounded-2xl bg-white flex items-center justify-center">
+                        <QrCode className="w-20 h-20 text-gray-900" />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">Show this at the door for check-in</p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="glass-card p-6 rounded-2xl flex flex-col items-center gap-3">
                   <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
                     <Video className="w-8 h-8 text-primary" />
                   </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    Join via the <strong>Enter Lobby</strong> button when the event is live
-                  </p>
+                  {isWaitlisted ? (
+                    <p className="text-xs text-muted-foreground text-center leading-relaxed max-w-[280px]">
+                      The live lobby is for <strong>confirmed</strong> guests. On the waitlist, you’ll only use{" "}
+                      <strong>Enter Lobby</strong> if you’re promoted to a confirmed seat — we’ll update your status here when
+                      that happens.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground text-center">
+                      Join via the <strong>Enter Lobby</strong> button when the event is live
+                    </p>
+                  )}
                 </div>
               )}
 
               {/* Price Info */}
               <div className="flex items-center justify-between p-4 rounded-2xl bg-secondary/30">
-                <span className="text-sm text-muted-foreground">Amount Paid</span>
-                <span className="text-lg font-bold text-foreground">€{price.toFixed(2)}</span>
+                <span className="text-sm text-muted-foreground">{price <= 0 ? "Price" : "Amount paid"}</span>
+                <span className="text-lg font-bold text-foreground">
+                  {price <= 0 ? "Free" : `€${price.toFixed(2)}`}
+                </span>
               </div>
 
               {/* Actions */}
               <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="w-full"
-                  onClick={handleShare}
-                >
+                <Button variant="outline" size="lg" className="w-full" onClick={handleShare}>
                   <Share2 className="w-4 h-4 mr-2" />
                   Share Event
                 </Button>
@@ -157,7 +181,7 @@ const ManageBookingModal = ({
                   onClick={onCancel}
                   className="w-full text-center text-sm text-destructive/70 hover:text-destructive transition-colors py-2"
                 >
-                  Cancel My Spot
+                  {releaseCta}
                 </button>
               </div>
             </div>

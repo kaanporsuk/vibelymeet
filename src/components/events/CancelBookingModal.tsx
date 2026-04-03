@@ -2,12 +2,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { BookingAdmissionStatus } from "@/components/events/ManageBookingModal";
 
 interface CancelBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   eventTitle: string;
+  admissionStatus?: BookingAdmissionStatus;
 }
 
 const CancelBookingModal = ({
@@ -15,17 +17,38 @@ const CancelBookingModal = ({
   onClose,
   onConfirm,
   eventTitle,
+  admissionStatus = "confirmed",
 }: CancelBookingModalProps) => {
   const [isCancelling, setIsCancelling] = useState(false);
+  const isWaitlisted = admissionStatus === "waitlisted";
 
   const handleConfirm = async () => {
     setIsCancelling(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsCancelling(false);
-    onConfirm();
+    try {
+      await onConfirm();
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   if (!isOpen) return null;
+
+  const title = isWaitlisted ? "Leave the waitlist?" : "Release your spot?";
+  const body = isWaitlisted ? (
+    <>
+      You’ll leave the paid waitlist for{" "}
+      <span className="font-medium text-foreground">{eventTitle}</span>. You can join again later if the event still has
+      capacity.
+    </>
+  ) : (
+    <>
+      You’re about to release your <span className="font-medium text-foreground">confirmed</span> spot for{" "}
+      <span className="font-medium text-foreground">{eventTitle}</span>. If this event uses a waitlist, the next person may
+      be offered your seat according to Vibely’s usual rules.
+    </>
+  );
+  const confirmLabel = isWaitlisted ? "Leave waitlist" : "Release spot";
+  const keepLabel = isWaitlisted ? "Stay on waitlist" : "Keep my spot";
 
   return (
     <AnimatePresence>
@@ -35,7 +58,6 @@ const CancelBookingModal = ({
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
       >
-        {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -44,7 +66,6 @@ const CancelBookingModal = ({
           className="absolute inset-0 bg-background/80 backdrop-blur-md"
         />
 
-        {/* Modal */}
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -53,7 +74,6 @@ const CancelBookingModal = ({
           className="relative w-full max-w-sm"
         >
           <div className="glass-card rounded-3xl p-6 text-center space-y-4 border border-border/50">
-            {/* Warning Icon */}
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
@@ -63,48 +83,37 @@ const CancelBookingModal = ({
               <AlertTriangle className="w-8 h-8 text-destructive" />
             </motion.div>
 
-            {/* Content */}
             <div className="space-y-2">
-              <h3 className="text-xl font-bold text-foreground">Are you sure?</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                You are about to give up your spot at{" "}
-                <span className="font-medium text-foreground">{eventTitle}</span>.
-                This spot will be released to someone on the waitlist.
-              </p>
+              <h3 className="text-xl font-bold text-foreground">{title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
             </div>
 
-            {/* Policy Reminder */}
             <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/20">
-              <p className="text-xs text-destructive font-medium">
-                Tickets are non-refundable. You will not receive a refund for this cancellation.
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Refunds aren’t handled in this app. Check your payment confirmation or reach out to support if you think
+                you’re eligible for one.
               </p>
             </div>
 
-            {/* Actions */}
             <div className="space-y-3 pt-2">
-              <Button
-                variant="gradient"
-                size="lg"
-                className="w-full"
-                onClick={onClose}
-              >
-                Keep My Spot
+              <Button variant="gradient" size="lg" className="w-full" onClick={onClose}>
+                {keepLabel}
               </Button>
 
               <Button
                 variant="ghost"
                 size="lg"
                 className="w-full text-muted-foreground hover:text-destructive"
-                onClick={handleConfirm}
+                onClick={() => void handleConfirm()}
                 disabled={isCancelling}
               >
                 {isCancelling ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Cancelling...
+                    Working…
                   </span>
                 ) : (
-                  "Confirm Cancellation"
+                  confirmLabel
                 )}
               </Button>
             </div>
