@@ -28,7 +28,7 @@ interface UseSwipeActionOptions {
 
 /**
  * Event deck swipes via `swipe-actions` → `handle_swipe`.
- * Expected `result` values include match, match_queued, vibe_recorded, swipe_recorded, super_vibe_sent,
+ * Expected `result` values include match, match_queued, vibe_recorded, super_vibe_sent,
  * limit_reached, already_super_vibed_recently, already_matched, blocked, reported, pass_recorded, etc.
  * Legacy `no_credits` is not returned by current `handle_swipe` (super vibe uses per-event limits only).
  */
@@ -134,7 +134,6 @@ export const useSwipeAction = ({
             return raw;
 
           case "vibe_recorded":
-          case "swipe_recorded":
             return raw;
 
           default:
