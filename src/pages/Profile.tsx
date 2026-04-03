@@ -3,7 +3,7 @@ import ProfileStudio from "./ProfileStudio";
 const USE_PROFILE_STUDIO = true; // flip to false to rollback
 
 // Bunny Stream CDN playback — no Supabase signed URLs for vibe videos
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   Settings,
@@ -30,7 +30,6 @@ import {
   ShieldCheck,
   Phone,
   Play,
-  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -54,6 +53,7 @@ import ProfileWizard from "@/components/wizard/ProfileWizard";
 import SafetyHub from "@/components/safety/SafetyHub";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
 import { PhoneVerification } from "@/components/PhoneVerification";
@@ -85,121 +85,6 @@ import {
   type ProfileData,
   type GeoLocation,
 } from "@/services/profileService";
-
-// Fullscreen HLS video player with hls.js for Chrome/Firefox
-const FullscreenVibePlayer = ({
-  show,
-  bunnyVideoUid,
-  bunnyVideoStatus,
-  vibeCaption,
-  onClose,
-}: {
-  show: boolean;
-  bunnyVideoUid: string | null;
-  bunnyVideoStatus: string;
-  vibeCaption: string;
-  onClose: () => void;
-}) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const hlsRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (!show || !bunnyVideoUid || bunnyVideoStatus !== "ready") return;
-    const videoEl = videoRef.current;
-    if (!videoEl) return;
-
-    const src = `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/playlist.m3u8`;
-
-    if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-      videoEl.src = src;
-      videoEl.play().catch(() => {});
-    } else {
-      import("hls.js").then(({ default: Hls }) => {
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(videoEl);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
-        }
-      });
-    }
-
-    return () => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-      if (videoEl) { videoEl.pause(); videoEl.removeAttribute('src'); videoEl.load(); }
-    };
-  }, [show, bunnyVideoUid, bunnyVideoStatus]);
-
-  return (
-    <AnimatePresence>
-      {show && bunnyVideoUid && bunnyVideoStatus === "ready" && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 bg-black flex items-center justify-center"
-          style={{ zIndex: 9999, height: '100dvh' }}
-          onClick={onClose}
-        >
-          <button
-            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
-            onClick={onClose}
-          >
-            <X className="w-5 h-5 text-white" />
-          </button>
-
-          <video
-            ref={videoRef}
-            className="w-full h-full object-contain"
-            poster={`https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${bunnyVideoUid}/thumbnail.jpg`}
-            playsInline
-            loop
-            onClick={(e) => e.stopPropagation()}
-          />
-
-          {vibeCaption && (
-            <div
-              className="absolute bottom-0 left-0 right-0 px-6 pb-8 pointer-events-none"
-              style={{
-                background: 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)',
-              }}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: 'linear-gradient(135deg, #8B5CF6, #E84393)' }}
-                />
-                <span
-                  className="text-xs font-semibold uppercase tracking-widest"
-                  style={{
-                    background: 'linear-gradient(90deg, #8B5CF6, #E84393)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                  }}
-                >
-                  Vibing on
-                </span>
-              </div>
-              <p
-                className="text-white font-bold leading-tight"
-                style={{
-                  fontSize: '22px',
-                  letterSpacing: '-0.3px',
-                  textShadow: '0 2px 12px rgba(0,0,0,0.5)',
-                }}
-              >
-                {vibeCaption}
-              </p>
-            </div>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-};
 
 interface ProfilePromptData {
   question: string;
@@ -1809,7 +1694,7 @@ const LegacyProfilePage = () => {
       />
 
       {/* Fullscreen Vibe Video Player */}
-      <FullscreenVibePlayer
+      <VibeVideoFullscreenPlayer
         show={showVibePlayer}
         bunnyVideoUid={profile.bunnyVideoUid}
         bunnyVideoStatus={profile.bunnyVideoStatus}

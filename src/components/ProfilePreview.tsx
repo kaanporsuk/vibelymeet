@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 interface ProfilePreviewProps {
   profile: {
@@ -57,10 +58,15 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
-  const vibeVideoPlaybackUrl = profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready"
-    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
-    : null;
-  const isResolvingVibeVideo = false;
+  const vibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunnyVideoUid: profile.bunnyVideoUid,
+        bunnyVideoStatus: profile.bunnyVideoStatus,
+      }),
+    [profile.bunnyVideoUid, profile.bunnyVideoStatus],
+  );
+  const vibeVideoPlaybackUrl = vibeVideo.playbackUrl;
   const { hapticSwipe, hapticTap, playFeedback } = useSoundEffects();
 
   // Resolve all photo URLs from raw storage paths
@@ -82,9 +88,16 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
   // Create content sections interspersed with photos (Hinge-style)
   const contentSections = [
-    // Video intro first if available
-    ...(vibeVideoPlaybackUrl ? [{ type: 'video' as const, data: vibeVideoPlaybackUrl }] : []),
-    // Photo 1 is always hero
+    ...(vibeVideo.state === "ready" && vibeVideo.playbackUrl
+      ? [{ type: "video" as const, data: vibeVideo.playbackUrl }]
+      : []),
+    ...(vibeVideo.state === "processing" || vibeVideo.state === "uploading"
+      ? [{ type: "vibe_pipeline" as const }]
+      : []),
+    ...(vibeVideo.state === "failed" ? [{ type: "vibe_failed" as const }] : []),
+    ...(vibeVideo.state === "ready" && !vibeVideo.playbackUrl
+      ? [{ type: "vibe_cdn" as const }]
+      : []),
     ...(profile.aboutMe ? [{ type: 'aboutMe' as const, data: profile.aboutMe }] : []),
     // Photo 2
     ...(profile.vibes.length > 0 ? [{ type: 'vibes' as const, data: profile.vibes }] : []),
@@ -171,21 +184,8 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                 setShowVideoPlayer((v) => !v);
               }}
               role={vibeVideoPlaybackUrl ? "button" : undefined}
-              aria-label={vibeVideoPlaybackUrl ? "Play vibe video" : "Vibe video loading"}
+              aria-label={vibeVideoPlaybackUrl ? "Play vibe video" : "Vibe video"}
             >
-              {isResolvingVibeVideo && (
-                <div className="absolute inset-0 flex items-center justify-center bg-secondary">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
-              )}
-
-              {!isResolvingVibeVideo && !vibeVideoPlaybackUrl && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary">
-                  <Play className="w-8 h-8 text-muted-foreground mb-2" />
-                  <p className="text-sm text-muted-foreground">Video unavailable</p>
-                </div>
-              )}
-
               {vibeVideoPlaybackUrl && (
                 <div className="w-full h-full">
                   <VibePlayer
@@ -193,6 +193,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                     autoPlay={showVideoPlayer}
                     showControls
                     className="w-full h-full"
+                    backendReportsReady
                   />
 
                   {!showVideoPlayer && (
@@ -213,6 +214,70 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
             <p className="text-center text-xs text-muted-foreground mt-2">
               What I'm vibing on right now
             </p>
+          </motion.div>
+        );
+
+      case "vibe_pipeline":
+        return (
+          <motion.div
+            key="vibe-pipeline"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay }}
+            className="glass-card p-4 rounded-2xl"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="w-4 h-4 text-neon-cyan" />
+              <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+            </div>
+            <div className="flex flex-col items-center justify-center gap-3 py-10 bg-secondary/50 rounded-xl">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground text-center px-4">
+                Still processing — it&apos;ll show here when it&apos;s ready to play
+              </p>
+            </div>
+          </motion.div>
+        );
+
+      case "vibe_failed":
+        return (
+          <motion.div
+            key="vibe-failed"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay }}
+            className="glass-card p-4 rounded-2xl"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="w-4 h-4 text-neon-cyan" />
+              <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+            </div>
+            <div className="flex flex-col items-center justify-center py-8 bg-secondary/50 rounded-xl px-4">
+              <p className="text-sm text-muted-foreground text-center">
+                Couldn&apos;t finish processing this clip
+              </p>
+            </div>
+          </motion.div>
+        );
+
+      case "vibe_cdn":
+        return (
+          <motion.div
+            key="vibe-cdn"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay }}
+            className="glass-card p-4 rounded-2xl"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Video className="w-4 h-4 text-neon-cyan" />
+              <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+            </div>
+            <div className="flex flex-col items-center justify-center py-8 bg-secondary/50 rounded-xl px-4">
+              <p className="text-sm text-muted-foreground text-center">
+                Ready on our side — preview isn&apos;t loading right now. Try again shortly.
+              </p>
+            </div>
           </motion.div>
         );
 

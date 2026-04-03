@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
+import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
 
 // IntersectionObserver-based iOS hardware decoder management
@@ -15,6 +16,8 @@ interface VibePlayerProps {
   onUpdateClick?: () => void;
   className?: string;
   overlayClassName?: string;
+  /** When true, playback errors show copy that backend marked the asset ready (CDN/player issue). */
+  backendReportsReady?: boolean;
 }
 
 export const VibePlayer = ({
@@ -27,6 +30,7 @@ export const VibePlayer = ({
   onUpdateClick,
   className,
   overlayClassName,
+  backendReportsReady = false,
 }: VibePlayerProps) => {
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -119,7 +123,12 @@ export const VibePlayer = ({
   const handleError = () => {
     setHasError(true);
     setIsLoading(false);
-    console.error("Video failed to load:", videoUrl);
+    Sentry.addBreadcrumb({
+      category: "vibe-video-playback",
+      message: backendReportsReady ? "inline_player_error_backend_ready" : "inline_player_error",
+      level: "error",
+      data: { surface: "vibe_player" },
+    });
   };
 
   const handleCanPlay = () => {
@@ -135,11 +144,18 @@ export const VibePlayer = ({
         </div>
       )}
 
-      {/* Error state */}
+      {/* Error state — honest when DB says ready but stream fails */}
       {hasError && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary z-10">
-          <Play className="w-8 h-8 text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground">Video unavailable</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary z-10 px-4 text-center">
+          <Play className="w-8 h-8 text-muted-foreground mb-2 opacity-80" />
+          <p className="text-sm font-medium text-foreground">
+            {backendReportsReady ? "Can't play right now" : "Video unavailable"}
+          </p>
+          {backendReportsReady && (
+            <p className="text-xs text-muted-foreground mt-1.5 max-w-[240px]">
+              It's ready on our side, but playback didn't load. Try again shortly.
+            </p>
+          )}
         </div>
       )}
 

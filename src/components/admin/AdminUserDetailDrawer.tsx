@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -41,6 +41,8 @@ import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
 import AdminPremiumModal from "./AdminPremiumModal";
 import { Crown } from "lucide-react";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -57,8 +59,6 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [isLoadingVideo, setIsLoadingVideo] = useState(false);
 
   // Fetch user profile
   const { data: profile, isLoading } = useQuery({
@@ -191,18 +191,17 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     setIsRefreshingPhotos(false);
   }, [profile?.photos]);
 
-  // Resolve Bunny CDN video URL
-  useEffect(() => {
-    if (!profile?.bunny_video_uid || (profile as any).bunny_video_status !== "ready") {
-      setVideoUrl(null);
-      setIsLoadingVideo(false);
-      return;
-    }
-    setVideoUrl(
-      `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunny_video_uid}/playlist.m3u8`
-    );
-    setIsLoadingVideo(false);
-  }, [profile?.bunny_video_uid, (profile as any)?.bunny_video_status]);
+  const vibeVideo = useMemo(
+    () =>
+      profile
+        ? resolveWebVibeVideoState({
+            bunny_video_uid: profile.bunny_video_uid,
+            bunny_video_status: profile.bunny_video_status,
+            vibe_caption: profile.vibe_caption,
+          })
+        : null,
+    [profile],
+  );
 
   const displayPhotos = refreshedPhotos.length > 0 ? refreshedPhotos : profile?.photos || [];
 
@@ -503,27 +502,47 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       )}
                     </div>
                   )}
-                  {profile.bunny_video_uid && profile.bunny_video_status === "ready" && (
+                  {vibeVideo && vibeVideo.state !== "none" && (
                     <div className="mt-4">
                       <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
                         <Video className="w-4 h-4" />
-                        Video Intro
+                        Vibe Video
+                        {vibeVideo.uid ? (
+                          <span className="text-xs font-normal text-muted-foreground">({vibeVideo.state})</span>
+                        ) : null}
                       </h4>
-                      {isLoadingVideo ? (
-                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center">
+                      {vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
                           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground">Processing — video is in the pipeline</p>
                         </div>
-                      ) : videoUrl ? (
-                        <video
-                          src={videoUrl}
-                          controls
-                          className="w-full rounded-xl"
-                        />
-                      ) : (
-                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center text-muted-foreground">
-                          Video not available
+                      ) : vibeVideo.state === "failed" ? (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center p-4 text-center">
+                          <p className="text-sm text-destructive">Encoding failed (UID on file)</p>
                         </div>
-                      )}
+                      ) : vibeVideo.state === "error" ? (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center p-4 text-center">
+                          <p className="text-sm text-muted-foreground">Inconsistent row: status without UID</p>
+                        </div>
+                      ) : vibeVideo.state === "ready" && vibeVideo.playbackUrl ? (
+                        <div className="aspect-video rounded-xl overflow-hidden bg-secondary">
+                          <VibePlayer
+                            videoUrl={vibeVideo.playbackUrl}
+                            thumbnailUrl={vibeVideo.thumbnailUrl ?? undefined}
+                            vibeCaption={vibeVideo.caption ?? undefined}
+                            autoPlay={false}
+                            showControls
+                            className="w-full h-full"
+                            backendReportsReady
+                          />
+                        </div>
+                      ) : vibeVideo.state === "ready" && !vibeVideo.playbackUrl ? (
+                        <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center p-4 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            Ready in DB — playback URL missing (CDN host / env)
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </TabsContent>

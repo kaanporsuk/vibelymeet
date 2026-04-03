@@ -11,6 +11,7 @@ import { useUserProfile as useViewerProfile } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 const PROMPT_EMOJIS: Record<string, string> = {
   "A shower thought I had recently": "🚿",
@@ -86,13 +87,18 @@ const ProfilePreview = () => {
     );
   }
 
-  const hasVibeVideo = !!(profile.bunnyVideoUid && profile.bunnyVideoStatus === "ready");
-  const thumbnailUrl = profile.bunnyVideoUid
-    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/thumbnail.jpg`
-    : null;
-  const playbackUrl = profile.bunnyVideoUid
-    ? `https://${import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME}/${profile.bunnyVideoUid}/playlist.m3u8`
-    : null;
+  const vibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunnyVideoUid: profile.bunnyVideoUid,
+        bunnyVideoStatus: profile.bunnyVideoStatus,
+        vibeCaption: profile.vibeCaption,
+      }),
+    [profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.vibeCaption],
+  );
+  const hasVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const thumbnailUrl = vibeVideo.thumbnailUrl;
+  const playbackUrl = vibeVideo.playbackUrl;
   const filledPhotos = profile.photos.filter(Boolean);
   const lookingForDisplay = profile.lookingFor
     ? getRelationshipIntentDisplaySafe(profile.lookingFor)
@@ -181,31 +187,50 @@ const ProfilePreview = () => {
         </div>
 
         {/* ═══ Vibe Video ═══ */}
-        {hasVibeVideo && (
+        {vibeVideo.state !== "none" && (
           <div className="mb-6">
-            <div
-              className="relative w-full rounded-2xl overflow-hidden bg-secondary cursor-pointer"
-              style={{ aspectRatio: "16/9" }}
-              onClick={() => setShowVideoPlayer(true)}
-              role="button"
-              aria-label="Play vibe video"
-            >
-              {thumbnailUrl && (
-                <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.3)" }}>
-                  <Play className="w-7 h-7 text-white ml-1" />
+            {hasVibeVideo ? (
+              <div
+                className="relative w-full rounded-2xl overflow-hidden bg-secondary cursor-pointer"
+                style={{ aspectRatio: "16/9" }}
+                onClick={() => setShowVideoPlayer(true)}
+                role="button"
+                aria-label="Play vibe video"
+              >
+                {thumbnailUrl && (
+                  <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 pointer-events-none">
+                  <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  <span className="text-[9px] font-semibold tracking-widest text-green-500">READY</span>
                 </div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.3)" }}>
+                    <Play className="w-7 h-7 text-white ml-1" />
+                  </div>
+                </div>
+                {profile.vibeCaption && (
+                  <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent mb-0.5">Vibing on</p>
+                    <p className="text-white text-sm font-bold">{profile.vibeCaption}</p>
+                  </div>
+                )}
               </div>
-              {profile.vibeCaption && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent mb-0.5">Vibing on</p>
-                  <p className="text-white text-sm font-bold">{profile.vibeCaption}</p>
-                </div>
-              )}
-            </div>
+            ) : vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+              <div className="rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-3 py-8 px-4">
+                <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                <p className="text-sm text-gray-400 text-center">Your Vibe Video is still processing…</p>
+              </div>
+            ) : vibeVideo.state === "failed" ? (
+              <div className="rounded-2xl bg-white/5 border border-red-500/20 flex items-center justify-center py-8 px-4">
+                <p className="text-sm text-gray-400 text-center">Couldn&apos;t finish processing your clip</p>
+              </div>
+            ) : vibeVideo.state === "ready" && !playbackUrl ? (
+              <div className="rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center py-8 px-4">
+                <p className="text-sm text-gray-400 text-center">Ready on our side — preview isn&apos;t loading. Try again shortly.</p>
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -340,6 +365,7 @@ const ProfilePreview = () => {
                 autoPlay={true}
                 showControls={true}
                 className="w-full h-full"
+                backendReportsReady
               />
             </div>
           </div>
