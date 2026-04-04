@@ -49,7 +49,7 @@ export default function EventDetailScreen() {
   const { user } = useAuth();
   const { canAccessPremiumEvents, canAccessVipEvents } = useEntitlements();
   const { data: event, isLoading, error } = useEventDetails(id ?? undefined);
-  const { data: regSnapshot, refetch: refetchRegistration } = useIsRegisteredForEvent(id ?? undefined, user?.id);
+  const { data: regSnapshot, refetch: refetchRegistration, isLoading: regLoading } = useIsRegisteredForEvent(id ?? undefined, user?.id);
   const isConfirmed = regSnapshot?.isConfirmed ?? false;
   const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
   const hasAdmission = isConfirmed || isWaitlisted;
@@ -397,7 +397,7 @@ export default function EventDetailScreen() {
   }, [event, isWaitlisted, handleUnregister, showDialog]);
 
   // Conditional returns — after ALL hooks
-  if (isLoading && !event) {
+  if ((isLoading && !event) || (user?.id && regLoading)) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
