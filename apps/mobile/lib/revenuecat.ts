@@ -124,11 +124,3 @@ export async function restorePurchasesWithCustomerInfo(): Promise<RestorePurchas
     };
   }
 }
-
-/** @deprecated Prefer restorePurchasesWithCustomerInfo for tier handling. */
-export async function restorePurchases(): Promise<{ success: boolean; error?: string }> {
-  const r = await restorePurchasesWithCustomerInfo();
-  if (r.ok) return { success: true };
-  const msg = r.error instanceof Error ? r.error.message : String(r.error);
-  return { success: false, error: msg };
-}
