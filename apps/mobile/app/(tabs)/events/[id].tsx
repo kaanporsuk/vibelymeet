@@ -38,6 +38,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { FLOATING_TAB_BAR_HEIGHT } from '@/constants/tabBarMetrics';
 import { withAlpha } from '@/lib/colorUtils';
+import { deriveEventPhase } from '@/lib/eventPhase';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -60,6 +61,7 @@ export default function EventDetailScreen() {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [showFullDesc, setShowFullDesc] = useState(false);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
+  const [phaseClockMs, setPhaseClockMs] = useState(() => Date.now());
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused } = useAccountPauseStatus();
 
@@ -139,6 +141,12 @@ export default function EventDetailScreen() {
       if (data?.gender) setUserGender(String(data.gender).toLowerCase());
     })();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!event?.id) return;
+    const timer = setInterval(() => setPhaseClockMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [event?.id]);
 
   // Derived values for callbacks (event may be undefined until loaded)
   const ev = event as EventDetailsRow | undefined;
@@ -440,10 +448,13 @@ export default function EventDetailScreen() {
     spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
   const genderLabel = isFemale ? 'Female' : 'Male';
   const durationMin = event.duration_minutes ?? 60;
-  const eventEndMs = eventDate.getTime() + durationMin * 60 * 1000;
-  const nowMs = Date.now();
-  const eventEnded = nowMs > eventEndMs;
-  const eventLive = nowMs >= eventDate.getTime() && nowMs <= eventEndMs;
+  const eventPhase = deriveEventPhase({
+    eventDate,
+    eventDurationMinutes: durationMin,
+    nowMs: phaseClockMs,
+  });
+  const eventEnded = eventPhase.isEnded;
+  const eventLive = eventPhase.isLive;
   const descText = event.description?.trim() ?? '';
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
@@ -637,6 +648,7 @@ export default function EventDetailScreen() {
           address={eventRow.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
+          currentTimeMs={phaseClockMs}
           eventId={event.id}
           isRegistered={isConfirmed}
           onAccessPress={!hasAdmission && !isCancelled ? handlePurchase : undefined}

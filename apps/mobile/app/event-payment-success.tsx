@@ -39,6 +39,7 @@ export default function EventPaymentSuccessScreen() {
     void queryClient.invalidateQueries({ queryKey: ['event-attendees', id] });
     void queryClient.invalidateQueries({ queryKey: ['event-attendee-preview', id] });
     void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+    void queryClient.invalidateQueries({ queryKey: ['next-registered-event'] });
   }, [id, queryClient]);
 
   useEffect(() => {
