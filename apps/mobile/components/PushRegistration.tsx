@@ -1,6 +1,12 @@
 import { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { initOneSignal, syncPushWithBackendIfPermissionGranted, logoutOneSignal } from '@/lib/onesignal';
+import {
+  initOneSignal,
+  syncPushWithBackendIfPermissionGranted,
+  logoutOneSignal,
+  bindOneSignalExternalUser,
+  setOneSignalTags,
+} from '@/lib/onesignal';
 import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
 
 /**
@@ -8,7 +14,7 @@ import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
  * already granted notification permission (no prompt on every app open).
  */
 export function PushRegistration() {
-  const { user } = useAuth();
+  const { user, onboardingComplete } = useAuth();
 
   useEffect(() => {
     initOneSignal();
@@ -19,10 +25,15 @@ export function PushRegistration() {
       logoutOneSignal();
       return;
     }
+    bindOneSignalExternalUser(user.id);
+    setOneSignalTags({
+      userId: user.id,
+      onboardingComplete: onboardingComplete === true,
+    });
     syncPushWithBackendIfPermissionGranted(user.id)
       .then(() => syncNativePushSuppressionWithBackend(user.id))
       .catch(() => {});
-  }, [user?.id]);
+  }, [user?.id, onboardingComplete]);
 
   return null;
 }

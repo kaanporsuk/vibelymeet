@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
+import { normalizeContractError, toError } from '@/lib/contractErrors';
 
 const GRACE_HOURS = 6;
 
@@ -171,7 +172,9 @@ export async function fetchVisibleEventsList(
     p_browse_lng,
     p_filter_radius_km,
   });
-  if (error) throw error;
+  if (error) {
+    throw toError(normalizeContractError(error, 'events_visible_fetch_failed', 'Could not load events right now.'));
+  }
   const rows = (data ?? []) as VisibleEventRpcRow[];
   return rows
     .map(visibleRpcRowToListItem)
@@ -238,7 +241,9 @@ export function useEventDetails(eventId: string | undefined) {
         .select('*')
         .eq('id', eventId)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        throw toError(normalizeContractError(error, 'event_details_fetch_failed', 'Could not load event details.'));
+      }
       return data as EventDetailsRow | null;
     },
   });
@@ -255,7 +260,9 @@ export function useRegisteredEventIds(userId: string | null | undefined) {
         .from('event_registrations')
         .select('event_id')
         .eq('profile_id', userId);
-      if (error) throw error;
+      if (error) {
+        throw toError(normalizeContractError(error, 'registered_event_ids_fetch_failed', 'Could not load registrations.'));
+      }
       return (data ?? []).map((r) => r.event_id).filter(Boolean) as string[];
     },
   });
