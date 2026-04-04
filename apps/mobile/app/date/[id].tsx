@@ -65,6 +65,7 @@ import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const FIRST_CONNECT_TIMEOUT_MS = 25000;
 
 function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
   switch (code) {
@@ -175,6 +176,7 @@ export default function VideoDateScreen() {
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
+  const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -185,8 +187,18 @@ export default function VideoDateScreen() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
+  const [firstConnectTimedOut, setFirstConnectTimedOut] = useState(false);
+  const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
   phaseRef.current = phase;
+
+  const clearFirstConnectWatchdog = useCallback(() => {
+    if (firstConnectWatchdogRef.current) {
+      clearTimeout(firstConnectWatchdogRef.current);
+      firstConnectWatchdogRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setLocalTimeLeft(serverTimeLeft);
@@ -205,6 +217,24 @@ export default function VideoDateScreen() {
   }, [sessionId, user?.id]);
 
   useEffect(() => {
+    if (!awaitingFirstConnect || isConnected || phase === 'ended' || !sessionId) {
+      clearFirstConnectWatchdog();
+      return;
+    }
+
+    clearFirstConnectWatchdog();
+    firstConnectWatchdogRef.current = setTimeout(() => {
+      hasStartedJoinRef.current = false;
+      setAwaitingFirstConnect(false);
+      setFirstConnectTimedOut(true);
+      setIsConnecting(false);
+      setCallError('Your date has not connected yet. You can retry now or go back to the lobby.');
+    }, FIRST_CONNECT_TIMEOUT_MS);
+
+    return () => clearFirstConnectWatchdog();
+  }, [awaitingFirstConnect, isConnected, phase, sessionId, clearFirstConnectWatchdog]);
+
+  useEffect(() => {
     if (!sessionId) return;
     getOrSeedVibeQuestions(sessionId).then(setVibeQuestions);
   }, [sessionId]);
@@ -216,6 +246,12 @@ export default function VideoDateScreen() {
     }, 30000);
     return () => clearInterval(interval);
   }, [vibeQuestions.length]);
+
+  useEffect(() => {
+    return () => {
+      clearFirstConnectWatchdog();
+    };
+  }, [clearFirstConnectWatchdog]);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -285,6 +321,7 @@ export default function VideoDateScreen() {
   }, [sessionId, phase]);
 
   const leaveAndCleanup = useCallback(async () => {
+    clearFirstConnectWatchdog();
     const call = callRef.current;
     if (call) {
       try {
@@ -305,7 +342,9 @@ export default function VideoDateScreen() {
     setIsConnecting(false);
     setIsMuted(false);
     setIsVideoOff(false);
-  }, [sessionId, eventId, user?.id]);
+    setAwaitingFirstConnect(false);
+    setFirstConnectTimedOut(false);
+  }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
 
   const handleCallEnd = useCallback(async () => {
     if (sessionId && !videoDateEndedRef.current) {
@@ -428,6 +467,27 @@ export default function VideoDateScreen() {
     return ok;
   }, []);
 
+  const handleRetryInitialConnect = useCallback(async () => {
+    clearFirstConnectWatchdog();
+    const call = callRef.current;
+    if (call) {
+      try {
+        await call.leave();
+        call.destroy();
+      } catch {}
+      callRef.current = null;
+    }
+    setAwaitingFirstConnect(false);
+    setFirstConnectTimedOut(false);
+    setCallError(null);
+    setRemoteParticipant(null);
+    setIsConnected(false);
+    setIsConnecting(false);
+    setJoining(false);
+    hasStartedJoinRef.current = false;
+    setJoinAttemptNonce((n) => n + 1);
+  }, [clearFirstConnectWatchdog]);
+
   useEffect(() => {
     if (
       !sessionId ||
@@ -446,6 +506,10 @@ export default function VideoDateScreen() {
     const run = async () => {
       setJoining(true);
       setCallError(null);
+      setFirstConnectTimedOut(false);
+      setAwaitingFirstConnect(false);
+      clearFirstConnectWatchdog();
+
       const ok = await requestPermissions();
       if (!ok || cancelled) {
         if (!ok && !cancelled) {
@@ -455,6 +519,7 @@ export default function VideoDateScreen() {
         setJoining(false);
         return;
       }
+
       const tokenRes = await getDailyRoomToken(sessionId);
       if (cancelled) {
         hasStartedJoinRef.current = false;
@@ -487,6 +552,7 @@ export default function VideoDateScreen() {
         setJoining(false);
         return;
       }
+
       const tokenResult = tokenRes.data;
       if (!session.handshake_started_at) {
         const hs = await enterHandshake(sessionId);
@@ -512,6 +578,7 @@ export default function VideoDateScreen() {
           return;
         }
       }
+
       const call = Daily.createCallObject();
       callRef.current = call;
       roomNameRef.current = tokenResult.room_name;
@@ -520,6 +587,9 @@ export default function VideoDateScreen() {
       call.on('participant-joined', (event: { participant?: DailyParticipant }) => {
         if (event?.participant && !(event.participant as unknown as { local?: boolean }).local) {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
+          clearFirstConnectWatchdog();
+          setAwaitingFirstConnect(false);
+          setFirstConnectTimedOut(false);
           setIsConnected(true);
           setIsConnecting(false);
           setRemoteParticipant(event.participant);
@@ -545,6 +615,8 @@ export default function VideoDateScreen() {
       });
       call.on('left-meeting', () => {
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (left-meeting)', level: 'info' });
+        clearFirstConnectWatchdog();
+        setAwaitingFirstConnect(false);
         setIsConnected(false);
         setIsConnecting(false);
       });
@@ -560,6 +632,8 @@ export default function VideoDateScreen() {
           data: { sessionId, errorMsg: msg },
         });
         setCallError('Connection error. Please try again.');
+        clearFirstConnectWatchdog();
+        setAwaitingFirstConnect(false);
         setIsConnecting(false);
         setIsConnected(false);
       });
@@ -574,22 +648,31 @@ export default function VideoDateScreen() {
           setLocalParticipant(local);
           applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
         }
+        setIsConnecting(false);
         const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
         if (remotes.length > 0) {
+          clearFirstConnectWatchdog();
+          setAwaitingFirstConnect(false);
+          setFirstConnectTimedOut(false);
           setIsConnected(true);
-          setIsConnecting(false);
           setRemoteParticipant(remotes[0] as DailyParticipant);
+        } else {
+          setAwaitingFirstConnect(true);
         }
       } catch (err) {
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
           setCallError('Failed to join. Please try again.');
+          clearFirstConnectWatchdog();
+          setAwaitingFirstConnect(false);
           setIsConnecting(false);
           hasStartedJoinRef.current = false;
         }
       }
+
       setJoining(false);
     };
+
     run();
     return () => {
       cancelled = true;
@@ -598,6 +681,7 @@ export default function VideoDateScreen() {
       }
     };
   }, [
+    joinAttemptNonce,
     sessionId,
     user?.id,
     eventId,
@@ -607,6 +691,7 @@ export default function VideoDateScreen() {
     sessionError,
     phase,
     requestPermissions,
+    clearFirstConnectWatchdog,
     onPartnerLeftReconnect,
   ]);
 
@@ -664,6 +749,7 @@ export default function VideoDateScreen() {
 
   const totalTime = phase === 'handshake' ? HANDSHAKE_SECONDS : DATE_SECONDS;
   const displayTimeLeft = localTimeLeft ?? totalTime;
+  const preConnectWaiting = !hadConnectedOnceRef.current && (isConnecting || awaitingFirstConnect || firstConnectTimedOut);
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
 
   const handleSurveySubmit = useCallback(
@@ -795,7 +881,32 @@ export default function VideoDateScreen() {
         )}
       </View>
 
-      {isConnecting && <ConnectionOverlay isConnecting={isConnecting} onLeave={handleLeave} />}
+        {(isConnecting || awaitingFirstConnect) && (
+          <ConnectionOverlay isConnecting={isConnecting} onLeave={handleLeave} />
+        )}
+
+        {firstConnectTimedOut && !isConnected && (
+          <View style={styles.initialTimeoutWrap}>
+            <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Still waiting for {partnerName}</Text>
+              <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>They have not connected yet. Try reconnecting or head back to the lobby.</Text>
+              <View style={styles.initialTimeoutActions}>
+                <Pressable
+                  onPress={() => void handleRetryInitialConnect()}
+                  style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
+                >
+                  <Text style={styles.initialRetryText}>Retry connection</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void handleLeave()}
+                  style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
+                >
+                  <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
 
       {isPartnerDisconnected && (
         <ReconnectionOverlay isVisible partnerName={partnerName} graceTimeLeft={reconnectionGrace} />
@@ -807,7 +918,13 @@ export default function VideoDateScreen() {
         <Pressable onPress={() => setShowProfileSheet(true)} style={styles.partnerPill}>
           <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName}</Text>
         </Pressable>
-        <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
+          {preConnectWaiting ? (
+            <View style={styles.waitingTimerPill}>
+              <Text style={[styles.waitingTimerText, { color: theme.text }]}>Waiting to connect...</Text>
+            </View>
+          ) : (
+            <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
+          )}
       </View>
 
       {phase === 'handshake' && showIceBreaker && currentQuestion ? (
@@ -915,6 +1032,38 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  waitingTimerPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.4)' },
+  waitingTimerText: { fontSize: 12, fontWeight: '600' },
+  initialTimeoutWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 55,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+  },
+  initialTimeoutCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  initialTimeoutTitle: { fontSize: 17, fontWeight: '700' },
+  initialTimeoutSub: { fontSize: 14, lineHeight: 20 },
+  initialTimeoutActions: { gap: spacing.sm },
+  initialRetryBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  initialRetryText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  initialBackBtn: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  initialBackText: { fontSize: 15, fontWeight: '600' },
+  initialBtnPressed: { opacity: 0.85 },
   partnerPill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
   partnerName: { fontSize: 16, fontWeight: '600' },
   iceBreakerWrap: { position: 'absolute', bottom: 180, left: 16, right: 16 },
