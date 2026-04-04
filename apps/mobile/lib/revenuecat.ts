@@ -50,6 +50,15 @@ export function initRevenueCat(apiKey?: string): void {
   }
 }
 
+export async function clearRevenueCatUser(): Promise<void> {
+  if (!configured) return;
+  try {
+    await Purchases.logOut();
+  } catch {
+    // best-effort
+  }
+}
+
 export async function setRevenueCatUserId(userId: string): Promise<void> {
   if (!configured) return;
   try {

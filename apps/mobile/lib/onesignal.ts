@@ -20,9 +20,18 @@ export function initOneSignal(): void {
   }
 }
 
+export function bindOneSignalExternalUser(userId: string): void {
+  if (!APP_ID || !userId) return;
+  try {
+    OneSignal.login(userId);
+  } catch (e) {
+    console.warn('[Vibely] OneSignal login failed:', e);
+  }
+}
+
 /** Login + subscription id + Supabase upsert (no OS permission prompt). */
 async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
-  OneSignal.login(userId);
+  bindOneSignalExternalUser(userId);
   let subscriptionId: string | null = await OneSignal.User.pushSubscription.getIdAsync();
   if (!subscriptionId) {
     await new Promise((r) => setTimeout(r, 1500));

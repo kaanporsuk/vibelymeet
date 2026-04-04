@@ -44,7 +44,7 @@ import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateProposals } from '@/lib/useDateProposals';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
-import { endVideoDate } from '@/lib/videoDateApi';
+import { endVideoDate, updateParticipantStatus } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
@@ -346,11 +346,7 @@ export default function DashboardScreen() {
     } else {
       await endVideoDate(activeSession.sessionId);
     }
-    await supabase
-      .from('event_registrations')
-      .update({ queue_status: 'browsing', current_room_id: null, current_partner_id: null })
-      .eq('profile_id', user.id)
-      .eq('event_id', activeSession.eventId);
+    await updateParticipantStatus(activeSession.eventId, 'browsing');
     refetchActiveSession();
   }, [activeSession, user?.id, refetchActiveSession]);
 

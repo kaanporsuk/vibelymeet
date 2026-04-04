@@ -5,6 +5,9 @@ import { resetAnalytics } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
 import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
+import { clearRevenueCatUser } from '@/lib/revenuecat';
+import { getOnboardingComplete, signInWithEmail, signUpWithEmail } from '@/lib/authApi';
+import { toError } from '@/lib/contractErrors';
 
 type AuthState = {
   user: User | null;
@@ -29,16 +32,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
 
   const resolveOnboarding = useCallback(async (userId: string) => {
-    try {
-      const { data } = await supabase
-        .from('profiles')
-        .select('onboarding_complete')
-        .eq('id', userId)
-        .maybeSingle();
-      setOnboardingComplete(data?.onboarding_complete === true);
-    } catch {
-      setOnboardingComplete(false);
-    }
+    const completed = await getOnboardingComplete(userId);
+    setOnboardingComplete(completed);
   }, []);
 
   const ensureProfileExists = useCallback(async (user: User, reason: 'auth_context_session' | 'auth_context_state_change') => {
@@ -90,13 +85,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [resolveOnboarding, ensureProfileExists]);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error ?? null };
+    const result = await signInWithEmail(email, password);
+    if (!result.ok) {
+      return { error: toError(result.error) };
+    }
+    return { error: null };
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error: error ?? null };
+    const result = await signUpWithEmail(email, password);
+    if (!result.ok) {
+      return { error: toError(result.error) };
+    }
+    return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -117,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (error && __DEV__) console.warn('[signOut] notification_preferences:', error.message);
         });
     }
+      void clearRevenueCatUser();
     await supabase.auth.signOut();
     setOnboardingComplete(null);
   }, []);
