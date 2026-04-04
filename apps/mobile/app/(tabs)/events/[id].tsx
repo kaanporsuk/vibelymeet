@@ -694,7 +694,7 @@ export default function EventDetailScreen() {
                 </View>
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
-                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>See you there</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>Your seat is confirmed</Text>
                 </View>
               </View>
               {eventEnded ? (
@@ -707,14 +707,21 @@ export default function EventDetailScreen() {
                   style={styles.cta}
                 />
               ) : (
-                <VibelyButton label="Registered ✓" variant="primary" disabled style={styles.cta} onPress={() => {}} />
+                <VibelyButton
+                  label="View Ticket"
+                  variant="primary"
+                  onPress={() => setShowTicket(true)}
+                  style={styles.cta}
+                />
               )}
-              <VibelyButton
-                label="View Ticket"
-                variant="secondary"
-                onPress={() => setShowTicket(true)}
-                style={styles.cta}
-              />
+              {eventLive ? (
+                <VibelyButton
+                  label="View Ticket"
+                  variant="secondary"
+                  onPress={() => setShowTicket(true)}
+                  style={styles.cta}
+                />
+              ) : null}
               {!eventEnded ? (
                 <VibelyButton
                   label="Manage Booking"
@@ -748,19 +755,19 @@ export default function EventDetailScreen() {
                 </View>
               </View>
               <VibelyButton
+                <VibelyButton
+                  label="Manage Booking"
+                  variant="primary"
+                  onPress={() => setShowManageBooking(true)}
+                  style={styles.cta}
+                />
+              />
+              <VibelyButton
                 label="View Ticket"
                 variant="secondary"
                 onPress={() => setShowTicket(true)}
                 style={styles.cta}
               />
-              {!eventEnded ? (
-                <VibelyButton
-                  label="Manage Booking"
-                  variant="secondary"
-                  onPress={() => setShowManageBooking(true)}
-                  style={styles.cta}
-                />
-              ) : null}
             </>
           ) : (
             <>
@@ -777,7 +784,7 @@ export default function EventDetailScreen() {
               </View>
               <VibelyButton
                 label="View Ticket"
-                variant="secondary"
+                variant="primary"
                 onPress={() => setShowTicket(true)}
                 style={styles.cta}
               />
