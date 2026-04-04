@@ -9,6 +9,7 @@ Purpose: Execute runtime validation in the highest-signal order and produce acti
 - Prefer fail-fast ordering: validate auth/session and provider readiness before deep feature traversal.
 - Capture evidence at first failure, not after retries only.
 - Distinguish issue class early: Native UI vs Shared adapter vs Backend contract vs Provider config.
+- Do not expand RC scope into deferred v1.1+ surfaces, cosmetic polish, or broad cleanup tasks.
 
 ## 2. Preflight (Before Any Feature Testing)
 
