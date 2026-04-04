@@ -44,6 +44,7 @@ export function ReadyGateOverlay({
   const closedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [markingReady, setMarkingReady] = useState(false);
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
@@ -91,14 +92,19 @@ export function ReadyGateOverlay({
     closedRef.current = false;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
+    setMarkingReady(false);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (iAmReady) setMarkingReady(false);
+  }, [iAmReady]);
 
   useEffect(() => {
     void updateParticipantStatus(eventId, 'in_ready_gate');
   }, [eventId, userId]);
 
   useEffect(() => {
-    if (isTransitioning || iAmReady || snoozedByPartner) return;
+    if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
     const id = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 0) return 0;
@@ -110,7 +116,7 @@ export function ReadyGateOverlay({
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, snoozedByPartner, forfeit]);
+  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, forfeit]);
 
   const progress = timeLeft / GATE_TIMEOUT_SEC;
   const dashOffset = CIRC * (1 - progress);
@@ -205,11 +211,22 @@ export function ReadyGateOverlay({
             {!iAmReady ? (
               <>
                 <VibelyButton
-                  label="I'm Ready ✨"
-                  onPress={() => void markReady()}
+                  label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
+                  onPress={() => {
+                    if (markingReady) return;
+                    setMarkingReady(true);
+                    void (async () => {
+                      try {
+                        await markReady();
+                      } finally {
+                        setMarkingReady(false);
+                      }
+                    })();
+                  }}
                   variant="primary"
                   size="lg"
                   style={styles.readyBtn}
+                  disabled={markingReady}
                 />
                 <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
                   <Text style={[styles.skipText, { color: theme.textSecondary }]}>Skip this one</Text>

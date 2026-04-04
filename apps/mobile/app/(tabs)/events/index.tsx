@@ -731,7 +731,6 @@ export default function EventsListScreen() {
   );
 
   const filteredEvents = useMemo(() => {
-    const registered = new Set(registeredEventIds);
     const now = new Date();
     let list: EventListItem[] = events.filter((e) => e.status !== 'cancelled');
 
@@ -743,10 +742,7 @@ export default function EventsListScreen() {
       });
     }
 
-    // 2. Hide already-registered events
-    list = list.filter(e => !registered.has(e.id));
-
-    // 3. Search
+    // 2. Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -756,7 +752,7 @@ export default function EventsListScreen() {
       );
     }
 
-    // 4. Time filter
+    // 3. Time filter
     if (timeFilter) {
       list = list.filter(event => {
         const ed = event.eventDate;
@@ -770,7 +766,7 @@ export default function EventsListScreen() {
       });
     }
 
-    // 5. Category filter (match against event tags)
+    // 4. Category filter (match against event tags)
     if (filters.categories.length > 0) {
       const cats = new Set(filters.categories.map(c => c.toLowerCase()));
       list = list.filter(e =>
@@ -778,22 +774,20 @@ export default function EventsListScreen() {
       );
     }
 
-    // 6. Language filter
+    // 5. Language filter
     if (filters.language) {
       list = list.filter(e => e.language === filters.language);
     }
 
     return list;
-  }, [events, registeredEventIds, searchQuery, timeFilter, filters]);
+  }, [events, searchQuery, timeFilter, filters]);
   const discoverUpcomingEvents = useMemo(() => {
     const now = new Date();
-    const registered = new Set(registeredEventIds);
     return upcomingEvents.filter((e) => {
-      if (registered.has(e.id)) return false;
       const end = new Date(e.eventDate.getTime() + e.duration_minutes * 60 * 1000);
       return end > now;
     });
-  }, [upcomingEvents, registeredEventIds]);
+  }, [upcomingEvents]);
   const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
   const { data: featuredAttendees = [], preview: featuredAttendeePreview } = useEventAttendees(featuredEvent?.id);

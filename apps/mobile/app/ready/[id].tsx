@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Pressable, Image, ScrollView } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,23 +41,31 @@ export default function ReadyGateScreen() {
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [snoozeTimeLeft, setSnoozeTimeLeft] = useState(0);
   const [transitioning, setTransitioning] = useState(false);
+  const [markingReady, setMarkingReady] = useState(false);
+  const [requestingSnooze, setRequestingSnooze] = useState(false);
+  const [sessionLookupDone, setSessionLookupDone] = useState(false);
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
     const load = async () => {
-      const { data: session } = await supabase
-        .from('video_sessions')
-        .select('participant_1_id, participant_2_id, event_id')
-        .eq('id', sessionId)
-        .maybeSingle();
-      if (!session) return;
-      if (session.event_id) setEventId(session.event_id);
-      const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-      const { data: profile } = await supabase.from('profiles').select('avatar_url, photos').eq('id', partnerId).maybeSingle();
-      if (profile) {
-        const photo = (profile.photos as string[])?.[0] ?? profile.avatar_url ?? null;
-        setPartnerAvatar(photo);
+      try {
+        const { data: session } = await supabase
+          .from('video_sessions')
+          .select('participant_1_id, participant_2_id, event_id')
+          .eq('id', sessionId)
+          .maybeSingle();
+        if (!session) return;
+        if (session.event_id) setEventId(session.event_id);
+        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        const { data: profile } = await supabase.from('profiles').select('avatar_url, photos').eq('id', partnerId).maybeSingle();
+        if (profile) {
+          const photo = (profile.photos as string[])?.[0] ?? profile.avatar_url ?? null;
+          setPartnerAvatar(photo);
+        }
+      } finally {
+        setSessionLookupDone(true);
       }
     };
     load();
@@ -66,19 +74,36 @@ export default function ReadyGateScreen() {
   useEffect(() => {
     if (isBothReady) {
       setTransitioning(true);
-      setTimeout(() => router.replace(`/date/${sessionId}`), 1500);
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = setTimeout(() => {
+        router.replace(`/date/${sessionId}`);
+      }, 1500);
     }
   }, [isBothReady, sessionId]);
 
   useEffect(() => {
-    if (isForfeited) {
-      if (eventId) router.replace(`/event/${eventId}/lobby`);
-      else router.replace('/(tabs)');
-    }
-  }, [isForfeited, eventId]);
+    return () => {
+      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
-    if (transitioning || iAmReady) return;
+    if (isForfeited) {
+      if (eventId) router.replace(`/event/${eventId}/lobby`);
+      else if (sessionLookupDone) router.replace('/(tabs)');
+    }
+  }, [isForfeited, eventId, sessionLookupDone]);
+
+  useEffect(() => {
+    if (iAmReady) setMarkingReady(false);
+  }, [iAmReady]);
+
+  useEffect(() => {
+    if (isSnoozed) setRequestingSnooze(false);
+  }, [isSnoozed]);
+
+  useEffect(() => {
+    if (transitioning || iAmReady || markingReady || requestingSnooze) return;
     if (isSnoozed && snoozeExpiresAt) {
       const remaining = Math.max(0, Math.floor((new Date(snoozeExpiresAt).getTime() - Date.now()) / 1000));
       setSnoozeTimeLeft(remaining);
@@ -94,7 +119,7 @@ export default function ReadyGateScreen() {
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [transitioning, iAmReady, isSnoozed, snoozeExpiresAt, forfeit]);
+  }, [transitioning, iAmReady, markingReady, requestingSnooze, isSnoozed, snoozeExpiresAt, forfeit]);
 
   useEffect(() => {
     if (!isSnoozed) return;
@@ -159,7 +184,7 @@ export default function ReadyGateScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {dialogEl}
       <GlassHeaderBar insets={insets} style={styles.headerBar}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
+        <Pressable onPress={handleSkip} style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>Ready to vibe?</Text>
@@ -200,10 +225,42 @@ export default function ReadyGateScreen() {
         <View style={styles.actions}>
           {!iAmReady ? (
             <>
-              <VibelyButton label="I'm Ready ✨" onPress={() => markReady()} variant="primary" size="lg" style={styles.primaryBtn} />
+              <VibelyButton
+                label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
+                onPress={() => {
+                  if (markingReady) return;
+                  setMarkingReady(true);
+                  void (async () => {
+                    try {
+                      await markReady();
+                    } finally {
+                      setMarkingReady(false);
+                    }
+                  })();
+                }}
+                variant="primary"
+                size="lg"
+                style={styles.primaryBtn}
+                disabled={markingReady}
+              />
               <View style={styles.secondaryRow}>
-                <Pressable onPress={() => snooze()} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
-                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Snooze — give me 2 min</Text>
+                <Pressable
+                  onPress={() => {
+                    if (requestingSnooze) return;
+                    setRequestingSnooze(true);
+                    void (async () => {
+                      try {
+                        await snooze();
+                      } finally {
+                        setRequestingSnooze(false);
+                      }
+                    })();
+                  }}
+                  style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}
+                >
+                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+                    {requestingSnooze ? 'Snoozing...' : 'Snooze — give me 2 min'}
+                  </Text>
                 </Pressable>
                 <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
                 <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>

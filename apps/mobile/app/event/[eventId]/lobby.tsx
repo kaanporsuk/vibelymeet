@@ -106,7 +106,7 @@ export default function EventLobbyScreen() {
   const id = eventId ?? '';
 
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
-  const { data: regSnapshot } = useIsRegisteredForEvent(id, user?.id);
+  const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(id, user?.id);
   const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
 
   const eventEndTime = useMemo(
@@ -429,7 +429,7 @@ export default function EventLobbyScreen() {
     enabled: mysteryMatchEnabled,
   });
 
-  if (eventLoading && !event) {
+  if (eventLoading || (user?.id && regLoading)) {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
@@ -702,7 +702,7 @@ export default function EventLobbyScreen() {
       }
 
       showSwipeToast(code);
-      if (code === 'super_vibe_sent' || code === 'limit_reached') {
+      if (code === 'super_vibe_sent' || code === 'limit_reached' || code === 'match_queued') {
         refreshQueueAndSuperVibe();
       }
 
