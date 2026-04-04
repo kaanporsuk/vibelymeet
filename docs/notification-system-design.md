@@ -13,10 +13,10 @@ This document is the result of a full audit of web and native notification code,
 | 1 | Event deck mutual vibe → ready gate (immediate) | Push (OneSignal) | "You're synced up! 💚" | "Open the event lobby for your ready gate and video date." | `/event/{eventId}/lobby?pendingVideoSession={uuid}&pendingMatch={uuid}` — `data.video_session_id` + `data.event_id`; `data.match_id` is a **legacy alias** = same `video_sessions.id` (**not** `matches.id`) | Edge: swipe-actions (`handle_swipe` → `match`) | notify_ready_gate |
 | 2 | Event deck mutual vibe → queued session | Push | "Your video date is ready 📹" | "Someone mutual-vibed with you — open the event lobby to join the ready gate." | Same lobby URL + query pattern as row 1 | Edge: swipe-actions (`match_queued`) | notify_ready_gate |
 | 3 | Someone vibed you (non-mutual / super vibe) | Push | "Someone vibed you! 💜" | "Join the event to find out who" | `/events` | Edge: swipe-actions | notify_someone_vibed_you |
-| 4 | New message (chat) | Push | Sender name or "New message" | Message preview (≤80 chars) | `/chat/{match_id}`, match_id | Edge: send-message | notify_messages |
+| 4 | New message (chat) | Push | Sender name or "New message" | Message preview (≤80 chars) | `/chat/{otherUserId}` (other participant profile id) | Edge: send-message | notify_messages |
 | 5 | Daily drop ready (cron) | Push | "💧 Your Daily Drop is ready" | "Someone new is waiting to meet you. Open to see who." | `/matches` | Edge: generate-daily-drops | notify_daily_drop |
 | 6 | Daily drop opener received | Push | "💧 Your Daily Drop sent you a message" | "Reply before 6 PM tomorrow to unlock chat" | `/matches` | Edge: daily-drop-actions | notify_daily_drop |
-| 7 | Daily drop reply (match unlocked) | Push | "You're connected! 🎉" | "You and {name} matched through Daily Drop" | `/chat/{match_id}` or `/matches` | Edge: daily-drop-actions | notify_new_match |
+| 7 | Daily drop reply (match unlocked) | Push | "You're connected! 🎉" | "You and {name} matched through Daily Drop" | `/chat/{otherUserId}` or `/matches` | Edge: daily-drop-actions | notify_new_match |
 | 8 | Credits purchased (Stripe) | Push | "Credits added! ⚡" | "{packId} pack purchased" | `/settings` | Edge: stripe-webhook | notify_credits_subscription |
 | 9 | Event going live (admin action) | Push | "{eventTitle} is live! 🎉" | "Join now and start meeting people" | `/event/{eventId}/lobby` | Client: AdminEventControls → sendNotification | notify_event_live |
 | 10 | Event reminder (admin, 15 min) | Push | "{eventTitle} starts soon! ⏰" | "Get ready — starting in 15 minutes" | `/event/{eventId}/lobby` | Client: AdminEventControls | notify_event_reminder |
@@ -132,7 +132,7 @@ All 44 notification types with proposed channel, copy, and rules.
 | 16 | Event almost full | Capacity e.g. ≥90% | Email / Push | "{eventTitle}" is {pct}% full! | Register now | — | — | /events/{eventId} | notify_event_reminder | Low | Immediate | — |
 | 17 | Daily drop available | Cron after generate-daily-drops | Push | 💧 Your Daily Drop is ready | Someone new is waiting. Open to see who. | Blurred or generic | Drop sound | /(tabs)/matches (drop tab) | notify_daily_drop | High | Scheduled (~6 PM) | — |
 | 18 | Opener received (daily drop) | Partner sent opener | Push | 💧 Your Daily Drop sent you a message | Reply before 6 PM tomorrow to unlock chat | — | Drop sound | /(tabs)/matches | notify_daily_drop | High | Immediate | — |
-| 19 | Reply received (daily drop) | Partner replied; match unlocked | Push | You're connected! 🎉 | You and {name} matched through Daily Drop | Partner photo | Match chime | /chat/{userId} | notify_new_match | High | Immediate | — |
+| 19 | Reply received (daily drop) | Partner replied; match unlocked | Push | You're connected! 🎉 | You and {name} matched through Daily Drop | Partner photo | Match chime | /chat/{otherUserId} | notify_new_match | High | Immediate | — |
 | 20 | Drop expiring soon | Unviewed drop, e.g. 1h before expire | Push | Your Daily Drop expires soon | Open now to see who and reply | — | Default | /(tabs)/matches | notify_daily_drop | Medium | Scheduled | — |
 | 21 | Deck queue → ready gate (lobby) | `handle_swipe` → `match_queued` (today same URL family as #1) | Push | Your video date is ready 📹 | Someone mutual-vibed with you — open the event lobby to join the ready gate. | — | Urgent double-tone | `/event/{eventId}/lobby?pendingVideoSession={videoSessionId}&pendingMatch={videoSessionId}` | notify_ready_gate | High | Immediate | On date/ready screen |
 | 22 | Date starting now | Both ready, room started | Push | Your date is starting now | Join before they leave | Partner avatar | Urgent | /date/{sessionId} | notify_ready_gate | High | Immediate | — |
@@ -193,11 +193,11 @@ Native settings screen should mirror these; “Quiet hours” and “Sound” ca
 
 | Notification | data.url (or equivalent) | Native screen |
 |-------------|---------------------------|----------------|
-| Persistent new match (chat) | /chat/{userId} (sender id in bundle) or data with `matches.id` semantics | /chat/[id] |
+| Persistent new match (chat) | `/chat/{otherUserId}` where the route param is the other participant profile id; the screen resolves `matches.id` internally | /chat/[id] |
 | Session-stage ready gate (deck) | `/event/{eventId}/lobby?pendingVideoSession=…&pendingMatch=…` | /event/[eventId]/lobby |
-| New message | /chat/{match_id} | /chat/[id] |
+| New message | /chat/{otherUserId} | /chat/[id] |
 | Daily drop | /matches | /(tabs)/matches (focus drop tab if exists) |
-| Daily drop opener/reply | /matches or /chat/{match_id} | /(tabs)/matches or /chat/[id] |
+| Daily drop opener/reply | /matches or /chat/{otherUserId} | /(tabs)/matches or /chat/[id] |
 | Event starting / live / ended | /event/{eventId}/lobby | /event/[eventId]/lobby |
 | Event list | /events | /(tabs)/events |
 | In-date / rejoin | `/date/{sessionId}` (after joined) | /date/[id] |
