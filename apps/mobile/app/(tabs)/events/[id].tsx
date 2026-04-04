@@ -755,12 +755,10 @@ export default function EventDetailScreen() {
                 </View>
               </View>
               <VibelyButton
-                <VibelyButton
-                  label="Manage Booking"
-                  variant="primary"
-                  onPress={() => setShowManageBooking(true)}
-                  style={styles.cta}
-                />
+                label="Manage Booking"
+                variant="primary"
+                onPress={() => setShowManageBooking(true)}
+                style={styles.cta}
               />
               <VibelyButton
                 label="View Ticket"
