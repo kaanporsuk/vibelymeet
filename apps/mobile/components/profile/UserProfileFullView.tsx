@@ -23,7 +23,7 @@ import { spacing, radius, fonts, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text } from '@/components/Themed';
 import type { UserProfileView } from '@/lib/fetchUserProfile';
-import { avatarUrl } from '@/lib/imageUrl';
+import { avatarUrl, deckCardUrl, getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
@@ -405,7 +405,7 @@ export function UserProfileFullView({
                       { width: photoCellSize, height: photoCellSize, backgroundColor: theme.surfaceSubtle },
                     ]}
                   >
-                    <Image source={{ uri: avatarUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                    <Image source={{ uri: deckCardUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
                   </Pressable>
                 ))}
               </RNView>
@@ -509,7 +509,7 @@ export function UserProfileFullView({
             {photos.map((url, i) => (
               <RNView key={`pv-${i}`} style={[s.photoModalPage, { width: winWidth, height: winHeight }]}>
                 <Image
-                  source={{ uri: avatarUrl(url) }}
+                  source={{ uri: getImageUrl(url, { width: 1200, quality: 88 }) }}
                   style={s.photoModalImage}
                   resizeMode="contain"
                 />
