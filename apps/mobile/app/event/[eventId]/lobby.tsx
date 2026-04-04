@@ -31,7 +31,7 @@ import {
   type DeckProfile,
   type SwipeResult,
 } from '@/lib/eventsApi';
-import { avatarUrl } from '@/lib/imageUrl';
+import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
 import { ReadyGateOverlay } from '@/components/lobby/ReadyGateOverlay';
 import { EventEndedModal } from '@/components/events/EventEndedModal';
 import { useEventStatus } from '@/lib/eventStatus';
@@ -1086,7 +1086,7 @@ function LobbyProfileCard({
   }, [profile.profile_id, isBehind]);
 
   const photo = profile.avatar_url ?? profile.photos?.[0];
-  const uri = photo ? avatarUrl(photo) : '';
+  const uri = photo ? deckCardUrl(photo) : '';
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
   const sharedCount = profile.shared_vibe_count;
   const heightLabel = formatHeightCm(profile.height_cm);
