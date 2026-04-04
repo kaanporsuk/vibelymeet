@@ -73,6 +73,10 @@ export function avatarUrl(path: string | null | undefined, traceLabel?: 'avatar'
   return getImageUrl(path, { width: 200, height: 200, crop: 'center' }, traceLabel);
 }
 
+export function deckCardUrl(path: string | null | undefined): string {
+  return getImageUrl(path, { width: 1080, height: 1440, crop: 'center', quality: 88 });
+}
+
 export function eventCoverUrl(path: string | null | undefined, traceLabel?: 'event_image'): string {
   return getImageUrl(path, { width: 600, quality: 85 }, traceLabel);
 }
