@@ -133,7 +133,7 @@ const App = () => (
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/settings/ticket/:id" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
-                <Route path="/ready/:id" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
+                <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
                 <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
                 <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
                 <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
