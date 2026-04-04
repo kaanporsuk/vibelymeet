@@ -47,7 +47,6 @@ import {
   DATE_SECONDS,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
-import { getImageUrl } from '@/lib/imageUrl';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -132,10 +131,6 @@ function applyLocalMediaUiFromParticipant(p: DailyParticipant, setters: {
   const aState = p.tracks?.audio?.state;
   if (vState !== undefined) setters.setIsVideoOff(vState === 'off');
   if (aState !== undefined) setters.setIsMuted(aState === 'off');
-}
-
-function resolveAvatar(path: string | null): string {
-  return getImageUrl(path) || '';
 }
 
 export default function VideoDateScreen() {
@@ -329,7 +324,9 @@ export default function VideoDateScreen() {
       try {
         await call.leave();
         call.destroy();
-      } catch {}
+      } catch (_error) {
+        void _error;
+      }
       callRef.current = null;
     }
     const roomName = roomNameRef.current;
@@ -476,7 +473,9 @@ export default function VideoDateScreen() {
       try {
         await call.leave();
         call.destroy();
-      } catch {}
+      } catch (_error) {
+        void _error;
+      }
       callRef.current = null;
     }
     setAwaitingFirstConnect(false);
