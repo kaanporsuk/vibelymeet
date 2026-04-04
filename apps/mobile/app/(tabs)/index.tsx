@@ -416,7 +416,7 @@ export default function DashboardScreen() {
           </View>
           <View style={[styles.heroContent, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
             <VibelyButton
-              label="Enter Lobby →"
+              label="Enter Lobby"
               variant="gradient"
               onPress={() => router.push(`/event/${nextEvent.id}/lobby` as const)}
               style={styles.ctaFull}
@@ -443,7 +443,7 @@ export default function DashboardScreen() {
           </View>
           <View style={[styles.heroContent, { backgroundColor: theme.secondary }]}>
             <VibelyButton
-              label="View event"
+              label="View Event"
               variant="primary"
               onPress={() => router.push(`/events/${nextEvent.id}` as const)}
               style={styles.ctaFull}
