@@ -37,7 +37,7 @@ import {
   formatBirthdayUsWithZodiac,
   type ProfileRow,
 } from '@/lib/profileApi';
-import { getImageUrl, deckCardUrl } from '@/lib/imageUrl';
+import { avatarUrl, getImageUrl, deckCardUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
@@ -909,7 +909,7 @@ export default function ProfileStudio() {
         <RNView style={{ position: 'relative' }}>
           {mainPhoto ? (
             <Image
-              source={{ uri: getImageUrl(mainPhoto) }}
+              source={{ uri: avatarUrl(mainPhoto) }}
               style={[s.heroAvatar, { borderColor: theme.background }]}
             />
           ) : (
