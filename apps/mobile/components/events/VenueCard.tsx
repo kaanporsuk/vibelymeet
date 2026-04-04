@@ -10,6 +10,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { withAlpha } from '@/lib/colorUtils';
 import { Card, VibelyButton } from '@/components/ui';
 import { spacing, radius } from '@/constants/theme';
+import { deriveEventPhase, formatVenuePhaseLabel } from '@/lib/eventPhase';
 
 type VenueCardProps = {
   isVirtual: boolean;
@@ -17,6 +18,7 @@ type VenueCardProps = {
   address?: string;
   eventDate: Date;
   eventDurationMinutes?: number;
+  currentTimeMs?: number;
   eventId?: string;
   isRegistered?: boolean;
   onAccessPress?: () => void;
@@ -30,6 +32,7 @@ export function VenueCard({
   address,
   eventDate,
   eventDurationMinutes = 60,
+  currentTimeMs,
   eventId,
   isRegistered = false,
   onAccessPress,
@@ -38,44 +41,23 @@ export function VenueCard({
 }: VenueCardProps) {
   const theme = Colors[useColorScheme()];
   const router = useRouter();
-  const [timeUntil, setTimeUntil] = useState('');
-  const [eventStatus, setEventStatus] = useState<'upcoming' | 'live' | 'ended'>('upcoming');
+  const [fallbackNowMs, setFallbackNowMs] = useState(() => Date.now());
 
   useEffect(() => {
-    const update = () => {
-      const now = Date.now();
-      const start = eventDate.getTime();
-      const end = start + eventDurationMinutes * 60 * 1000;
-      if (now >= end) {
-        setEventStatus('ended');
-        setTimeUntil('Event ended');
-        return;
-      }
-      if (now >= start && now < end) {
-        setEventStatus('live');
-        const m = Math.ceil((end - now) / (1000 * 60));
-        setTimeUntil(`${m}m remaining`);
-        return;
-      }
-      setEventStatus('upcoming');
-      const diff = start - now;
-      if (diff <= 0) {
-        setTimeUntil('Starting now!');
-        return;
-      }
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      if (hours > 24) setTimeUntil(`${Math.floor(hours / 24)}d ${hours % 24}h`);
-      else if (hours > 0) setTimeUntil(`${hours}h ${minutes}m`);
-      else setTimeUntil(`${minutes}m`);
-    };
-    update();
-    const t = setInterval(update, 10000);
-    return () => clearInterval(t);
-  }, [eventDate.getTime(), eventDurationMinutes]);
+    if (typeof currentTimeMs === 'number') return;
+    const timer = setInterval(() => setFallbackNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [currentTimeMs]);
+
+  const phase = deriveEventPhase({
+    eventDate,
+    eventDurationMinutes,
+    nowMs: typeof currentTimeMs === 'number' ? currentTimeMs : fallbackNowMs,
+  });
+  const timeUntil = formatVenuePhaseLabel(phase);
 
   const onEnterLobby = () => {
-    if (eventId && eventStatus === 'live') router.push(`/event/${eventId}/lobby` as const);
+    if (eventId && phase.isLive) router.push(`/event/${eventId}/lobby` as const);
   };
 
   if (isVirtual) {
@@ -91,7 +73,7 @@ export function VenueCard({
           </View>
         </View>
         <View style={[styles.statusBlock, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-          {eventStatus === 'live' && isRegistered ? (
+          {phase.isLive && isRegistered ? (
             <>
               <View style={styles.liveRow}>
                 <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
@@ -99,7 +81,7 @@ export function VenueCard({
               </View>
               <Text style={[styles.timeUntil, { color: theme.textSecondary }]}>{timeUntil}</Text>
             </>
-          ) : eventStatus === 'ended' ? (
+          ) : phase.isEnded ? (
             <>
               <Ionicons name="lock-closed" size={24} color={theme.textSecondary} />
               <Text style={[styles.statusText, { color: theme.textSecondary }]}>Event has ended</Text>
@@ -117,9 +99,9 @@ export function VenueCard({
             </>
           )}
         </View>
-        {eventStatus === 'live' && isRegistered ? (
+        {phase.isLive && isRegistered ? (
           <VibelyButton label="Enter Lobby" onPress={onEnterLobby} variant="gradient" style={styles.cta} />
-        ) : eventStatus === 'ended' ? (
+        ) : phase.isEnded ? (
           <VibelyButton label="Event Ended" onPress={() => {}} variant="secondary" disabled style={styles.cta} />
         ) : isRegistered ? (
           <VibelyButton label="Lobby Opens Soon" onPress={() => {}} variant="secondary" disabled style={styles.cta} />

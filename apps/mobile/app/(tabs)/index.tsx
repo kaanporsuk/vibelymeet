@@ -16,7 +16,7 @@ import {
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { differenceInSeconds, startOfDay } from 'date-fns';
+import { startOfDay } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import { PermissionStatus } from 'expo-modules-core';
@@ -57,6 +57,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
+import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -221,12 +222,32 @@ export default function DashboardScreen() {
   const isWaitlistedForNextEvent = nextEventData?.isWaitlisted ?? false;
   const hasEventAdmissionForNext =
     nextEventData?.hasEventAdmission ?? (isConfirmedForNextEvent || isWaitlistedForNextEvent);
-  const isLiveEvent = nextEvent?.status === 'live';
+  const [liveClockMs, setLiveClockMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!nextEvent || !hasEventAdmissionForNext) return;
+    const timer = setInterval(() => setLiveClockMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [nextEvent?.id, hasEventAdmissionForNext]);
+
+  const nextEventPhase = useMemo(
+    () =>
+      nextEvent
+        ? deriveEventPhase({
+            eventDate: nextEvent.eventDate,
+            eventDurationMinutes: nextEvent.duration_minutes,
+            nowMs: liveClockMs,
+          })
+        : null,
+    [nextEvent?.id, nextEvent?.eventDate?.getTime(), nextEvent?.duration_minutes, liveClockMs],
+  );
+
+  const isLiveEvent = nextEventPhase?.isLive ?? false;
 
   const hoursUntilNext = useMemo(() => {
-    if (!nextEvent?.eventDate) return Number.POSITIVE_INFINITY;
-    return (nextEvent.eventDate.getTime() - Date.now()) / 36e5;
-  }, [nextEvent?.eventDate]);
+    if (!nextEventPhase || nextEventPhase.isEnded) return Number.POSITIVE_INFINITY;
+    return nextEventPhase.msUntilStart / 36e5;
+  }, [nextEventPhase]);
 
   const upcomingEvents = useMemo(() => {
     const start = startOfDay(new Date());
@@ -239,28 +260,11 @@ export default function DashboardScreen() {
     return 'Upcoming Events';
   }, [upcomingEvents]);
 
-  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const countdown = useMemo(
+    () => (nextEventPhase ? getCountdownParts(nextEventPhase.msUntilStart) : { days: 0, hours: 0, minutes: 0, seconds: 0 }),
+    [nextEventPhase],
+  );
   const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    if (!nextEvent?.eventDate || isLiveEvent) return;
-    const update = () => {
-      const diff = differenceInSeconds(nextEvent.eventDate, new Date());
-      if (diff <= 0) {
-        setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      setCountdown({
-        days: Math.floor(diff / 86400),
-        hours: Math.floor((diff % 86400) / 3600),
-        minutes: Math.floor((diff % 3600) / 60),
-        seconds: diff % 60,
-      });
-    };
-    update();
-    const t = setInterval(update, 1000);
-    return () => clearInterval(t);
-  }, [nextEvent?.eventDate, isLiveEvent]);
 
   useEffect(() => {
     if (!user?.id) return;
