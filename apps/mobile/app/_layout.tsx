@@ -222,7 +222,6 @@ function RootLayoutNav() {
         <Stack.Screen name="premium" options={{ headerShown: false, title: 'Premium' }} />
         <Stack.Screen name="vibe-video-record" options={{ headerShown: false, title: 'Record Vibe Video' }} />
         <Stack.Screen name="user/[userId]" options={{ headerShown: false, title: 'Profile' }} />
-        <Stack.Screen name="match-celebration" options={{ headerShown: false, title: "It's a match!" }} />
         <Stack.Screen name="schedule" options={{ headerShown: false, title: 'Schedule' }} />
         <Stack.Screen name="subscription-success" options={{ headerShown: false, title: 'Success' }} />
         <Stack.Screen name="subscription-cancel" options={{ title: 'Cancelled', headerShown: false }} />
