@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { Camera } from 'expo-camera';
 import Daily, { DailyMediaView } from '@daily-co/react-native-daily-js';
@@ -142,6 +143,7 @@ export default function VideoDateScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const insets = useSafeAreaInsets();
 
   const { session, partner: basicPartner, phase, timeLeft: serverTimeLeft, loading: sessionLoading, error: sessionError } = useVideoDateSession(
     sessionId ?? null,
@@ -751,6 +753,7 @@ export default function VideoDateScreen() {
   const displayTimeLeft = localTimeLeft ?? totalTime;
   const preConnectWaiting = !hadConnectedOnceRef.current && (isConnecting || awaitingFirstConnect || firstConnectTimedOut);
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
+  const handshakeBottomOffset = insets.bottom + 96;
 
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
@@ -927,18 +930,15 @@ export default function VideoDateScreen() {
           )}
       </View>
 
-      {phase === 'handshake' && showIceBreaker && currentQuestion ? (
-        <View style={styles.iceBreakerWrap}>
-          <IceBreakerCard
-            question={currentQuestion}
-            onDismiss={() => setShowIceBreaker(false)}
-            onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
-          />
-        </View>
-      ) : null}
-
       {phase === 'handshake' && (
-        <View style={styles.vibeCheckWrap}>
+        <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
+          {showIceBreaker && currentQuestion ? (
+            <IceBreakerCard
+              question={currentQuestion}
+              onDismiss={() => setShowIceBreaker(false)}
+              onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
+            />
+          ) : null}
           <VibeCheckButton timeLeft={displayTimeLeft} onVibe={handleUserVibe} />
         </View>
       )}
@@ -1066,8 +1066,13 @@ const styles = StyleSheet.create({
   initialBtnPressed: { opacity: 0.85 },
   partnerPill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
   partnerName: { fontSize: 16, fontWeight: '600' },
-  iceBreakerWrap: { position: 'absolute', bottom: 180, left: 16, right: 16 },
-  vibeCheckWrap: { position: 'absolute', bottom: 160, left: 0, right: 0, alignItems: 'center' },
+  handshakeBottomStack: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   keepTheVibeWrap: { position: 'absolute', top: 110, left: 16 },
   controlsBar: { position: 'absolute', bottom: 0, left: 0, right: 0 },
 });
