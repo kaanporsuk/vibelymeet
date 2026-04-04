@@ -429,6 +429,96 @@ export default function EventLobbyScreen() {
     enabled: mysteryMatchEnabled,
   });
 
+  const eventSubtitle = useMemo(() => {
+    if (!event?.event_date) return 'Live room';
+    const t = new Date(event.event_date).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+    const place = event.location_name?.trim();
+    return `${t} · ${place || 'Live room'}`;
+  }, [event?.event_date, event?.location_name]);
+
+  const deckProgress = useMemo(() => {
+    if (profiles.length === 0) return 0;
+    return Math.min(1, Math.max(0, (profiles.length - sortedProfiles.length) / profiles.length));
+  }, [profiles.length, sortedProfiles.length]);
+
+  const showSwipeToast = useCallback(
+    (result: string) => {
+      switch (result) {
+        case 'vibe_recorded':
+        case 'swipe_recorded':
+          break;
+        case 'match':
+          show({
+            title: "It's a match!",
+            message: 'Opening Ready Gate…',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'match_queued':
+          show({
+            title: "You're matched!",
+            message:
+              "We'll bring you to Ready Gate when your partner is free — keep browsing.",
+            variant: 'success',
+            primaryAction: { label: 'Got it', onPress: () => {} },
+          });
+          break;
+        case 'super_vibe_sent':
+          show({
+            title: 'Super Vibe sent! ✨',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'limit_reached':
+          show({
+            title: 'Super Vibe limit',
+            message: 'You’ve used all 3 Super Vibes for this event.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'already_super_vibed_recently':
+          show({
+            title: 'Already sent',
+            message: 'You recently Super Vibed this person.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'already_matched':
+          break;
+        case 'event_not_active':
+          show({
+            title: 'Event not active',
+            message: 'This event was cancelled or is no longer available for swipes.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'blocked':
+        case 'reported':
+          show({
+            title: 'Not available',
+            message: 'This person isn’t available for matching right now.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        default:
+          break;
+      }
+    },
+    [show]
+  );
+
+  const isOffline = useIsOffline();
+
   if (eventLoading || (user?.id && regLoading)) {
     return (
       <>
@@ -537,96 +627,6 @@ export default function EventLobbyScreen() {
   const thirdProfile = sortedProfiles[2] ?? null;
   const hasCards = sortedProfiles.length > 0;
   const isEmpty = !hasCards || !current;
-
-  const eventSubtitle = useMemo(() => {
-    if (!event?.event_date) return 'Live room';
-    const t = new Date(event.event_date).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-    const place = event.location_name?.trim();
-    return `${t} · ${place || 'Live room'}`;
-  }, [event?.event_date, event?.location_name]);
-
-  const deckProgress = useMemo(() => {
-    if (profiles.length === 0) return 0;
-    return Math.min(1, Math.max(0, (profiles.length - sortedProfiles.length) / profiles.length));
-  }, [profiles.length, sortedProfiles.length]);
-
-  const showSwipeToast = useCallback(
-    (result: string) => {
-      switch (result) {
-        case 'vibe_recorded':
-        case 'swipe_recorded':
-          break;
-        case 'match':
-          show({
-            title: "It's a match!",
-            message: 'Opening Ready Gate…',
-            variant: 'success',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        case 'match_queued':
-          show({
-            title: "You're matched!",
-            message:
-              "We'll bring you to Ready Gate when your partner is free — keep browsing.",
-            variant: 'success',
-            primaryAction: { label: 'Got it', onPress: () => {} },
-          });
-          break;
-        case 'super_vibe_sent':
-          show({
-            title: 'Super Vibe sent! ✨',
-            variant: 'success',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        case 'limit_reached':
-          show({
-            title: 'Super Vibe limit',
-            message: 'You’ve used all 3 Super Vibes for this event.',
-            variant: 'warning',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        case 'already_super_vibed_recently':
-          show({
-            title: 'Already sent',
-            message: 'You recently Super Vibed this person.',
-            variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        case 'already_matched':
-          break;
-        case 'event_not_active':
-          show({
-            title: 'Event not active',
-            message: 'This event was cancelled or is no longer available for swipes.',
-            variant: 'warning',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        case 'blocked':
-        case 'reported':
-          show({
-            title: 'Not available',
-            message: 'This person isn’t available for matching right now.',
-            variant: 'warning',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
-          break;
-        default:
-          break;
-      }
-    },
-    [show]
-  );
-
-  const isOffline = useIsOffline();
 
   const discoverSectionIntro = (
     <View style={styles.sectionIntro}>
