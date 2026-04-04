@@ -8,6 +8,11 @@ Scope baseline:
 - Sprint 3 matches/chat/date closure completed at audit level
 - Shared backend is canonical (no separate mobile backend)
 
+Out of scope for RC sign-off (deferred):
+- v1.1+ surfaces not in the core path matrix below
+- cosmetic polish-only items
+- broader cleanup/refactor work that does not affect release-critical runtime behavior
+
 Legend:
 - Severity: P0 (release blocker), P1 (must-fix before RC sign-off), P2 (fix soon, can continue focused validation)
 - Likely owner surface: Native UI, Shared adapter, Backend contract, Provider config
