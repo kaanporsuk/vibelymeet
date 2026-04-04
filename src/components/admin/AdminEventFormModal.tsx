@@ -363,7 +363,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       if (result.action === 'create_event') {
         try {
           await supabase.functions.invoke('event-notifications', {
-            body: { type: 'new_event', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
+            body: { type: 'event_created', eventId: result.id, eventTitle: title, eventDate: result.eventData.event_date, eventDescription: description }
           });
         } catch (_) {}
 
