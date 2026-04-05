@@ -78,14 +78,14 @@
 ### Sign In
 - **Route:** `/(auth)/sign-in`
 - **Header:** Custom in-screen (back to sign-up toggle)
-- **Form:** email, password → `signIn` → success **1.2s** delay → `router.replace('/(tabs)')` (code uses replace to tabs directly)
+- **Form:** email, password → `signIn` → success **1.2s** delay → `router.replace('/')`; root gate (`app/index.tsx`) then routes to `/(onboarding)` or `/(tabs)` based on onboarding/profile status.
 - **Analytics:** `login` { method: email }
 
 ---
 
 ### Sign Up
 - **Route:** `/(auth)/sign-up`
-- **Form:** email, password → `signUp` → `signup_completed` → replace `/(tabs)` (user may hit onboarding if no profile)
+- **Behavior:** Redirect shim only. `app/(auth)/sign-up.tsx` immediately `router.replace('/(auth)/sign-in')`; signup is handled on the sign-in owner screen.
 
 ---
 
@@ -111,7 +111,7 @@
 - **Header:** `GlassHeaderBar` — `DashboardGreeting`, bell → notification flow or `/settings/notifications`, avatar → `/profile`
 - **RefreshControl:** `tintColor={theme.tint}`
 - **Sections:** DeletionRecoveryBanner; PhoneVerificationNudge; DateReminderCards (Join → `/date/:sessionId` if active session else `/chat/:partnerProfileId`); Live event CTA → lobby or event detail; Next event countdown; premium other-cities nudge; matches strip → `/chat/:id`; events rail → `/events/:id`
-- **Web fallbacks:** `Linking.openURL('https://vibelymeet.com/schedule')` (upcoming dates empty); `onJoinDate` on reminder → `https://vibelymeet.com/video-date`
+- **Web fallbacks:** `Linking.openURL('https://vibelymeet.com/schedule')` (upcoming dates empty). Reminder join now prefers active session deep-link (`/date/:sessionId`) and otherwise falls back to chat/schedule flows.
 - **Modals:** `NotificationPermissionFlow`
 - **Animations:** `PulsingLiveDot` (Animated loop)
 - **Realtime:** None on dashboard itself; hooks refetch on focus/refresh
@@ -307,10 +307,10 @@
 ## SECTION 4: USER JOURNEYS (native)
 
 ### 4.1 First-time
-`/` → sign-in or sign-up → `/(onboarding)` steps 0–2 → `/(tabs)`. Photos via web link.
+`/` → `/(auth)/sign-in` (or `/(auth)/sign-up` redirect shim to sign-in) → authenticated sign-in screen does `router.replace('/')` → root gate routes to `/(onboarding)` or `/(tabs)`. Photos via web link.
 
 ### 4.2 Returning
-Sign in → replace `/(tabs)` (or onboarding if profile missing).
+Sign in → sign-in screen replaces to `/` → root gate routes to `/(tabs)` or `/(onboarding)`.
 
 ### 4.3 Browse & register
 Events tab → detail → register / pay → `event-payment-success` → event detail or events list.
@@ -398,7 +398,7 @@ Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-i
 | `settings/notifications.tsx` | `/settings` | Advanced notification prefs |
 | `settings/account.tsx` | `/settings` | “Some options on web” |
 | `(tabs)/profile/index.tsx` | invite link (vibelymeet), `/schedule`, `/profile` | Share + schedule on web + photo verify on web |
-| `(tabs)/index.tsx` | `/schedule`, `/video-date` | Empty schedule / join date web fallback |
+| `(tabs)/index.tsx` | `/schedule`, `/date/:id` | Empty schedule fallback + active-session join date deep-link |
 | `(tabs)/events/index.tsx` | `/profile` | Enable location via web profile |
 | `(tabs)/events/[id].tsx` | Stripe `result.url` | Paid event checkout |
 | `settings/credits.tsx` | Checkout URL | Credits purchase |

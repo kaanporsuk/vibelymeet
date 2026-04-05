@@ -200,7 +200,9 @@ export default function ScheduleScreen() {
               <DateReminderCard
                 key={r.id}
                 reminder={r}
-                onJoinDate={r.matchId && user?.id ? () => openChatFromMatch(r.matchId!, user.id) : undefined}
+                onJoinDate={() => {
+                  void handleJoinDate(r);
+                }}
                 onEnableNotifications={() => router.push('/settings/notifications')}
                 notificationsEnabled={pushGranted}
               />

@@ -101,7 +101,11 @@ const Dashboard = () => {
   useRealtimeEvents();
   const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery();
 
-  const [activeSession, setActiveSession] = useState<{ sessionId: string; eventId: string } | null>(null);
+  const [activeSession, setActiveSession] = useState<{
+    sessionId: string;
+    eventId: string;
+    queueStatus: "in_handshake" | "in_date" | "in_ready_gate";
+  } | null>(null);
   const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
 
   useEffect(() => {
@@ -139,7 +143,11 @@ const Dashboard = () => {
           .maybeSingle();
 
         if (session) {
-          setActiveSession({ sessionId: session.id, eventId: reg.event_id });
+          setActiveSession({
+            sessionId: session.id,
+            eventId: reg.event_id,
+            queueStatus: reg.queue_status as "in_handshake" | "in_date" | "in_ready_gate",
+          });
         }
       }
     };
@@ -583,7 +591,13 @@ const Dashboard = () => {
               <DateReminderCard
                 key={reminder.id}
                 reminder={reminder}
-                onJoinDate={() => navigate("/video-date")}
+                onJoinDate={() => {
+                  if (activeSession && (activeSession.queueStatus === "in_handshake" || activeSession.queueStatus === "in_date")) {
+                    navigate(`/date/${activeSession.sessionId}`);
+                    return;
+                  }
+                  navigate("/schedule");
+                }}
                 onEnableNotifications={() => setShowNotificationFlow(true)}
                 notificationsEnabled={isGranted}
               />

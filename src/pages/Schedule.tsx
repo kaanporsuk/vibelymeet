@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Bell } from "lucide-react";
@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
+import { supabase } from "@/integrations/supabase/client";
 
 const SchedulePage = () => {
   const navigate = useNavigate();
@@ -25,7 +26,41 @@ const SchedulePage = () => {
   const { reminders, imminentReminders, soonReminders } = useDateReminders(proposals);
   const { isGranted, refreshSubscriptionState } = usePushNotifications();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
+  const [activeDateSessionId, setActiveDateSessionId] = useState<string | null>(null);
   const [, forceUpdate] = useState({});
+
+  useEffect(() => {
+    const checkActiveDateSession = async () => {
+      if (!user?.id) {
+        setActiveDateSessionId(null);
+        return;
+      }
+
+      const { data: reg } = await supabase
+        .from("event_registrations")
+        .select("current_room_id, queue_status")
+        .eq("profile_id", user.id)
+        .in("queue_status", ["in_handshake", "in_date"])
+        .not("current_room_id", "is", null)
+        .maybeSingle();
+
+      if (!reg?.current_room_id) {
+        setActiveDateSessionId(null);
+        return;
+      }
+
+      const { data: session } = await supabase
+        .from("video_sessions")
+        .select("id, ended_at")
+        .eq("id", reg.current_room_id)
+        .is("ended_at", null)
+        .maybeSingle();
+
+      setActiveDateSessionId(session?.id ?? null);
+    };
+
+    void checkActiveDateSession();
+  }, [user?.id]);
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
@@ -131,7 +166,13 @@ const SchedulePage = () => {
               <DateReminderCard
                 key={reminder.id}
                 reminder={reminder}
-                onJoinDate={() => navigate('/video-date')}
+                onJoinDate={() => {
+                  if (activeDateSessionId) {
+                    navigate(`/date/${activeDateSessionId}`);
+                    return;
+                  }
+                  navigate('/schedule');
+                }}
                 onEnableNotifications={() => setShowNotificationFlow(true)}
                 notificationsEnabled={isGranted}
               />

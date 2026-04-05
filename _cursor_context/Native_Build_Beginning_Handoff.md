@@ -222,3 +222,20 @@ What I want you to do in this new chat:
 3. Start `docs/native-build-architecture-plan`
 4. Produce a definitive native architecture + sprint plan tied to the actual hardened backend surfaces
 5. Then guide implementation sprint by sprint, using Cursor as implementer and asking the user to do only the actions Cursor cannot do
+
+Closure addendum (2026-04-04):
+- Auth/bootstrap ownership is now fully enforced with no latent fallback surfaces.
+- `src/components/ProtectedRoute.tsx` blocks `profileStatus='unknown'` from protected shell rendering and shows recovery actions.
+- Deprecated signup surfaces now hard-error:
+  - `src/contexts/AuthContext.tsx` `signUp(...)`
+  - `apps/mobile/context/AuthContext.tsx` `signUp(...)`
+  - `apps/mobile/lib/authApi.ts` `signUpWithEmail(...)`
+- Canonical signup/bootstrap owners remain:
+  - Web: `src/pages/Auth.tsx`
+  - Native: `apps/mobile/app/(auth)/sign-in.tsx`
+- Canonical profile bootstrap helper remains `ensureProfileReady(...)`; legacy wrapper `ensureBootstrapProfileExists(...)` has been removed.
+
+Registered-journey refinement addendum (2026-04-05):
+- Reminder Join CTAs now prefer contextual active-session deep links when verifiable (`/date/:id`), with safe fallback preserved where no reliable session id exists.
+- Native schedule reminder join now reuses its contextual handler (active session first, chat fallback) instead of bypassing it.
+- Web `/vibe-studio` remains an intentional minimal compatibility redirect to `/profile` (legacy deep-link continuity).

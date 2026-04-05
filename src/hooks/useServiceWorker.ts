@@ -59,7 +59,7 @@ export function useServiceWorker() {
         `📅 Date with ${matchName} starting soon!`,
         `Your video date starts in ${minutesBefore} minutes. Get ready!`,
         reminderTime,
-        "/video-date"
+        "/schedule"
       );
     },
     [scheduleNotification]

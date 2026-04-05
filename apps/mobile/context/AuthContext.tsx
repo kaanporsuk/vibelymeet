@@ -4,15 +4,16 @@ import { supabase } from '@/lib/supabase';
 import { resetAnalytics } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
-import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
 import { clearRevenueCatUser } from '@/lib/revenuecat';
-import { getOnboardingComplete, signInWithEmail, signUpWithEmail } from '@/lib/authApi';
+import { getOnboardingStatus, signInWithEmail, type OnboardingStatus } from '@/lib/authApi';
 import { toError } from '@/lib/contractErrors';
 
 type AuthState = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  profilePresence: 'present' | 'missing' | 'unknown';
+  onboardingStatus: OnboardingStatus;
   onboardingComplete: boolean | null;
 };
 
@@ -29,22 +30,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
+  const [profilePresence, setProfilePresence] = useState<'present' | 'missing' | 'unknown'>('unknown');
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus>('unknown');
 
   const resolveOnboarding = useCallback(async (userId: string) => {
-    const completed = await getOnboardingComplete(userId);
-    setOnboardingComplete(completed);
-  }, []);
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
 
-  const ensureProfileExists = useCallback(async (user: User, reason: 'auth_context_session' | 'auth_context_state_change') => {
-    const result = await ensureBootstrapProfileExists(user, reason);
-    if (!result.ok) {
-      console.warn('[auth] bootstrap profile ensure failed', {
-        reason,
-        userId: user.id,
-        failure: result.reason,
-      });
+    if (profileError) {
+      setProfilePresence('unknown');
+      setOnboardingStatus('unknown');
+      return;
     }
+
+    if (!profile) {
+      setProfilePresence('missing');
+      setOnboardingStatus('unknown');
+      return;
+    }
+
+    setProfilePresence('present');
+    const status = await getOnboardingStatus(userId);
+    setOnboardingStatus(status);
   }, []);
 
   useEffect(() => {
@@ -54,17 +64,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(s);
         setUser(s?.user ?? null);
         if (s?.user) {
-          void ensureProfileExists(s.user, 'auth_context_session');
           resolveOnboarding(s.user.id);
         } else {
-          setOnboardingComplete(null);
+          setProfilePresence('unknown');
+          setOnboardingStatus('unknown');
         }
         setLoading(false);
       })
       .catch(() => {
         setSession(null);
         setUser(null);
-        setOnboardingComplete(null);
+        setProfilePresence('unknown');
+        setOnboardingStatus('unknown');
         setLoading(false);
       });
 
@@ -74,15 +85,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        void ensureProfileExists(s.user, 'auth_context_state_change');
         resolveOnboarding(s.user.id);
       } else {
-        setOnboardingComplete(null);
+        setProfilePresence('unknown');
+        setOnboardingStatus('unknown');
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [resolveOnboarding, ensureProfileExists]);
+  }, [resolveOnboarding]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await signInWithEmail(email, password);
@@ -93,11 +104,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
-    const result = await signUpWithEmail(email, password);
-    if (!result.ok) {
-      return { error: toError(result.error) };
-    }
-    return { error: null };
+    void email;
+    void password;
+    return {
+      error: new Error(
+        'Deprecated signUp surface: use the sign-in screen bootstrap owner flow in app/(auth)/sign-in.tsx.',
+      ),
+    };
   }, []);
 
   const signOut = useCallback(async () => {
@@ -120,7 +133,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
       void clearRevenueCatUser();
     await supabase.auth.signOut();
-    setOnboardingComplete(null);
+    setProfilePresence('unknown');
+    setOnboardingStatus('unknown');
   }, []);
 
   const refreshOnboarding = useCallback(async () => {
@@ -131,7 +145,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     loading,
-    onboardingComplete,
+    profilePresence,
+    onboardingStatus,
+    onboardingComplete: onboardingStatus === 'complete' ? true : onboardingStatus === 'incomplete' ? false : null,
     signIn,
     signUp,
     signOut,
