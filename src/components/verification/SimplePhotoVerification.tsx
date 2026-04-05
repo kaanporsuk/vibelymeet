@@ -145,7 +145,7 @@ export function SimplePhotoVerification({
         .from("proof-selfies")
         .upload(fileName, capturedBlob, { contentType: "image/jpeg", cacheControl: "3600" });
 
-      let selfieUrl = fileName;
+      const selfieUrl = fileName;
       if (uploadError) {
         throw uploadError;
       }

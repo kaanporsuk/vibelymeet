@@ -501,7 +501,7 @@ serve(async (req) => {
       return { data, error };
     };
 
-    let { data: inserted, error: insertError } = await insertRow(messageId, envelope, content);
+    const { data: inserted, error: insertError } = await insertRow(messageId, envelope, content);
 
     if (insertError) {
       const code = (insertError as { code?: string }).code;

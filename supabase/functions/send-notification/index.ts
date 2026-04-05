@@ -320,7 +320,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    let { user_id, category, title, body, data, image_url, bypass_preferences } = await req.json()
+    const requestBody = await req.json()
+    const { user_id, category, data, image_url, bypass_preferences } = requestBody
+    let { title, body } = requestBody
 
     lifecycleContext = {
       shouldLog: shouldLogLifecycle(typeof category === 'string' ? category : '', data),

@@ -82,7 +82,7 @@ const AdminPremiumModal = ({
         .limit(10);
       if (!data?.length) return [];
       const adminIds = [...new Set(data.map((h) => h.admin_id).filter(Boolean))];
-      let adminMap: Record<string, string> = {};
+      const adminMap: Record<string, string> = {};
       if (adminIds.length) {
         const { data: admins } = await supabase
           .from("profiles")
