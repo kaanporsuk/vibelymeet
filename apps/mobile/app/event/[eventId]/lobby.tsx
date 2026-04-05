@@ -144,7 +144,7 @@ export default function EventLobbyScreen() {
   }, [id]);
 
   const sortedProfiles = useMemo(() => {
-    const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.profile_id));
+    const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
@@ -649,7 +649,7 @@ export default function EventLobbyScreen() {
       return;
     }
     setProcessing(true);
-    const targetId = current.profile_id;
+    const targetId = current.id;
     try {
       const result = await swipe(id, targetId, swipeType);
       if (!result) {
@@ -713,7 +713,7 @@ export default function EventLobbyScreen() {
       seenProfileIdsRef.current.add(targetId);
       setDeckNonce((n) => n + 1);
       void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
-      const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.profile_id)).length;
+      const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
       if (remainingVisible === 0) {
         void refetchDeck();
       }
@@ -1079,11 +1079,11 @@ function LobbyProfileCard({
   useEffect(() => {
     if (isBehind) return;
     (async () => {
-      const { data } = await supabase.from('profiles').select('photo_verified').eq('id', profile.profile_id).maybeSingle();
+      const { data } = await supabase.from('profiles').select('photo_verified').eq('id', profile.id).maybeSingle();
       const pr = data as { photo_verified?: boolean } | null;
       setPhotoVerified(Boolean(pr?.photo_verified));
     })();
-  }, [profile.profile_id, isBehind]);
+  }, [profile.id, isBehind]);
 
   const photo = profile.avatar_url ?? profile.photos?.[0];
   const uri = photo ? deckCardUrl(photo) : '';
@@ -1161,7 +1161,7 @@ function LobbyProfileCard({
       </View>
       {!isBehind && (
         <Pressable
-          onPress={() => router.push(`/user/${profile.profile_id}`)}
+          onPress={() => router.push(`/user/${profile.id}`)}
           style={styles.profileInfoBtn}
           accessibilityLabel="View full profile"
         >

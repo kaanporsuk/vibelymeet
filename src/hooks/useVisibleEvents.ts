@@ -67,12 +67,13 @@ export const useVisibleEvents = (options?: UseVisibleEventsOptions) => {
       o.filterRadiusKm ?? null,
     ],
     queryFn: async (): Promise<VisibleEvent[]> => {
-      if (!user?.id) return [];
+      const viewerProfileId = user?.id;
+      if (!viewerProfileId) return [];
 
       const { data: profile } = await supabase
         .from("profiles")
         .select("location_data")
-        .eq("id", user.id)
+        .eq("id", viewerProfileId)
         .maybeSingle();
 
       const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
@@ -100,7 +101,7 @@ export const useVisibleEvents = (options?: UseVisibleEventsOptions) => {
           : null;
 
       const { data, error } = await supabase.rpc("get_visible_events", {
-        p_user_id: user.id,
+        p_user_id: viewerProfileId,
         p_user_lat: p_user_lat ?? null,
         p_user_lng: p_user_lng ?? null,
         p_is_premium: false,
@@ -122,18 +123,19 @@ export const useOtherCityEvents = () => {
   return useQuery({
     queryKey: ["other-city-events", user?.id],
     queryFn: async (): Promise<OtherCityEvent[]> => {
-      if (!user?.id) return [];
+      const viewerProfileId = user?.id;
+      if (!viewerProfileId) return [];
 
       const { data: profile } = await supabase
         .from("profiles")
         .select("location_data")
-        .eq("id", user.id)
+        .eq("id", viewerProfileId)
         .maybeSingle();
 
       const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
 
       const { data, error } = await supabase.rpc("get_other_city_events", {
-        p_user_id: user.id,
+        p_user_id: viewerProfileId,
         p_user_lat: locationData?.lat ?? undefined,
         p_user_lng: locationData?.lng ?? undefined,
       });

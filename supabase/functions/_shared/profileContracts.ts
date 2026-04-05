@@ -1,3 +1,5 @@
+import type { AuthUserId } from "./identity";
+
 export const DEFAULT_BOOTSTRAP_AGE = 18;
 export const DEFAULT_BOOTSTRAP_GENDER = "prefer_not_to_say";
 
@@ -147,7 +149,7 @@ export function getRelationshipIntentAliases(canonicalId: RelationshipIntentId):
 }
 
 type BootstrapProfileInsertInput = {
-  userId: string;
+  userId: AuthUserId;
   name: string;
   phoneNumber: string | null;
   referredBy?: string | null;
@@ -179,7 +181,7 @@ export function buildBootstrapProfileInsert(input: BootstrapProfileInsertInput) 
 }
 
 export type OnboardingProfileUpsertInput = {
-  userId: string;
+  userId: AuthUserId;
   name: string;
   birthDate: string;
   age: number;
