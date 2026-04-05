@@ -1,5 +1,4 @@
 import type { User } from "@supabase/supabase-js";
-import { buildBootstrapProfileInsert, pickBootstrapName } from "@shared/profileContracts";
 
 export type EnsureProfileExistsReason =
   | "web_auth_signup"
@@ -9,12 +8,11 @@ export type EnsureProfileExistsReason =
 
 export type EnsureProfileFailureCode =
   | "profile_lookup_failed"
-  | "profile_insert_failed_retryable"
-  | "profile_insert_failed_terminal"
-  | "profile_insert_unexpected";
+  | "profile_missing"
+  | "profile_lookup_unexpected";
 
 export type EnsureProfileReadyResult =
-  | { status: "ready"; source: "existing" | "created"; created: boolean }
+  | { status: "ready"; source: "existing"; created: false }
   | {
       status: "failed";
       code: EnsureProfileFailureCode;
@@ -23,7 +21,6 @@ export type EnsureProfileReadyResult =
     };
 
 type ProfileRowId = { id: string };
-type BootstrapProfileInsert = ReturnType<typeof buildBootstrapProfileInsert>;
 
 type ProfilesTable = {
   select: (columns: string) => {
@@ -31,7 +28,6 @@ type ProfilesTable = {
       maybeSingle: () => PromiseLike<{ data: ProfileRowId | null; error: unknown | null }>;
     };
   };
-  insert: (values: BootstrapProfileInsert) => PromiseLike<{ error: unknown | null }>;
 };
 
 export type ProfileBootstrapClient = {
@@ -46,21 +42,6 @@ function asMessage(value: unknown): string {
   return "Unexpected profile bootstrap failure.";
 }
 
-function isConflictError(error: unknown): boolean {
-  const code = (error as { code?: string } | null)?.code;
-  const message = String((error as { message?: string } | null)?.message ?? "").toLowerCase();
-  return code === "23505" || message.includes("duplicate key") || message.includes("already exists");
-}
-
-function isRetryableError(error: unknown): boolean {
-  const code = String((error as { code?: string } | null)?.code ?? "").toLowerCase();
-  const message = String((error as { message?: string } | null)?.message ?? "").toLowerCase();
-  const status = Number((error as { status?: number } | null)?.status ?? 0);
-  if (status >= 500) return true;
-  if (code === "etimedout" || code === "econnreset" || code === "econnrefused") return true;
-  return message.includes("network") || message.includes("timeout") || message.includes("temporarily");
-}
-
 async function readProfileExists(
   client: ProfileBootstrapClient,
   userId: string,
@@ -72,6 +53,10 @@ async function readProfileExists(
     .maybeSingle();
   if (error) return { exists: false, error };
   return { exists: !!data, error: null };
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function ensureProfileReadyOnce(
@@ -89,38 +74,11 @@ async function ensureProfileReadyOnce(
   }
   if (existingLookup.exists) return { status: "ready", source: "existing", created: false };
 
-  const payload = buildBootstrapProfileInsert({
-    userId: user.id,
-    name: pickBootstrapName(user.user_metadata as Record<string, unknown> | undefined),
-    phoneNumber: user.phone ?? null,
-  });
-
-  const { error: insertError } = await client.from("profiles").insert(payload);
-  if (!insertError) {
-    return { status: "ready", source: "created", created: true };
-  }
-
-  if (isConflictError(insertError)) {
-    const conflictLookup = await readProfileExists(client, user.id);
-    if (conflictLookup.exists) {
-      return { status: "ready", source: "existing", created: false };
-    }
-    return {
-      status: "failed",
-      code: "profile_insert_failed_retryable",
-      retryable: true,
-      message: conflictLookup.error
-        ? `Profile insert conflicted and follow-up read failed: ${asMessage(conflictLookup.error)}`
-        : "Profile insert conflicted and profile is not yet visible; retrying may succeed shortly.",
-    };
-  }
-
-  const retryable = isRetryableError(insertError);
   return {
     status: "failed",
-    code: retryable ? "profile_insert_failed_retryable" : "profile_insert_failed_terminal",
-    retryable,
-    message: asMessage(insertError),
+    code: "profile_missing",
+    retryable: false,
+    message: "Profile row is missing after backend auth bootstrap.",
   };
 }
 
@@ -128,9 +86,27 @@ async function ensureProfileReadyWithSingleRetry(
   client: ProfileBootstrapClient,
   user: User,
 ): Promise<EnsureProfileReadyResult> {
-  const firstAttempt = await ensureProfileReadyOnce(client, user);
-  if (firstAttempt.status === "ready" || !firstAttempt.retryable) return firstAttempt;
-  return ensureProfileReadyOnce(client, user);
+  const retryDelaysMs = [0, 250, 700];
+  let lastFailure: EnsureProfileReadyResult | null = null;
+
+  for (const [index, delayMs] of retryDelaysMs.entries()) {
+    if (index > 0) {
+      await delay(delayMs);
+    }
+    const attempt = await ensureProfileReadyOnce(client, user);
+    if (attempt.status === "ready") return attempt;
+    lastFailure = attempt;
+    if (!attempt.retryable && attempt.code !== "profile_missing") return attempt;
+  }
+
+  return (
+    lastFailure ?? {
+      status: "failed",
+      code: "profile_lookup_unexpected",
+      retryable: false,
+      message: "Unexpected profile readiness failure.",
+    }
+  );
 }
 
 export async function ensureProfileReady(
@@ -147,7 +123,7 @@ export async function ensureProfileReady(
     } catch (error) {
       return {
         status: "failed",
-        code: "profile_insert_unexpected",
+        code: "profile_lookup_unexpected",
         retryable: false,
         message: asMessage(error),
       } as EnsureProfileReadyResult;

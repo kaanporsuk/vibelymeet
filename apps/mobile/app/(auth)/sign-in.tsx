@@ -112,25 +112,24 @@ export default function SignInScreen() {
   const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
 
+  const showProfileRecovery = (message?: string) => {
+    setProfileBootstrapState('failed');
+    setProfileBootstrapMessage(
+      message || 'We could not verify your account setup right now. Retry setup check or sign out and sign in again.',
+    );
+  };
+
   const settleProfileBootstrap = async () => {
     if (!session?.user) {
       return {
         status: 'failed',
+        code: 'profile_lookup_unexpected',
         retryable: false,
+        message: 'No authenticated user available for profile readiness check.',
       } as const;
     }
 
-    let result = await ensureProfileReady(session.user, 'sign_in_screen_effect');
-    if (result.status === 'ready' || !result.retryable) return result;
-
-    const retryDelaysMs = [250, 700];
-    for (const delayMs of retryDelaysMs) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      result = await ensureProfileReady(session.user, 'sign_in_screen_effect');
-      if (result.status === 'ready' || !result.retryable) return result;
-    }
-
-    return result;
+    return ensureProfileReady(session.user, 'sign_in_screen_effect');
   };
 
   const phoneForSignIn = useMemo(() => isValidSignInPhone(countryCode, phoneInput), [countryCode, phoneInput]);
@@ -190,19 +189,30 @@ export default function SignInScreen() {
   }, []);
 
   useEffect(() => {
+    if (!session?.user?.id) {
+      setProfileBootstrapState('idle');
+      setProfileBootstrapMessage(null);
+      return;
+    }
+
+    let cancelled = false;
+
     const ensureProfileExists = async () => {
-      if (!session?.user?.id) return;
       setProfileBootstrapState('ensuring');
       setProfileBootstrapMessage(null);
       const result = await settleProfileBootstrap();
+      if (cancelled) return;
       if (result.status === 'ready') {
         setProfileBootstrapState('ready');
         return;
       }
-      setProfileBootstrapState('failed');
-      setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
+      showProfileRecovery();
     };
     void ensureProfileExists();
+
+    return () => {
+      cancelled = true;
+    };
   }, [session?.user?.id]);
 
   useEffect(() => {
@@ -222,8 +232,7 @@ export default function SignInScreen() {
       setProfileBootstrapState('ready');
       return;
     }
-    setProfileBootstrapState('failed');
-    setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
+    showProfileRecovery();
   };
 
   const signOutFromRecovery = async () => {
@@ -359,27 +368,7 @@ export default function SignInScreen() {
       const { data, error: e } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
       if (e) throw e;
       if (!data.user) {
-        setProfileBootstrapState('failed');
-        setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
-        return;
-      }
-      if (data.user) {
-        setProfileBootstrapState('ensuring');
-        let ensured = await ensureProfileReady(data.user, 'email_signup');
-        if (ensured.status !== 'ready' && ensured.retryable) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          ensured = await ensureProfileReady(data.user, 'email_signup');
-          if (ensured.status !== 'ready' && ensured.retryable) {
-            await new Promise((resolve) => setTimeout(resolve, 700));
-            ensured = await ensureProfileReady(data.user, 'email_signup');
-          }
-        }
-        if (ensured.status !== 'ready') {
-          setProfileBootstrapState('failed');
-          setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
-          return;
-        }
-        setProfileBootstrapState('ready');
+        throw new Error('We could not create your account. Please try again.');
       }
       trackEvent('auth_email_signup', { platform: 'native' });
       setView('email_signin');
@@ -534,11 +523,11 @@ export default function SignInScreen() {
 
         {profileBootstrapState === 'failed' ? (
           <View style={[styles.block, { borderColor: theme.border, borderWidth: 1 }]}> 
-            <Text style={[styles.h2, { color: theme.text }]}>Account setup incomplete</Text>
+            <Text style={[styles.h2, { color: theme.text }]}>Account setup check required</Text>
             <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
-              {profileBootstrapMessage || 'We could not finish account setup. Your account exists, but profile setup did not complete.'}
+              {profileBootstrapMessage || 'We could not verify your account setup right now. Retry setup check or sign out and sign in again.'}
             </Text>
-            <VibelyButton label="Retry setup" onPress={retryProfileSetup} variant="gradient" />
+            <VibelyButton label="Retry setup check" onPress={retryProfileSetup} variant="gradient" />
             <VibelyButton label="Sign out" onPress={signOutFromRecovery} variant="secondary" />
           </View>
         ) : null}
