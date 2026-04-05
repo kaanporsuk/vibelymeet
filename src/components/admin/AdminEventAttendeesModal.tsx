@@ -64,7 +64,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   const { data: registrations, isLoading } = useQuery({
     queryKey: ['admin-event-attendees', event.id, searchQuery],
     queryFn: async () => {
-      let query = supabase
+      const query = supabase
         .from('event_registrations')
         .select(`
           id,

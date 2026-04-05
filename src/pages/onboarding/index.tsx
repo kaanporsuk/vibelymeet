@@ -249,7 +249,7 @@ const Onboarding = () => {
   }, [currentStep, completeOnboarding, totalSteps]);
 
   const renderContent = () => {
-    let logicalStep = currentStep;
+    const logicalStep = currentStep;
 
     if (logicalStep <= 11) {
       switch (logicalStep) {

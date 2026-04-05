@@ -50,8 +50,8 @@ export function useDateProposals(userId: string | null | undefined) {
       if (error) throw error;
       const list = (rows ?? []) as DateProposalRow[];
       const ids = [...new Set(list.map((r) => (r.recipient_id === userId ? r.proposer_id : r.recipient_id)))];
-      let names: Record<string, string> = {};
-      let avatars: Record<string, string> = {};
+      const names: Record<string, string> = {};
+      const avatars: Record<string, string> = {};
       if (ids.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
