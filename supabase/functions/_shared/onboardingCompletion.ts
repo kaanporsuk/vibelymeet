@@ -99,6 +99,9 @@ export async function saveOnboardingDraft(
   data: OnboardingData,
   platform: "web" | "native",
 ): Promise<SaveDraftResult> {
+  // Stage is persisted to onboarding_drafts.current_stage, which is the
+  // canonical in-progress onboarding stage. It no longer drives profile-stage
+  // routing or resume semantics.
   const stage: OnboardingStage = getOnboardingStageForStep(step);
   try {
     const { data: result, error } = await supabase.rpc("save_onboarding_draft", {
