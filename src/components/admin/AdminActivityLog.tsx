@@ -11,6 +11,7 @@ import {
   UserCheck,
   Clock,
   Filter,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,13 @@ import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { format, formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 
-const actionIcons: Record<string, any> = {
+type AdminLogDetails = Record<string, unknown> & {
+  reason?: string;
+  message?: string;
+  title?: string;
+};
+
+const actionIcons: Record<string, LucideIcon> = {
   suspend_user: UserX,
   warn_user: AlertTriangle,
   ban_user: Shield,
@@ -186,7 +193,10 @@ const AdminActivityLog = () => {
                 const target = log.target_type === 'user' && log.target_id 
                   ? targetProfiles[log.target_id] 
                   : null;
-                const details = log.details as Record<string, any> | null;
+                const details =
+                  typeof log.details === "object" && log.details !== null
+                    ? (log.details as AdminLogDetails)
+                    : null;
 
                 return (
                   <motion.div

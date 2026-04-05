@@ -32,6 +32,22 @@ interface AdminProfilePreviewProps {
   onClose: () => void;
 }
 
+interface AdminVibeTag {
+  label: string | null;
+  emoji: string | null;
+  category: string | null;
+}
+
+function isAdminVibeTag(value: unknown): value is AdminVibeTag {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "label" in value &&
+    "emoji" in value &&
+    "category" in value
+  );
+}
+
 const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewProps) => {
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
@@ -65,7 +81,13 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
           )
         `)
         .eq("profile_id", userId);
-      return data?.map((v) => v.vibe_tags) || [];
+      return (data ?? []).flatMap((v) => {
+        const tags = v.vibe_tags;
+        if (Array.isArray(tags)) {
+          return tags.filter(isAdminVibeTag);
+        }
+        return isAdminVibeTag(tags) ? [tags] : [];
+      });
     },
     enabled: isOpen && !!userId,
   });
@@ -183,7 +205,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                     <span className="text-sm font-medium text-muted-foreground">Interests</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {vibes.map((vibe: any, i: number) => (
+                    {vibes.map((vibe, i: number) => (
                       <Badge key={i} variant="secondary" className="gap-1">
                         {vibe?.emoji} {vibe?.label}
                       </Badge>
