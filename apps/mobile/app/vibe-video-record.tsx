@@ -1,7 +1,7 @@
 /**
  * Vibe Video capture — UX parity with web `VibeStudioModal`:
  * idle (camera + flip + record + library upload) → recording → preview (expo-video replay)
- * → upload (tus + `saveVibeVideoToProfile`) → processing poll. Entry: optional `libraryUri` from drawer upload.
+ * → upload (tus) → backend-owned processing poll. Entry: optional `libraryUri` from drawer upload.
  */
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
@@ -32,13 +32,12 @@ import { fonts } from '@/constants/theme';
 import {
   getCreateVideoUploadCredentials,
   uploadVibeVideoToBunny,
-  saveVibeVideoToProfile,
 } from '@/lib/vibeVideoApi';
 import { pollVibeVideoUntilTerminal } from '@/lib/vibeVideoPoll';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { trackEvent } from '@/lib/analytics';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchMyProfile } from '@/lib/profileApi';
+import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { supabase } from '@/lib/supabase';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import { KeyboardAwareCenteredModal } from '@/components/keyboard/KeyboardAwareCenteredModal';
@@ -463,15 +462,29 @@ export default function VibeVideoRecordScreen() {
         },
       );
 
-      await saveVibeVideoToProfile(creds.videoId, {
-        vibeCaption: vibeCaption.trim() || null,
-      });
       lastUploadedVideoIdRef.current = creds.videoId;
-      vibeVideoDiagVerbose('upload.pipeline.profile_saved', {
+      vibeVideoDiagVerbose('upload.pipeline.upload_complete', {
         userId: user?.id ?? null,
         projectRef: SUPABASE_PROJECT_REF,
         videoId: creds.videoId,
       });
+
+      const nextCaption = vibeCaption.trim() || null;
+      try {
+        await updateMyProfile({ vibe_caption: nextCaption });
+        await qc.invalidateQueries({ queryKey: ['my-profile'] });
+      } catch (captionError) {
+        console.warn(
+          '[VibeVideo] caption save failed after upload; continuing with backend-owned video state:',
+          captionError,
+        );
+        vibeVideoDiagVerbose('upload.caption_save_failed', {
+          userId: user?.id ?? null,
+          projectRef: SUPABASE_PROJECT_REF,
+          videoId: creds.videoId,
+          message: captionError instanceof Error ? captionError.message : 'unknown',
+        });
+      }
 
       trackEvent('vibe_video_uploaded');
       safeSetStage('processing');

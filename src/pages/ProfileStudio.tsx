@@ -400,6 +400,7 @@ const ProfileStudio = () => {
     (): VibeScoreProfileSnapshot => ({
       photos: profile.photos,
       bunnyVideoUid: profile.bunnyVideoUid,
+      bunnyVideoStatus: profile.bunnyVideoStatus,
       vibes: profile.vibes,
       prompts: profile.prompts,
       aboutMe: profile.aboutMe,

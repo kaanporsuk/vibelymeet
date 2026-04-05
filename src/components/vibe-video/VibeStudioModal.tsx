@@ -500,21 +500,9 @@ export const VibeStudioModal = ({
       // Upload to Bunny Stream via tus
       const { videoId } = await uploadToBunny(videoToUpload);
 
-      // Update profile with Bunny video info
-      const { error: dbError } = await supabase
-        .from("profiles")
-        .update({
-          bunny_video_uid: videoId,
-          bunny_video_status: "processing",
-          vibe_caption: vibeCaption,
-        })
-        .eq("id", user.id);
-
-      if (dbError) {
-        throw new Error("Upload succeeded but profile update failed. Please retry.");
-      }
-
-      console.log("[VibeVideo] upload and DB update complete", { videoId });
+      // create-video-upload already updated the server-owned profile snapshot to
+      // point at this upload. Webhook + media-session RPC advance status from here.
+      console.log("[VibeVideo] upload complete; awaiting backend status", { videoId });
       setBunnyVideoUid(videoId);
       setBunnyVideoStatus("processing");
       setStage("posted");

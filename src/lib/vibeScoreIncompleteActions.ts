@@ -1,7 +1,10 @@
 /**
  * Client-side incomplete profile actions for Vibe Score drawer (web port of
- * apps/mobile/lib/vibeScoreIncompleteActions.ts). Logic mirrors native.
+ * apps/mobile/lib/vibeScoreIncompleteActions.ts). Logic mirrors native and the
+ * authoritative backend score contract.
  */
+
+import { normalizeBunnyVideoStatus } from "@/lib/vibeVideo/webVibeVideoState";
 
 export type VibeScoreActionId =
   | "vibes"
@@ -48,6 +51,7 @@ export type VibeScoreActionIcon =
 export type VibeScoreProfileSnapshot = {
   photos: string[];
   bunnyVideoUid: string | null;
+  bunnyVideoStatus?: string | null;
   vibes?: string[] | null;
   prompts: { question?: string | null; answer?: string | null }[];
   aboutMe: string | null;
@@ -124,7 +128,8 @@ export function getIncompleteVibeScoreActions(profile: VibeScoreProfileSnapshot)
   }
 
   const videoUid = profile.bunnyVideoUid?.trim();
-  if (!videoUid) {
+  const videoStatus = normalizeBunnyVideoStatus(profile.bunnyVideoStatus);
+  if (!videoUid || videoStatus !== "ready") {
     out.push({
       id: "vibe_video",
       label: "Add Vibe Video",
