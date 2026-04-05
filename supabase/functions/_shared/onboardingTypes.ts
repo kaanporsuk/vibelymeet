@@ -221,6 +221,10 @@ export function validateOnboardingData(data: OnboardingData): OnboardingValidati
     errors.push("Relationship intent is required");
   }
 
+  if (!data.location?.trim()) {
+    errors.push("Location is required");
+  }
+
   if (!data.communityAgreed) {
     errors.push("Community standards agreement is required");
   }
