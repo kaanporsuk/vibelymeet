@@ -63,6 +63,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
+import { avatarUrl } from '@/lib/imageUrl';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -203,7 +204,7 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
-    fetchPartnerProfile(sessionId, user.id, resolveAvatar).then((data) => {
+    fetchPartnerProfile(sessionId, user.id, (path) => avatarUrl(path, 'avatar')).then((data) => {
       if (data) {
         setFullPartner(data.partner);
         setPartnerId(data.partnerId);

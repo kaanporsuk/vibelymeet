@@ -274,7 +274,8 @@ const AdminEventsPanel = () => {
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -325,7 +326,10 @@ const AdminEventsPanel = () => {
                 )}
                 {groupBySeries && isParent && children.length > 0 && (
                   <button type="button" onClick={() => setExpandedParents(prev => {
-                    const n = new Set(prev); n.has(event.id) ? n.delete(event.id) : n.add(event.id); return n;
+                    const n = new Set(prev);
+                    if (n.has(event.id)) n.delete(event.id);
+                    else n.add(event.id);
+                    return n;
                   })} className="text-xs text-primary hover:underline">
                     {isExpanded ? 'Hide' : `Show ${children.length} occurrences`}
                   </button>

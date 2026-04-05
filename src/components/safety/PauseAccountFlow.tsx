@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Moon, Clock, Infinity, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Moon, Clock, Infinity as InfinityIcon, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,7 +28,7 @@ const pauseOptions = [
   },
   {
     id: "indefinite" as PauseDuration,
-    icon: Infinity,
+    icon: InfinityIcon,
     label: "Indefinite",
     description: "Until you're ready to return",
   },

@@ -76,7 +76,11 @@ const VideoDate = () => {
   const sessionIdRef = useRef(id);
   const accessTokenRef = useRef<string | null>(null);
 
-  const { credits, useExtraTime, useExtendedVibe } = useCredits();
+  const {
+    credits,
+    useExtraTime: spendExtraTimeCredit,
+    useExtendedVibe: spendExtendedVibeCredit,
+  } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
 
   const {
@@ -471,7 +475,9 @@ const VideoDate = () => {
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
       const success =
-        type === "extra_time" ? await useExtraTime() : await useExtendedVibe();
+        type === "extra_time"
+          ? await spendExtraTimeCredit()
+          : await spendExtendedVibeCredit();
       if (success) {
         Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
         trackEvent('credit_used', { type, minutes });
@@ -479,7 +485,7 @@ const VideoDate = () => {
       }
       return success;
     },
-    [useExtraTime, useExtendedVibe]
+    [spendExtraTimeCredit, spendExtendedVibeCredit]
   );
 
   // End call: update session, show survey

@@ -315,7 +315,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
           </motion.div>
         );
 
-      case 'prompt':
+      case 'prompt': {
         const prompt = section.data as { question: string; answer: string };
         return (
           <motion.div
@@ -329,6 +329,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
             <p className="text-lg leading-relaxed text-foreground">{prompt.answer}</p>
           </motion.div>
         );
+      }
 
       case 'lifestyle':
         return (

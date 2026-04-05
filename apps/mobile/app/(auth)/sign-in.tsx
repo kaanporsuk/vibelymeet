@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 function mapPhoneOtpSendError(e: { message?: string; status?: number; code?: string }): string {
   const msg = String(e?.message ?? '');
@@ -537,7 +538,7 @@ export default function SignInScreen() {
             <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
               {profileBootstrapMessage || 'We could not finish account setup. Your account exists, but profile setup did not complete.'}
             </Text>
-            <VibelyButton label="Retry setup" onPress={retryProfileSetup} variant="gradient" disabled={profileBootstrapState === 'ensuring'} />
+            <VibelyButton label="Retry setup" onPress={retryProfileSetup} variant="gradient" />
             <VibelyButton label="Sign out" onPress={signOutFromRecovery} variant="secondary" />
           </View>
         ) : null}
@@ -546,7 +547,14 @@ export default function SignInScreen() {
         {loading ? <ActivityIndicator color={theme.tint} style={{ marginTop: 12 }} /> : null}
       </ScrollView>
 
-      <Modal visible={showCountryModal} animationType="slide" onRequestClose={() => setShowCountryModal(false)}>
+      <KeyboardAwareBottomSheetModal
+        visible={showCountryModal}
+        onRequestClose={() => setShowCountryModal(false)}
+        animationType="slide"
+        scrollable={false}
+        showHandle
+        sheetStyle={styles.modalSheet}
+      >
         <View style={[styles.modalRoot, { backgroundColor: theme.background }]}>
           <View style={styles.modalHeader}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Select country code</Text>
@@ -564,6 +572,7 @@ export default function SignInScreen() {
           <SectionList
             sections={countrySections}
             keyExtractor={(item) => `${item.code}-${item.name}`}
+            style={styles.modalList}
             keyboardShouldPersistTaps="handled"
             stickySectionHeadersEnabled={false}
             renderSectionHeader={({ section }) => (
@@ -589,7 +598,7 @@ export default function SignInScreen() {
             }
           />
         </View>
-      </Modal>
+      </KeyboardAwareBottomSheetModal>
     </KeyboardAvoidingView>
   );
 }
@@ -619,9 +628,11 @@ const styles = StyleSheet.create({
   success: { alignItems: 'center', gap: 10, marginTop: 30 },
   emoji: { fontSize: 48 },
   error: { textAlign: 'center', fontSize: 13 },
-  modalRoot: { flex: 1, padding: 16 },
+  modalRoot: { flex: 1, minHeight: 420, gap: 12 },
+  modalSheet: { minHeight: 420, paddingTop: 12 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   modalTitle: { fontSize: 20, fontWeight: '700' },
+  modalList: { flex: 1 },
   sectionHeader: { marginTop: 14, marginBottom: 8, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
   countryItem: {
     borderWidth: 1,

@@ -79,6 +79,16 @@ const ProfilePreview = () => {
     };
   }, [data]);
 
+  const vibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunnyVideoUid: profile?.bunnyVideoUid ?? null,
+        bunnyVideoStatus: profile?.bunnyVideoStatus ?? "none",
+        vibeCaption: profile?.vibeCaption ?? "",
+      }),
+    [profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.vibeCaption],
+  );
+
   if (isLoading || !profile) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -87,15 +97,6 @@ const ProfilePreview = () => {
     );
   }
 
-  const vibeVideo = useMemo(
-    () =>
-      resolveWebVibeVideoState({
-        bunnyVideoUid: profile.bunnyVideoUid,
-        bunnyVideoStatus: profile.bunnyVideoStatus,
-        vibeCaption: profile.vibeCaption,
-      }),
-    [profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.vibeCaption],
-  );
   const hasVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
   const thumbnailUrl = vibeVideo.thumbnailUrl;
   const playbackUrl = vibeVideo.playbackUrl;
