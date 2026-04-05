@@ -13,6 +13,7 @@ import { VibelyText, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { FALLBACK_PHONE_COUNTRY, getDefaultPhoneCountry } from '@/lib/phoneSignInNormalize';
 
 const COUNTRY_CODES = [
   { code: '+1', label: '🇺🇸 +1' },
@@ -24,8 +25,6 @@ const COUNTRY_CODES = [
   { code: '+91', label: '🇮🇳 +91' },
   { code: '+34', label: '🇪🇸 +34' },
 ];
-
-const FALLBACK_COUNTRY_CODE = '+1';
 
 type Step = 'phone' | 'otp' | 'success';
 
@@ -40,7 +39,7 @@ type PhoneVerificationFlowProps = {
 export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPhoneE164 }: PhoneVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('phone');
-  const [countryCode, setCountryCode] = useState<string>(FALLBACK_COUNTRY_CODE);
+  const [countryCode, setCountryCode] = useState<string>(FALLBACK_PHONE_COUNTRY.dialCode);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
@@ -48,25 +47,6 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
   const [resendCooldown, setResendCooldown] = useState(0);
   const [failedAttempts, setFailedAttempts] = useState(0);
   const successScale = useRef(new Animated.Value(0)).current;
-
-  const dialCodeFromRegion = (region?: string | null): string | null => {
-    const r = (region ?? '').toUpperCase();
-    const map: Record<string, string> = {
-      US: '+1',
-      CA: '+1',
-      GB: '+44',
-      UK: '+44',
-      DE: '+49',
-      FR: '+33',
-      PL: '+48',
-      ES: '+34',
-      IN: '+91',
-      TR: '+90',
-    };
-    const mapped = map[r];
-    if (!mapped) return null;
-    return COUNTRY_CODES.some((c) => c.code === mapped) ? mapped : null;
-  };
 
   const cleaned = phoneNumber.replace(/\D/g, '').replace(/^0+/, '');
   const fullNumber = `${countryCode}${cleaned}`;
@@ -92,17 +72,15 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
         if (known) {
           setCountryCode(cc);
         } else {
-          const localeRegionCode = Localization.getLocales()[0]?.regionCode ?? null;
-          const localeDial = dialCodeFromRegion(localeRegionCode);
-          setCountryCode(localeDial ?? FALLBACK_COUNTRY_CODE);
+          const localeCountry = getDefaultPhoneCountry(Localization.getLocales()[0]?.regionCode ?? null);
+          setCountryCode(localeCountry.dialCode);
         }
         setPhoneNumber(rest);
       }
     } else {
       setPhoneNumber('');
-      const localeRegionCode = Localization.getLocales()[0]?.regionCode ?? null;
-      const localeDial = dialCodeFromRegion(localeRegionCode);
-      setCountryCode(localeDial ?? FALLBACK_COUNTRY_CODE);
+      const localeCountry = getDefaultPhoneCountry(Localization.getLocales()[0]?.regionCode ?? null);
+      setCountryCode(localeCountry.dialCode);
     }
   }, [visible, initialPhoneE164]);
 

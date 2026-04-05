@@ -5,9 +5,9 @@ import {
   getMatchSearchHitKind as getSharedMatchSearchHitKind,
 } from '../../../shared/matches/search';
 
-function buildIntentSearchHaystack(lookingFor: string): string {
-  if (!lookingFor) return '';
-  const safe = getRelationshipIntentDisplaySafe(lookingFor);
+function buildIntentSearchHaystack(intentId: string): string {
+  if (!intentId) return '';
+  const safe = getRelationshipIntentDisplaySafe(intentId);
   return [safe.id, safe.label, safe.emoji].join(' ').toLowerCase();
 }
 

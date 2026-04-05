@@ -38,7 +38,7 @@ interface UserProfile {
   photos: string[];
   vibes: string[];
   prompts: { question: string; answer: string }[];
-  lookingFor: string | null;
+  relationshipIntent: string | null;
   lifestyle: Record<string, string>;
   photoVerified: boolean;
   phoneVerified: boolean;
@@ -68,7 +68,7 @@ const ProfilePreview = () => {
       photos: (data.photos ?? []).filter(Boolean),
       vibes: data.vibes ?? [],
       prompts: (data.prompts ?? []).filter((p) => p.question?.trim() && p.answer?.trim()),
-      lookingFor: data.relationship_intent ?? data.looking_for ?? null,
+      relationshipIntent: data.relationship_intent ?? data.looking_for ?? null,
       lifestyle: data.lifestyle ?? {},
       photoVerified: data.photo_verified === true,
       phoneVerified: data.phone_verified === true,
@@ -101,8 +101,8 @@ const ProfilePreview = () => {
   const thumbnailUrl = vibeVideo.thumbnailUrl;
   const playbackUrl = vibeVideo.playbackUrl;
   const filledPhotos = profile.photos.filter(Boolean);
-  const lookingForDisplay = profile.lookingFor
-    ? getRelationshipIntentDisplaySafe(profile.lookingFor)
+  const lookingForDisplay = profile.relationshipIntent
+    ? getRelationshipIntentDisplaySafe(profile.relationshipIntent)
     : null;
   const lifestyleKeys = Object.keys(profile.lifestyle).filter((k) => k !== "meeting_preference");
   const hasLifestyle = lifestyleKeys.length > 0;

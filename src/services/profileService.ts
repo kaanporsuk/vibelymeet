@@ -1,14 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeRelationshipIntent } from "@shared/profileContracts";
 
-export type OnboardingStage =
-  | "none"
-  | "auth_complete"
-  | "identity"
-  | "details"
-  | "media"
-  | "complete";
-
 // Frontend profile interface (camelCase)
 export interface ProfileData {
   id: string;
@@ -37,7 +29,6 @@ export interface ProfileData {
   bunnyVideoUid: string | null;
   bunnyVideoStatus: string;
   vibeCaption: string;
-  vibeVideoStatus: string | null;
   photoVerified: boolean;
   phoneVerified: boolean;
   stats: {
@@ -49,7 +40,6 @@ export interface ProfileData {
   vibeScore: number;
   vibeScoreLabel: string;
   onboardingComplete?: boolean;
-  onboardingStage?: OnboardingStage;
 }
 
 // Database profile interface (snake_case)
@@ -71,7 +61,6 @@ interface DbProfile {
   looking_for: string | null;
   relationship_intent: string | null;
   onboarding_complete?: boolean | null;
-  onboarding_stage?: string | null;
   lifestyle: Record<string, string> | null;
   prompts: { question: string; answer: string }[] | null;
   photos: string[] | null;
@@ -168,7 +157,6 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     bunnyVideoUid: (dbProfile as any).bunny_video_uid || null,
     bunnyVideoStatus: (dbProfile as any).bunny_video_status || "none",
     vibeCaption: (dbProfile as any).vibe_caption || "",
-    vibeVideoStatus: (dbProfile as any).vibe_video_status || null,
     photoVerified: dbProfile.photo_verified || false,
     phoneVerified: dbProfile.phone_verified || false,
     stats: {
@@ -179,7 +167,6 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     vibeScore: dbProfile.vibe_score ?? 0,
     vibeScoreLabel: dbProfile.vibe_score_label ?? "New",
     onboardingComplete: dbProfile.onboarding_complete ?? undefined,
-    onboardingStage: (dbProfile.onboarding_stage as OnboardingStage | null | undefined) ?? undefined,
   };
 };
 
@@ -220,7 +207,6 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.avatarUrl !== undefined) dbData.avatar_url = profile.avatarUrl;
   
   if (profile.vibeCaption !== undefined) dbData.vibe_caption = profile.vibeCaption;
-  if (profile.vibeVideoStatus !== undefined) dbData.vibe_video_status = profile.vibeVideoStatus;
 
   return dbData;
 };
@@ -231,7 +217,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (!user) return null;
 
   const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
-    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, onboarding_stage, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, vibe_video_status, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),

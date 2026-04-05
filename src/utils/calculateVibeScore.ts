@@ -18,6 +18,7 @@ export interface VibeScoreProfile {
   photos?: string[];
   vibes?: string[];
   prompts?: { question?: string; answer?: string }[];
+  relationshipIntent?: string | null;
   lookingFor?: string | null;
   lifestyle?: Record<string, string>;
   verified?: boolean;
@@ -31,6 +32,7 @@ export interface VibeScoreProfile {
  */
 export function calculateVibeScore(profile: VibeScoreProfile): number {
   let score = 0;
+  const relationshipIntent = profile.relationshipIntent ?? profile.lookingFor;
 
   // Base fields (up to 59 points max)
   if (profile.name) score += 8;
@@ -39,7 +41,7 @@ export function calculateVibeScore(profile: VibeScoreProfile): number {
   if (profile.heightCm) score += 5;
   if (profile.location) score += 5;
   if (profile.aboutMe && profile.aboutMe.length > 20) score += 12;
-  if (profile.lookingFor) score += 5;
+  if (relationshipIntent) score += 5;
   if (profile.lifestyle && Object.keys(profile.lifestyle).length > 0) score += 5;
   if (profile.verified) score += 4;
   if (profile.tagline) score += 2;

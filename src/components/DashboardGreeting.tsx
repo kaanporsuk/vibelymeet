@@ -12,6 +12,7 @@ function getGreeting(): string {
 }
 
 function calculateCompleteness(profile: ProfileData): number {
+  const relationshipIntent = profile.relationshipIntent ?? profile.lookingFor;
   const checks = [
     !!profile.name,
     (profile.photos?.length || 0) >= 1,
@@ -21,7 +22,7 @@ function calculateCompleteness(profile: ProfileData): number {
     !!profile.location,
     (profile.vibes?.length || 0) >= 1,
     (profile.prompts?.length || 0) >= 1,
-    !!profile.lookingFor,
+    !!relationshipIntent,
     !!profile.tagline,
   ];
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Localization from 'expo-localization';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
@@ -13,7 +14,7 @@ import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
-import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
+import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
@@ -96,13 +97,17 @@ const COUNTRIES: Country[] = [
 export default function SignInScreen() {
   const theme = Colors[useColorScheme()];
   const { session } = useAuth();
+  const defaultPhoneCountry = useMemo(
+    () => getDefaultPhoneCountry(Localization.getLocales()[0]?.regionCode ?? null),
+    [],
+  );
 
   const [view, setView] = useState<AuthView>('welcome');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [countryCode, setCountryCode] = useState('+48');
-  const [countryName, setCountryName] = useState('Poland');
+  const [countryCode, setCountryCode] = useState(defaultPhoneCountry.dialCode);
+  const [countryName, setCountryName] = useState(defaultPhoneCountry.countryName);
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [phoneInput, setPhoneInput] = useState('');

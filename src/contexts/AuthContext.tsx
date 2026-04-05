@@ -24,7 +24,6 @@ interface SessionContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isOfflineAtBoot: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
 }
@@ -143,17 +142,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [session?.user, refreshProfile]);
 
-  const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
-    void email;
-    void password;
-    void name;
-    return {
-      error: new Error(
-        "Deprecated signUp surface: use the Auth page signup owner flow in src/pages/Auth.tsx.",
-      ),
-    };
-  };
-
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return { error };
@@ -186,7 +174,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!session,
         isLoading,
         isOfflineAtBoot,
-        signUp,
         signIn,
         logout,
       }}

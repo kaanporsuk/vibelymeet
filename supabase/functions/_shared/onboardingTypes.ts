@@ -44,6 +44,10 @@ export const ONBOARDING_STAGES = [
 
 export type OnboardingStage = (typeof ONBOARDING_STAGES)[number];
 
+// `profiles.onboarding_stage` / `update_onboarding_stage` remain in the schema
+// for backwards-compatible analytics history, but the active web/native flows
+// now persist in-progress onboarding state through `onboarding_drafts`.
+
 export function getOnboardingStageForStep(step: number): OnboardingStage {
   if (step <= 0) return "auth_complete";
   if (step <= 4) return "identity";

@@ -19,7 +19,6 @@ type AuthState = {
 
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshOnboarding: () => Promise<void>;
 };
@@ -103,16 +102,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: null };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    void email;
-    void password;
-    return {
-      error: new Error(
-        'Deprecated signUp surface: use the sign-in screen bootstrap owner flow in app/(auth)/sign-in.tsx.',
-      ),
-    };
-  }, []);
-
   const signOut = useCallback(async () => {
     resetAnalytics();
     const { data: { session: current } } = await supabase.auth.getSession();
@@ -149,7 +138,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     onboardingStatus,
     onboardingComplete: onboardingStatus === 'complete' ? true : onboardingStatus === 'incomplete' ? false : null,
     signIn,
-    signUp,
     signOut,
     refreshOnboarding,
   };
