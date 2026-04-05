@@ -209,5 +209,17 @@ export function validateOnboardingData(data: OnboardingData): OnboardingValidati
     errors.push("About me must be at least 10 characters");
   }
 
+  if (!data.interestedIn) {
+    errors.push("Interested in is required");
+  }
+
+  if (!data.relationshipIntent?.trim()) {
+    errors.push("Relationship intent is required");
+  }
+
+  if (!data.communityAgreed) {
+    errors.push("Community standards agreement is required");
+  }
+
   return { valid: errors.length === 0, errors };
 }
