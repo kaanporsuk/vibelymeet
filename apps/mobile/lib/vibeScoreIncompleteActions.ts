@@ -1,10 +1,12 @@
 /**
  * Client-side derivation of incomplete profile actions for Vibe Score drawer.
- * Weights mirror `public.calculate_vibe_score` (see supabase/migrations/*_fix_vibe_score*.sql).
+ * Weights mirror `public.calculate_vibe_score`; vibe video credit only counts
+ * once the backend-owned profile snapshot reaches `ready`.
  */
 import type { ComponentProps } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import type { ProfileRow } from '@/lib/profileApi';
+import { normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
 
 export type VibeScoreActionId =
   | 'vibes'
@@ -92,7 +94,8 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
   }
 
   const videoUid = profile.bunny_video_uid?.trim();
-  if (!videoUid) {
+  const videoStatus = normalizeBunnyVideoStatus(profile.bunny_video_status);
+  if (!videoUid || videoStatus !== 'ready') {
     out.push({
       id: 'vibe_video',
       label: 'Add Vibe Video',

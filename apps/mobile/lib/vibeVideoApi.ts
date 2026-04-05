@@ -1,6 +1,7 @@
 /**
  * Vibe video: create-video-upload (get tus credentials), tus upload to Bunny, delete-vibe-video.
- * Same backend contract as web. Profiles: bunny_video_uid, bunny_video_status (none | uploading | processing | ready | failed).
+ * Same backend contract as web. Profile snapshot columns (bunny_video_uid, bunny_video_status)
+ * are backend-maintained; clients upload bytes, then read/poll backend-owned state.
  */
 
 import * as tus from 'tus-js-client';
@@ -384,64 +385,6 @@ export function uploadVibeVideoToBunny(
 
     if (copiedToCache) await deleteLocalFileQuiet(fileUri);
   })();
-}
-
-export async function saveVibeVideoToProfile(
-  videoId: string,
-  options?: { vibeCaption?: string | null },
-): Promise<void> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  const payload: Record<string, unknown> = {
-    bunny_video_uid: videoId,
-    bunny_video_status: 'processing',
-  };
-  if (options && 'vibeCaption' in options) {
-    payload.vibe_caption = options.vibeCaption ?? null;
-  }
-
-  const projectRef = getProjectRefFromSupabaseUrl(SUPABASE_URL);
-  vibeVideoDiagVerbose('profile.vibe_video_save.start', {
-    userId: user.id,
-    videoId,
-    projectRef,
-  });
-
-  let { data: updatedRows, error } = await supabase
-    .from('profiles')
-    .update(payload)
-    .eq('id', user.id)
-    .select('id');
-
-  if (error) {
-    await new Promise((r) => setTimeout(r, 2000));
-    const retry = await supabase
-      .from('profiles')
-      .update(payload)
-      .eq('id', user.id)
-      .select('id');
-    if (retry.error) throw retry.error;
-    updatedRows = retry.data;
-  }
-
-  const matched = Array.isArray(updatedRows) ? updatedRows.length : 0;
-  if (matched !== 1) {
-    vibeVideoDiagProdHint(
-      'profile.vibe_video_save.zero_or_multi_match',
-      `userId=${user.id} videoId=${videoId} matched=${matched} projectRef=${projectRef ?? 'unknown'}`,
-    );
-    throw new Error('Profile update did not affect exactly one row. Please retry.');
-  }
-  vibeVideoDiagVerbose('profile.vibe_video_saved', {
-    userId: user.id,
-    videoId,
-    bunny_video_status: 'processing',
-    matched,
-    projectRef,
-  });
 }
 
 export class DeleteVibeVideoError extends Error {

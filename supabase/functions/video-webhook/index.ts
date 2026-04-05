@@ -69,8 +69,8 @@ serve(async (req) => {
     if (Status === 5) mappedStatus = "failed";
 
     // ── Update draft_media_sessions (new session model) ──────────────────────
-    // The RPC also updates profiles.bunny_video_status when the session
-    // transitions to ready/failed AND profiles.bunny_video_uid still matches.
+    // The RPC also updates profiles.bunny_video_status for processing/ready/failed
+    // when profiles.bunny_video_uid still matches this provider.
     const { data: sessionResult, error: sessionError } = await supabase.rpc(
       "update_media_session_status",
       {
@@ -81,62 +81,63 @@ serve(async (req) => {
     );
 
     const sr = sessionResult as Record<string, unknown> | null;
-    let sessionHandledProfile = false;
+    const sessionRpcError = typeof sr?.error === "string" ? sr.error : null;
 
     if (sessionError) {
       console.error(
         `[video-webhook] session update error projectRef=${projectRef} videoGuid=${VideoGuid} err=${sessionError.message}`,
       );
-    } else if (sr?.success) {
+      return new Response("error", { status: 500 });
+    }
+
+    if (sr?.success) {
       console.log(
         `[video-webhook] session updated projectRef=${projectRef} videoGuid=${VideoGuid} sessionId=${sr.session_id} ${sr.previous_status}→${sr.new_status}`,
       );
-      // RPC handled profile update with proper UID guard
-      if (mappedStatus === "ready" || mappedStatus === "failed") {
-        sessionHandledProfile = true;
-      }
-    } else {
+      // The RPC is authoritative for active sessions and now keeps the profile
+      // snapshot in sync for processing/ready/failed with a UID guard.
+      return new Response("ok", { status: 200 });
+    }
+
+    if (sessionRpcError === "invalid_transition") {
       console.warn(
-        `[video-webhook] no active session for videoGuid=${VideoGuid} (error=${sr?.error ?? "unknown"}) — legacy or already-terminal`,
+        `[video-webhook] ignored out-of-order status projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${mappedStatus} error=${sessionRpcError}`,
       );
+      return new Response("ok", { status: 200 });
     }
 
-    // ── Fallback: direct profile update for legacy uploads without sessions ──
-    // Only needed when the session RPC did NOT handle the profile update.
-    if (!sessionHandledProfile) {
-      const { data: updated, error } = await supabase
-        .from("profiles")
-        .update({ bunny_video_status: mappedStatus })
-        .eq("bunny_video_uid", VideoGuid)
-        .select("id");
-
-      if (error) {
-        console.error(
-          `[video-webhook] db update error projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${mappedStatus} err=${error.message}`,
-        );
-        return new Response("error", { status: 500 });
-      }
-
-      const n = updated?.length ?? 0;
-      if (n === 0) {
-        if (sr?.success) {
-          // Session found but UID replaced in profiles — not a failure
-          console.log(
-            `[video-webhook] profile uid replaced projectRef=${projectRef} videoGuid=${VideoGuid}`,
-          );
-        } else {
-          console.error(
-            `[video-webhook] HARD_FAILURE zero rows matched projectRef=${projectRef} videoGuid=${VideoGuid} status=${String(Status)} mappedStatus=${mappedStatus} libraryId=${VideoLibraryId ?? "n/a"}`,
-          );
-          return new Response("error", { status: 500 });
-        }
-      } else {
-        console.log(
-          `[video-webhook] legacy profile update projectRef=${projectRef} videoGuid=${VideoGuid} rows=${n} mappedStatus=${mappedStatus}`,
-        );
-      }
+    if (sessionRpcError !== "session_not_found") {
+      console.error(
+        `[video-webhook] unexpected session RPC failure projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${mappedStatus} error=${sessionRpcError ?? "unknown"}`,
+      );
+      return new Response("error", { status: 500 });
     }
 
+    // ── Narrow legacy fallback: only for pre-session uploads ──────────────────
+    const { data: updated, error } = await supabase
+      .from("profiles")
+      .update({ bunny_video_status: mappedStatus })
+      .eq("bunny_video_uid", VideoGuid)
+      .select("id");
+
+    if (error) {
+      console.error(
+        `[video-webhook] legacy profile update error projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${mappedStatus} err=${error.message}`,
+      );
+      return new Response("error", { status: 500 });
+    }
+
+    const n = updated?.length ?? 0;
+    if (n === 0) {
+      console.log(
+        `[video-webhook] legacy event matched no current profile row projectRef=${projectRef} videoGuid=${VideoGuid} mappedStatus=${mappedStatus} — likely superseded or already cleared`,
+      );
+      return new Response("ok", { status: 200 });
+    }
+
+    console.log(
+      `[video-webhook] legacy profile update projectRef=${projectRef} videoGuid=${VideoGuid} rows=${n} mappedStatus=${mappedStatus}`,
+    );
     return new Response("ok", { status: 200 });
   } catch (err) {
     console.error("[video-webhook] error:", err);
