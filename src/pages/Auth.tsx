@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,8 +24,6 @@ import {
   parseOAuthCallbackErrorDescription,
 } from "@shared/authConflictMessages";
 
-type OnboardingStatus = "complete" | "incomplete" | "unknown";
-
 type AuthView =
   | "welcome"
   | "otp"
@@ -46,7 +43,6 @@ const Auth = () => {
   const [view, setView] = useState<AuthView>("welcome");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [profileStatus, setProfileStatus] = useState<OnboardingStatus | "loading">("loading");
 
   const [countryCode, setCountryCode] = useState(() => getDefaultCountryCode());
   const [phoneInput, setPhoneInput] = useState("");
@@ -58,7 +54,6 @@ const Auth = () => {
     "idle" | "ensuring" | "ready" | "failed"
   >("idle");
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
-  const [pendingBootstrapUser, setPendingBootstrapUser] = useState<SupabaseUser | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -73,6 +68,14 @@ const Auth = () => {
     () => `${countryCode}${phoneInput.replace(/\D/g, "")}`,
     [countryCode, phoneInput]
   );
+
+  const showProfileRecovery = (message?: string) => {
+    setProfileBootstrapState("failed");
+    setProfileBootstrapMessage(
+      message ||
+        "We could not verify your account setup right now. Retry setup check or sign out and sign in again.",
+    );
+  };
 
   // Track auth page view + preserve referral
   useEffect(() => {
@@ -143,26 +146,33 @@ const Auth = () => {
     return () => clearInterval(id);
   }, [resendRemaining]);
 
-  // Web auth owns profile bootstrap. Hydration contexts stay read-only.
+  // Web auth checks backend-owned profile readiness. Hydration contexts stay read-only.
   useEffect(() => {
-    if (!session?.user) return;
+    if (!session?.user) {
+      setProfileBootstrapState("idle");
+      setProfileBootstrapMessage(null);
+      return;
+    }
+
+    let cancelled = false;
 
     const ensureProfileExists = async () => {
       setProfileBootstrapState("ensuring");
       setProfileBootstrapMessage(null);
       const ensured = await ensureProfileReady(session.user, "web_auth_post_login");
+      if (cancelled) return;
       if (ensured.status === "ready") {
         setProfileBootstrapState("ready");
-        setPendingBootstrapUser(null);
         return;
       }
-      setProfileBootstrapState("failed");
-      setProfileBootstrapMessage(
-        "We could not finish account setup. Your account exists, but profile setup did not complete.",
-      );
+      showProfileRecovery();
     };
 
     void ensureProfileExists();
+
+    return () => {
+      cancelled = true;
+    };
   }, [session?.user?.id]);
 
   // Redirect after auth based on onboarding_complete
@@ -177,12 +187,11 @@ const Auth = () => {
         .maybeSingle();
 
       if (error || !profile) {
-        setProfileStatus("unknown");
+        showProfileRecovery();
         return;
       }
 
-      const nextStatus: OnboardingStatus = profile.onboarding_complete === true ? "complete" : "incomplete";
-      setProfileStatus(nextStatus);
+      const nextStatus = profile.onboarding_complete === true ? "complete" : "incomplete";
 
       localStorage.removeItem("vibely_onboarding_progress");
       const savedOnboarding = localStorage.getItem("vibely_onboarding_v2");
@@ -208,50 +217,33 @@ const Auth = () => {
   }, [session, view, navigate, profileBootstrapState]);
 
   const handleRetryProfileSetup = async () => {
-    const bootstrapUser = session?.user ?? pendingBootstrapUser;
-    if (!bootstrapUser) return;
+    if (!session?.user) return;
     setProfileBootstrapState("ensuring");
     setProfileBootstrapMessage(null);
-    const result = await ensureProfileReady(
-      bootstrapUser,
-      session?.user ? "web_auth_post_login" : "web_auth_signup",
-    );
+    const result = await ensureProfileReady(session.user, "web_auth_post_login");
     if (result.status === "ready") {
       setProfileBootstrapState("ready");
-      setPendingBootstrapUser(null);
       return;
     }
-    setProfileBootstrapState("failed");
-    setProfileBootstrapMessage(
-      "We could not finish account setup. Your account exists, but profile setup did not complete.",
-    );
+    showProfileRecovery();
   };
 
   const handleRecoverySignOut = async () => {
     await supabase.auth.signOut();
-    setPendingBootstrapUser(null);
     setProfileBootstrapState("idle");
     setProfileBootstrapMessage(null);
     setView("welcome");
   };
-
-  if (session?.user && profileStatus === "unknown") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   if (profileBootstrapState === "failed") {
     return (
       <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center">
         <div className="relative z-10 w-full max-w-md px-6">
           <div className="space-y-4 rounded-2xl border border-border bg-card/80 p-6 backdrop-blur-sm">
-            <h2 className="text-xl font-display font-bold text-foreground">Account setup incomplete</h2>
+            <h2 className="text-xl font-display font-bold text-foreground">Account setup check required</h2>
             <p className="text-sm text-muted-foreground">
               {profileBootstrapMessage ||
-                "We could not finish account setup. Your account exists, but profile setup did not complete."}
+                "We could not verify your account setup right now. Retry setup check or sign out and sign in again."}
             </p>
             <div className="space-y-2">
               <Button
@@ -259,7 +251,7 @@ const Auth = () => {
                 className="w-full"
                 onClick={handleRetryProfileSetup}
               >
-                Retry setup
+                Retry setup check
               </Button>
               <Button type="button" variant="outline" className="w-full" onClick={handleRecoverySignOut}>
                 Sign out
@@ -419,27 +411,9 @@ const Auth = () => {
       });
       if (error) throw error;
       if (!data.user) {
-        setProfileBootstrapState("failed");
-        setProfileBootstrapMessage(
-          "We could not finish account setup. Your account exists, but profile setup did not complete.",
-        );
-        return;
+        throw new Error("We could not create your account. Please try again.");
       }
-      if (data.user) {
-        setPendingBootstrapUser(data.user);
-        setProfileBootstrapState("ensuring");
-        const ensured = await ensureProfileReady(data.user, "web_auth_signup");
-        if (ensured.status !== "ready") {
-          setProfileBootstrapState("failed");
-          setProfileBootstrapMessage(
-            "We could not finish account setup. Your account exists, but profile setup did not complete.",
-          );
-          return;
-        }
-        setProfileBootstrapState("ready");
-        setPendingBootstrapUser(null);
-        localStorage.removeItem("vibely_referrer_id");
-      }
+      localStorage.removeItem("vibely_referrer_id");
       trackEvent("auth_email_signup", { platform: "web" });
       setView("email_signin");
     } catch (err: any) {
