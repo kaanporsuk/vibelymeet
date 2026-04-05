@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
@@ -41,6 +42,8 @@ import { CelebrationStep } from "./steps/CelebrationStep";
 
 const Onboarding = () => {
   const navigate = useNavigate();
+  const { refreshProfile } = useUserProfile();
+  const { refreshEntryState } = useAuth();
 
   const [session, setSession] = useState<any>(null);
   const [currentStep, setCurrentStep] = useState(0);
@@ -232,6 +235,10 @@ const Onboarding = () => {
       setVibeScore(result.vibeScore);
       setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
+      await Promise.all([
+        refreshProfile(),
+        refreshEntryState(),
+      ]);
     } catch (e: any) {
       submitOnceRef.current = false;
       setCompletionError(
@@ -240,7 +247,7 @@ const Onboarding = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [session, data]);
+  }, [session, data, refreshEntryState, refreshProfile]);
 
   useEffect(() => {
     if (currentStep === totalSteps - 1) {

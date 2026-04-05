@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeContractError } from '@/lib/contractErrors';
+import {
+  resolveEntryState as resolveSharedEntryState,
+  type EntryStateResponse,
+} from '@shared/entryState';
 
 export type OnboardingStatus = 'complete' | 'incomplete' | 'unknown';
 
@@ -27,13 +31,6 @@ export async function updatePassword(newPassword: string): Promise<{ ok: true } 
   return { ok: true };
 }
 
-export async function getOnboardingStatus(userId: string): Promise<OnboardingStatus> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('onboarding_complete')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error || !data) return 'unknown';
-  return data.onboarding_complete === true ? 'complete' : 'incomplete';
+export async function resolveEntryState(): Promise<EntryStateResponse> {
+  return resolveSharedEntryState(supabase);
 }

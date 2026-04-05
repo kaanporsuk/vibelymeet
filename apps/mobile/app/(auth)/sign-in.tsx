@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Localization from 'expo-localization';
 import { Ionicons } from '@expo/vector-icons';
@@ -53,6 +53,8 @@ type AuthView =
   | 'success';
 
 type Country = { name: string; code: string; flag: string; suggested?: boolean };
+
+const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 
 const COUNTRIES: Country[] = [
   { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
@@ -121,6 +123,8 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
+  const [emailResendCooldown, setEmailResendCooldown] = useState(0);
+  const [emailResendMessage, setEmailResendMessage] = useState<string | null>(null);
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
@@ -183,6 +187,16 @@ export default function SignInScreen() {
   }, [resendRemaining]);
 
   useEffect(() => {
+    if (emailResendCooldown <= 0) return;
+    const timer = setInterval(() => setEmailResendCooldown((v) => {
+      const next = Math.max(0, v - 1);
+      if (next === 0) setEmailResendMessage(null);
+      return next;
+    }), 1000);
+    return () => clearInterval(timer);
+  }, [emailResendCooldown]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
@@ -235,6 +249,12 @@ export default function SignInScreen() {
     }, view === 'success' ? 1200 : 0);
     return () => clearTimeout(t);
   }, [session?.user?.id, view, profileBootstrapState]);
+
+  useEffect(() => {
+    if (profileBootstrapState === 'failed' && session?.user) {
+      router.replace(ENTRY_RECOVERY_HREF);
+    }
+  }, [profileBootstrapState, session?.user]);
 
   const retryProfileSetup = async () => {
     if (!session?.user) return;
@@ -412,6 +432,22 @@ export default function SignInScreen() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    if (!pendingConfirmationEmail || emailResendCooldown > 0) return;
+    setEmailResendMessage(null);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: pendingConfirmationEmail,
+      });
+      if (error) throw error;
+      setEmailResendCooldown(60);
+      setEmailResendMessage('Email sent again. Check your inbox.');
+    } catch {
+      setEmailResendMessage('Could not resend. Try again in a moment.');
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError(null);
     setLoading(true);
@@ -549,6 +585,16 @@ export default function SignInScreen() {
               We sent a confirmation link to {pendingConfirmationEmail || email.trim() || 'your email address'}.
               Open it on this device to finish signing in.
             </Text>
+            {emailResendMessage ? (
+              <Text style={{ color: theme.textSecondary, textAlign: 'center', fontSize: 13 }}>{emailResendMessage}</Text>
+            ) : null}
+            {emailResendCooldown > 0 ? (
+              <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Resend available in {emailResendCooldown}s</Text>
+            ) : (
+              <Pressable onPress={handleResendConfirmation}>
+                <Text style={{ color: theme.tint, textAlign: 'center' }}>Resend confirmation email</Text>
+              </Pressable>
+            )}
             <VibelyButton label="Back to sign in" onPress={() => setView('email_signin')} variant="gradient" />
             <Pressable onPress={() => setView('email_signup')}>
               <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use a different email</Text>

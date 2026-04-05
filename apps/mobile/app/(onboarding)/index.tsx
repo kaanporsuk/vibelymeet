@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
@@ -15,6 +15,8 @@ import {
   writeLocalDraftCache,
   readLocalDraftCache,
 } from '@shared/onboardingTypes';
+
+const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 import {
   loadOnboardingDraft,
   saveOnboardingDraft,
@@ -48,7 +50,7 @@ export default function OnboardingV2Screen() {
     onboardingVideoRecorded?: string | string[];
     onboardingVideoToken?: string | string[];
   }>();
-  const { session, loading, onboardingStatus, refreshOnboarding } = useAuth();
+  const { session, loading, entryState, entryStateLoading, refreshEntryState } = useAuth();
   const logout = useNativeLogout();
   const { show, dialog } = useVibelyDialog();
   const [currentStep, setCurrentStep] = useState(0);
@@ -70,19 +72,24 @@ export default function OnboardingV2Screen() {
   }, []);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || entryStateLoading) return;
     if (!session?.user?.id) {
       router.replace('/(auth)/sign-in');
       return;
     }
-    if (onboardingStatus === 'complete') {
+    if (entryState?.state === 'complete') {
       router.replace('/(tabs)');
       return;
     }
-    if (onboardingStatus === 'unknown') {
-      router.replace('/');
+    if (
+      !entryState
+      || entryState.state === 'missing_profile'
+      || entryState.state === 'suspected_fragmented_identity'
+      || entryState.state === 'hard_error'
+    ) {
+      router.replace(ENTRY_RECOVERY_HREF);
     }
-  }, [loading, session?.user?.id, onboardingStatus]);
+  }, [entryState, entryStateLoading, loading, session?.user?.id]);
 
   // Load draft: server is source of truth, local cache is fast fallback
   useEffect(() => {
@@ -263,7 +270,7 @@ export default function OnboardingV2Screen() {
       setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
       setCompletionError(null);
-      await refreshOnboarding();
+      await refreshEntryState();
     } catch (error: any) {
       submitOnceRef.current = false;
       setCompletionError(
@@ -272,7 +279,7 @@ export default function OnboardingV2Screen() {
     } finally {
       setSubmitting(false);
     }
-  }, [session?.user?.id, session?.user?.phone, session?.user?.app_metadata?.provider, data, refreshOnboarding]);
+  }, [session?.user?.id, session?.user?.phone, session?.user?.app_metadata?.provider, data, refreshEntryState]);
 
   useEffect(() => {
     if (currentStep === totalSteps - 1) {
@@ -361,7 +368,7 @@ export default function OnboardingV2Screen() {
         ? goBack
         : undefined;
 
-  if (loading || !session?.user?.id || onboardingStatus !== 'incomplete') {
+  if (loading || entryStateLoading || !session?.user?.id || entryState?.state !== 'incomplete') {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator />

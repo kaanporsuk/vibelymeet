@@ -19,6 +19,7 @@ import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
 import { ensureProfileReady } from "@/lib/profileBootstrap";
+import { buildPhoneE164, isValidSignInPhone } from "@/lib/phoneSignInNormalize";
 import {
   mapAuthConflictError,
   parseOAuthCallbackErrorDescription,
@@ -32,13 +33,12 @@ type AuthView =
   | "email_signup_pending"
   | "success";
 
-const PHONE_MIN_DIGITS = 7;
-
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const { session } = useAuth();
+  const { session, entryState, entryStateLoading } = useAuth();
+  const sessionUser = session?.user ?? null;
   const pendingOAuthProviderRef = useRef<"google" | "apple" | null>(null);
 
   const [view, setView] = useState<AuthView>("welcome");
@@ -54,30 +54,23 @@ const Auth = () => {
   const [profileBootstrapState, setProfileBootstrapState] = useState<
     "idle" | "ensuring" | "ready" | "failed"
   >("idle");
-  const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState("");
+  const [emailResendCooldown, setEmailResendCooldown] = useState(0);
+  const [emailResendMessage, setEmailResendMessage] = useState<string | null>(null);
 
-  const isPhoneValid = useMemo(() => {
-    const digits = phoneInput.replace(/\D/g, "");
-    return digits.length >= PHONE_MIN_DIGITS;
-  }, [phoneInput]);
-
-  const fullPhone = useMemo(
-    () => `${countryCode}${phoneInput.replace(/\D/g, "")}`,
+  const isPhoneValid = useMemo(
+    () => isValidSignInPhone(countryCode, phoneInput).valid,
     [countryCode, phoneInput]
   );
 
-  const showProfileRecovery = (message?: string) => {
-    setProfileBootstrapState("failed");
-    setProfileBootstrapMessage(
-      message ||
-        "We could not verify your account setup right now. Retry setup check or sign out and sign in again.",
-    );
-  };
+  const fullPhone = useMemo(
+    () => buildPhoneE164(countryCode, phoneInput),
+    [countryCode, phoneInput]
+  );
 
   // Track auth page view + preserve referral
   useEffect(() => {
@@ -139,7 +132,7 @@ const Auth = () => {
     };
   }, [location.search, location.hash, navigate]);
 
-  // Countdown for resend
+  // Countdown for OTP resend
   useEffect(() => {
     if (resendRemaining <= 0) return;
     const id = setInterval(() => {
@@ -148,11 +141,23 @@ const Auth = () => {
     return () => clearInterval(id);
   }, [resendRemaining]);
 
+  // Countdown for email confirmation resend
+  useEffect(() => {
+    if (emailResendCooldown <= 0) return;
+    const id = setInterval(() => {
+      setEmailResendCooldown((prev) => {
+        const next = prev > 0 ? prev - 1 : 0;
+        if (next === 0) setEmailResendMessage(null);
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [emailResendCooldown]);
+
   // Web auth checks backend-owned profile readiness. Hydration contexts stay read-only.
   useEffect(() => {
-    if (!session?.user) {
+    if (!sessionUser) {
       setProfileBootstrapState("idle");
-      setProfileBootstrapMessage(null);
       return;
     }
 
@@ -160,14 +165,13 @@ const Auth = () => {
 
     const ensureProfileExists = async () => {
       setProfileBootstrapState("ensuring");
-      setProfileBootstrapMessage(null);
-      const ensured = await ensureProfileReady(session.user, "web_auth_post_login");
+      const ensured = await ensureProfileReady(sessionUser, "web_auth_post_login");
       if (cancelled) return;
       if (ensured.status === "ready") {
         setProfileBootstrapState("ready");
         return;
       }
-      showProfileRecovery();
+      setProfileBootstrapState("failed");
     };
 
     void ensureProfileExists();
@@ -175,95 +179,61 @@ const Auth = () => {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [sessionUser]);
 
-  // Redirect after auth based on onboarding_complete
   useEffect(() => {
-    if (!session?.user || profileBootstrapState !== "ready") return;
+    if (profileBootstrapState === "failed" && sessionUser) {
+      navigate("/entry-recovery", { replace: true });
+    }
+  }, [profileBootstrapState, sessionUser, navigate]);
 
-    const checkOnboardingStatus = async () => {
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("onboarding_complete")
-        .eq("id", session.user.id)
-        .maybeSingle();
+  // Redirect after auth — reads entry state from the server-owned resolver.
+  useEffect(() => {
+    if (!sessionUser || profileBootstrapState !== "ready") return;
+    if (entryStateLoading) return;
 
-      if (error || !profile) {
-        showProfileRecovery();
-        return;
-      }
+    const nextPath = !entryState
+      ? "/entry-recovery"
+      : entryState.route_hint === "app"
+        ? "/home"
+        : entryState.route_hint === "onboarding"
+          ? "/onboarding"
+          : "/entry-recovery";
 
-      const nextStatus = profile.onboarding_complete === true ? "complete" : "incomplete";
-
+    const delay = view === "success" ? 1500 : 0;
+    const timer = setTimeout(() => {
       localStorage.removeItem("vibely_onboarding_progress");
       const savedOnboarding = localStorage.getItem("vibely_onboarding_v2");
       if (savedOnboarding) {
         try {
           const parsed = JSON.parse(savedOnboarding);
-          if (parsed.userId && parsed.userId !== session.user.id) {
+          if (parsed.userId && parsed.userId !== sessionUser.id) {
             localStorage.removeItem("vibely_onboarding_v2");
           }
         } catch {
           localStorage.removeItem("vibely_onboarding_v2");
         }
       }
-
-      navigate(nextStatus === "incomplete" ? "/onboarding" : "/home", { replace: true });
-    };
-
-    const delay = view === "success" ? 1500 : 0;
-    const timer = setTimeout(() => {
-      void checkOnboardingStatus();
+      navigate(nextPath, { replace: true });
     }, delay);
     return () => clearTimeout(timer);
-  }, [session, view, navigate, profileBootstrapState]);
+  }, [sessionUser, view, navigate, profileBootstrapState, entryState, entryStateLoading]);
 
-  const handleRetryProfileSetup = async () => {
-    if (!session?.user) return;
-    setProfileBootstrapState("ensuring");
-    setProfileBootstrapMessage(null);
-    const result = await ensureProfileReady(session.user, "web_auth_post_login");
-    if (result.status === "ready") {
-      setProfileBootstrapState("ready");
-      return;
+  const handleResendConfirmation = async () => {
+    if (!pendingConfirmationEmail || emailResendCooldown > 0) return;
+    setEmailResendMessage(null);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: pendingConfirmationEmail,
+      });
+      if (error) throw error;
+      setEmailResendCooldown(60);
+      setEmailResendMessage("Email sent again. Check your inbox.");
+    } catch {
+      setEmailResendMessage("Could not resend. Try again in a moment.");
     }
-    showProfileRecovery();
   };
-
-  const handleRecoverySignOut = async () => {
-    await supabase.auth.signOut();
-    setProfileBootstrapState("idle");
-    setProfileBootstrapMessage(null);
-    setView("welcome");
-  };
-
-  if (profileBootstrapState === "failed") {
-    return (
-      <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center">
-        <div className="relative z-10 w-full max-w-md px-6">
-          <div className="space-y-4 rounded-2xl border border-border bg-card/80 p-6 backdrop-blur-sm">
-            <h2 className="text-xl font-display font-bold text-foreground">Account setup check required</h2>
-            <p className="text-sm text-muted-foreground">
-              {profileBootstrapMessage ||
-                "We could not verify your account setup right now. Retry setup check or sign out and sign in again."}
-            </p>
-            <div className="space-y-2">
-              <Button
-                type="button"
-                className="w-full"
-                onClick={handleRetryProfileSetup}
-              >
-                Retry setup check
-              </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={handleRecoverySignOut}>
-                Sign out
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const handlePhoneSubmit = async () => {
     if (!isPhoneValid) return;
@@ -868,6 +838,22 @@ const Auth = () => {
         >
           Back to sign in
         </Button>
+        {emailResendMessage && (
+          <p className="text-xs text-center text-muted-foreground">{emailResendMessage}</p>
+        )}
+        {emailResendCooldown > 0 ? (
+          <p className="text-xs text-center text-muted-foreground">
+            Resend available in {emailResendCooldown}s
+          </p>
+        ) : (
+          <button
+            type="button"
+            className="w-full text-xs text-muted-foreground hover:text-primary"
+            onClick={handleResendConfirmation}
+          >
+            Resend confirmation email
+          </button>
+        )}
         <button
           type="button"
           className="w-full text-xs text-muted-foreground hover:text-primary"

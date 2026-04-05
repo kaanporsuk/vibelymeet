@@ -1,9 +1,9 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { supabase } from "@/integrations/supabase/client";
 import { Loader2, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 
 interface ProtectedRouteProps {
@@ -15,31 +15,29 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({
   children,
   requireAdmin = false,
-  requireOnboarding = true 
+  requireOnboarding = true
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, session, isOfflineAtBoot, logout } = useAuth();
+  const { isAuthenticated, isLoading, session, isOfflineAtBoot, entryState, entryStateLoading, isProfileLoading } = useAuth();
   const location = useLocation();
-  const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete' | 'unknown'>('loading');
 
   // Server-side admin role verification via edge function - cannot be bypassed
   const { data: isServerVerifiedAdmin, isLoading: isAdminCheckLoading } = useQuery({
     queryKey: ['verify-admin-role', session?.user?.id],
     queryFn: async () => {
       if (!session?.user?.id) return false;
-      
+
       try {
-        // Call the secure edge function that validates admin status server-side
         const { data, error } = await supabase.functions.invoke('verify-admin', {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
         });
-        
+
         if (error) {
           console.error('Admin verification error');
           return false;
         }
-        
+
         return data?.isAdmin === true;
       } catch (err) {
         console.error('Admin verification failed');
@@ -47,52 +45,14 @@ export function ProtectedRoute({
       }
     },
     enabled: !!session?.user?.id && requireAdmin,
-    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+    staleTime: 1000 * 60 * 5,
     retry: false,
   });
 
-  useEffect(() => {
-    const checkProfile = async () => {
-      if (!session?.user) {
-        setProfileStatus('loading');
-        return;
-      }
-
-      // Skip profile check if we're already on the onboarding page
-      if (location.pathname === '/onboarding') {
-        setProfileStatus('complete');
-        return;
-      }
-
-      try {
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('onboarding_complete')
-          .eq('id', session.user.id)
-          .maybeSingle();
-
-        if (error || !profile) {
-          setProfileStatus('unknown');
-          return;
-        }
-
-        setProfileStatus(profile.onboarding_complete === true ? 'complete' : 'incomplete');
-      } catch {
-        setProfileStatus('unknown');
-      }
-    };
-
-    if (isAuthenticated && requireOnboarding) {
-      checkProfile();
-    } else if (!requireOnboarding) {
-      setProfileStatus('complete');
-    }
-  }, [session?.user, isAuthenticated, requireOnboarding, location.pathname]);
-
-  // Show loading state while checking auth, profile, or admin status
   const isCheckingAdmin = requireAdmin && isAdminCheckLoading;
-  if (isLoading || (requireOnboarding && profileStatus === 'loading' && isAuthenticated) || isCheckingAdmin) {
-    // Show offline landing if app booted without connectivity
+
+  // Show loading while: initial auth check, profile loading, or admin check
+  if (isLoading || (requireOnboarding && isAuthenticated && (isProfileLoading || entryStateLoading)) || isCheckingAdmin) {
     if (isOfflineAtBoot) {
       return (
         <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
@@ -115,7 +75,6 @@ export function ProtectedRoute({
   }
 
   if (!isAuthenticated) {
-    // Preserve ?ref= (and other query params) so invite / event links attribute referrals after signup.
     const search = location.search;
     return <Navigate to={search ? `/auth${search}` : "/auth"} replace />;
   }
@@ -125,25 +84,32 @@ export function ProtectedRoute({
     return <Navigate to="/dashboard" replace />;
   }
 
-  // Redirect to onboarding if profile is incomplete
-  if (requireOnboarding && profileStatus === 'incomplete') {
-    return <Navigate to="/onboarding" replace />;
-  }
+  if (requireOnboarding) {
+    const state = entryState?.state ?? 'hard_error';
+    const isOnboardingRoute = location.pathname === '/onboarding';
+    const isRecoveryRoute = location.pathname === '/entry-recovery';
 
-  // Never allow protected shell entry when profile readiness cannot be verified.
-  if (requireOnboarding && profileStatus === 'unknown') {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <h1 className="text-2xl font-display font-bold text-foreground mb-2">Account setup check required</h1>
-        <p className="text-muted-foreground mb-6 max-w-sm">
-          We could not verify your profile setup. Please retry setup or sign out and sign back in.
-        </p>
-        <div className="flex gap-3">
-          <Button onClick={() => window.location.reload()}>Retry setup</Button>
-          <Button variant="outline" onClick={() => void logout()}>Sign out</Button>
-        </div>
-      </div>
-    );
+    if (state === 'complete') {
+      if (isOnboardingRoute || isRecoveryRoute) {
+        return <Navigate to="/home" replace />;
+      }
+    }
+
+    if (state === 'incomplete') {
+      if (!isOnboardingRoute) {
+        return <Navigate to="/onboarding" replace />;
+      }
+    }
+
+    if (
+      state === 'missing_profile'
+      || state === 'suspected_fragmented_identity'
+      || state === 'hard_error'
+    ) {
+      if (!isRecoveryRoute) {
+        return <Navigate to="/entry-recovery" replace />;
+      }
+    }
   }
 
   return <>{children}</>;

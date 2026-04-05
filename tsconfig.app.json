@@ -36,6 +36,7 @@
     "supabase/functions/_shared/creditPacks.ts",
     "supabase/functions/_shared/profileContracts.ts",
     "supabase/functions/_shared/authConflictMessages.ts",
+    "supabase/functions/_shared/entryState.ts",
     "supabase/functions/_shared/onboardingTypes.ts",
     "supabase/functions/_shared/onboardingCompletion.ts",
     "supabase/functions/_shared/matching/videoSessionFlow.ts"
