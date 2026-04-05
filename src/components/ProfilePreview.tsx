@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VibeTag } from "@/components/VibeTag";
-import { VerificationBadge } from "@/components/VerificationBadge";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
@@ -455,7 +454,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
                         {profile.name}
                       </h1>
                       <span className="text-3xl font-light text-foreground/80">{profile.age}</span>
-                      <VerificationBadge verified={profile.verified} size="lg" />
+                      <PhotoVerifiedMark verified={!!profile.photoVerified || profile.verified} size="md" />
                     </div>
 
                     {/* Key details row */}

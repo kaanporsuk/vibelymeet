@@ -184,7 +184,7 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
   if (!profile.phone_verified) {
     out.push({
       id: 'phone',
-      label: 'Verify phone',
+      label: 'Verify phone number',
       points: 5,
       icon: 'call-outline',
     });
@@ -193,7 +193,7 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
   if (!profile.email_verified) {
     out.push({
       id: 'email',
-      label: 'Verify email',
+      label: 'Verify current email',
       points: 3,
       icon: 'mail-outline',
     });

@@ -5,7 +5,6 @@ import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -15,20 +14,23 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showEmailVerify, setShowEmailVerify] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
 
   const valid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const submit = async () => {
+    if (emailSaved) {
+      onNext();
+      return;
+    }
     if (!valid || loading) return;
     setLoading(true);
     setErrorMessage(null);
     try {
       const { error } = await supabase.auth.updateUser({ email: email.trim() });
       if (error) throw error;
-      setMessage('Next, verify this email for your profile in-app.');
-      setShowEmailVerify(true);
-      // EmailVerificationFlow will call onNext after successful OTP verification.
+      setEmailSaved(true);
+      setMessage('Check your inbox to confirm this account email. You can add the email trust badge later from Settings.');
     } catch (error: any) {
       setErrorMessage(String(error?.message || 'Could not save email. Please try again.'));
     } finally {
@@ -48,23 +50,17 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
         autoCapitalize="none"
         placeholder="you@example.com"
         placeholderTextColor={theme.textSecondary}
+        editable={!emailSaved}
         style={[styles.input, { borderColor: theme.border, color: theme.text }]}
       />
       {message ? <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{message}</Text> : null}
       {errorMessage ? <Text style={{ color: theme.danger, fontSize: 12 }}>{errorMessage}</Text> : null}
-      <VibelyButton label={loading ? 'Saving...' : 'Continue'} onPress={submit} disabled={!valid || loading || showEmailVerify} variant="gradient" />
-      {!showEmailVerify ? (
+      <VibelyButton label={loading ? 'Saving...' : emailSaved ? 'Continue' : 'Save Email'} onPress={submit} disabled={loading || (!valid && !emailSaved)} variant="gradient" />
+      {!emailSaved ? (
         <Pressable onPress={onSkip}>
           <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Skip for now</Text>
         </Pressable>
       ) : null}
-
-      <EmailVerificationFlow
-        visible={showEmailVerify}
-        email={email.trim()}
-        onClose={() => setShowEmailVerify(false)}
-        onVerified={onNext}
-      />
     </View>
   );
 }

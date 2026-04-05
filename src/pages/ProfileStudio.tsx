@@ -58,6 +58,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { resolvePhotoVerificationState, type PhotoVerificationState } from "@/lib/photoVerificationState";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
+import { isCurrentEmailVerified } from "@shared/verificationSemantics";
 import {
   Drawer,
   DrawerClose,
@@ -264,6 +265,7 @@ const ProfileStudio = () => {
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
+  const [accountEmailConfirmed, setAccountEmailConfirmed] = useState(false);
   const [emailForVerification, setEmailForVerification] = useState("");
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
@@ -285,14 +287,22 @@ const ProfileStudio = () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          setAccountEmailConfirmed(!!user.email_confirmed_at);
           const { data: phoneData } = await supabase
             .from("profiles")
-            .select("phone_verified, phone_number, email_verified, photo_verified, photo_verification_expires_at")
+            .select("phone_verified, phone_number, email_verified, verified_email, photo_verified, photo_verification_expires_at")
             .eq("id", user.id)
             .maybeSingle();
           if (phoneData?.phone_verified) setPhoneVerified(true);
           setPhoneNumber((phoneData?.phone_number as string | null | undefined) ?? null);
-          setEmailVerified(!!phoneData?.email_verified);
+          setEmailVerified(
+            isCurrentEmailVerified({
+              emailVerified: !!phoneData?.email_verified,
+              verifiedEmail: (phoneData?.verified_email as string | null | undefined) ?? null,
+              authEmail: user.email ?? null,
+              authEmailConfirmed: !!user.email_confirmed_at,
+            }),
+          );
           setEmailForVerification(user.email ?? "");
           const profilePhotoVerified = phoneData?.photo_verified;
           const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
@@ -463,7 +473,11 @@ const ProfileStudio = () => {
     {
       id: "email",
       label: "Email verification",
-      description: emailVerified ? "Verified" : "Verify your email",
+      description: emailVerified
+        ? "Current account email verified"
+        : accountEmailConfirmed
+          ? "Verify your current email"
+          : "Confirm your email in your inbox first",
       icon: Mail,
       completed: emailVerified,
     },
@@ -475,6 +489,10 @@ const ProfileStudio = () => {
     if (stepId === "email") {
       if (emailVerified) {
         toast.success("Your email is already verified ✓");
+        return;
+      }
+      if (!accountEmailConfirmed) {
+        toast.info("Confirm your current account email from your inbox first.");
         return;
       }
       setShowEmailVerification(true);
@@ -684,7 +702,13 @@ const ProfileStudio = () => {
         scrollToSection("verification");
         break;
       case "email":
-        toast.success("Your email is already verified ✓");
+        if (emailVerified) {
+          toast.success("Your email is already verified ✓");
+        } else if (!accountEmailConfirmed) {
+          toast.info("Confirm your current account email from your inbox first.");
+        } else {
+          setShowEmailVerification(true);
+        }
         scrollToSection("verification");
         break;
       case "photo_verify":

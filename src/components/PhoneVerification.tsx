@@ -241,7 +241,7 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
 
       // Success
       setScreen("success");
-      toast.success("Phone verified! ✅");
+      toast.success("Phone number verified! ✅");
       setTimeout(() => {
         onVerified();
         onOpenChange(false);

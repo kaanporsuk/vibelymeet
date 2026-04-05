@@ -48,6 +48,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
+import { isCurrentEmailVerified } from '@shared/verificationSemantics';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -62,6 +63,7 @@ type AccountProfile = {
   phone_number: string | null;
   phone_verified: boolean | null;
   email_verified: boolean | null;
+  verified_email: string | null;
   photo_verified: boolean | null;
   account_paused: boolean | null;
   account_paused_until: string | null;
@@ -211,7 +213,7 @@ export default function AccountSettingsScreen() {
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'name, created_at, avatar_url, phone_number, phone_verified, email_verified, photo_verified, account_paused, account_paused_until, is_paused, paused_until'
+          'name, created_at, avatar_url, phone_number, phone_verified, email_verified, verified_email, photo_verified, account_paused, account_paused_until, is_paused, paused_until'
         )
         .eq('id', user.id)
         .maybeSingle();
@@ -257,13 +259,39 @@ export default function AccountSettingsScreen() {
     if (!showEmailVerify) setEmailForVerification(email);
   }, [email, showEmailVerify]);
 
+  const authEmailConfirmed = !!user?.email_confirmed_at;
+  const profileEmailVerified = isCurrentEmailVerified({
+    emailVerified: profile?.email_verified,
+    verifiedEmail: profile?.verified_email ?? null,
+    authEmail: email || null,
+    authEmailConfirmed,
+  });
+
   const openEmailVerification = useCallback(
     (nextEmail?: string) => {
       const e = (nextEmail ?? email).trim();
+      if (!e) {
+        show({
+          title: 'Add an email first',
+          message: 'Add an account email before you verify it on your profile.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      if (!authEmailConfirmed) {
+        show({
+          title: 'Confirm your inbox first',
+          message: `Confirm ${e} from the inbox link first. After that, come back here to verify it on your profile.`,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
       setEmailForVerification(e);
       setShowEmailVerify(true);
     },
-    [email],
+    [authEmailConfirmed, email, show],
   );
 
   const openPhotoVerification = useCallback(() => {
@@ -653,7 +681,7 @@ export default function AccountSettingsScreen() {
                 <TrustMini
                   theme={theme}
                   label="Email"
-                  verified={!!profile?.email_verified}
+                  verified={profileEmailVerified}
                   onVerify={() => openEmailVerification()}
                 />
                 <TrustMini
@@ -757,22 +785,36 @@ export default function AccountSettingsScreen() {
                 theme={theme}
                 icon="mail-outline"
                 iconColor={CYAN}
-                title="Email verified"
+                title="Email verification"
+                subtitle={
+                  profileEmailVerified
+                    ? 'Current account email verified on your profile'
+                    : !email
+                      ? 'Add an account email first'
+                      : !authEmailConfirmed
+                        ? 'Confirm your email in your inbox first'
+                        : 'Verify your current account email for your profile badge'
+                }
                 right={
-                  profile?.email_verified ? (
+                  profileEmailVerified ? (
                     <ValueChip label="Verified" accentColor={theme.success} />
                   ) : (
-                    <ValueChip label="Verify →" accentColor={AMBER} />
+                    <ValueChip label={authEmailConfirmed ? 'Verify →' : 'Check inbox'} accentColor={AMBER} />
                   )
                 }
-                onPress={profile?.email_verified ? undefined : () => openEmailVerification()}
+                onPress={profileEmailVerified ? undefined : () => openEmailVerification()}
               />
               <Hairline theme={theme} />
               <AccountRow
                 theme={theme}
                 icon="call-outline"
                 iconColor={CYAN}
-                title="Phone verified"
+                title="Phone verification"
+                subtitle={
+                  profile?.phone_verified
+                    ? 'Current phone number verified on your account'
+                    : 'Verify the phone number on your account'
+                }
                 right={
                   profile?.phone_verified ? (
                     <ValueChip label="Verified" accentColor={theme.success} />
@@ -1039,9 +1081,9 @@ export default function AccountSettingsScreen() {
                 const updatedEmail = newEmail.trim();
                 show({
                   title: 'Confirm your new account email',
-                  message: `Check ${updatedEmail} in your inbox to confirm your account email. Then verify this email for your profile in-app below.`,
+                  message: `Check ${updatedEmail} in your inbox to confirm your account email. After that, come back to Email verification to add the profile badge.`,
                   variant: 'success',
-                  primaryAction: { label: 'Verify in app', onPress: () => openEmailVerification(updatedEmail) },
+                  primaryAction: { label: 'OK', onPress: () => {} },
                 });
                 setNewEmail('');
                 setConfirmEmail('');

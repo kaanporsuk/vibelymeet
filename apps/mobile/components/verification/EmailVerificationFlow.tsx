@@ -121,7 +121,7 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
       handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
     >
       <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
-        {step === 'send' && 'Verify Email'}
+        {step === 'send' && 'Verify Current Email'}
         {step === 'otp' && 'Enter Code'}
         {step === 'success' && 'Verified!'}
       </VibelyText>
@@ -132,12 +132,15 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
             <Ionicons name="mail" size={32} color={theme.tint} />
           </View>
           <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
-            We'll send a 6-digit code to:
+            We'll send a 6-digit code to the current email on your account:
           </VibelyText>
           <VibelyText variant="body" style={[styles.emailDisplay, { color: theme.text }]}>{email || '—'}</VibelyText>
+          <VibelyText variant="caption" style={[styles.msg, { color: theme.textSecondary }]}>
+            Confirm this email from your inbox first if you recently changed it.
+          </VibelyText>
           {message ? <VibelyText variant="caption" style={[styles.msg, { color: theme.success }]}>{message}</VibelyText> : null}
           {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}
-          <VibelyButton label={sending ? 'Sending…' : 'Send Verification Code'} onPress={sendCode} disabled={sending || !email?.trim()} loading={sending} style={styles.cta} />
+          <VibelyButton label={sending ? 'Sending...' : 'Send Code'} onPress={sendCode} disabled={sending || !email?.trim()} loading={sending} style={styles.cta} />
         </>
       )}
 
@@ -162,7 +165,7 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
           {remainingAttempts != null && remainingAttempts < 7 && (
             <VibelyText variant="caption" style={{ color: theme.textSecondary }}>{remainingAttempts} attempts remaining this hour</VibelyText>
           )}
-          <VibelyButton label={loading ? 'Verifying…' : 'Verify'} onPress={() => verifyCode(otp.join(''))} disabled={loading || otp.some((c) => !c)} loading={loading} style={styles.cta} />
+          <VibelyButton label={loading ? 'Verifying...' : 'Verify'} onPress={() => verifyCode(otp.join(''))} disabled={loading || otp.some((c) => !c)} loading={loading} style={styles.cta} />
         </>
       )}
 
@@ -171,7 +174,10 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
           <View style={[styles.successIcon, { backgroundColor: withAlpha(theme.success, 0.19) }]}>
             <Ionicons name="checkmark-circle" size={48} color={theme.success} />
           </View>
-          <VibelyText variant="titleSM" style={{ color: theme.text }}>Email verified!</VibelyText>
+          <VibelyText variant="titleSM" style={{ color: theme.text }}>Email badge added</VibelyText>
+          <VibelyText variant="bodySecondary" style={{ color: theme.textSecondary, textAlign: 'center' }}>
+            Your current account email is now verified on your profile.
+          </VibelyText>
         </View>
       )}
     </KeyboardAwareBottomSheetModal>

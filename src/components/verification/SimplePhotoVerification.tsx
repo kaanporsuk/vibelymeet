@@ -221,7 +221,7 @@ export function SimplePhotoVerification({
               <div className="text-center space-y-1">
                 <p className="text-lg font-display font-semibold text-foreground">Quick selfie check</p>
                 <p className="text-sm text-muted-foreground">
-                  Take a selfie to prove you're really you. Verified profiles get 3× more matches!
+                  Take a selfie so our team can review and verify that you match your profile photos.
                 </p>
               </div>
 

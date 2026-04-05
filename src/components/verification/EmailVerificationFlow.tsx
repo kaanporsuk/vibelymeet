@@ -78,10 +78,10 @@ export const EmailVerificationFlow = ({
         <DrawerHeader>
           <DrawerTitle className="font-display flex items-center gap-2">
             <Mail className="w-5 h-5 text-primary" />
-            Email Verification
+            Verify Current Email
           </DrawerTitle>
           <DrawerDescription>
-            Verify your email to complete your profile
+            Add an email verification badge to your profile. This only works after you confirm the email on your account.
           </DrawerDescription>
         </DrawerHeader>
 
@@ -101,19 +101,21 @@ export const EmailVerificationFlow = ({
                     <Mail className="w-8 h-8 text-primary" />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    We'll send a 6-digit code to verify your email
+                    We'll send a 6-digit code to the current email on your account.
                   </p>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Email Address</label>
+                  <label className="text-sm font-medium text-foreground">Current Account Email</label>
                   <Input
                     type="email"
-                    placeholder="your@email.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    readOnly
                     className="h-12 rounded-xl glass-card border-border"
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Confirm this email from your inbox first if you recently changed it.
+                  </p>
                 </div>
 
                 <Button
@@ -129,7 +131,7 @@ export const EmailVerificationFlow = ({
                     </>
                   ) : (
                     <>
-                      Send Verification Code
+                      Send Code
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </>
                   )}
@@ -212,10 +214,10 @@ export const EmailVerificationFlow = ({
                   <CheckCircle className="w-10 h-10 text-green-500" />
                 </motion.div>
                 <h3 className="text-xl font-display font-semibold text-foreground mb-2">
-                  Email Verified!
+                  Email Badge Added
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Your email has been successfully verified
+                  Your current account email is now verified on your profile.
                 </p>
               </motion.div>
             )}

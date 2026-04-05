@@ -31,7 +31,7 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
         return false;
       }
 
-      toast.success("Verification code sent to your email!");
+      toast.success("Verification code sent to your current account email.");
       return true;
     } catch (error) {
       console.error("Send OTP error:", error);
@@ -60,7 +60,7 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
         return false;
       }
 
-      toast.success("Email verified successfully!");
+      toast.success("Current account email verified for your profile.");
       return true;
     } catch (error) {
       console.error("Verify OTP error:", error);

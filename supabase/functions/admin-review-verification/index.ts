@@ -129,7 +129,11 @@ serve(async (req) => {
       // Ensure photo_verified stays false
       await admin
         .from("profiles")
-        .update({ photo_verified: false })
+        .update({
+          photo_verified: false,
+          photo_verified_at: null,
+          photo_verification_expires_at: null,
+        })
         .eq("id", verification.user_id);
 
       // Log admin action
