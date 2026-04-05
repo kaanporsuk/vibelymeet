@@ -11,6 +11,7 @@ export type UserProfileView = {
   job: string | null;
   height_cm: number | null;
   about_me: string | null;
+  /** @deprecated Compatibility-only fallback. Prefer relationship_intent. */
   looking_for: string | null;
   relationship_intent: string | null;
   photos: string[] | null;
@@ -69,6 +70,7 @@ const USER_PROFILE_SELECT_BASE = [
   "height_cm",
   "about_me",
   "looking_for",
+  "relationship_intent",
   "photos",
   "avatar_url",
   "bunny_video_uid",
@@ -200,4 +202,3 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
     vibes: flattenVibeLabels(vibeRows),
   };
 }
-

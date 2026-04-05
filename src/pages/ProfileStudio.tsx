@@ -683,7 +683,7 @@ const ProfileStudio = () => {
         setActiveDrawer("tagline");
         scrollToSection("hero");
         break;
-      case "looking_for":
+      case "relationship_intent":
         scrollToSection("lookingFor");
         break;
       case "job":

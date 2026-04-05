@@ -370,7 +370,7 @@ export default function ProfileStudio() {
         setShowTaglineSheet(true);
         scrollToSection('hero');
         break;
-      case 'looking_for':
+      case 'relationship_intent':
         scrollToSection('lookingFor');
         break;
       case 'job':
