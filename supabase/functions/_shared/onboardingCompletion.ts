@@ -161,9 +161,10 @@ export interface CompletionDeps {
  * 3. Clear local cache
  * 4. Analytics (only on fresh completion)
  *
- * The RPC receives the client's latest OnboardingData directly via p_final_data,
- * so the server always validates and writes the freshest state — no separate
- * pre-save step required, no stale-draft risk.
+ * The RPC receives the client's latest OnboardingData directly via p_final_data.
+ * If the active onboarding draft is missing, the backend materializes a
+ * coherent draft row from that payload before validation and completion, so
+ * dropped debounced draft saves cannot trigger a last-screen no_draft failure.
  *
  * No client-side profiles.upsert. Server owns the write.
  */
@@ -188,6 +189,8 @@ export async function executeOnboardingCompletion(
       const serverErrors = Array.isArray(r?.errors)
         ? (r.errors as string[])
         : ["Server finalization failed"];
+      // Surface backend error codes verbatim so client retry UX stays aligned
+      // to the live RPC contract.
       const errorCode = String(r?.error ?? "finalize_validation_failed");
       return FAILED(errorCode, serverErrors);
     }
