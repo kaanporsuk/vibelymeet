@@ -182,7 +182,7 @@ export function getIncompleteVibeScoreActions(profile: VibeScoreProfileSnapshot)
   if (!intentValue) {
     out.push({
       id: "looking_for",
-      label: "Set looking for",
+      label: "Set relationship intent",
       points: 5,
       icon: "heart",
     });

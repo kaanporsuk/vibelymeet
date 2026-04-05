@@ -11,19 +11,6 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return { ok: true };
 }
 
-export async function signUpWithEmail(email: string, password: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
-  void email;
-  void password;
-  return {
-    ok: false,
-    error: normalizeContractError(
-      new Error('Deprecated signUp surface: use app/(auth)/sign-in.tsx owner flow.'),
-      'auth_sign_up_deprecated',
-      'Sign up is only supported through the sign-in screen owner flow.',
-    ),
-  };
-}
-
 export async function requestPasswordReset(email: string, redirectTo: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {

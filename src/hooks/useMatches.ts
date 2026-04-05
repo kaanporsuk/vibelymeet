@@ -65,7 +65,7 @@ export interface Match {
   time: string;
   unread: boolean;
   vibes: string[];
-  /** Other user's `profiles.looking_for` — for client-side search (intent display id + labels). */
+  /** Canonical relationship-intent id for client-side search/display, with legacy fallback applied at fetch time. */
   looking_for: string | null;
   isNew: boolean;
   matchId: string;

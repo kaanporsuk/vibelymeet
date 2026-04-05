@@ -11,11 +11,11 @@ export {
   MATCHES_SEARCH_LEAD,
 } from "../../shared/matches/searchUi";
 
-function buildIntentSearchHaystack(lookingFor: string): string {
-  if (!lookingFor) return "";
+function buildIntentSearchHaystack(intentId: string): string {
+  if (!intentId) return "";
   // Never include raw internal ids (e.g. `long_term`, `not_sure`) in search haystacks.
   // We only search by canonical id/label/emoji vocabulary.
-  const safe = getRelationshipIntentDisplaySafe(lookingFor);
+  const safe = getRelationshipIntentDisplaySafe(intentId);
   return [safe.id, safe.label, safe.emoji].join(" ").toLowerCase();
 }
 

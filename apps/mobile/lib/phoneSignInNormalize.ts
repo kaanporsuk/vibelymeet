@@ -2,6 +2,8 @@
  * E.164 normalization for native phone sign-in (Supabase signInWithOtp).
  * Aligns with PhoneVerificationFlow: strip non-digits, strip leading national zeros.
  */
+import { FALLBACK_PHONE_COUNTRY, getPhoneCountryDefaultForRegion } from '@/lib/phoneCountryDefaults';
+
 export function normalizeNationalDigits(rawInput: string): string {
   return rawInput.replace(/\D/g, '').replace(/^0+/, '');
 }
@@ -37,4 +39,10 @@ export function isValidSignInPhone(countryDialCode: string, phoneInput: string):
   if (e164.length < 10 || e164.length > 16) return { e164, nationalDigits, valid: false };
   if (!isPlausibleE164DigitCount(e164)) return { e164, nationalDigits, valid: false };
   return { e164, nationalDigits, valid: true };
+}
+
+export { FALLBACK_PHONE_COUNTRY };
+
+export function getDefaultPhoneCountry(region?: string | null) {
+  return getPhoneCountryDefaultForRegion(region);
 }
