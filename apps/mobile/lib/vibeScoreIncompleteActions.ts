@@ -15,7 +15,7 @@ export type VibeScoreActionId =
   | 'prompts'
   | 'about_me'
   | 'tagline'
-  | 'looking_for'
+  | 'relationship_intent'
   | 'job'
   | 'height'
   | 'lifestyle'
@@ -147,7 +147,7 @@ export function getIncompleteVibeScoreActions(profile: ProfileRow): VibeScoreInc
   const intentValue = profile.relationship_intent?.trim() || profile.looking_for?.trim() || '';
   if (!intentValue) {
     out.push({
-      id: 'looking_for',
+      id: 'relationship_intent',
       label: 'Set relationship intent',
       points: 5,
       icon: 'heart-outline',

@@ -78,6 +78,7 @@ export type UserProfileView = {
   job: string | null;
   height_cm: number | null;
   about_me: string | null;
+  /** @deprecated Compatibility-only fallback. Prefer relationship_intent. */
   looking_for: string | null;
   relationship_intent: string | null;
   photos: string[] | null;
