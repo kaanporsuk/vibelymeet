@@ -54,8 +54,6 @@ export default function OnboardingV2Screen() {
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const [genderVisible, setGenderVisible] = useState(true);
-  const [interestedVisible, setInterestedVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [completionError, setCompletionError] = useState<string | null>(null);
@@ -305,9 +303,9 @@ export default function OnboardingV2Screen() {
       case 2:
         return <BirthdayStep value={data.birthDate} onChange={(v) => updateField('birthDate', v)} onNext={goNext} onAgeBlocked={handleAgeBlocked} />;
       case 3:
-        return <GenderStep value={data.gender} customValue={data.genderCustom} onChange={(v) => updateField('gender', v)} onChangeCustom={(v) => updateField('genderCustom', v)} showOnProfile={genderVisible} onToggleShow={setGenderVisible} onNext={goNext} />;
+        return <GenderStep value={data.gender} customValue={data.genderCustom} onChange={(v) => updateField('gender', v)} onChangeCustom={(v) => updateField('genderCustom', v)} onNext={goNext} />;
       case 4:
-        return <InterestedInStep value={data.interestedIn} onChange={(v) => updateField('interestedIn', v)} showOnProfile={interestedVisible} onToggleShow={setInterestedVisible} onNext={goNext} />;
+        return <InterestedInStep value={data.interestedIn} onChange={(v) => updateField('interestedIn', v)} onNext={goNext} />;
       case 5:
         return <IntentStep value={data.relationshipIntent} onChange={(v) => updateField('relationshipIntent', v)} onNext={goNext} />;
       case 6:
@@ -348,8 +346,6 @@ export default function OnboardingV2Screen() {
     needsEmailCollection,
     completionError,
     totalSteps,
-    genderVisible,
-    interestedVisible,
     session?.user?.id,
     submitting,
     completed,
