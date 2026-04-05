@@ -29,6 +29,7 @@ type AuthView =
   | "otp"
   | "email_signin"
   | "email_signup"
+  | "email_signup_pending"
   | "success";
 
 const PHONE_MIN_DIGITS = 7;
@@ -58,6 +59,7 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState("");
 
   const isPhoneValid = useMemo(() => {
     const digits = phoneInput.replace(/\D/g, "");
@@ -400,9 +402,10 @@ const Auth = () => {
     setError(null);
 
     try {
+      const signupEmail = email.trim();
       const redirectUrl = `${window.location.origin}/`;
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: signupEmail,
         password,
         options: {
           emailRedirectTo: redirectUrl,
@@ -415,7 +418,13 @@ const Auth = () => {
       }
       localStorage.removeItem("vibely_referrer_id");
       trackEvent("auth_email_signup", { platform: "web" });
-      setView("email_signin");
+      setPassword("");
+      if (data.session?.user) {
+        setView("success");
+        return;
+      }
+      setPendingConfirmationEmail(signupEmail);
+      setView("email_signup_pending");
     } catch (err: any) {
       const conflict = mapAuthConflictError(err, "email_sign_up");
       if (conflict.message) {
@@ -815,6 +824,64 @@ const Auth = () => {
     </motion.div>
   );
 
+  const renderEmailSignUpPending = () => (
+    <motion.div
+      key="email_signup_pending"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="space-y-6"
+    >
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+        onClick={() => {
+          setView("email_signup");
+          setError(null);
+        }}
+      >
+        <ArrowLeft className="w-3 h-3" />
+        Back
+      </button>
+
+      <div className="space-y-2 text-center">
+        <h2 className="text-2xl font-display font-bold text-foreground">
+          Check your email
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          We sent a confirmation link to{" "}
+          <span className="font-medium text-foreground">
+            {pendingConfirmationEmail || email}
+          </span>
+          . Open it on this device to finish signing in.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <Button
+          type="button"
+          onClick={() => {
+            setView("email_signin");
+            setError(null);
+          }}
+          className="w-full h-11 text-sm font-semibold bg-gradient-to-r from-violet-500 to-pink-500 hover:from-violet-400 hover:to-pink-400 border-0"
+        >
+          Back to sign in
+        </Button>
+        <button
+          type="button"
+          className="w-full text-xs text-muted-foreground hover:text-primary"
+          onClick={() => {
+            setView("email_signup");
+            setError(null);
+          }}
+        >
+          Use a different email
+        </button>
+      </div>
+    </motion.div>
+  );
+
   const renderSuccess = () => (
     <motion.div
       key="success"
@@ -887,6 +954,7 @@ const Auth = () => {
           {view === "otp" && renderOtp()}
           {view === "email_signin" && renderEmailSignIn()}
           {view === "email_signup" && renderEmailSignUp()}
+          {view === "email_signup_pending" && renderEmailSignUpPending()}
           {view === "success" && renderSuccess()}
         </AnimatePresence>
       </div>

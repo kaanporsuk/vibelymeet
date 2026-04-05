@@ -12,6 +12,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
+import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
@@ -42,7 +43,13 @@ function logPhoneOtpDebug(label: string, e164: string, payload: Record<string, u
   console.warn(`[sign-in] ${label}`, { normalizedPhone: safe, ...payload });
 }
 
-type AuthView = 'welcome' | 'otp' | 'email_signin' | 'email_signup' | 'success';
+type AuthView =
+  | 'welcome'
+  | 'otp'
+  | 'email_signin'
+  | 'email_signup'
+  | 'email_signup_pending'
+  | 'success';
 
 type Country = { name: string; code: string; flag: string; suggested?: boolean };
 
@@ -108,6 +115,7 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
@@ -365,13 +373,27 @@ export default function SignInScreen() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: e } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
+      const signupEmail = email.trim();
+      const { data, error: e } = await supabase.auth.signUp({
+        email: signupEmail,
+        password,
+        options: {
+          emailRedirectTo: getNativeEmailSignUpRedirectUrl(),
+          data: { name: name.trim() },
+        },
+      });
       if (e) throw e;
       if (!data.user) {
         throw new Error('We could not create your account. Please try again.');
       }
       trackEvent('auth_email_signup', { platform: 'native' });
-      setView('email_signin');
+      setPassword('');
+      if (data.session?.user) {
+        setView('success');
+        return;
+      }
+      setPendingConfirmationEmail(signupEmail);
+      setView('email_signup_pending');
     } catch (e: any) {
       const conflict = mapAuthConflictError(e, 'email_sign_up');
       if (conflict.message) {
@@ -511,6 +533,21 @@ export default function SignInScreen() {
             <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Create account" onPress={handleEmailSignUp} variant="gradient" disabled={loading} />
             <Pressable onPress={() => setView('email_signin')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Already have an account? Sign in</Text></Pressable>
+          </View>
+        ) : null}
+
+        {view === 'email_signup_pending' ? (
+          <View style={styles.block}>
+            <Pressable onPress={() => setView('email_signup')}><Text style={{ color: theme.textSecondary }}>← Back</Text></Pressable>
+            <Text style={[styles.h2, { color: theme.text }]}>Check your email</Text>
+            <Text style={{ color: theme.textSecondary, textAlign: 'center', lineHeight: 20 }}>
+              We sent a confirmation link to {pendingConfirmationEmail || email.trim() || 'your email address'}.
+              Open it on this device to finish signing in.
+            </Text>
+            <VibelyButton label="Back to sign in" onPress={() => setView('email_signin')} variant="gradient" />
+            <Pressable onPress={() => setView('email_signup')}>
+              <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use a different email</Text>
+            </Pressable>
           </View>
         ) : null}
 

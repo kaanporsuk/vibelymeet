@@ -13,10 +13,11 @@ import * as Sentry from '@sentry/react-native';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
-import { Stack, usePathname } from 'expo-router';
+import * as Linking from 'expo-linking';
+import { Stack, router, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
@@ -39,6 +40,8 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
+import { supabase } from '@/lib/supabase';
+import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -173,6 +176,48 @@ function BadgeCountUpdater() {
   return null;
 }
 
+function AuthRedirectHandler() {
+  const lastHandledUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const handleIncomingUrl = async (url: string | null | undefined) => {
+      if (!url || cancelled || lastHandledUrlRef.current === url) return;
+
+      const result = await completeSessionFromAuthReturnUrl(supabase, url);
+      if (cancelled || !result.handled) return;
+
+      lastHandledUrlRef.current = url;
+
+      if (__DEV__ && result.error) {
+        console.warn('[auth-link] session hydration failed:', result.error.message);
+      }
+
+      if (result.recovery) {
+        router.replace('/(auth)/reset-password');
+        return;
+      }
+
+      if (!result.error) {
+        router.replace('/');
+      }
+    };
+
+    void Linking.getInitialURL().then((url) => handleIncomingUrl(url));
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      void handleIncomingUrl(url);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
+
+  return null;
+}
+
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   useCurrentRouteTracker();
@@ -236,6 +281,7 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ChatOutboxProvider>
+        <AuthRedirectHandler />
         <PushRegistration />
         <NotificationRouteTracker />
         <NotificationDeepLinkHandler />
