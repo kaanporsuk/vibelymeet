@@ -58,8 +58,8 @@ export const useBlockUser = () => {
         // Delete date proposals
         await supabase.from("date_proposals").delete().eq("match_id", matchId);
         // Delete mutes
-        await supabase.from("match_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
         await supabase.from("match_notification_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
+        await supabase.from("match_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
         // Delete match
         await supabase.from("matches").delete().eq("id", matchId);
       }
