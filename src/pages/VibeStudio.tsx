@@ -1,12 +1,11 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 const VibeStudio = () => {
   const navigate = useNavigate();
   
   useEffect(() => {
-    toast.info("Opening Vibe Studio from your profile...");
+    // Legacy compatibility route: keep old deep links working by forwarding to the profile owner surface.
     navigate("/profile", { replace: true });
   }, [navigate]);
   

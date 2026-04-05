@@ -203,6 +203,43 @@ All findings below are tagged as:
 
 Below, each workstream captures: objective, files, backend/shared changes, web impact, build/runtime impact, and status.
 
+### Auth/bootstrap closure hardening (2026-04-04)
+
+Post-audit closure changes completed after the original hardening streams:
+
+- Eliminated unknown-profile protected shell entry:
+  - `src/components/ProtectedRoute.tsx` now blocks `profileStatus='unknown'` behind a recovery gate instead of rendering children.
+- Removed latent signup fail-open reuse paths:
+  - `src/contexts/AuthContext.tsx` `signUp(...)` now hard-errors as deprecated.
+  - `apps/mobile/context/AuthContext.tsx` `signUp(...)` now hard-errors as deprecated.
+  - `apps/mobile/lib/authApi.ts` `signUpWithEmail(...)` now returns a deprecated contract error and no longer performs direct Supabase signup.
+- Cleaned bootstrap helper surface:
+  - Removed `ensureBootstrapProfileExists(...)` wrapper from `apps/mobile/lib/profileBootstrap.ts`.
+  - Kept `ensureProfileReady(...)` as the single canonical readiness contract.
+  - Removed stale reason enums that no longer map to active ownership.
+
+Resulting invariant:
+
+- No unknown-profile state can render protected web shell content.
+- No latent context/helper signup path can bypass canonical owner-controlled bootstrap readiness flow.
+
+### Final registered-journey safe refinements (2026-04-05)
+
+Post-closure polish with no backend schema/data contract changes:
+
+- Reminder/join-date CTA hardening:
+  - Web `Dashboard` reminder Join now prefers `/date/:id` when an active `in_handshake`/`in_date` session is present, else falls back to `/schedule`.
+  - Web `Schedule` reminder Join now performs the same active-session check and fallback.
+  - Native `schedule` reminder Join now uses its existing contextual join handler (active session deep-link first, chat fallback).
+
+- VibeStudio shim minimization:
+  - `src/pages/VibeStudio.tsx` remains an intentional compatibility redirect only (no extra side-effects), forwarding legacy `/vibe-studio` links to `/profile`.
+
+- Auth/bootstrap ownership unchanged:
+  - Signup/bootstrap owners remain: web `src/pages/Auth.tsx`, native `apps/mobile/app/(auth)/sign-in.tsx`.
+  - No hydration-time profile creation was reintroduced.
+  - Identity invariant remains unchanged (`profiles.id = auth.users.id`).
+
 ### 1. Native architecture / planning / runbooks
 
 - **Objective**  

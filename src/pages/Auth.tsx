@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,11 +19,13 @@ import { CountryCodeSelector, getDefaultCountryCode } from "@/components/Country
 import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
-import { buildBootstrapProfileInsert, pickBootstrapName } from "@shared/profileContracts";
+import { ensureProfileReady } from "../../apps/mobile/lib/profileBootstrap";
 import {
   mapAuthConflictError,
   parseOAuthCallbackErrorDescription,
 } from "@shared/authConflictMessages";
+
+type OnboardingStatus = "complete" | "incomplete" | "unknown";
 
 type AuthView =
   | "welcome"
@@ -43,6 +46,7 @@ const Auth = () => {
   const [view, setView] = useState<AuthView>("welcome");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileStatus, setProfileStatus] = useState<OnboardingStatus | "loading">("loading");
 
   const [countryCode, setCountryCode] = useState(() => getDefaultCountryCode());
   const [phoneInput, setPhoneInput] = useState("");
@@ -50,6 +54,11 @@ const Auth = () => {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendAttempts, setResendAttempts] = useState(0);
   const [resendRemaining, setResendRemaining] = useState(0);
+  const [profileBootstrapState, setProfileBootstrapState] = useState<
+    "idle" | "ensuring" | "ready" | "failed"
+  >("idle");
+  const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
+  const [pendingBootstrapUser, setPendingBootstrapUser] = useState<SupabaseUser | null>(null);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -134,56 +143,46 @@ const Auth = () => {
     return () => clearInterval(id);
   }, [resendRemaining]);
 
-  // Ensure profile exists for phone / OAuth sign-ins
+  // Web auth owns profile bootstrap. Hydration contexts stay read-only.
   useEffect(() => {
     if (!session?.user) return;
 
     const ensureProfileExists = async () => {
-      const { data: existingProfile } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-      if (!existingProfile) {
-        const metadata = session.user.user_metadata || {};
-        const referrerId = localStorage.getItem("vibely_referrer_id");
-
-        try {
-          await supabase.from("profiles").insert(
-            buildBootstrapProfileInsert({
-              userId: session.user.id,
-              name: pickBootstrapName(metadata),
-              phoneNumber: session.user.phone ?? null,
-              referredBy: referrerId || null,
-            }),
-          );
-        } catch {
-          localStorage.removeItem("vibely_onboarding_progress");
-        } finally {
-          if (referrerId) {
-            localStorage.removeItem("vibely_referrer_id");
-          }
-        }
+      setProfileBootstrapState("ensuring");
+      setProfileBootstrapMessage(null);
+      const ensured = await ensureProfileReady(session.user, "web_auth_post_login");
+      if (ensured.status === "ready") {
+        setProfileBootstrapState("ready");
+        setPendingBootstrapUser(null);
+        return;
       }
-
+      setProfileBootstrapState("failed");
+      setProfileBootstrapMessage(
+        "We could not finish account setup. Your account exists, but profile setup did not complete.",
+      );
     };
 
     void ensureProfileExists();
-  }, [session]);
+  }, [session?.user?.id]);
 
   // Redirect after auth based on onboarding_complete
   useEffect(() => {
-    if (!session?.user) return;
+    if (!session?.user || profileBootstrapState !== "ready") return;
 
     const checkOnboardingStatus = async () => {
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("onboarding_complete")
         .eq("id", session.user.id)
         .maybeSingle();
 
-      const needsOnboarding = !profile || profile.onboarding_complete !== true;
+      if (error || !profile) {
+        setProfileStatus("unknown");
+        return;
+      }
+
+      const nextStatus: OnboardingStatus = profile.onboarding_complete === true ? "complete" : "incomplete";
+      setProfileStatus(nextStatus);
 
       localStorage.removeItem("vibely_onboarding_progress");
       const savedOnboarding = localStorage.getItem("vibely_onboarding_v2");
@@ -198,7 +197,7 @@ const Auth = () => {
         }
       }
 
-      navigate(needsOnboarding ? "/onboarding" : "/home", { replace: true });
+      navigate(nextStatus === "incomplete" ? "/onboarding" : "/home", { replace: true });
     };
 
     const delay = view === "success" ? 1500 : 0;
@@ -206,7 +205,72 @@ const Auth = () => {
       void checkOnboardingStatus();
     }, delay);
     return () => clearTimeout(timer);
-  }, [session, view, navigate]);
+  }, [session, view, navigate, profileBootstrapState]);
+
+  const handleRetryProfileSetup = async () => {
+    const bootstrapUser = session?.user ?? pendingBootstrapUser;
+    if (!bootstrapUser) return;
+    setProfileBootstrapState("ensuring");
+    setProfileBootstrapMessage(null);
+    const result = await ensureProfileReady(
+      bootstrapUser,
+      session?.user ? "web_auth_post_login" : "web_auth_signup",
+    );
+    if (result.status === "ready") {
+      setProfileBootstrapState("ready");
+      setPendingBootstrapUser(null);
+      return;
+    }
+    setProfileBootstrapState("failed");
+    setProfileBootstrapMessage(
+      "We could not finish account setup. Your account exists, but profile setup did not complete.",
+    );
+  };
+
+  const handleRecoverySignOut = async () => {
+    await supabase.auth.signOut();
+    setPendingBootstrapUser(null);
+    setProfileBootstrapState("idle");
+    setProfileBootstrapMessage(null);
+    setView("welcome");
+  };
+
+  if (session?.user && profileStatus === "unknown") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (profileBootstrapState === "failed") {
+    return (
+      <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center">
+        <div className="relative z-10 w-full max-w-md px-6">
+          <div className="space-y-4 rounded-2xl border border-border bg-card/80 p-6 backdrop-blur-sm">
+            <h2 className="text-xl font-display font-bold text-foreground">Account setup incomplete</h2>
+            <p className="text-sm text-muted-foreground">
+              {profileBootstrapMessage ||
+                "We could not finish account setup. Your account exists, but profile setup did not complete."}
+            </p>
+            <div className="space-y-2">
+              <Button
+                type="button"
+                className="w-full"
+                onClick={handleRetryProfileSetup}
+                disabled={profileBootstrapState === "ensuring"}
+              >
+                Retry setup
+              </Button>
+              <Button type="button" variant="outline" className="w-full" onClick={handleRecoverySignOut}>
+                Sign out
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handlePhoneSubmit = async () => {
     if (!isPhoneValid) return;
@@ -355,19 +419,27 @@ const Auth = () => {
         },
       });
       if (error) throw error;
-      if (data.user) {
-        const refId = localStorage.getItem("vibely_referrer_id");
-        await supabase.from("profiles").insert(
-          buildBootstrapProfileInsert({
-            userId: data.user.id,
-            name: name.trim(),
-            phoneNumber: null,
-            referredBy: refId || null,
-          }),
+      if (!data.user) {
+        setProfileBootstrapState("failed");
+        setProfileBootstrapMessage(
+          "We could not finish account setup. Your account exists, but profile setup did not complete.",
         );
-        if (refId) {
-          localStorage.removeItem("vibely_referrer_id");
+        return;
+      }
+      if (data.user) {
+        setPendingBootstrapUser(data.user);
+        setProfileBootstrapState("ensuring");
+        const ensured = await ensureProfileReady(data.user, "web_auth_signup");
+        if (ensured.status !== "ready") {
+          setProfileBootstrapState("failed");
+          setProfileBootstrapMessage(
+            "We could not finish account setup. Your account exists, but profile setup did not complete.",
+          );
+          return;
         }
+        setProfileBootstrapState("ready");
+        setPendingBootstrapUser(null);
+        localStorage.removeItem("vibely_referrer_id");
       }
       trackEvent("auth_email_signup", { platform: "web" });
       setView("email_signin");

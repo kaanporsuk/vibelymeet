@@ -344,11 +344,11 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 
 ### Screen: Profile
 
-- **File:** `src/pages/Profile.tsx`
+- **File:** `src/pages/Profile.tsx` (route wrapper) + `src/pages/ProfileStudio.tsx` (full implementation)
 - **Route:** `/profile`
 - **Auth required:** Yes
 
-**Visual:** Hero/cover image; profile photo(s); name; vibe score; edit/settings; gallery; prompts; RelationshipIntent; verification badges; Buttons: Record vibe, Save, Log out, etc. Uses drawers/sheets for edit flows. Many Button variants (primary, secondary, outline, destructive).
+**Visual:** `/profile` delegates to Profile Studio. The complete visual/edit surface (hero/cover, photos, vibe score, prompts, intent, verification, drawers/sheets, Record vibe, Save, Log out) is implemented in `src/pages/ProfileStudio.tsx`.
 
 ---
 
@@ -437,7 +437,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 - **ResetPassword:** `/reset-password` — form + submit.
 - **HowItWorks:** `/how-it-works` — marketing.
 - **UserProfile:** `/user/:userId` — public profile view.
-- **VibeStudio:** `/vibe-studio` — vibe video record/edit.
+- **VibeStudio:** `/vibe-studio` — compatibility redirect to `/profile`; recording/editing is owned by `VibeStudioModal` in Profile Studio.
 - **Schedule:** `/schedule` — date proposals/schedule.
 - **SubscriptionSuccess / SubscriptionCancel:** post-payment.
 - **EventPaymentSuccess, CreditsSuccess:** success screens.
@@ -463,7 +463,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 | SwipeableMatchCard | SwipeableMatchCard.tsx | Matches | match, onClick, … | Card with avatar, name, last message, unread |
 | ProfileDetailDrawer | ProfileDetailDrawer.tsx | Matches, EventDetails | match, open, onClose | Sheet/drawer; profile content, Message, Unmatch, etc. |
 | DropsTabContent | matches/DropsTabContent.tsx | Matches | drops, … | Daily drops list; reply input; “Start Chatting” |
-| DateReminderCard | schedule/DateReminderCard.tsx | Dashboard | reminder, onJoinDate, onEnableNotifications | Card with countdown, “Join Now” button |
+| DateReminderCard | schedule/DateReminderCard.tsx | Dashboard, Schedule | reminder, onJoinDate, onEnableNotifications | Card with countdown, “Join Now” button; CTA prefers active `/date/:id` when known, otherwise safe fallback by surface |
 | MiniDateCountdown | schedule/DateReminderCard.tsx | Dashboard | reminder, onClick | Compact countdown pill |
 | PricingBar | events/PricingBar.tsx | EventDetails | event, userPrice, onPurchase, … | Price, “Purchase Ticket” / “Register” |
 | WhosGoingSection / GuestListTeaser | events/ | EventDetails | attendees, … | Avatars, “See all” |
@@ -474,7 +474,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 | WhoLikedYouGate | premium/WhoLikedYouGate.tsx | Matches | children | Premium gate overlay |
 | PremiumPill | premium/PremiumPill.tsx | EventLobby | — | Premium badge/pill |
 | NotificationPermissionFlow | NotificationPermissionFlow.tsx | Dashboard, Settings | open, onOpenChange, onRequestPermission | Modal; Enable / Not now |
-| VibePlayer / VibeStudioModal | vibe-video/ | Profile, VibeStudio | — | Video player, record/edit modal |
+| VibePlayer / VibeStudioModal | vibe-video/ | ProfileStudio (`/profile`), legacy `/vibe-studio` redirect | — | Video player, record/edit modal |
 | VerificationBadge / PhotoVerifiedMark | verification/ | Profile, cards | — | Checkmark/badge |
 | PullToRefresh | PullToRefresh.tsx | Dashboard, Matches | onRefresh, className, children | Wrapper for pull-to-refresh |
 | Skeleton / EventCardSkeleton / MatchAvatarSkeleton | Skeleton.tsx, ShimmerSkeleton.tsx | Dashboard, Events | — | animate-pulse bg-muted rounded-lg; card/avatar shapes |
@@ -630,7 +630,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 | /ready/:id | ReadyGate | Yes |
 | /admin/create-event | AdminCreateEvent | Yes (admin) |
 | /match-celebration | MatchCelebration | Yes |
-| /vibe-studio | VibeStudio | Yes |
+| /vibe-studio | VibeStudio (compat redirect) | Yes |
 | /schedule | Schedule | Yes |
 | /how-it-works | HowItWorks | No |
 | /privacy | PrivacyPolicy | No |
@@ -700,7 +700,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 
 ## Appendix: File checklist
 
-**Pages (35):** Index, Auth, ResetPassword, Onboarding, Dashboard, Events, EventDetails, EventLobby, Matches, Chat, Profile, Settings, VideoDate, ReadyRedirect, MatchCelebration, VibeStudio, Schedule, HowItWorks, UserProfile, Premium, SubscriptionSuccess, SubscriptionCancel, EventPaymentSuccess, Credits, CreditsSuccess, legal/*, admin/*, NotFound.
+**Pages (35):** Index, Auth, ResetPassword, Onboarding, Dashboard, Events, EventDetails, EventLobby, Matches, Chat, Profile, Settings, VideoDate, ReadyRedirect, MatchCelebration, VibeStudio (compat redirect), Schedule, HowItWorks, UserProfile, Premium, SubscriptionSuccess, SubscriptionCancel, EventPaymentSuccess, Credits, CreditsSuccess, legal/*, admin/*, NotFound.
 
 **Components:** 259+ files under src/components (ui/, events/, chat/, lobby/, match/, schedule/, video-date/, premium/, settings/, notifications/, verification/, safety/, etc.). This doc references the main shared and screen-specific components; full list from glob above.
 

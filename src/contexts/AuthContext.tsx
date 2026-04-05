@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
-import { buildBootstrapProfileInsert } from "@shared/profileContracts";
 
 interface User {
   id: string;
@@ -145,35 +144,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [session?.user, refreshProfile]);
 
   const signUp = async (email: string, password: string, name: string): Promise<{ error: Error | null }> => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: { name }
-      }
-    });
-
-    if (error) return { error };
-
-    if (data.user) {
-      const refId = localStorage.getItem("vibely_referrer_id");
-
-      await supabase.from('profiles').insert(
-        buildBootstrapProfileInsert({
-          userId: data.user.id,
-          name: name.trim(),
-          phoneNumber: null,
-          referredBy: refId || null,
-        }),
-      );
-
-      if (refId) localStorage.removeItem("vibely_referrer_id");
-    }
-
-    return { error: null };
+    void email;
+    void password;
+    void name;
+    return {
+      error: new Error(
+        "Deprecated signUp surface: use the Auth page signup owner flow in src/pages/Auth.tsx.",
+      ),
+    };
   };
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {

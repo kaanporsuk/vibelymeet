@@ -11,7 +11,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
-import { ensureBootstrapProfileExists } from '@/lib/profileBootstrap';
+import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 
@@ -108,6 +108,29 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
+  const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
+
+  const settleProfileBootstrap = async () => {
+    if (!session?.user) {
+      return {
+        status: 'failed',
+        retryable: false,
+      } as const;
+    }
+
+    let result = await ensureProfileReady(session.user, 'sign_in_screen_effect');
+    if (result.status === 'ready' || !result.retryable) return result;
+
+    const retryDelaysMs = [250, 700];
+    for (const delayMs of retryDelaysMs) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      result = await ensureProfileReady(session.user, 'sign_in_screen_effect');
+      if (result.status === 'ready' || !result.retryable) return result;
+    }
+
+    return result;
+  };
 
   const phoneForSignIn = useMemo(() => isValidSignInPhone(countryCode, phoneInput), [countryCode, phoneInput]);
   const phoneValid = phoneForSignIn.valid;
@@ -168,24 +191,46 @@ export default function SignInScreen() {
   useEffect(() => {
     const ensureProfileExists = async () => {
       if (!session?.user?.id) return;
-      const result = await ensureBootstrapProfileExists(session.user, 'sign_in_screen_effect');
-      if (!result.ok) {
-        console.warn('[sign-in] bootstrap profile ensure failed', {
-          userId: session.user.id,
-          failure: result.reason,
-        });
+      setProfileBootstrapState('ensuring');
+      setProfileBootstrapMessage(null);
+      const result = await settleProfileBootstrap();
+      if (result.status === 'ready') {
+        setProfileBootstrapState('ready');
+        return;
       }
+      setProfileBootstrapState('failed');
+      setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
     };
     void ensureProfileExists();
   }, [session?.user?.id]);
 
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id || profileBootstrapState !== 'ready') return;
     const t = setTimeout(() => {
       router.replace('/');
     }, view === 'success' ? 1200 : 0);
     return () => clearTimeout(t);
-  }, [session?.user?.id, view]);
+  }, [session?.user?.id, view, profileBootstrapState]);
+
+  const retryProfileSetup = async () => {
+    if (!session?.user) return;
+    setProfileBootstrapState('ensuring');
+    setProfileBootstrapMessage(null);
+    const result = await settleProfileBootstrap();
+    if (result.status === 'ready') {
+      setProfileBootstrapState('ready');
+      return;
+    }
+    setProfileBootstrapState('failed');
+    setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
+  };
+
+  const signOutFromRecovery = async () => {
+    await supabase.auth.signOut();
+    setProfileBootstrapState('idle');
+    setProfileBootstrapMessage(null);
+    setView('welcome');
+  };
 
   const handlePhoneSubmit = async () => {
     const { e164, valid } = isValidSignInPhone(countryCode, phoneInput);
@@ -312,12 +357,28 @@ export default function SignInScreen() {
     try {
       const { data, error: e } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { name: name.trim() } } });
       if (e) throw e;
+      if (!data.user) {
+        setProfileBootstrapState('failed');
+        setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
+        return;
+      }
       if (data.user) {
-        const ensured = await ensureBootstrapProfileExists(data.user, 'email_signup');
-        if (!ensured.ok) {
-          setError('Account created, but profile bootstrap needs a retry. Please sign in again.');
+        setProfileBootstrapState('ensuring');
+        let ensured = await ensureProfileReady(data.user, 'email_signup');
+        if (ensured.status !== 'ready' && ensured.retryable) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          ensured = await ensureProfileReady(data.user, 'email_signup');
+          if (ensured.status !== 'ready' && ensured.retryable) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            ensured = await ensureProfileReady(data.user, 'email_signup');
+          }
+        }
+        if (ensured.status !== 'ready') {
+          setProfileBootstrapState('failed');
+          setProfileBootstrapMessage('We could not finish account setup. Your account exists, but profile setup did not complete.');
           return;
         }
+        setProfileBootstrapState('ready');
       }
       trackEvent('auth_email_signup', { platform: 'native' });
       setView('email_signin');
@@ -467,6 +528,17 @@ export default function SignInScreen() {
           <View style={styles.success}>
             <Text style={styles.emoji}>✨</Text>
             <Text style={[styles.h2, { color: theme.text }]}>Welcome to Vibely!</Text>
+          </View>
+        ) : null}
+
+        {profileBootstrapState === 'failed' ? (
+          <View style={[styles.block, { borderColor: theme.border, borderWidth: 1 }]}> 
+            <Text style={[styles.h2, { color: theme.text }]}>Account setup incomplete</Text>
+            <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
+              {profileBootstrapMessage || 'We could not finish account setup. Your account exists, but profile setup did not complete.'}
+            </Text>
+            <VibelyButton label="Retry setup" onPress={retryProfileSetup} variant="gradient" disabled={profileBootstrapState === 'ensuring'} />
+            <VibelyButton label="Sign out" onPress={signOutFromRecovery} variant="secondary" />
           </View>
         ) : null}
 

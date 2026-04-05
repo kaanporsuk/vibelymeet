@@ -165,6 +165,7 @@ export function pickBootstrapName(userMetadata: Record<string, unknown> | null |
 export function buildBootstrapProfileInsert(input: BootstrapProfileInsertInput) {
   const isPhoneAuth = !!input.phoneNumber;
   return {
+    // Identity invariant: profiles.id must exactly match auth.users.id.
     id: input.userId,
     name: input.name.trim(),
     age: DEFAULT_BOOTSTRAP_AGE,

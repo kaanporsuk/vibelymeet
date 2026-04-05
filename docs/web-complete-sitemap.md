@@ -108,7 +108,7 @@
 | Submitting final | “Creating Profile…” spinner |
 | Photo upload partial fail | Toast “Some photos failed to upload…” |
 
-**Navigation:** “Record Vibe” → `/vibe-studio` (which immediately bounces to `/profile` with toast — **onboarding flow to vibe studio is broken for web**; user lands on Profile).
+**Navigation:** “Record Vibe” → `/vibe-studio` (legacy compatibility route that immediately replaces to `/profile`; recording is owned by `VibeStudioModal` in Profile Studio).
 
 **Toasts:** Location OK/error, photo added, welcome, profile error.
 
@@ -135,7 +135,7 @@
 | Active video session | `ActiveCallBanner`: Rejoin → `/date/:sessionId`, End → ends session + clears registration queue |
 | Pending deletion | `DeletionRecoveryBanner` + cancel |
 | Phone not verified | `PhoneVerificationNudge` wizard variant (dismiss → localStorage) |
-| Imminent date reminders | `DateReminderCard` rows; Join → **`/video-date`** (placeholder route — **404**); enable notifications opens flow |
+| Imminent date reminders | `DateReminderCard` rows; Join prefers **`/date/:id`** when an active `in_handshake`/`in_date` session is known, otherwise falls back to **`/schedule`**; enable notifications opens flow |
 | Live + registered | Big “Live Now” card, Enter Lobby → `/event/:id/lobby` |
 | Next event (not live) | Countdown, tap card → `/events/:id`, “View & Register” if not registered |
 | No next event | “No upcoming events”, Browse Events |
@@ -290,9 +290,9 @@
 
 ### Screen: Profile
 - **Route:** `/profile`
-- **File:** `src/pages/Profile.tsx` (~1700 lines)
+- **File:** `src/pages/Profile.tsx` (thin wrapper) -> `src/pages/ProfileStudio.tsx` (implementation)
 
-**Layout:** BottomNav; extensive edit drawers (`DrawerType`: photos, vibes, basics, bio, prompt, intent, lifestyle, verification, vibe-video, tagline), `ProfileWizard`, `SafetyHub`, `VibeStudioModal`, `SimplePhotoVerification`, `PhoneVerification`, fullscreen vibe playback, preview, photo viewer.
+**Layout:** `/profile` delegates to Profile Studio. The full edit surface (BottomNav, drawers, `ProfileWizard`, `SafetyHub`, `VibeStudioModal`, verification/photo flows, fullscreen playback/preview) is implemented in `src/pages/ProfileStudio.tsx`.
 
 **States:** Loading profile; saving; premium crown; verification flows. **Safety Hub** (in-profile) hosts **Report**, **PauseAccountFlow**, emergency resources, etc.
 
@@ -312,7 +312,7 @@
 - **Route:** `/schedule`
 - **File:** `src/pages/Schedule.tsx`
 
-**Content:** `DateReminderCard` (Join → `/video-date`), `VibeSchedule`, `MyDatesSection` accept/decline proposals, notification flow.
+**Content:** `DateReminderCard` (Join uses `/date/:id` when an active handshake/date session exists; otherwise safe fallback `/schedule`), `VibeSchedule`, `MyDatesSection` accept/decline proposals, notification flow.
 
 ---
 
@@ -344,7 +344,7 @@
 
 ### Screen: Vibe Studio route
 - **Route:** `/vibe-studio`
-- **Behavior:** Toast “Opening Vibe Studio…”, **replace navigate to `/profile`** — actual recording is `VibeStudioModal` on Profile.
+- **Behavior:** Minimal compatibility redirect that **replace navigates to `/profile`**; actual recording is `VibeStudioModal` on Profile.
 
 ---
 
@@ -479,7 +479,7 @@ Header video → `IncomingCallOverlay` / `ActiveCallOverlay` → end call.
 Matches tab → Daily Drop → states per SECTION 2 → opener/reply → Start Chatting.
 
 ### 4.8 Profile editing
-`/profile` → drawers / wizard / vibe studio modal.
+`/profile` → delegates to `ProfileStudio` (drawers / wizard / vibe studio modal implementation).
 
 ### 4.9 Premium
 `/premium` → plan → Stripe → `/subscription/success`.

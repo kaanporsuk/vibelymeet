@@ -131,3 +131,33 @@ This keeps `AuthProvider` purely about **data** and moves all provider-specific 
 - **For global bootstrap side effects**
   - Call `useAppBootstrap()` once near the root (already wired in `AppContent`).
 
+## Closure addendum (2026-04-04)
+
+This addendum captures final post-incident hardening after missing-profile repair and bootstrap-owner rollout.
+
+- Protected shell hardening:
+  - `ProtectedRoute` now blocks `profileStatus='unknown'` and renders a recovery gate (`Retry setup` / `Sign out`) instead of rendering protected content.
+  - This prevents any unknown-profile fall-through into protected screens.
+
+- Signup ownership hardening:
+  - Web context `signUp(...)` in `src/contexts/AuthContext.tsx` is now a deprecated hard-error surface.
+  - Native context `signUp(...)` in `apps/mobile/context/AuthContext.tsx` is now a deprecated hard-error surface.
+  - `apps/mobile/lib/authApi.ts` `signUpWithEmail(...)` now returns a deprecated contract error and does not call Supabase signup directly.
+  - Canonical signup + profile bootstrap owners remain:
+    - Web: `src/pages/Auth.tsx`
+    - Native: `apps/mobile/app/(auth)/sign-in.tsx`
+
+- Bootstrap helper cleanup:
+  - Removed legacy wrapper `ensureBootstrapProfileExists(...)` from `apps/mobile/lib/profileBootstrap.ts`.
+  - Canonical contract remains `ensureProfileReady(...)`.
+  - Removed stale reason variants that no longer reflect ownership (`auth_context_session`, `auth_context_state_change`).
+
+- Journey CTA refinement (safe, owner-preserving):
+  - Date reminder Join actions now prefer contextual `/date/:id` when an active handshake/date session is verifiably present.
+  - If no reliable active session id exists, flows retain safe fallback behavior (`/schedule` on web, chat/schedule fallback on native surfaces).
+  - This refinement does not create profiles during hydration and does not alter `profiles.id = auth.users.id` semantics.
+
+- Legacy/compat surfaces intentionally retained:
+  - Web `/vibe-studio` remains a minimal compatibility redirect to `/profile` for old deep links.
+  - Deprecated `signUp(...)` surfaces remain explicit fail-fast guardrails in web/native auth contexts.
+

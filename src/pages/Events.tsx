@@ -457,7 +457,7 @@ const Events = () => {
                 </div>
                 <h3 className="text-lg font-semibold text-foreground mb-1">No events near you yet 💫</h3>
                 <p className="text-sm text-muted-foreground mb-4">But there are events happening in other cities!</p>
-                <Button className="bg-gradient-to-r from-primary to-accent gap-2">
+                <Button className="bg-gradient-to-r from-primary to-accent gap-2" onClick={() => navigate('/premium')}>
                   <Sparkles className="w-4 h-4" />Go Premium to explore →
                 </Button>
               </div>

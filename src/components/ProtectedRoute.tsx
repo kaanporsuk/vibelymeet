@@ -17,9 +17,9 @@ export function ProtectedRoute({
   requireAdmin = false,
   requireOnboarding = true 
 }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, session, isOfflineAtBoot } = useAuth();
+  const { isAuthenticated, isLoading, session, isOfflineAtBoot, logout } = useAuth();
   const location = useLocation();
-  const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete'>('loading');
+  const [profileStatus, setProfileStatus] = useState<'loading' | 'complete' | 'incomplete' | 'unknown'>('loading');
 
   // Server-side admin role verification via edge function - cannot be bypassed
   const { data: isServerVerifiedAdmin, isLoading: isAdminCheckLoading } = useQuery({
@@ -65,17 +65,20 @@ export function ProtectedRoute({
       }
 
       try {
-        const { data: profile } = await supabase
+        const { data: profile, error } = await supabase
           .from('profiles')
           .select('onboarding_complete')
           .eq('id', session.user.id)
           .maybeSingle();
 
-        const needsOnboarding = !profile || profile.onboarding_complete !== true;
+        if (error || !profile) {
+          setProfileStatus('unknown');
+          return;
+        }
 
-        setProfileStatus(needsOnboarding ? 'incomplete' : 'complete');
+        setProfileStatus(profile.onboarding_complete === true ? 'complete' : 'incomplete');
       } catch {
-        setProfileStatus('complete'); // Fail open to avoid blocking
+        setProfileStatus('unknown');
       }
     };
 
@@ -125,6 +128,22 @@ export function ProtectedRoute({
   // Redirect to onboarding if profile is incomplete
   if (requireOnboarding && profileStatus === 'incomplete') {
     return <Navigate to="/onboarding" replace />;
+  }
+
+  // Never allow protected shell entry when profile readiness cannot be verified.
+  if (requireOnboarding && profileStatus === 'unknown') {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <h1 className="text-2xl font-display font-bold text-foreground mb-2">Account setup check required</h1>
+        <p className="text-muted-foreground mb-6 max-w-sm">
+          We could not verify your profile setup. Please retry setup or sign out and sign back in.
+        </p>
+        <div className="flex gap-3">
+          <Button onClick={() => window.location.reload()}>Retry setup</Button>
+          <Button variant="outline" onClick={() => void logout()}>Sign out</Button>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
