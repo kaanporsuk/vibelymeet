@@ -40,6 +40,16 @@ interface Message {
   read_at: string | null;
 }
 
+interface MatchProfile {
+  id: string;
+  name: string | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+  age: number | null;
+  gender: string | null;
+  avatarUrl: string | null;
+}
+
 const AdminMatchMessagesDrawer = ({
   userId,
   userName,
@@ -47,7 +57,7 @@ const AdminMatchMessagesDrawer = ({
   onClose,
 }: AdminMatchMessagesDrawerProps) => {
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
-  const [selectedOtherUser, setSelectedOtherUser] = useState<any>(null);
+  const [selectedOtherUser, setSelectedOtherUser] = useState<MatchProfile | null>(null);
 
   // Fetch all matches for this user
   const { data: matches, isLoading: matchesLoading } = useQuery({
@@ -79,10 +89,10 @@ const AdminMatchMessagesDrawer = ({
         .select("id, name, avatar_url, photos, age, gender")
         .in("id", otherUserIds);
 
-      const profileMap: Record<string, any> = {};
+      const profileMap: Record<string, MatchProfile> = {};
       
       // Resolve avatar URLs via CDN helper
-      for (const p of data || []) {
+      for (const p of (data ?? []) as Omit<MatchProfile, "avatarUrl">[]) {
         let avatar = p.avatar_url;
         if (!avatar && p.photos?.[0]) {
           avatar = p.photos[0];
