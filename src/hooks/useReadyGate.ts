@@ -20,6 +20,30 @@ interface UseReadyGateOptions {
 }
 
 const POLL_MS = 2000;
+const TERMINAL_READY_GATE_STATUSES = [
+  ReadyGateStatus.BothReady,
+  ReadyGateStatus.Forfeited,
+  ReadyGateStatus.Expired,
+] as const;
+
+type TerminalReadyGateStatus = (typeof TERMINAL_READY_GATE_STATUSES)[number];
+
+type ReadyGateRealtimeRow = {
+  participant_1_id: string;
+  participant_2_id: string;
+  ready_gate_status: ReadyGateStatus;
+  ready_participant_1_at: string | null;
+  ready_participant_2_at: string | null;
+  ready_gate_expires_at: string | null;
+  snoozed_by: string | null;
+  snooze_expires_at: string | null;
+};
+
+const TERMINAL_READY_GATE_STATUS_VALUES: readonly ReadyGateStatus[] = TERMINAL_READY_GATE_STATUSES;
+
+function isTerminalReadyGateStatus(status: ReadyGateStatus): status is TerminalReadyGateStatus {
+  return TERMINAL_READY_GATE_STATUS_VALUES.includes(status);
+}
 
 export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGateOptions) => {
   const { user } = useUserProfile();
@@ -46,7 +70,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     terminalHandledRef.current = null;
   }, [sessionId]);
 
-  const notifyTerminal = useCallback((status: ReadyGateStatus) => {
+  const notifyTerminal = useCallback((status: TerminalReadyGateStatus) => {
     if (terminalHandledRef.current === status) return;
     terminalHandledRef.current = status;
     if (status === ReadyGateStatus.BothReady) {
@@ -95,11 +119,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       });
 
       const nextStatus = session.ready_gate_status as ReadyGateStatus;
-      if (
-        nextStatus === ReadyGateStatus.BothReady ||
-        nextStatus === ReadyGateStatus.Forfeited ||
-        nextStatus === ReadyGateStatus.Expired
-      ) {
+      if (isTerminalReadyGateStatus(nextStatus)) {
         notifyTerminal(nextStatus);
       } else {
         terminalHandledRef.current = null;
@@ -128,7 +148,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          const s = payload.new as any;
+          const s = payload.new as ReadyGateRealtimeRow;
           const isP1 = s.participant_1_id === user.id;
           const myReadyAt = isP1 ? s.ready_participant_1_at : s.ready_participant_2_at;
           const partnerReadyAt = isP1 ? s.ready_participant_2_at : s.ready_participant_1_at;
@@ -144,11 +164,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
           }));
 
           const nextStatus = s.ready_gate_status as ReadyGateStatus;
-          if (
-            nextStatus === ReadyGateStatus.BothReady ||
-            nextStatus === ReadyGateStatus.Forfeited ||
-            nextStatus === ReadyGateStatus.Expired
-          ) {
+          if (isTerminalReadyGateStatus(nextStatus)) {
             notifyTerminal(nextStatus);
           } else {
             terminalHandledRef.current = null;
@@ -165,7 +181,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
   // Fallback sync while ready gate is active in case realtime misses transitions.
   useEffect(() => {
     if (!sessionId || !user?.id) return;
-    if ([ReadyGateStatus.BothReady, ReadyGateStatus.Forfeited, ReadyGateStatus.Expired].includes(state.status)) {
+    if (isTerminalReadyGateStatus(state.status)) {
       return;
     }
 

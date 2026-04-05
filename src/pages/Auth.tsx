@@ -19,7 +19,7 @@ import { CountryCodeSelector, getDefaultCountryCode } from "@/components/Country
 import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/contexts/AuthContext";
-import { ensureProfileReady } from "../../apps/mobile/lib/profileBootstrap";
+import { ensureProfileReady } from "@/lib/profileBootstrap";
 import {
   mapAuthConflictError,
   parseOAuthCallbackErrorDescription,
@@ -258,7 +258,6 @@ const Auth = () => {
                 type="button"
                 className="w-full"
                 onClick={handleRetryProfileSetup}
-                disabled={profileBootstrapState === "ensuring"}
               >
                 Retry setup
               </Button>

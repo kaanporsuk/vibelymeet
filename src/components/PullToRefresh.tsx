@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, ReactNode } from "react";
-import { motion, useMotionValue, useTransform, AnimatePresence } from "framer-motion";
+import { motion, useMotionValue, useTransform, AnimatePresence, type MotionValue } from "framer-motion";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +29,7 @@ export const PullToRefresh = ({
   const spinRotation = useTransform(pullDistance, [0, threshold], [0, 360]);
   const indicatorOpacity = useTransform(pullDistance, [0, 20], [0, 1]);
   const indicatorScale = useTransform(pullDistance, [0, threshold], [0.5, 1]);
+  const contentOffsetY = useTransform(pullDistance, [0, threshold * 1.5], [0, 60]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (disabled || isRefreshing) return;
@@ -112,9 +113,7 @@ export const PullToRefresh = ({
       {/* Content */}
       <motion.div
         ref={containerRef}
-        style={{ 
-          y: useTransform(pullDistance, [0, threshold * 1.5], [0, 60]),
-        }}
+        style={{ y: contentOffsetY }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
@@ -132,9 +131,13 @@ const RefreshIndicator = ({
   spinRotation,
 }: {
   isRefreshing: boolean;
-  pullProgress: any;
-  spinRotation: any;
+  pullProgress: MotionValue<number>;
+  spinRotation: MotionValue<number>;
 }) => {
+  const strokeDashoffset = useTransform(pullProgress, [0, 1], [63, 0]);
+  const arrowOpacity = useTransform(pullProgress, [0.8, 1], [0, 1]);
+  const arrowScale = useTransform(pullProgress, [0.8, 1], [0.5, 1]);
+
   return (
     <div className="w-12 h-12 rounded-full bg-card border border-border shadow-lg flex items-center justify-center">
       {isRefreshing ? (
@@ -208,17 +211,15 @@ const RefreshIndicator = ({
               fill="none"
               strokeLinecap="round"
               strokeDasharray="63"
-              style={{
-                strokeDashoffset: useTransform(pullProgress, [0, 1], [63, 0]),
-              }}
+              style={{ strokeDashoffset }}
             />
           </svg>
           
           {/* Arrow icon */}
           <motion.div
             style={{
-              opacity: useTransform(pullProgress, [0.8, 1], [0, 1]),
-              scale: useTransform(pullProgress, [0.8, 1], [0.5, 1]),
+              opacity: arrowOpacity,
+              scale: arrowScale,
             }}
             className="absolute inset-0 flex items-center justify-center"
           >

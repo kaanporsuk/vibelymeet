@@ -1397,6 +1397,16 @@ export default function ChatThreadScreen() {
     });
   };
 
+  const threadAnchorSubtitle = useMemo(() => {
+    const first = data?.messages?.[0];
+    if (first?.sortAtMs == null) return null;
+    try {
+      return `Chat since ${format(new Date(first.sortAtMs), 'MMM yyyy')}`;
+    } catch {
+      return null;
+    }
+  }, [data?.messages]);
+
   if (!otherUserId || !user?.id) {
     return (
       <>
@@ -1460,16 +1470,6 @@ export default function ChatThreadScreen() {
     partnerTyping,
     lastSeenAtMs: lastSeenAt,
   });
-
-  const threadAnchorSubtitle = useMemo(() => {
-    const first = data?.messages?.[0];
-    if (first?.sortAtMs == null) return null;
-    try {
-      return `Chat since ${format(new Date(first.sortAtMs), 'MMM yyyy')}`;
-    } catch {
-      return null;
-    }
-  }, [data?.messages]);
 
   const composerMediaError = voiceError || videoError;
   const suppressComposerMediaError =

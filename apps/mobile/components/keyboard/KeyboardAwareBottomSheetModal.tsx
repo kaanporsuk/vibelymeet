@@ -15,6 +15,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  StyleProp,
   ViewStyle,
   Dimensions,
 } from 'react-native';
@@ -38,12 +39,12 @@ export type KeyboardAwareBottomSheetModalProps = {
   scrollable?: boolean;
   animationType?: 'none' | 'slide' | 'fade';
   onShow?: () => void;
-  sheetStyle?: ViewStyle;
+  sheetStyle?: StyleProp<ViewStyle>;
   backdropColor?: string;
   /** Cap sheet height as a fraction of window height (default 0.88). */
   maxHeightRatio?: number;
   showHandle?: boolean;
-  handleStyle?: ViewStyle;
+  handleStyle?: StyleProp<ViewStyle>;
   /** iOS only — offset when a header overlaps the keyboard avoidance region. */
   keyboardVerticalOffset?: number;
 };

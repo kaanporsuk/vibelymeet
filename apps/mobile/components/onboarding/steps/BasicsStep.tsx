@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
+import { FlatList, Pressable, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 type HeightUnit = 'cm' | 'ftin';
 
@@ -155,9 +156,14 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
         <VibelyButton label={ctaLabel} onPress={onNext} variant="gradient" style={styles.ctaButton} />
       </View>
 
-      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={closeWithoutSaving}>
-        <Pressable style={styles.overlay} onPress={closeWithoutSaving}>
-          <Pressable style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <KeyboardAwareBottomSheetModal
+        visible={pickerOpen}
+        onRequestClose={closeWithoutSaving}
+        animationType="fade"
+        scrollable={false}
+        sheetStyle={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      >
+        <View>
             <View style={styles.sheetTop}>
               <Text style={[styles.sheetTitle, { color: theme.text }]}>Select height</Text>
               <View style={styles.sheetActions}>
@@ -228,9 +234,8 @@ export default function BasicsStep({ heightCm, job, onHeightChange, onJobChange,
                 />
               </View>
             )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+        </View>
+      </KeyboardAwareBottomSheetModal>
     </View>
   );
 }
@@ -266,17 +271,9 @@ const styles = StyleSheet.create({
   jobInput: { flex: 1, minHeight: 50, paddingVertical: 0, fontSize: 15 },
   ctaWrap: { marginTop: 6 },
   ctaButton: { opacity: 0.95 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
     borderWidth: 1,
     borderBottomWidth: 0,
-    padding: 16,
     maxHeight: '74%',
   },
   sheetTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
