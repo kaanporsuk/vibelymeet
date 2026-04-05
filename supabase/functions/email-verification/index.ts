@@ -19,6 +19,12 @@ interface VerifyOtpRequest {
   code: string;
 }
 
+function normalizeEmail(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const normalized = input.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
 // Generate a 6-digit OTP using cryptographically secure random
 function generateOtp(): string {
   const array = new Uint32Array(1);
@@ -133,18 +139,41 @@ const handler = async (req: Request): Promise<Response> => {
     if (action === "send" && req.method === "POST") {
       // Send OTP
       const { email }: SendOtpRequest = await req.json();
+      const requestedEmail = normalizeEmail(email);
+      const authEmail = normalizeEmail(user.email);
       
-      if (!email) {
+      if (!requestedEmail) {
         return new Response(
           JSON.stringify({ error: "Email is required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
+      if (!authEmail) {
+        return new Response(
+          JSON.stringify({ error: "Add an email to your account before verifying it in-app." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!user.email_confirmed_at) {
+        return new Response(
+          JSON.stringify({ error: "Confirm the inbox link for your account email first, then verify it in-app." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (requestedEmail !== authEmail) {
+        return new Response(
+          JSON.stringify({ error: "Only the current email on your account can be verified." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       const otp = generateOtp();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      console.log(`Generating OTP for user ${user.id}, email: ${email}`);
+      console.log(`Generating OTP for user ${user.id}, email: ${authEmail}`);
 
       // Delete any existing codes for this user
       await supabaseAdmin
@@ -160,7 +189,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from("email_verifications")
         .insert({
           user_id: user.id,
-          email,
+          email: authEmail,
           code: hashedOtp,
           expires_at: expiresAt.toISOString(),
         });
@@ -174,9 +203,9 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Send email
-      await sendEmail(email, otp);
+      await sendEmail(authEmail, otp);
 
-      console.log(`OTP sent successfully to ${email}`);
+      console.log(`OTP sent successfully to ${authEmail}`);
 
       return new Response(
         JSON.stringify({ success: true, message: "Verification code sent" }),
@@ -187,15 +216,38 @@ const handler = async (req: Request): Promise<Response> => {
     if (action === "verify" && req.method === "POST") {
       // Verify OTP
       const { email, code }: VerifyOtpRequest = await req.json();
+      const requestedEmail = normalizeEmail(email);
+      const authEmail = normalizeEmail(user.email);
 
-      if (!email || !code) {
+      if (!requestedEmail || !code) {
         return new Response(
           JSON.stringify({ error: "Email and code are required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      console.log(`Verifying OTP for user ${user.id}, email: ${email}`);
+      if (!authEmail) {
+        return new Response(
+          JSON.stringify({ error: "Add an email to your account before verifying it in-app." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!user.email_confirmed_at) {
+        return new Response(
+          JSON.stringify({ error: "Confirm the inbox link for your account email first, then verify it in-app." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (requestedEmail !== authEmail) {
+        return new Response(
+          JSON.stringify({ error: "Only the current email on your account can be verified." }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      console.log(`Verifying OTP for user ${user.id}, email: ${authEmail}`);
 
       // Check failed attempt count (max 7 per hour)
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -226,7 +278,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from("email_verifications")
         .select("*")
         .eq("user_id", user.id)
-        .eq("email", email)
+        .eq("email", authEmail)
         .is("verified_at", null)
         .gt("expires_at", new Date().toISOString())
         .maybeSingle();
@@ -284,7 +336,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from("profiles")
         .update({ 
           email_verified: true,
-          verified_email: email 
+          verified_email: user.email ?? authEmail,
         })
         .eq("id", user.id);
 

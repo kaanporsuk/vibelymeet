@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
-import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -15,18 +14,22 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [showEmailVerification, setShowEmailVerification] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
 
   const valid = useMemo(() => EMAIL_RE.test(email.trim()), [email]);
 
   const submit = async () => {
+    if (emailSaved) {
+      onNext();
+      return;
+    }
     if (!valid || loading) return;
     setLoading(true);
     try {
       const { error } = await supabase.auth.updateUser({ email: email.trim() });
       if (error) throw error;
-      setMessage(`Confirm your account email via inbox link, then verify your profile email in-app.`);
-      setShowEmailVerification(true);
+      setEmailSaved(true);
+      setMessage(`Check your inbox to confirm this account email. You can add the email trust badge later from Settings.`);
     } catch {
       setMessage("Couldn't update email. Try again or skip.");
     } finally {
@@ -51,8 +54,9 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
         placeholder="you@example.com"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
+        readOnly={emailSaved}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && valid) submit();
+          if (e.key === "Enter" && (valid || emailSaved)) submit();
         }}
         className="bg-secondary/50 border-secondary text-lg py-6"
       />
@@ -63,13 +67,13 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
 
       <Button
         onClick={submit}
-        disabled={!valid || loading || showEmailVerification}
+        disabled={loading || (!valid && !emailSaved)}
         className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
       >
-        {loading ? "Saving..." : "Continue"}
+        {loading ? "Saving..." : emailSaved ? "Continue" : "Save Email"}
       </Button>
 
-      {!showEmailVerification ? (
+      {!emailSaved ? (
         <button
           onClick={onSkip}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
@@ -77,13 +81,6 @@ export const EmailCollectionStep = ({ onNext, onSkip }: EmailCollectionStepProps
           Skip for now
         </button>
       ) : null}
-
-      <EmailVerificationFlow
-        open={showEmailVerification}
-        onOpenChange={setShowEmailVerification}
-        userEmail={email.trim()}
-        onVerified={onNext}
-      />
     </div>
   );
 };

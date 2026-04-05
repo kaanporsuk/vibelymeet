@@ -34,6 +34,7 @@ export type ProfileRow = {
   phone_number: string | null;
   phone_verified: boolean | null;
   email_verified: boolean | null;
+  verified_email: string | null;
   is_premium: boolean | null;
   premium_until: string | null;
   /** Server-computed profile completeness (0–100). */
@@ -142,10 +143,10 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST; vibe columns omitted on retry if schema lags migration. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, is_premium, premium_until, vibe_score, vibe_score_label';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label';
 
 const PROFILE_SELECT_BASE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, is_premium, premium_until';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -219,6 +220,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       phone_number: (row.phone_number as string | null) ?? null,
       phone_verified: (row.phone_verified as boolean | null) ?? null,
       email_verified: ((row as Record<string, unknown>).email_verified as boolean | null) ?? null,
+      verified_email: ((row as Record<string, unknown>).verified_email as string | null) ?? null,
       is_premium: (row.is_premium as boolean | null) ?? null,
       premium_until: (row.premium_until as string) ?? null,
       vibe_score: vibeScore,

@@ -198,7 +198,7 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
       handleStyle={{ width: 100, height: 8, borderRadius: 999, marginTop: 16, marginBottom: 12 }}
     >
       <VibelyText variant="titleMD" style={[styles.title, { color: theme.text }]}>
-        {step === 'phone' && 'Verify Phone'}
+        {step === 'phone' && 'Verify Phone Number'}
         {step === 'otp' && 'Enter Code'}
         {step === 'success' && 'Verified!'}
       </VibelyText>
@@ -209,7 +209,7 @@ export function PhoneVerificationFlow({ visible, onClose, onVerified, initialPho
             <Ionicons name="call" size={32} color={theme.tint} />
           </View>
           <VibelyText variant="body" style={[styles.hint, { color: theme.textSecondary }]}>
-            We'll send a 6-digit code via SMS. Enter your number without leading zero.
+            We'll confirm the phone number on your account via SMS. Enter your number without the leading zero.
           </VibelyText>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.countryScroll} contentContainerStyle={styles.countryScrollContent} keyboardShouldPersistTaps="handled">
             {COUNTRY_CODES.map((c) => (

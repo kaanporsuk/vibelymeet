@@ -170,17 +170,17 @@ const ProfilePreview = () => {
             <div className="flex items-center justify-center gap-2 pt-2">
               {profile.emailVerified && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/15 border border-teal-500/30 text-teal-400">
-                  <Mail className="w-3 h-3" /> Email
+                  <Mail className="w-3 h-3" /> Email verified
                 </span>
               )}
               {profile.photoVerified && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/15 border border-teal-500/30 text-teal-400">
-                  <Camera className="w-3 h-3" /> Photo
+                  <Camera className="w-3 h-3" /> Photo verified
                 </span>
               )}
               {profile.phoneVerified && (
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-teal-500/15 border border-teal-500/30 text-teal-400">
-                  <Phone className="w-3 h-3" /> Phone
+                  <Phone className="w-3 h-3" /> Phone verified
                 </span>
               )}
             </div>

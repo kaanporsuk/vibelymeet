@@ -44,6 +44,7 @@ import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
+import { isCurrentEmailVerified } from "@shared/verificationSemantics";
 
 interface AccountSettingsDrawerProps {
   open: boolean;
@@ -90,7 +91,7 @@ export const AccountSettingsDrawer = ({
       : premiumUntil
         ? format(premiumUntil, "MMM d, yyyy")
         : null;
-  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
+  const [accountEmailConfirmed, setAccountEmailConfirmed] = useState(false);
   const [profileEmailVerified, setProfileEmailVerified] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   
@@ -113,7 +114,7 @@ export const AccountSettingsDrawer = ({
   useEffect(() => {
     if (!open) return;
     void supabase.auth.getSession().then(({ data: { session } }) => {
-      setEmailVerified(!!session?.user?.email_confirmed_at);
+      setAccountEmailConfirmed(!!session?.user?.email_confirmed_at);
     });
   }, [open]);
 
@@ -123,14 +124,21 @@ export const AccountSettingsDrawer = ({
       const { data } = await supabase
         .from("profiles")
         .select(
-          "phone_verified, phone_number, email_verified, account_paused, account_paused_until, is_paused, paused_until"
+          "phone_verified, phone_number, email_verified, verified_email, account_paused, account_paused_until, is_paused, paused_until"
         )
         .eq("id", user.id)
         .maybeSingle();
       if (data) {
         setPhoneVerified(!!data.phone_verified);
         setPhoneNumber((data.phone_number as string) ?? null);
-        setProfileEmailVerified(!!data.email_verified);
+        setProfileEmailVerified(
+          isCurrentEmailVerified({
+            emailVerified: !!data.email_verified,
+            verifiedEmail: (data.verified_email as string | null | undefined) ?? null,
+            authEmail: user.email,
+            authEmailConfirmed: accountEmailConfirmed,
+          }),
+        );
         setOnBreak(!!(data.account_paused || data.is_paused));
         setBreakUntilIso(
           (data.account_paused_until as string | null) ?? (data.paused_until as string | null) ?? null
@@ -138,7 +146,7 @@ export const AccountSettingsDrawer = ({
       }
     };
     fetchPhone();
-  }, [open, user]);
+  }, [open, user, accountEmailConfirmed]);
 
   useEffect(() => {
     if (!open) return;
@@ -194,7 +202,7 @@ export const AccountSettingsDrawer = ({
       if (error) throw error;
 
       toast.success("Verification email sent!", {
-        description: "Please check your new email to confirm the change",
+        description: "Confirm your new account email first, then return here to verify it on your profile.",
       });
       setNewEmail("");
       setActiveSection(null);
@@ -253,6 +261,18 @@ export const AccountSettingsDrawer = ({
 
   const passwordStrength = getPasswordStrength(newPassword);
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
+
+  const startEmailVerification = () => {
+    if (!user?.email) {
+      toast.error("Add an email to your account first.");
+      return;
+    }
+    if (!accountEmailConfirmed) {
+      toast.info("Confirm your current account email from your inbox first.");
+      return;
+    }
+    setShowEmailVerification(true);
+  };
 
   const applyTakeBreak = async () => {
     if (!user || !breakChip) return;
@@ -379,7 +399,7 @@ export const AccountSettingsDrawer = ({
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-foreground font-medium break-all">{user?.email || "No email set"}</p>
-              {emailVerified ? (
+              {accountEmailConfirmed ? (
                 <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
                   Confirmed ✓
                 </span>
@@ -433,7 +453,7 @@ export const AccountSettingsDrawer = ({
                   onClick={() => setShowPhoneVerification(true)}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Verify phone
+                  Verify phone number
                 </button>
               </div>
             )}
@@ -447,7 +467,7 @@ export const AccountSettingsDrawer = ({
                 <span className="text-xs font-medium text-emerald-400">Verified</span>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => setShowPhoneVerification(true)}>
-                  Verify phone
+                  Verify phone number
                 </Button>
               )}
             </div>
@@ -456,8 +476,8 @@ export const AccountSettingsDrawer = ({
               {profileEmailVerified ? (
                 <span className="text-xs font-medium text-emerald-400">Verified</span>
               ) : (
-                <Button size="sm" variant="outline" onClick={() => setShowEmailVerification(true)}>
-                  Verify email
+                <Button size="sm" variant="outline" onClick={startEmailVerification}>
+                  {accountEmailConfirmed ? "Verify email" : "Check inbox"}
                 </Button>
               )}
             </div>

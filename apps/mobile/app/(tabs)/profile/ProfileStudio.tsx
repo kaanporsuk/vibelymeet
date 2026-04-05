@@ -70,6 +70,7 @@ import VibeScoreCircle from '@/components/profile/VibeScoreCircle';
 import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
+import { isCurrentEmailVerified } from '@shared/verificationSemantics';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
@@ -229,11 +230,22 @@ export default function ProfileStudio() {
 
   // Verification counts
   const verificationStepTotal = 3;
+  const authEmailConfirmed = !!user?.email_confirmed_at;
+  const emailVerified = isCurrentEmailVerified({
+    emailVerified: profile?.email_verified,
+    verifiedEmail: profile?.verified_email ?? null,
+    authEmail: user?.email ?? null,
+    authEmailConfirmed,
+  });
   const verificationVerifiedCount =
-    (profile?.email_verified ? 1 : 0) +
+    (emailVerified ? 1 : 0) +
     (profile?.photo_verified ? 1 : 0) +
     (profile?.phone_verified ? 1 : 0);
   const verificationProgressPct = (verificationVerifiedCount / verificationStepTotal) * 100;
+  const vibeScoreProfile = React.useMemo(
+    () => (profile ? { ...profile, email_verified: emailVerified } : null),
+    [profile, emailVerified],
+  );
 
   const isSlotOpen = (isoDate: string, bucket: string): boolean =>
     scheduleRecord[`${isoDate}_${bucket}`]?.status === 'open';
@@ -371,7 +383,23 @@ export default function ProfileStudio() {
         setShowPhoneVerify(true);
         break;
       case 'email':
-        setShowEmailVerify(true);
+        if (emailVerified) {
+          show({
+            title: 'Already verified',
+            message: 'Your current account email is already verified on your profile.',
+            variant: 'success',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+        } else if (!authEmailConfirmed) {
+          show({
+            title: 'Confirm your inbox first',
+            message: 'Confirm your current account email from the inbox link first. Then come back here to verify it on your profile.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+        } else {
+          setShowEmailVerify(true);
+        }
         break;
       case 'photo_verify':
         scrollToSection('verification');
@@ -1841,27 +1869,43 @@ export default function ProfileStudio() {
 
             <RNView style={s.verificationCardsWrap}>
               {/* Email */}
-              {profile?.email_verified ? (
+              {emailVerified ? (
                 <RNView style={[s.verificationCard, { borderColor: 'rgba(13,148,136,0.3)', backgroundColor: 'rgba(13,148,136,0.1)' }]}>
                   <RNView style={[s.verificationIconSquare, { backgroundColor: 'rgba(13,148,136,0.2)' }]}>
                     <Ionicons name="mail-outline" size={20} color={VERIFICATION_TEAL} />
                   </RNView>
                   <RNView style={s.verificationCardText}>
                     <Text style={[s.verificationCardTitle, { color: theme.text }]}>Email verification</Text>
-                    <Text style={[s.verificationCardSubtitle, { color: theme.textSecondary }]}>Verified</Text>
+                    <Text style={[s.verificationCardSubtitle, { color: theme.textSecondary }]}>Current account email verified</Text>
                   </RNView>
                   <RNView style={s.verificationTealCheck}><Ionicons name="checkmark" size={14} color="#fff" /></RNView>
                 </RNView>
               ) : (
-                <Pressable onPress={() => setShowEmailVerify(true)} style={({ pressed }) => [s.verificationCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.85 }]}>
+                <Pressable
+                  onPress={() => {
+                    if (!authEmailConfirmed) {
+                      show({
+                        title: 'Confirm your inbox first',
+                        message: 'Confirm your current account email from the inbox link first. Then come back here to verify it on your profile.',
+                        variant: 'info',
+                        primaryAction: { label: 'OK', onPress: () => {} },
+                      });
+                      return;
+                    }
+                    setShowEmailVerify(true);
+                  }}
+                  style={({ pressed }) => [s.verificationCard, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }, pressed && { opacity: 0.85 }]}
+                >
                   <RNView style={[s.verificationIconSquare, { backgroundColor: 'rgba(255,255,255,0.08)' }]}>
                     <Ionicons name="mail-outline" size={20} color={theme.textSecondary} />
                   </RNView>
                   <RNView style={s.verificationCardText}>
                     <Text style={[s.verificationCardTitle, { color: theme.text }]}>Email verification</Text>
-                    <Text style={[s.verificationCardSubtitle, { color: theme.tint }]}>Verify</Text>
+                    <Text style={[s.verificationCardSubtitle, { color: authEmailConfirmed ? theme.tint : theme.textSecondary }]}>
+                      {authEmailConfirmed ? 'Verify your current email' : 'Confirm your email in your inbox first'}
+                    </Text>
                   </RNView>
-                  <Ionicons name="chevron-forward" size={20} color={theme.tint} />
+                  <Ionicons name="chevron-forward" size={20} color={authEmailConfirmed ? theme.tint : theme.textSecondary} />
                 </Pressable>
               )}
 
@@ -2012,11 +2056,11 @@ export default function ProfileStudio() {
 
       <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
 
-      {profile ? (
+      {vibeScoreProfile ? (
         <VibeScoreDrawer
           visible={showVibeScoreDrawer}
           onClose={() => setShowVibeScoreDrawer(false)}
-          profile={profile}
+          profile={vibeScoreProfile}
           score={vibeScore}
           onAction={handleVibeScoreDrawerAction}
         />

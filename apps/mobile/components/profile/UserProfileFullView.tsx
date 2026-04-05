@@ -213,19 +213,19 @@ export function UserProfileFullView({
                   {emailVerified && (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="mail" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Email</Text>
+                      <Text style={s.verifiedPillText}>Email verified</Text>
                     </RNView>
                   )}
                   {photoVerified && (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="camera" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Photo</Text>
+                      <Text style={s.verifiedPillText}>Photo verified</Text>
                     </RNView>
                   )}
                   {phoneVerified && (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="call" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Phone</Text>
+                      <Text style={s.verifiedPillText}>Phone verified</Text>
                     </RNView>
                   )}
                 </RNView>
@@ -242,19 +242,19 @@ export function UserProfileFullView({
               {emailVerified && (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="mail" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Email</Text>
+                  <Text style={s.verifiedPillText}>Email verified</Text>
                 </RNView>
               )}
               {photoVerified && (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="camera" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Photo</Text>
+                  <Text style={s.verifiedPillText}>Photo verified</Text>
                 </RNView>
               )}
               {phoneVerified && (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="call" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Phone</Text>
+                  <Text style={s.verifiedPillText}>Phone verified</Text>
                 </RNView>
               )}
             </RNView>
