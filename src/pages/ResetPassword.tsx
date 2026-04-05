@@ -23,15 +23,14 @@ const ResetPassword = () => {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Check if we have a session from password recovery
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      // If we have a recovery session or type=recovery in URL
-      if (session || window.location.hash.includes("type=recovery")) {
+    // Only enter update mode when Supabase fires the PASSWORD_RECOVERY event,
+    // not for any authenticated user who happens to visit this URL.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
         setMode("update");
       }
-    };
-    checkSession();
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleRequestReset = async () => {

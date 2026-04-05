@@ -12,6 +12,7 @@ import posthog from 'posthog-js';
 import Index from "./pages/Index";
 import Onboarding from "./pages/onboarding";
 import Auth from "./pages/Auth";
+import EntryRecovery from "./pages/EntryRecovery";
 import Dashboard from "./pages/Dashboard";
 import Events from "./pages/Events";
 import EventDetails from "./pages/EventDetails";
@@ -117,6 +118,7 @@ const App = () => (
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/auth" element={<Auth />} />
+                <Route path="/entry-recovery" element={<ProtectedRoute><EntryRecovery /></ProtectedRoute>} />
                 <Route path="/invite" element={<InviteRedirect />} />
                 <Route path="/event/:eventId" element={<EventShortRedirect />} />
                 <Route path="/reset-password" element={<ResetPassword />} />

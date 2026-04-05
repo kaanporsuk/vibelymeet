@@ -2,6 +2,13 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { trackEvent } from "@/lib/analytics";
+import {
+  getAuthProvider,
+  getEntryStateOnboardingStatus,
+  resolveEntryState,
+  type EntryStateResponse,
+} from "@shared/entryState";
 
 interface User {
   id: string;
@@ -23,7 +30,13 @@ interface SessionContextType {
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isProfileLoading: boolean;
+  entryState: EntryStateResponse | null;
+  entryStateLoading: boolean;
   isOfflineAtBoot: boolean;
+  onboardingStatus: 'complete' | 'incomplete' | 'unknown';
+  onboardingComplete: boolean | null;
+  refreshEntryState: () => Promise<EntryStateResponse | null>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   logout: () => Promise<void>;
 }
@@ -61,18 +74,25 @@ function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [entryState, setEntryState] = useState<EntryStateResponse | null>(null);
+  const [entryStateLoading, setEntryStateLoading] = useState(false);
   const [isOfflineAtBoot, setIsOfflineAtBoot] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const currentUserId = session?.user?.id ?? null;
+  const currentAuthProvider = getAuthProvider(session?.user);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
+        setEntryStateLoading(!!session?.user);
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setEntryStateLoading(!!session?.user);
       if (!session?.user && !navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
@@ -95,52 +115,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    if (!session?.user) {
+    if (!currentUserId) {
       setUser(null);
       return;
     }
 
-    const userId = session.user.id;
+    setIsProfileLoading(true);
+    const userId = currentUserId;
 
     const profileSelect =
-      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode";
+      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode, onboarding_complete";
 
-    let { data: profile } = await supabase
-      .from("profiles")
-      .select(profileSelect)
-      .eq("id", userId)
-      .maybeSingle();
+    try {
+      let { data: profile } = await supabase
+        .from("profiles")
+        .select(profileSelect)
+        .eq("id", userId)
+        .maybeSingle();
 
-    // Web auto-expiry: timed account pause ended — align DB with native clearExpiredAccountPauseIfNeeded
-    if (profile?.account_paused && profile.account_paused_until) {
-      const until = new Date(profile.account_paused_until as string);
-      if (until <= new Date()) {
-        await supabase
-          .from("profiles")
-          .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
-          .eq("id", userId);
-        const { data: refreshed } = await supabase
-          .from("profiles")
-          .select(profileSelect)
-          .eq("id", userId)
-          .maybeSingle();
-        profile = refreshed ?? profile;
+      // Web auto-expiry: timed account pause ended — align DB with native clearExpiredAccountPauseIfNeeded
+      if (profile?.account_paused && profile.account_paused_until) {
+        const until = new Date(profile.account_paused_until as string);
+        if (until <= new Date()) {
+          await supabase
+            .from("profiles")
+            .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+            .eq("id", userId);
+          const { data: refreshed } = await supabase
+            .from("profiles")
+            .select(profileSelect)
+            .eq("id", userId)
+            .maybeSingle();
+          profile = refreshed ?? profile;
+        }
       }
+
+      const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+      if (supabaseUser) {
+        setUser(transformSupabaseUser(supabaseUser, profile || undefined));
+      }
+    } finally {
+      setIsProfileLoading(false);
+    }
+  }, [currentUserId]);
+
+  const refreshEntryState = useCallback(async () => {
+    if (!currentUserId) {
+      setEntryState(null);
+      return null;
     }
 
-    const { data: { user: supabaseUser } } = await supabase.auth.getUser();
-    if (supabaseUser) {
-      setUser(transformSupabaseUser(supabaseUser, profile || undefined));
+    setEntryStateLoading(true);
+    try {
+      const nextEntryState = await resolveEntryState(supabase);
+      setEntryState(nextEntryState);
+      trackEvent("entry_state_resolved", {
+        state: nextEntryState.state,
+        reason_code: nextEntryState.reason_code,
+        platform: "web",
+        provider: currentAuthProvider,
+        evaluation_version: nextEntryState.evaluation_version,
+      });
+      return nextEntryState;
+    } finally {
+      setEntryStateLoading(false);
     }
-  }, [session]);
+  }, [currentAuthProvider, currentUserId]);
 
   useEffect(() => {
-    if (session?.user) {
+    if (currentUserId) {
       void refreshProfile();
+      setEntryStateLoading(true);
+      void refreshEntryState();
     } else {
       setUser(null);
+      setEntryState(null);
+      setEntryStateLoading(false);
     }
-  }, [session?.user, refreshProfile]);
+  }, [currentUserId, refreshEntryState, refreshProfile]);
 
   const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -148,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    const userId = session?.user?.id;
+    const userId = currentUserId;
     if (userId) {
       try {
         await supabase
@@ -165,7 +217,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
+    setEntryState(null);
+    setEntryStateLoading(false);
   };
+
+  const onboardingStatus = getEntryStateOnboardingStatus(entryState);
 
   return (
     <SessionContext.Provider
@@ -173,7 +229,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         isAuthenticated: !!session,
         isLoading,
+        isProfileLoading,
+        entryState,
+        entryStateLoading,
         isOfflineAtBoot,
+        onboardingStatus,
+        onboardingComplete: onboardingStatus === 'complete' ? true : onboardingStatus === 'incomplete' ? false : null,
+        refreshEntryState,
         signIn,
         logout,
       }}

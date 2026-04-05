@@ -1,17 +1,24 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { resetAnalytics } from '@/lib/analytics';
+import { resetAnalytics, trackEvent } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
 import { clearRevenueCatUser } from '@/lib/revenuecat';
-import { getOnboardingStatus, signInWithEmail, type OnboardingStatus } from '@/lib/authApi';
+import { resolveEntryState as resolveCurrentEntryState, signInWithEmail, type OnboardingStatus } from '@/lib/authApi';
 import { toError } from '@/lib/contractErrors';
+import {
+  getAuthProvider,
+  getEntryStateOnboardingStatus,
+  type EntryStateResponse,
+} from '@shared/entryState';
 
 type AuthState = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  entryState: EntryStateResponse | null;
+  entryStateLoading: boolean;
   profilePresence: 'present' | 'missing' | 'unknown';
   onboardingStatus: OnboardingStatus;
   onboardingComplete: boolean | null;
@@ -20,6 +27,7 @@ type AuthState = {
 type AuthContextValue = AuthState & {
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  refreshEntryState: () => Promise<EntryStateResponse | null>;
   refreshOnboarding: () => Promise<void>;
 };
 
@@ -29,70 +37,79 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [profilePresence, setProfilePresence] = useState<'present' | 'missing' | 'unknown'>('unknown');
-  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus>('unknown');
+  const [entryState, setEntryState] = useState<EntryStateResponse | null>(null);
+  const [entryStateLoading, setEntryStateLoading] = useState(false);
+  const currentUserId = session?.user?.id ?? null;
+  const currentAuthProvider = getAuthProvider(session?.user);
 
-  const resolveOnboarding = useCallback(async (userId: string) => {
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (profileError) {
-      setProfilePresence('unknown');
-      setOnboardingStatus('unknown');
-      return;
+  const refreshEntryState = useCallback(async () => {
+    if (!currentUserId) {
+      setEntryState(null);
+      return null;
     }
 
-    if (!profile) {
-      setProfilePresence('missing');
-      setOnboardingStatus('unknown');
-      return;
+    setEntryStateLoading(true);
+    try {
+      const nextEntryState = await resolveCurrentEntryState();
+      setEntryState(nextEntryState);
+      trackEvent('entry_state_resolved', {
+        state: nextEntryState.state,
+        reason_code: nextEntryState.reason_code,
+        platform: 'native',
+        provider: currentAuthProvider,
+        evaluation_version: nextEntryState.evaluation_version,
+      });
+      return nextEntryState;
+    } finally {
+      setEntryStateLoading(false);
     }
-
-    setProfilePresence('present');
-    const status = await getOnboardingStatus(userId);
-    setOnboardingStatus(status);
-  }, []);
+  }, [currentAuthProvider, currentUserId]);
 
   useEffect(() => {
     supabase.auth
       .getSession()
       .then(({ data: { session: s } }) => {
+        setEntryStateLoading(!!s?.user);
         setSession(s);
         setUser(s?.user ?? null);
-        if (s?.user) {
-          resolveOnboarding(s.user.id);
-        } else {
-          setProfilePresence('unknown');
-          setOnboardingStatus('unknown');
+        if (!s?.user) {
+          setEntryState(null);
+          setEntryStateLoading(false);
         }
         setLoading(false);
       })
       .catch(() => {
         setSession(null);
         setUser(null);
-        setProfilePresence('unknown');
-        setOnboardingStatus('unknown');
+        setEntryState(null);
+        setEntryStateLoading(false);
         setLoading(false);
       });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
+      setEntryStateLoading(!!s?.user);
       setSession(s);
       setUser(s?.user ?? null);
-      if (s?.user) {
-        resolveOnboarding(s.user.id);
-      } else {
-        setProfilePresence('unknown');
-        setOnboardingStatus('unknown');
+      if (!s?.user) {
+        setEntryState(null);
+        setEntryStateLoading(false);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [resolveOnboarding]);
+  }, [refreshEntryState]);
+
+  useEffect(() => {
+    if (currentUserId) {
+      setEntryStateLoading(true);
+      void refreshEntryState();
+    } else {
+      setEntryState(null);
+      setEntryStateLoading(false);
+    }
+  }, [currentUserId, refreshEntryState]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await signInWithEmail(email, password);
@@ -120,25 +137,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (error && __DEV__) console.warn('[signOut] notification_preferences:', error.message);
         });
     }
-      void clearRevenueCatUser();
+    void clearRevenueCatUser();
     await supabase.auth.signOut();
-    setProfilePresence('unknown');
-    setOnboardingStatus('unknown');
+    setEntryState(null);
+    setEntryStateLoading(false);
   }, []);
 
   const refreshOnboarding = useCallback(async () => {
-    if (user?.id) await resolveOnboarding(user.id);
-  }, [user?.id, resolveOnboarding]);
+    await refreshEntryState();
+  }, [refreshEntryState]);
+
+  const onboardingStatus = getEntryStateOnboardingStatus(entryState);
+  const profilePresence =
+    entryState?.state === 'missing_profile'
+      ? 'missing'
+      : entryState
+        ? 'present'
+        : 'unknown';
 
   const value: AuthContextValue = {
     user,
     session,
     loading,
+    entryState,
+    entryStateLoading,
     profilePresence,
     onboardingStatus,
     onboardingComplete: onboardingStatus === 'complete' ? true : onboardingStatus === 'incomplete' ? false : null,
     signIn,
     signOut,
+    refreshEntryState,
     refreshOnboarding,
   };
 
