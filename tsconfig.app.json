@@ -35,6 +35,8 @@
     "supabase/functions/_shared/tiers.ts",
     "supabase/functions/_shared/creditPacks.ts",
     "supabase/functions/_shared/profileContracts.ts",
+    "supabase/functions/_shared/identity.ts",
+    "supabase/functions/_shared/eventProfileAdapters.ts",
     "supabase/functions/_shared/authConflictMessages.ts",
     "supabase/functions/_shared/entryState.ts",
     "supabase/functions/_shared/onboardingTypes.ts",

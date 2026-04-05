@@ -469,7 +469,7 @@ export default function EventDetailScreen() {
   const revealedDisplays: AttendeeDisplay[] =
     previewOk && isConfirmed
       ? attendeePreview.revealed.map((r) => ({
-          id: r.profile_id,
+          id: r.id,
           name: r.name,
           avatarUrl: avatarUrl(r.avatar_path),
         }))

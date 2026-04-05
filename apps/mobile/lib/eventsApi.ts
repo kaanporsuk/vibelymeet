@@ -4,6 +4,12 @@ import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 import { normalizeContractError, toError } from '@/lib/contractErrors';
+import {
+  parseEventAttendeePreviewRows,
+  parseEventDeckProfiles,
+  type EventAttendeePreview as PreviewRevealedAttendee,
+  type EventDeckProfile as DeckProfile,
+} from '@shared/eventProfileAdapters';
 
 const GRACE_HOURS = 6;
 
@@ -124,13 +130,13 @@ export type DiscoverEventsParams = {
  * Same RPC as web `useVisibleEvents` — premium browse + radius enforced server-side.
  */
 export async function fetchVisibleEventsList(
-  userId: string,
+  viewerProfileId: string,
   discover?: DiscoverEventsParams,
 ): Promise<EventListItem[]> {
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('location_data')
-    .eq('id', userId)
+    .eq('id', viewerProfileId)
     .maybeSingle();
   if (profileError && __DEV__) {
     console.warn('[eventsApi] profile location fetch failed:', profileError.message);
@@ -164,7 +170,7 @@ export async function fetchVisibleEventsList(
       : null;
 
   const { data, error } = await supabase.rpc('get_visible_events', {
-    p_user_id: userId,
+    p_user_id: viewerProfileId,
     p_user_lat: p_user_lat ?? null,
     p_user_lng: p_user_lng ?? null,
     p_is_premium: false,
@@ -185,13 +191,13 @@ export async function fetchVisibleEventsList(
  * Discover events list — `get_visible_events` with location/radius (web parity).
  */
 export function useDiscoverEvents(
-  userId: string | null | undefined,
+  viewerProfileId: string | null | undefined,
   params: DiscoverEventsParams,
 ) {
   return useQuery({
     queryKey: [
       'events-discover',
-      userId,
+      viewerProfileId,
       params.canCityBrowse,
       params.locationMode,
       params.selectedCity?.lat,
@@ -200,14 +206,14 @@ export function useDiscoverEvents(
       params.deviceCoords?.lat,
       params.deviceCoords?.lng,
     ],
-    queryFn: () => fetchVisibleEventsList(userId!, params),
-    enabled: !!userId,
+    queryFn: () => fetchVisibleEventsList(viewerProfileId!, params),
+    enabled: !!viewerProfileId,
   });
 }
 
 /** Dashboard / simple callers: nearby list via RPC (profile location + default radius). */
-export function useEvents(userId: string | null | undefined, canCityBrowse: boolean) {
-  return useDiscoverEvents(userId, {
+export function useEvents(viewerProfileId: string | null | undefined, canCityBrowse: boolean) {
+  return useDiscoverEvents(viewerProfileId, {
     locationMode: 'nearby',
     selectedCity: null,
     distanceKm: 50,
@@ -544,40 +550,22 @@ export function useRegisterForEvent() {
   };
 }
 
-export type DeckProfile = {
-  profile_id: string;
-  name: string;
-  age: number;
-  gender: string;
-  avatar_url: string | null;
-  photos: string[] | null;
-  about_me: string | null;
-  job: string | null;
-  location: string | null;
-  height_cm: number | null;
-  tagline: string | null;
-  looking_for: string | null;
-  queue_status: string | null;
-  has_met_before: boolean;
-  is_already_connected: boolean;
-  has_super_vibed: boolean;
-  shared_vibe_count: number;
-};
+export type { DeckProfile };
 
-export function useEventDeck(eventId: string, userId: string | null, enabled: boolean) {
+export function useEventDeck(eventId: string, viewerProfileId: string | null, enabled: boolean) {
   return useQuery({
-    queryKey: ['event-deck', eventId, userId],
+    queryKey: ['event-deck', eventId, viewerProfileId],
     queryFn: async (): Promise<DeckProfile[]> => {
-      if (!userId || !eventId) return [];
+      if (!viewerProfileId || !eventId) return [];
       const { data, error } = await supabase.rpc('get_event_deck', {
         p_event_id: eventId,
-        p_user_id: userId,
+        p_user_id: viewerProfileId,
         p_limit: 50,
       });
       if (error) throw error;
-      return (data as DeckProfile[]) ?? [];
+      return parseEventDeckProfiles(data);
     },
-    enabled: enabled && !!userId && !!eventId,
+    enabled: enabled && !!viewerProfileId && !!eventId,
     refetchInterval: 15000,
     staleTime: 10000,
   });
@@ -646,15 +634,7 @@ export type EventAttendee = {
   photos: string[] | null;
 };
 
-export type PreviewRevealedAttendee = {
-  profile_id: string;
-  name: string;
-  age: number;
-  avatar_path: string | null;
-  shared_vibe_count: number;
-  super_vibe_toward_viewer: boolean;
-  vibe_label: string | null;
-};
+export type { PreviewRevealedAttendee };
 
 export type EventAttendeePreviewPayload =
   | {
@@ -676,22 +656,7 @@ function parseAttendeePreview(data: unknown): EventAttendeePreviewPayload {
       code: typeof row?.code === 'string' ? row.code : undefined,
     };
   }
-  let revealed: PreviewRevealedAttendee[] = [];
-  const raw = row.revealed;
-  if (Array.isArray(raw)) {
-    revealed = raw.map((r) => {
-      const o = r as Record<string, unknown>;
-      return {
-        profile_id: String(o.profile_id ?? ''),
-        name: String(o.name ?? ''),
-        age: Number(o.age ?? 0),
-        avatar_path: o.avatar_path == null ? null : String(o.avatar_path),
-        shared_vibe_count: Number(o.shared_vibe_count ?? 0),
-        super_vibe_toward_viewer: o.super_vibe_toward_viewer === true,
-        vibe_label: o.vibe_label == null ? null : String(o.vibe_label),
-      };
-    });
-  }
+  const revealed = parseEventAttendeePreviewRows(row.revealed);
   return {
     success: true,
     viewer_admission: row.viewer_admission as 'confirmed' | 'waitlisted' | 'none',
@@ -732,7 +697,7 @@ export function useEventAttendees(eventId: string | undefined) {
   const mapped: EventAttendee[] =
     q.data?.success === true
       ? q.data.revealed.map((r) => ({
-          id: r.profile_id,
+          id: r.id,
           name: r.name,
           age: r.age,
           avatar_url: r.avatar_path,

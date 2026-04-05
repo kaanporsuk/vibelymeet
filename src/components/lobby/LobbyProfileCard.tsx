@@ -40,12 +40,12 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       const { data } = await supabase
         .from("profiles")
         .select("subscription_tier, photo_verified")
-        .eq("id", profile.profile_id)
+        .eq("id", profile.id)
         .maybeSingle();
       setProfileBadge(getUserBadge(data?.subscription_tier as string | null | undefined));
       setPhotoVerified(Boolean(data?.photo_verified));
     })();
-  }, [profile.profile_id, isBehind]);
+  }, [profile.id, isBehind]);
 
   const sharedCount = profile.shared_vibe_count;
 
@@ -114,7 +114,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
       {!isBehind && (
         <button
           type="button"
-          onClick={() => navigate(`/user/${profile.profile_id}`)}
+          onClick={() => navigate(`/user/${profile.id}`)}
           className="absolute bottom-[min(42%,200px)] right-3 sm:right-4 z-30 w-11 h-11 rounded-full bg-black/50 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center transition-colors shadow-lg"
           aria-label="Open full profile"
         >

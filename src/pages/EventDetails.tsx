@@ -344,7 +344,7 @@ const EventDetails = () => {
 
   const rosterRevealed: GuestListRosterAttendee[] = preview
     ? preview.revealed.map((r) => ({
-        id: r.profile_id,
+        id: r.id,
         name: r.name,
         age: r.age,
         avatar: resolvePhotoUrl(r.avatar_path || ""),

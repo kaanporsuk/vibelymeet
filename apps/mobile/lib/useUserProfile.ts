@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchUserProfile, type UserProfileView } from '@/lib/fetchUserProfile';
 
-export function useUserProfile(userId: string | null | undefined) {
+export function useUserProfile(profileId: string | null | undefined) {
   return useQuery<UserProfileView | null>({
-    queryKey: ['user-profile', userId],
+    queryKey: ['user-profile', profileId],
     queryFn: async () => {
-      if (!userId) return null;
-      return fetchUserProfile(userId);
+      if (!profileId) return null;
+      return fetchUserProfile(profileId);
     },
-    enabled: !!userId,
+    enabled: !!profileId,
     staleTime: 60_000,
   });
 }
