@@ -333,7 +333,7 @@ Spot checks on live data:
 
 ### Section 10 (Data integrity)
 
-- **None.** No orphans or inconsistent counts found in the spot checks.
+- **Resolved (April 6, 2026).** A later linked-DB integrity audit found 3 synthetic orphan `public.profiles` rows. They were manually removed in a one-off operational cleanup. Current post-cleanup count: `auth.users` without profiles = `0`; `profiles` without `auth.users` = `0`.
 
 ---
 
