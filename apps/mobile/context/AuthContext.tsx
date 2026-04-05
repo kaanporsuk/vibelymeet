@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { resetAnalytics, trackEvent } from '@/lib/analytics';
@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [entryStateLoading, setEntryStateLoading] = useState(false);
   const currentUserId = session?.user?.id ?? null;
   const currentAuthProvider = getAuthProvider(session?.user);
+  const authUserIdRef = useRef<string | null>(null);
 
   const refreshEntryState = useCallback(async () => {
     if (!currentUserId) {
@@ -69,7 +70,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth
       .getSession()
       .then(({ data: { session: s } }) => {
-        setEntryStateLoading(!!s?.user);
+        const nextUserId = s?.user?.id ?? null;
+        authUserIdRef.current = nextUserId;
+        setEntryStateLoading(!!nextUserId);
         setSession(s);
         setUser(s?.user ?? null);
         if (!s?.user) {
@@ -89,7 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
-      setEntryStateLoading(!!s?.user);
+      const nextUserId = s?.user?.id ?? null;
+      const previousUserId = authUserIdRef.current;
+      authUserIdRef.current = nextUserId;
+      if (!nextUserId) {
+        setEntryState(null);
+        setEntryStateLoading(false);
+      } else if (nextUserId !== previousUserId) {
+        setEntryStateLoading(true);
+      }
       setSession(s);
       setUser(s?.user ?? null);
       if (!s?.user) {
@@ -100,6 +111,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, [refreshEntryState]);
+
+  useEffect(() => {
+    authUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   useEffect(() => {
     if (currentUserId) {
