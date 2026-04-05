@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
@@ -81,18 +81,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const currentUserId = session?.user?.id ?? null;
   const currentAuthProvider = getAuthProvider(session?.user);
+  const authUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        const nextUserId = session?.user?.id ?? null;
+        const previousUserId = authUserIdRef.current;
         setSession(session);
-        setEntryStateLoading(!!session?.user);
+        authUserIdRef.current = nextUserId;
+        if (!nextUserId) {
+          setEntryState(null);
+          setEntryStateLoading(false);
+          return;
+        }
+        if (nextUserId !== previousUserId) {
+          setEntryStateLoading(true);
+        }
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      const nextUserId = session?.user?.id ?? null;
+      authUserIdRef.current = nextUserId;
       setSession(session);
-      setEntryStateLoading(!!session?.user);
+      setEntryStateLoading(!!nextUserId);
       if (!session?.user && !navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
@@ -113,6 +126,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("online", handleOnline);
     };
   }, []);
+
+  useEffect(() => {
+    authUserIdRef.current = currentUserId;
+  }, [currentUserId]);
 
   const refreshProfile = useCallback(async () => {
     if (!currentUserId) {

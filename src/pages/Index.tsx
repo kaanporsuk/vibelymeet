@@ -1,17 +1,29 @@
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Sparkles, LogIn } from "lucide-react";
+import { Sparkles, LogIn, Loader2 } from "lucide-react";
 
 const Index = () => {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, entryState, entryStateLoading } = useAuth();
 
-  // Redirect authenticated users to Now
-  if (!isLoading && isAuthenticated) {
-    navigate("/home", { replace: true });
-    return null;
+  if (isLoading || (isAuthenticated && (entryStateLoading || !entryState))) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isAuthenticated && entryState) {
+    if (entryState.route_hint === "app") {
+      return <Navigate to="/home" replace />;
+    }
+    if (entryState.route_hint === "onboarding") {
+      return <Navigate to="/onboarding" replace />;
+    }
+    return <Navigate to="/entry-recovery" replace />;
   }
 
   const handleGetStarted = () => {
