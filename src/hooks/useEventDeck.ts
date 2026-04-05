@@ -1,27 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  parseEventDeckProfiles,
+  type EventDeckProfile as DeckProfile,
+} from "@shared/eventProfileAdapters";
 
-export interface DeckProfile {
-  profile_id: string;
-  name: string;
-  age: number;
-  gender: string;
-  avatar_url: string | null;
-  photos: string[] | null;
-  about_me: string | null;
-  job: string | null;
-  location: string | null;
-  height_cm: number | null;
-  tagline: string | null;
-  looking_for: string | null;
-  
-  queue_status: string | null;
-  has_met_before: boolean;
-  is_already_connected: boolean;
-  has_super_vibed: boolean;
-  shared_vibe_count: number;
-}
+export type { DeckProfile };
 
 interface UseEventDeckOptions {
   eventId: string;
@@ -34,11 +19,12 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
   const query = useQuery({
     queryKey: ["event-deck", eventId, user?.id],
     queryFn: async () => {
-      if (!user?.id || !eventId) return [];
+      const viewerProfileId = user?.id;
+      if (!viewerProfileId || !eventId) return [];
 
       const { data, error } = await supabase.rpc("get_event_deck", {
         p_event_id: eventId,
-        p_user_id: user.id,
+        p_user_id: viewerProfileId,
         p_limit: 50,
       });
 
@@ -47,7 +33,7 @@ export const useEventDeck = ({ eventId, enabled = true }: UseEventDeckOptions) =
         throw error;
       }
 
-      return (data as unknown as DeckProfile[]) || [];
+      return parseEventDeckProfiles(data);
     },
     enabled: enabled && !!user?.id && !!eventId,
     refetchInterval: 15000, // Refresh every 15s to get new arrivals

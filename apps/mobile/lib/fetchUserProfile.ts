@@ -127,11 +127,11 @@ function normalizePrompts(raw: unknown): Array<{ question: string; answer: strin
   return out.length > 0 ? out : null;
 }
 
-export async function fetchUserProfile(userId: string): Promise<UserProfileView | null> {
+export async function fetchUserProfile(profileId: string): Promise<UserProfileView | null> {
   let profileRes = await supabase
     .from('profiles')
     .select(USER_PROFILE_SELECT_WITH_VIBE)
-    .eq('id', userId)
+    .eq('id', profileId)
     .maybeSingle();
 
   const vibeColMissing =
@@ -141,7 +141,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
     profileRes = await supabase
       .from('profiles')
       .select(USER_PROFILE_SELECT_BASE)
-      .eq('id', userId)
+      .eq('id', profileId)
       .maybeSingle();
   }
 
@@ -156,7 +156,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
   const { data: vibeRows, error: vibesError } = await supabase
     .from('profile_vibes')
     .select('vibe_tags(label)')
-    .eq('profile_id', userId);
+    .eq('profile_id', profileId);
 
   if (vibesError && __DEV__) {
     console.warn('[fetchUserProfile] failed to load vibes:', vibesError.message);

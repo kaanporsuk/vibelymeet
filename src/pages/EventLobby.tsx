@@ -300,7 +300,7 @@ const EventLobby = () => {
 
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
-    const filtered = profiles.filter((p) => !seenProfileIds.current.has(p.profile_id));
+    const filtered = profiles.filter((p) => !seenProfileIds.current.has(p.id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
       if (!a.has_super_vibed && b.has_super_vibed) return 1;
@@ -324,7 +324,7 @@ const EventLobby = () => {
 
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isProcessing) return;
-    const targetId = currentProfile.profile_id;
+    const targetId = currentProfile.id;
     haptics.light();
     const result = await swipe(targetId, "vibe");
     if (!result || result.success === false) return;
@@ -341,7 +341,7 @@ const EventLobby = () => {
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing) return;
-    const targetId = currentProfile.profile_id;
+    const targetId = currentProfile.id;
     const result = await swipe(targetId, "pass");
     if (!result || result.success === false) return;
 
@@ -354,7 +354,7 @@ const EventLobby = () => {
   const handleSuperVibe = useCallback(async () => {
     if (!currentProfile || isProcessing) return;
     haptics.light();
-    const targetId = currentProfile.profile_id;
+    const targetId = currentProfile.id;
     const result = await swipe(targetId, "super_vibe");
     if (!result || result.success === false) return;
 
@@ -568,7 +568,7 @@ const EventLobby = () => {
             <AnimatePresence mode="wait">
               {currentProfile && (
                 <SwipeableCard
-                  key={currentProfile.profile_id}
+                  key={currentProfile.id}
                   profile={currentProfile}
                   userVibes={userVibes}
                   onSwipeLeft={handlePass}

@@ -117,13 +117,13 @@ function normalizePrompts(raw: unknown): Array<{ question: string; answer: strin
   return out.length > 0 ? out : null;
 }
 
-export async function fetchUserProfile(userId: string): Promise<UserProfileView | null> {
-  if (!userId) return null;
+export async function fetchUserProfile(profileId: string): Promise<UserProfileView | null> {
+  if (!profileId) return null;
 
   let profileRes = await supabase
     .from("profiles")
     .select(USER_PROFILE_SELECT_WITH_VIBE)
-    .eq("id", userId)
+    .eq("id", profileId)
     .maybeSingle();
 
   const vibeColMissing =
@@ -133,7 +133,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
     profileRes = await supabase
       .from("profiles")
       .select(USER_PROFILE_SELECT_BASE)
-      .eq("id", userId)
+      .eq("id", profileId)
       .maybeSingle();
   }
 
@@ -147,7 +147,7 @@ export async function fetchUserProfile(userId: string): Promise<UserProfileView 
   const { data: vibeRows } = await supabase
     .from("profile_vibes")
     .select("vibe_tags(label)")
-    .eq("profile_id", userId);
+    .eq("profile_id", profileId);
 
   const photosRaw = row.photos;
   const photos = Array.isArray(photosRaw)

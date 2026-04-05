@@ -1,16 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  parseEventAttendeePreviewRows,
+  type EventAttendeePreview as PreviewRevealedAttendee,
+} from "@shared/eventProfileAdapters";
 
-export interface PreviewRevealedAttendee {
-  profile_id: string;
-  name: string;
-  age: number;
-  avatar_path: string | null;
-  shared_vibe_count: number;
-  super_vibe_toward_viewer: boolean;
-  vibe_label: string | null;
-}
+export type { PreviewRevealedAttendee };
 
 export type EventAttendeePreviewPayload =
   | {
@@ -44,22 +40,7 @@ function parsePreviewPayload(data: unknown): EventAttendeePreviewPayload {
     };
   }
 
-  let revealed: PreviewRevealedAttendee[] = [];
-  const raw = row.revealed;
-  if (Array.isArray(raw)) {
-    revealed = raw.map((r) => {
-      const o = r as Record<string, unknown>;
-      return {
-        profile_id: String(o.profile_id ?? ""),
-        name: String(o.name ?? ""),
-        age: Number(o.age ?? 0),
-        avatar_path: o.avatar_path == null ? null : String(o.avatar_path),
-        shared_vibe_count: Number(o.shared_vibe_count ?? 0),
-        super_vibe_toward_viewer: o.super_vibe_toward_viewer === true,
-        vibe_label: o.vibe_label == null ? null : String(o.vibe_label),
-      };
-    });
-  }
+  const revealed = parseEventAttendeePreviewRows(row.revealed);
 
   return {
     success: true,
@@ -108,7 +89,7 @@ export function useEventAttendees(eventId: string | undefined, _limit: number = 
   const mapped: EventAttendee[] =
     q.data?.success === true
       ? q.data.revealed.map((r) => ({
-          id: r.profile_id,
+          id: r.id,
           name: r.name,
           avatar_url: r.avatar_path,
           photos: r.avatar_path ? [r.avatar_path] : null,
