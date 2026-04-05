@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
@@ -47,7 +48,7 @@ export default function OnboardingV2Screen() {
     onboardingVideoRecorded?: string | string[];
     onboardingVideoToken?: string | string[];
   }>();
-  const { session, refreshOnboarding } = useAuth();
+  const { session, loading, onboardingStatus, refreshOnboarding } = useAuth();
   const logout = useNativeLogout();
   const { show, dialog } = useVibelyDialog();
   const [currentStep, setCurrentStep] = useState(0);
@@ -69,6 +70,21 @@ export default function OnboardingV2Screen() {
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    if (!session?.user?.id) {
+      router.replace('/(auth)/sign-in');
+      return;
+    }
+    if (onboardingStatus === 'complete') {
+      router.replace('/(tabs)');
+      return;
+    }
+    if (onboardingStatus === 'unknown') {
+      router.replace('/');
+    }
+  }, [loading, session?.user?.id, onboardingStatus]);
 
   // Load draft: server is source of truth, local cache is fast fallback
   useEffect(() => {
@@ -348,6 +364,14 @@ export default function OnboardingV2Screen() {
       : currentStep > 0 && currentStep < totalSteps - 1
         ? goBack
         : undefined;
+
+  if (loading || !session?.user?.id || onboardingStatus !== 'incomplete') {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
   return (
     <>

@@ -1,6 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { StyleSheet, View, TextInput, Pressable } from 'react-native';
-import * as Linking from 'expo-linking';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Text } from '@/components/Themed';
@@ -9,6 +8,7 @@ import Colors from '@/constants/Colors';
 import { useAuth } from '@/context/AuthContext';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
 import { VibelyButton } from '@/components/ui';
+import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
 
 export default function ResetPasswordScreen() {
   const { session } = useAuth();
@@ -24,10 +24,7 @@ export default function ResetPasswordScreen() {
 
   const hasSession = !!session?.user?.id;
 
-  const redirectTo = useMemo(() => {
-    const url = Linking.createURL('/(auth)/reset-password');
-    return url || 'mobile://(auth)/reset-password';
-  }, []);
+  const redirectTo = getNativePasswordResetRedirectUrl();
 
   const handleRequestReset = async () => {
     if (!email.trim()) return;
@@ -40,7 +37,7 @@ export default function ResetPasswordScreen() {
       setLoading(false);
       return;
     }
-    setMessage('Reset link sent. Open the email link on this device and return here to set a new password.');
+    setMessage('Reset link sent. Open the email link on this device. Vibely will switch this screen into password update mode once the recovery session is ready.');
     setLoading(false);
   };
 
