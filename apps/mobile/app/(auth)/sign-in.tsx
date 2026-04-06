@@ -3,6 +3,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollVie
 import { router, type Href } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Localization from 'expo-localization';
+import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
@@ -55,6 +56,9 @@ type AuthView =
 type Country = { name: string; code: string; flag: string; suggested?: boolean };
 
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
+
+/** Canonical web origin for legal pages (matches `EXPO_PUBLIC_WEB_APP_URL` usage elsewhere). */
+const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
 
 const COUNTRIES: Country[] = [
   { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
@@ -535,6 +539,25 @@ export default function SignInScreen() {
               <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />
             ) : null}
             <Pressable onPress={() => { setView('email_signin'); setError(null); }}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use email instead</Text></Pressable>
+            <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
+              By continuing, you agree to our{' '}
+              <Text
+                accessibilityRole="link"
+                style={[styles.legalLink, { color: theme.tint }]}
+                onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/terms`).catch(() => {})}
+              >
+                Terms
+              </Text>
+              {' and '}
+              <Text
+                accessibilityRole="link"
+                style={[styles.legalLink, { color: theme.tint }]}
+                onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/privacy`).catch(() => {})}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
           </View>
         ) : null}
 
@@ -573,6 +596,25 @@ export default function SignInScreen() {
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Email" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Create account" onPress={handleEmailSignUp} variant="gradient" disabled={loading} />
+            <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
+              By creating an account, you agree to our{' '}
+              <Text
+                accessibilityRole="link"
+                style={[styles.legalLink, { color: theme.tint }]}
+                onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/terms`).catch(() => {})}
+              >
+                Terms
+              </Text>
+              {' and '}
+              <Text
+                accessibilityRole="link"
+                style={[styles.legalLink, { color: theme.tint }]}
+                onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/privacy`).catch(() => {})}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
             <Pressable onPress={() => setView('email_signin')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Already have an account? Sign in</Text></Pressable>
           </View>
         ) : null}
@@ -720,5 +762,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  legalNotice: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  legalLink: {
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
 });
