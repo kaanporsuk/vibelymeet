@@ -1,10 +1,10 @@
 /**
- * Events list screen — web parity: header, location prompt shell, filter bar,
- * featured hero, Live Now / Upcoming rails, empty state, Happening Elsewhere shell.
- * Uses existing useEvents and event-detail navigation; no new backend contracts.
+ * Events list screen — web parity: header, location prompt (in-app save, matching web Events),
+ * filter bar, featured hero, Live Now / Upcoming rails, empty state, Happening Elsewhere shell.
+ * Uses existing discover RPC and event-detail navigation; no new backend contracts.
  */
 
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,6 +15,7 @@ import {
   Image,
   RefreshControl,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,9 +39,8 @@ import {
 } from '@/lib/eventsApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
-import { Linking } from 'react-native';
 import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
 import EventFilterSheet, {
   type EventFilters,
@@ -77,14 +77,16 @@ function isThisWeek(ed: Date, now: Date): boolean {
   return ed <= end && ed >= now;
 }
 
-// ── Location prompt banner: show when profile has no location_data; Enable opens web to set location
+// ── Location prompt banner: show when profile has no location_data; Enable saves GPS + optional country (web Events parity)
 function LocationPromptBanner({
   onDismiss,
   onEnable,
+  enabling,
   theme,
 }: {
   onDismiss: () => void;
   onEnable: () => void;
+  enabling: boolean;
   theme: (typeof Colors)[keyof typeof Colors];
 }) {
   return (
@@ -101,11 +103,15 @@ function LocationPromptBanner({
         </Text>
       </View>
       <View style={locationStyles.actions}>
-        <Pressable onPress={onDismiss} style={locationStyles.ghostBtn}>
-          <Text style={[locationStyles.ghostLabel, { color: theme.textSecondary }]}>Not now</Text>
+        <Pressable onPress={onDismiss} disabled={enabling} style={locationStyles.ghostBtn}>
+          <Text style={[locationStyles.ghostLabel, { color: theme.textSecondary, opacity: enabling ? 0.5 : 1 }]}>Not now</Text>
         </Pressable>
-        <Pressable onPress={onEnable} style={[locationStyles.primaryBtn, { backgroundColor: theme.tint }]}>
-          <Text style={locationStyles.primaryLabel}>Enable</Text>
+        <Pressable
+          onPress={onEnable}
+          disabled={enabling}
+          style={[locationStyles.primaryBtn, { backgroundColor: theme.tint, opacity: enabling ? 0.65 : 1 }]}
+        >
+          <Text style={locationStyles.primaryLabel}>{enabling ? 'Locating…' : 'Enable'}</Text>
         </Pressable>
       </View>
     </View>
@@ -648,6 +654,7 @@ const skeletonStyles = StyleSheet.create({
 export default function EventsListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -659,6 +666,7 @@ export default function EventsListScreen() {
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
+  const [locationEnableLoading, setLocationEnableLoading] = useState(false);
   const { data: profileLocation } = useQuery({
     queryKey: ['profile-location', user?.id],
     queryFn: async () => {
@@ -679,6 +687,63 @@ export default function EventsListScreen() {
   });
   const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
   const showLocationPrompt = !hasLocation;
+
+  const handleEnableProfileLocation = useCallback(async () => {
+    if (!user?.id || locationEnableLoading) return;
+    setLocationEnableLoading(true);
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert(
+          'Location needed',
+          perm.canAskAgain === false
+            ? 'Location is turned off for Vibely. Enable it in Settings to see events near you.'
+            : 'Allow location access to save your area and show nearby events.',
+        );
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+
+      let country: string | null = null;
+      try {
+        const { data: geoData, error: geoErr } = await supabase.functions.invoke('geocode', {
+          body: { lat, lng },
+        });
+        if (!geoErr && geoData && typeof (geoData as { country?: unknown }).country === 'string') {
+          country = (geoData as { country: string }).country;
+        }
+      } catch {
+        /* match web Events: still persist lat/lng if reverse-geocode fails */
+      }
+
+      const { error: upErr } = await supabase
+        .from('profiles')
+        .update({
+          location_data: { lat, lng },
+          ...(country ? { country } : {}),
+        })
+        .eq('id', user.id);
+
+      if (upErr) {
+        if (__DEV__) console.warn('[events] profile location save:', upErr.message);
+        Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
+        return;
+      }
+
+      setUserCoords({ lat, lng });
+      await queryClient.invalidateQueries({ queryKey: ['profile-location', user.id] });
+      await queryClient.invalidateQueries({ queryKey: ['events-discover'] });
+      await queryClient.invalidateQueries({ queryKey: ['other-city-events', user.id] });
+      await queryClient.invalidateQueries({ queryKey: ['next-registered-event'] });
+    } catch (e) {
+      if (__DEV__) console.warn('[events] enable location failed:', e);
+      Alert.alert('Could not get location', 'Check permissions and try again.');
+    } finally {
+      setLocationEnableLoading(false);
+    }
+  }, [user?.id, locationEnableLoading, queryClient]);
 
   useEffect(() => {
     if (userCoords) return;
@@ -846,8 +911,9 @@ export default function EventsListScreen() {
       {showLocationPrompt && !locationDismissed && (
         <LocationPromptBanner
           theme={theme}
+          enabling={locationEnableLoading}
           onDismiss={() => setLocationDismissed(true)}
-          onEnable={() => Linking.openURL('https://vibelymeet.com/profile').catch(() => {})}
+          onEnable={() => void handleEnableProfileLocation()}
         />
       )}
 
