@@ -100,6 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setEntryState(null);
         setEntryStateLoading(false);
       } else if (nextUserId !== previousUserId) {
+        // Clear stale entry state before session/user update so the new user is never
+        // routed using the previous account's resolve_entry_state result.
+        setEntryState(null);
         setEntryStateLoading(true);
       }
       setSession(s);

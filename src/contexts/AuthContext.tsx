@@ -96,6 +96,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (nextUserId !== previousUserId) {
+          // Drop prior user's entry decision immediately so routing cannot use it
+          // while the new session is already active (see currentUserId effect refresh).
+          setEntryState(null);
           setEntryStateLoading(true);
         }
       }
