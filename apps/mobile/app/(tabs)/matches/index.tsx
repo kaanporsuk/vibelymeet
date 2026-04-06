@@ -49,6 +49,7 @@ import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { UnmatchConfirmationSheet } from '@/components/match/UnmatchConfirmationSheet';
 import { SwipeableMatchConversationRow } from '@/components/matches/SwipeableMatchConversationRow';
 import { DropsTabContent } from '@/components/matches/DropsTabContent';
+import { ArchivedMatchesSection } from '@/components/matches/ArchivedMatchesSection';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
@@ -120,6 +121,11 @@ export default function MatchesListScreen() {
   /** Web parity: hide when this user archived (`useMatches` / `useMatches.ts` isArchived). */
   const activeMatches = useMemo(
     () => matches.filter((m) => !(m.archived_at && m.archived_by === user?.id)),
+    [matches, user?.id]
+  );
+  /** Same rule as web `archivedMatches` — data already on each `MatchListItem`; list UI only. */
+  const archivedMatches = useMemo(
+    () => matches.filter((m) => !!m.archived_at && m.archived_by === user?.id),
     [matches, user?.id]
   );
   const [openedVibeIds, setOpenedVibeIds] = useState<Set<string>>(new Set());
@@ -218,7 +224,7 @@ export default function MatchesListScreen() {
     },
   });
   const { blockUser, isUserBlocked, isBlocking } = useBlockUser(user?.id);
-  const { archiveMatch, unarchiveMatch, isArchiving } = useArchiveMatch(user?.id);
+  const { archiveMatch, unarchiveMatch, isArchiving, isUnarchiving } = useArchiveMatch(user?.id);
   const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
   const [actionsMatch, setActionsMatch] = useState<(typeof matches)[0] | null>(null);
   const [reportTarget, setReportTarget] = useState<{ id: string; name: string } | null>(null);
@@ -538,65 +544,6 @@ export default function MatchesListScreen() {
     );
   }
 
-  /** Rows exist but all are hidden for this user (self-archived); avoid main shell + empty list. */
-  if (matches.length > 0 && activeMatches.length === 0 && !isLoading) {
-    const emptySpotlight =
-      spotlightPlacement === 'empty' ? (
-        <RNView style={styles.emptySpotlightWrap}>{renderSpotlightCard()}</RNView>
-      ) : null;
-
-    return (
-      <ScreenContainer>
-        {dialogEl}
-        <GlassHeaderBar skipTopInset style={styles.matchesHeaderBar}>
-          <RNView style={styles.headerTitleRow}>
-            <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.tint} />
-            <RNText style={[styles.headerTitle, { color: theme.text }]}>Matches</RNText>
-          </RNView>
-        </GlassHeaderBar>
-        <ScrollView
-          style={styles.emptyStateScroll}
-          contentContainerStyle={styles.emptyStateScrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching && !isLoading}
-              onRefresh={handleRefresh}
-              tintColor={theme.tint}
-            />
-          }
-        >
-          <EmptyState
-            showIllustration={true}
-            title="No conversations here"
-            message="You've archived all your matches. Pull to refresh after unarchiving, or join an event to meet someone new."
-            actionLabel="Find your next event"
-            onActionPress={() => router.push('/(tabs)/events')}
-          />
-          {emptySpotlight}
-          <Pressable
-            onPress={() => setShowInviteSheet(true)}
-            style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
-          >
-            <Ionicons name="people-outline" size={18} color={theme.tint} />
-            <RNText style={[styles.emptyInviteCtaText, { color: theme.tint }]}>
-              Invite friends to get started
-            </RNText>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/how-it-works' as Href)}
-            style={({ pressed }) => [styles.howItWorksLink, pressed && { opacity: 0.8 }]}
-          >
-            <VibelyText variant="body" style={[styles.howItWorksText, { color: theme.textSecondary }]}>
-              How does Vibely work? →
-            </VibelyText>
-          </Pressable>
-        </ScrollView>
-        <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
-      </ScreenContainer>
-    );
-  }
-
   if (isLoading && !matches.length) {
     return (
       <ScreenContainer>
@@ -827,6 +774,16 @@ export default function MatchesListScreen() {
                 <VibelyText variant="titleSM" style={[styles.searchEmptyTitle, { color: theme.text }]}>No matches found</VibelyText>
                 <VibelyText variant="bodySecondary" style={[styles.searchEmptySub, { color: theme.textSecondary }]}>Try a different search term</VibelyText>
               </RNView>
+            ) : archivedMatches.length > 0 ? (
+              <RNView style={styles.archivedOnlyEmpty}>
+                <Ionicons name="chatbubbles-outline" size={36} color={theme.textSecondary} />
+                <VibelyText variant="titleSM" style={[styles.archivedOnlyTitle, { color: theme.text }]}>
+                  No active conversations
+                </VibelyText>
+                <VibelyText variant="bodySecondary" style={[styles.archivedOnlySub, { color: theme.textSecondary }]}>
+                  Restore a chat from Archived below.
+                </VibelyText>
+              </RNView>
             ) : null
           }
           ListHeaderComponent={
@@ -882,16 +839,25 @@ export default function MatchesListScreen() {
               {spotlightPlacement === 'empty' ? (
                 <RNView style={styles.headerSpotlightWrap}>{renderSpotlightCard()}</RNView>
               ) : null}
-              <RNView style={styles.conversationsDivider}>
-                <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-                <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
-                <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-              </RNView>
+              {regularMatches.length > 0 ? (
+                <RNView style={styles.conversationsDivider}>
+                  <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+                  <RNText style={[styles.conversationsLabel, { color: theme.textSecondary }]}>CONVERSATIONS</RNText>
+                  <RNView style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+                </RNView>
+              ) : null}
             </>
             </RNView>
           }
           ListFooterComponent={
             <RNView onTouchStart={dismissOpenConversationSwipe} style={styles.footerCards}>
+              <ArchivedMatchesSection
+                archivedMatches={archivedMatches}
+                activeConversationCount={activeMatches.length}
+                onOpenChat={(id) => (router as { push: (p: string) => void }).push(`/chat/${id}`)}
+                onRestore={(matchId) => void handleUnarchive(matchId)}
+                restoreDisabled={!!actionLoading || isUnarchiving}
+              />
               {spotlightPlacement === 'footer' ? renderSpotlightCard() : null}
               <Card style={styles.inviteCard}>
                 <SettingsRow
@@ -916,7 +882,7 @@ export default function MatchesListScreen() {
         visible={!!actionsMatch}
         onClose={() => setActionsMatch(null)}
         matchName={actionsMatch?.name ?? ''}
-        isArchived={!!actionsMatch?.archived_at}
+        isArchived={!!actionsMatch?.archived_at && actionsMatch?.archived_by === user?.id}
         isMuted={actionsMatch ? isMatchMuted(actionsMatch.matchId) : false}
         onViewProfile={
           actionsMatch
@@ -1448,5 +1414,22 @@ const styles = StyleSheet.create({
   },
   searchEmptySub: {
     fontSize: 14,
+  },
+  archivedOnlyEmpty: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+    paddingHorizontal: layout.containerPadding,
+  },
+  archivedOnlyTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  archivedOnlySub: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });
