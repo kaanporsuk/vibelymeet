@@ -42,6 +42,11 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
+import {
+  getSettingsAccessDateLine,
+  getSettingsPlanLabel,
+  showSettingsMemberElevated,
+} from "@shared/settingsMembershipDisplay";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { isCurrentEmailVerified } from "@shared/verificationSemantics";
@@ -83,15 +88,20 @@ export const AccountSettingsDrawer = ({
 }: AccountSettingsDrawerProps) => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
-  const { isPremium, tierLabel } = useEntitlements();
+  const { tierId, tierLabel } = useEntitlements();
   const { premiumUntil } = usePremium();
-  const { subscription } = useSubscription();
-  const renewalDate =
-    subscription?.current_period_end
-      ? format(new Date(subscription.current_period_end), "MMM d, yyyy")
-      : premiumUntil
-        ? format(premiumUntil, "MMM d, yyyy")
-        : null;
+  const { subscription, isPremium: hasBillableSubscription } = useSubscription();
+  /** Display-only — @shared/settingsMembershipDisplay (billing row vs tier vs grant). */
+  const membershipDisplay = {
+    tierId,
+    tierLabel,
+    hasBillableSubscription,
+    subscriptionPeriodEndIso: subscription.current_period_end,
+    premiumUntil,
+  };
+  const planLabel = getSettingsPlanLabel(membershipDisplay);
+  const accessDateLine = getSettingsAccessDateLine(membershipDisplay);
+  const showElevatedMembership = showSettingsMemberElevated(membershipDisplay);
   const [accountEmailConfirmed, setAccountEmailConfirmed] = useState(false);
   const [profileEmailVerified, setProfileEmailVerified] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -488,9 +498,15 @@ export const AccountSettingsDrawer = ({
           <button
             type="button"
             onClick={async () => {
-              if (!isPremium) {
+              if (!showElevatedMembership) {
                 onOpenChange(false);
                 navigate("/premium");
+                return;
+              }
+              if (!hasBillableSubscription) {
+                toast.info(
+                  "Billing portal is only available when you have an active subscription on file (e.g. web or app store).",
+                );
                 return;
               }
               setPortalLoading(true);
@@ -509,11 +525,15 @@ export const AccountSettingsDrawer = ({
               <div>
                 <p className="text-sm font-medium text-foreground">Current plan</p>
                 <p className="text-xs text-muted-foreground">
-                  {!isPremium
+                  {!showElevatedMembership
                     ? "Free tier — upgrade anytime"
-                    : renewalDate
-                      ? `${tierLabel} · Renews ${renewalDate}`
-                      : tierLabel}
+                    : accessDateLine
+                      ? `${planLabel} · ${
+                          accessDateLine.kind === "renews"
+                            ? `Renews ${format(new Date(accessDateLine.iso), "MMM d, yyyy")}`
+                            : `Access through ${format(new Date(accessDateLine.iso), "MMM d, yyyy")}`
+                        }`
+                      : planLabel}
                 </p>
               </div>
             </div>
@@ -521,10 +541,10 @@ export const AccountSettingsDrawer = ({
               <span
                 className={cn(
                   "rounded-full px-2 py-0.5 text-[10px] font-bold",
-                  isPremium ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground",
+                  showElevatedMembership ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground",
                 )}
               >
-                {isPremium ? tierLabel : "Free"}
+                {showElevatedMembership ? planLabel : "Free"}
               </span>
               <ChevronRight className="h-4 w-4 text-muted-foreground" />
             </div>

@@ -4,17 +4,40 @@ import { Crown, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSubscription } from "@/hooks/useSubscription";
 import { useEntitlements } from "@/hooks/useEntitlements";
+import { usePremium } from "@/hooks/usePremium";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import {
+  getSettingsAccessDateLine,
+  getSettingsPlanLabel,
+  showSettingsMemberElevated,
+} from "@shared/settingsMembershipDisplay";
 
+/**
+ * Membership DISPLAY only — see @shared/settingsMembershipDisplay for precedence.
+ * Billable state from `subscriptions`; tier label from profiles.subscription_tier; grant dates from premium_until.
+ */
 export const PremiumSettingsCard = () => {
   const navigate = useNavigate();
-  const { isPremium, subscription, isLoading } = useSubscription();
-  const { tierLabel } = useEntitlements();
+  const { isPremium: hasBillableSubscription, subscription, isLoading: subLoading } = useSubscription();
+  const { tierId, tierLabel, isLoading: entLoading } = useEntitlements();
+  const { premiumUntil, isLoading: premLoading } = usePremium();
   const [isLoadingPortal, setIsLoadingPortal] = useState(false);
 
-  if (isLoading) return null;
+  const displayInput = {
+    tierId,
+    tierLabel,
+    hasBillableSubscription,
+    subscriptionPeriodEndIso: subscription.current_period_end,
+    premiumUntil,
+  };
+
+  const planLabel = getSettingsPlanLabel(displayInput);
+  const accessLine = getSettingsAccessDateLine(displayInput);
+  const showElevatedCard = showSettingsMemberElevated(displayInput);
+
+  if (subLoading || entLoading || premLoading) return null;
 
   const handleManageSubscription = async () => {
     setIsLoadingPortal(true);
@@ -29,7 +52,7 @@ export const PremiumSettingsCard = () => {
     window.location.href = data.url;
   };
 
-  if (isPremium) {
+  if (showElevatedCard) {
     return (
       <div className="glass-card p-4 space-y-3">
         <div className="flex items-center gap-3">
@@ -38,29 +61,33 @@ export const PremiumSettingsCard = () => {
           </div>
           <div>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-xs font-semibold">
-              ✦ Vibely {tierLabel}
+              ✦ Vibely {planLabel}
             </span>
-            {subscription.current_period_end && (
+            {accessLine ? (
               <p className="text-xs text-muted-foreground mt-1">
-                Renews {format(new Date(subscription.current_period_end), "MMM d, yyyy")}
+                {accessLine.kind === "renews"
+                  ? `Renews ${format(new Date(accessLine.iso), "MMM d, yyyy")}`
+                  : `Access through ${format(new Date(accessLine.iso), "MMM d, yyyy")}`}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full gap-2"
-          onClick={handleManageSubscription}
-          disabled={isLoadingPortal}
-        >
-          {isLoadingPortal ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <ExternalLink className="w-4 h-4" />
-          )}
-          Manage Subscription
-        </Button>
+        {hasBillableSubscription ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2"
+            onClick={handleManageSubscription}
+            disabled={isLoadingPortal}
+          >
+            {isLoadingPortal ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ExternalLink className="w-4 h-4" />
+            )}
+            Manage Subscription
+          </Button>
+        ) : null}
       </div>
     );
   }

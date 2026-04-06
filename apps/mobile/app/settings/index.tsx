@@ -23,6 +23,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
+import {
+  getSettingsAccessDateLine,
+  getSettingsPlanLabel,
+  showSettingsMemberElevated,
+} from '@shared/settingsMembershipDisplay';
 import Constants from 'expo-constants';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
@@ -35,6 +40,25 @@ function useCredits(userId: string | null | undefined) {
       const { data, error } = await supabase.from('user_credits').select('extra_time_credits, extended_vibe_credits').eq('user_id', userId).maybeSingle();
       if (error) throw error;
       return data;
+    },
+    enabled: !!userId,
+  });
+}
+
+/** Display-only: timed admin grant line when no billable subscription row (parity with web usePremium). */
+function useProfilePremiumUntil(userId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['profile-premium-until', userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('premium_until')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      const raw = data?.premium_until;
+      return raw ? new Date(raw as string) : null;
     },
     enabled: !!userId,
   });
@@ -57,8 +81,20 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
-  const { isPremium, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
-  const { tierLabel } = useEntitlements();
+  const { hasBillableSubscription, currentPeriodEnd, isLoading: subLoading } = useBackendSubscription(user?.id);
+  const { tierId, tierLabel, isLoading: entLoading } = useEntitlements();
+  const { data: premiumUntil, isLoading: premUntilLoading } = useProfilePremiumUntil(user?.id);
+
+  const membershipDisplay = {
+    tierId,
+    tierLabel,
+    hasBillableSubscription,
+    subscriptionPeriodEndIso: currentPeriodEnd,
+    premiumUntil: premiumUntil ?? null,
+  };
+  const planLabel = getSettingsPlanLabel(membershipDisplay);
+  const accessDateLine = getSettingsAccessDateLine(membershipDisplay);
+  const showElevatedCard = showSettingsMemberElevated(membershipDisplay);
   const { data: credits, isLoading: creditsLoading } = useCredits(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused, remainingLabel } = useAccountPauseStatus();
@@ -108,22 +144,26 @@ export default function SettingsScreen() {
         <View style={styles.main}>
           <Text style={[styles.sectionHeader, styles.sectionHeaderFirst, { color: theme.mutedForeground }]}>Account</Text>
           <Card variant="glass" style={styles.navCard}>
-            {!subLoading && isPremium ? (
+            {subLoading || entLoading || premUntilLoading ? null : showElevatedCard ? (
               <View style={styles.premiumCardInner}>
                 <View style={styles.premiumCardRow}>
                   <View style={[styles.premiumIconBox, { backgroundColor: withAlpha(theme.tint, 0.2) }]}>
                     <Ionicons name="sparkles" size={20} color={theme.tint} />
                   </View>
                   <View style={styles.premiumCardText}>
-                    <Text style={[styles.premiumBadge, { color: theme.tint }]}>✦ Vibely {tierLabel}</Text>
-                    {currentPeriodEnd ? (
+                    <Text style={[styles.premiumBadge, { color: theme.tint }]}>✦ Vibely {planLabel}</Text>
+                    {accessDateLine ? (
                       <Text style={[styles.premiumRenew, { color: theme.textSecondary }]}>
-                        Renews {formatDate(currentPeriodEnd)}
+                        {accessDateLine.kind === 'renews'
+                          ? `Renews ${formatDate(accessDateLine.iso)}`
+                          : `Access through ${formatDate(accessDateLine.iso)}`}
                       </Text>
                     ) : null}
                   </View>
                 </View>
-                <VibelyButton label="Manage Subscription" onPress={handleManageSubscription} variant="secondary" size="sm" />
+                {hasBillableSubscription ? (
+                  <VibelyButton label="Manage Subscription" onPress={handleManageSubscription} variant="secondary" size="sm" />
+                ) : null}
               </View>
             ) : (
               <SettingsRow

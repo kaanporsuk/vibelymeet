@@ -41,6 +41,7 @@
     "supabase/functions/_shared/entryState.ts",
     "supabase/functions/_shared/onboardingTypes.ts",
     "supabase/functions/_shared/onboardingCompletion.ts",
-    "supabase/functions/_shared/matching/videoSessionFlow.ts"
+    "supabase/functions/_shared/matching/videoSessionFlow.ts",
+    "supabase/functions/_shared/settingsMembershipDisplay.ts"
   ]
 }

@@ -39,21 +39,31 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
 import { useSubscription } from "@/hooks/useSubscription";
 import { format } from "date-fns";
+import {
+  getSettingsAccessDateLine,
+  getSettingsPlanLabel,
+  showSettingsMemberElevated,
+} from "@shared/settingsMembershipDisplay";
 
 const Settings = () => {
   const navigate = useNavigate();
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { credits } = useCredits();
-  const { isPremium, tierLabel } = useEntitlements();
+  const { tierId, tierLabel } = useEntitlements();
   const { premiumUntil } = usePremium();
-  const { subscription } = useSubscription();
-  const renewalDate =
-    subscription?.current_period_end
-      ? format(new Date(subscription.current_period_end), "MMM d, yyyy")
-      : premiumUntil
-        ? format(premiumUntil, "MMM d, yyyy")
-        : null;
+  const { subscription, isPremium: hasBillableSubscription } = useSubscription();
+  /** Display-only — same precedence as PremiumSettingsCard (@shared/settingsMembershipDisplay). */
+  const membershipDisplay = {
+    tierId,
+    tierLabel,
+    hasBillableSubscription,
+    subscriptionPeriodEndIso: subscription.current_period_end,
+    premiumUntil,
+  };
+  const planLabel = getSettingsPlanLabel(membershipDisplay);
+  const accessDateLine = getSettingsAccessDateLine(membershipDisplay);
+  const showElevatedMembership = showSettingsMemberElevated(membershipDisplay);
 
   const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -116,11 +126,15 @@ const Settings = () => {
               <div className="text-left">
                 <h3 className="font-display font-semibold text-foreground">Video Date Credits</h3>
                 <p className="text-xs text-muted-foreground">
-                  {!isPremium
+                  {!showElevatedMembership
                     ? `${credits.extraTime} Extra Time · ${credits.extendedVibe} Extended Vibe`
-                    : renewalDate
-                      ? `${tierLabel} · Renews ${renewalDate}`
-                      : tierLabel}
+                    : accessDateLine
+                      ? `${planLabel} · ${
+                          accessDateLine.kind === "renews"
+                            ? `Renews ${format(new Date(accessDateLine.iso), "MMM d, yyyy")}`
+                            : `Access through ${format(new Date(accessDateLine.iso), "MMM d, yyyy")}`
+                        }`
+                      : planLabel}
                 </p>
               </div>
             </div>
