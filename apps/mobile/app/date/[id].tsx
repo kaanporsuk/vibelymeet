@@ -204,14 +204,19 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
-    fetchPartnerProfile(sessionId, user.id, (path) => avatarUrl(path, 'avatar')).then((data) => {
-      if (data) {
-        setFullPartner(data.partner);
-        setPartnerId(data.partnerId);
-        setEventId(data.eventId);
-        setIsParticipant1(data.isParticipant1);
+    let cancelled = false;
+    fetchPartnerProfile(sessionId, user.id, (path) => avatarUrl(path, 'avatar')).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setFullPartner(res.partner);
+        setPartnerId(res.partnerId);
+        setEventId(res.eventId);
+        setIsParticipant1(res.isParticipant1);
       }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, user?.id]);
 
   useEffect(() => {
