@@ -52,11 +52,23 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
     }
   }, [value]);
 
-  const maybeEmit = (nextDay: string, nextMonth: string, nextYear: string) => {
+  /**
+   * Keep parent `birthDate` aligned with visible selects:
+   * - incomplete local selection → clear parent if it still holds a prior DOB (avoids draft/UI mismatch)
+   * - complete selection → emit clamped YYYY-MM-DD only then
+   * Incremental entry from empty parent: value is "" so we do not call onChange("") (preserves #277).
+   */
+  const commitSelection = (nextDay: string, nextMonth: string, nextYear: string) => {
     const d = parseInt(nextDay, 10);
     const m = parseInt(nextMonth, 10);
     const y = parseInt(nextYear, 10);
-    if (!d || !m || !y) return;
+    if (!d || !m || !y) {
+      if (value) {
+        lastEmittedRef.current = "";
+        onChange("");
+      }
+      return;
+    }
 
     const safeDay = Math.min(d, daysInMonth(y, m));
     if (safeDay !== d) setDay(String(safeDay));
@@ -67,7 +79,7 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
 
   const handleDayChange = (nextDay: string) => {
     setDay(nextDay);
-    maybeEmit(nextDay, month, year);
+    commitSelection(nextDay, month, year);
   };
 
   const handleMonthChange = (nextMonth: string) => {
@@ -80,7 +92,7 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
     }
     setMonth(nextMonth);
     setDay(nextDay);
-    maybeEmit(nextDay, nextMonth, year);
+    commitSelection(nextDay, nextMonth, year);
   };
 
   const handleYearChange = (nextYear: string) => {
@@ -93,7 +105,7 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
     }
     setYear(nextYear);
     setDay(nextDay);
-    maybeEmit(nextDay, month, nextYear);
+    commitSelection(nextDay, month, nextYear);
   };
 
   const fullIso = useMemo(() => {
