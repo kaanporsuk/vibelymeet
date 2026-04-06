@@ -104,6 +104,7 @@ export function ProtectedRoute({
     if (
       state === 'missing_profile'
       || state === 'suspected_fragmented_identity'
+      || state === 'account_suspended'
       || state === 'hard_error'
     ) {
       if (!isRecoveryRoute) {

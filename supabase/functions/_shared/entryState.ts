@@ -3,7 +3,8 @@
  *
  * The backend RPC is the source of truth. Clients should call resolveEntryState
  * and route off the returned state rather than inferring entry state from
- * profiles.onboarding_complete.
+ * profiles.onboarding_complete. Moderation may return `account_suspended` with
+ * `route_hint` entry_recovery before the user would otherwise be `complete`.
  */
 
 export type EntryState =
@@ -11,6 +12,7 @@ export type EntryState =
   | "incomplete"
   | "missing_profile"
   | "suspected_fragmented_identity"
+  | "account_suspended"
   | "hard_error";
 
 export type EntryStateReasonCode =
@@ -22,6 +24,7 @@ export type EntryStateReasonCode =
   | "fragment_confirmed_email_match"
   | "fragment_verified_email_match"
   | "fragment_multiple_high_confidence_matches"
+  | "account_suspended"
   | "auth_required"
   | "auth_user_missing"
   | "resolver_exception";
@@ -83,6 +86,7 @@ const VALID_STATES = new Set<EntryState>([
   "incomplete",
   "missing_profile",
   "suspected_fragmented_identity",
+  "account_suspended",
   "hard_error",
 ]);
 
@@ -95,6 +99,7 @@ const VALID_REASON_CODES = new Set<EntryStateReasonCode>([
   "fragment_confirmed_email_match",
   "fragment_verified_email_match",
   "fragment_multiple_high_confidence_matches",
+  "account_suspended",
   "auth_required",
   "auth_user_missing",
   "resolver_exception",
@@ -237,6 +242,7 @@ export function isRecoveryEntryState(
   return (
     entryState.state === "missing_profile"
     || entryState.state === "suspected_fragmented_identity"
+    || entryState.state === "account_suspended"
     || entryState.state === "hard_error"
   );
 }
