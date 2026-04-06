@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
 import { LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
+import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useBadgeCount } from '@/lib/useBadgeCount';
 import { useCurrentRouteTracker } from '@/lib/useCurrentRoute';
 import { PostHogProvider, usePostHog } from 'posthog-react-native';
@@ -191,6 +192,13 @@ function BadgeCountUpdater() {
   return null;
 }
 
+/** Events + event_registrations postgres_changes → TanStack invalidation (web `useRealtimeEvents` parity). */
+function EventsRealtimeUpdater() {
+  const { user } = useAuth();
+  useRealtimeEvents(user?.id);
+  return null;
+}
+
 function AuthRedirectHandler() {
   const lastHandledUrlRef = useRef<string | null>(null);
 
@@ -306,6 +314,7 @@ function RootLayoutNav() {
         <ActivityHeartbeat />
         <RevenueCatUserSync />
         <BadgeCountUpdater />
+        <EventsRealtimeUpdater />
         <ChatOutboxRunner />
         <View style={{ flex: 1 }}>
           <View style={{ flex: 1 }}>
