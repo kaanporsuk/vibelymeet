@@ -75,6 +75,8 @@ const VideoDate = () => {
   const phaseRef = useRef<CallPhase>("handshake");
   const sessionIdRef = useRef(id);
   const accessTokenRef = useRef<string | null>(null);
+  // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
+  const canonicalRoomNameRef = useRef<string | null>(null);
 
   const {
     credits,
@@ -95,6 +97,7 @@ const VideoDate = () => {
     endCall,
     toggleMute,
     toggleVideo,
+    getRoomName,
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
@@ -144,11 +147,16 @@ const VideoDate = () => {
       try {
         const { data: session } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name")
           .eq("id", id)
           .maybeSingle();
 
         if (!session) return;
+
+        // Store canonical room name for safe beforeunload cleanup (never reconstructed).
+        if (session.daily_room_name) {
+          canonicalRoomNameRef.current = session.daily_room_name;
+        }
 
         const isP1 = session.participant_1_id === user.id;
         setIsParticipant1(isP1);
@@ -216,9 +224,13 @@ const VideoDate = () => {
     if (!callStarted && id) {
       setCallStarted(true);
       Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
-      startCall(id);
+      startCall(id).then(() => {
+        // After room creation/join, capture canonical name for safe beforeunload cleanup.
+        const name = getRoomName();
+        if (name) canonicalRoomNameRef.current = name;
+      });
     }
-  }, [callStarted, startCall, id]);
+  }, [callStarted, startCall, getRoomName, id]);
 
   // Fetch server-side timing on mount and refresh
   useEffect(() => {
@@ -400,8 +412,10 @@ const VideoDate = () => {
         // video_date_transition(end, beforeunload) sets queue_status = offline on server
       }
 
-      // Best-effort Daily room cleanup (requires JWT when daily-room has verify_jwt = true)
-      if (token) {
+      // Best-effort Daily room cleanup using canonical stored room name (never reconstructed).
+      // canonicalRoomNameRef is populated from video_sessions.daily_room_name on session load.
+      const canonicalRoom = canonicalRoomNameRef.current;
+      if (token && canonicalRoom) {
         const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
         fetch(dailyRoomUrl, {
           method: "POST",
@@ -409,7 +423,7 @@ const VideoDate = () => {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ action: "delete_room", roomName: `date-${id?.replace(/-/g, "")}` }),
+          body: JSON.stringify({ action: "delete_room", roomName: canonicalRoom }),
           keepalive: true,
         });
       }

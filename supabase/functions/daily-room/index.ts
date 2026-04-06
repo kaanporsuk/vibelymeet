@@ -124,16 +124,7 @@ serve(async (req) => {
     const body = await req.json();
     const { action, sessionId, matchId, callType, callId } = body;
 
-    // delete_room can be unauthenticated (called via sendBeacon)
-    if (action === "delete_room") {
-      const roomName = body.roomName;
-      if (roomName) await deleteDailyRoom(roomName);
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // All other actions require auth
+    // All actions require auth
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "No auth header", code: "UNAUTHORIZED" }),
@@ -159,6 +150,66 @@ serve(async (req) => {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         },
+      );
+    }
+
+    // ── ACTION: delete_room ──
+    // Requires auth. Caller must be a verified participant of the room (video_session or match_call).
+    if (action === "delete_room") {
+      const roomName = body.roomName;
+      if (!roomName || typeof roomName !== "string") {
+        return new Response(
+          JSON.stringify({ error: "Missing or invalid roomName", code: "MISSING_ROOM_NAME" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      let authorized = false;
+      let roomType = "unknown";
+
+      // Check video_sessions first
+      const { data: vsRow } = await supabase
+        .from("video_sessions")
+        .select("id, participant_1_id, participant_2_id")
+        .eq("daily_room_name", roomName)
+        .maybeSingle();
+
+      if (vsRow) {
+        authorized = vsRow.participant_1_id === user.id || vsRow.participant_2_id === user.id;
+        roomType = "video_date";
+      } else {
+        // Fall back to match_calls
+        const { data: callRow } = await supabase
+          .from("match_calls")
+          .select("id, caller_id, callee_id")
+          .eq("daily_room_name", roomName)
+          .maybeSingle();
+
+        if (callRow) {
+          authorized = callRow.caller_id === user.id || callRow.callee_id === user.id;
+          roomType = "match_call";
+        }
+      }
+
+      console.log(JSON.stringify({
+        event: "delete_room_attempt",
+        user_id: user.id,
+        room_name: roomName,
+        room_type: roomType,
+        authorized,
+      }));
+
+      if (!authorized) {
+        return new Response(
+          JSON.stringify({ error: "Not authorized to delete this room", code: "FORBIDDEN" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      await deleteDailyRoom(roomName);
+      return new Response(
+        JSON.stringify({ success: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -403,17 +454,18 @@ serve(async (req) => {
     // ── ACTION: answer_match_call ──
     if (action === "answer_match_call") {
       const targetCallId = callId || sessionId;
+
+      // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase
         .from("match_calls")
-        .select("*")
+        .select("id, callee_id, daily_room_name, daily_room_url, status")
         .eq("id", targetCallId)
         .eq("callee_id", user.id)
-        .eq("status", "ringing")
         .maybeSingle();
 
       if (!call) {
         return new Response(
-          JSON.stringify({ error: "Call not found or already answered" }),
+          JSON.stringify({ error: "Call not found or access denied", code: "NOT_FOUND" }),
           {
             status: 404,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -421,11 +473,34 @@ serve(async (req) => {
         );
       }
 
-      const token = await createMeetingToken(
-        call.daily_room_name,
-        user.id,
-        7200
-      );
+      if (call.status !== "ringing") {
+        return new Response(
+          JSON.stringify({ error: "Call is no longer ringing", code: "CALL_NOT_RINGING", status: call.status }),
+          {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      // Issue token before activating: if token creation fails, call stays ringing (no false active).
+      const token = await createMeetingToken(call.daily_room_name, user.id, 7200);
+
+      // Activate via backend RPC — sets started_at = now() server-side with row locking.
+      const { data: transition } = await supabase.rpc("match_call_transition", {
+        p_call_id: call.id,
+        p_action: "answer",
+      });
+
+      if (!transition?.ok) {
+        // Non-fatal: token issued but activation failed (race with missed/declined).
+        // Log and return token anyway — client will see status mismatch via realtime and clean up.
+        console.log(JSON.stringify({
+          event: "answer_match_call_transition_failed",
+          call_id: call.id,
+          transition_code: transition?.code,
+        }));
+      }
 
       return new Response(
         JSON.stringify({
