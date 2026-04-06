@@ -115,10 +115,9 @@ export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
 
     if (activeCallIdRef.current) {
+      // Backend-owned transition: derives duration from started_at server-side.
       supabase
-        .from("match_calls")
-        .update({ status: "ended", ended_at: new Date().toISOString(), duration_seconds: callDuration })
-        .eq("id", activeCallIdRef.current)
+        .rpc("match_call_transition", { p_call_id: activeCallIdRef.current, p_action: "end" })
         .then(() => {});
       activeCallIdRef.current = null;
     }
@@ -132,7 +131,7 @@ export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
     setIsRinging(false);
     setIncomingCall(null);
     onCallEnded?.();
-  }, [stopDurationTimer, callDuration, onCallEnded]);
+  }, [stopDurationTimer, onCallEnded]);
 
   const setupCallEvents = useCallback(
     (callObject: DailyCall, currentCallType: "voice" | "video") => {
@@ -201,14 +200,15 @@ export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
         const local = co.participants().local;
         if (local) attachTracks(local, localVideoRef.current, true);
 
-        // Auto-miss after 30s
+        // Auto-miss after 30s if callee has not joined.
         setTimeout(() => {
           if (!callObjectRef.current) return;
           const remotes = Object.values(callObjectRef.current.participants()).filter((p) => !p.local);
           if (remotes.length === 0 && isRingingRef.current) {
             toast.info("No answer — try again later 💚");
             if (activeCallIdRef.current) {
-              supabase.from("match_calls").update({ status: "missed", ended_at: new Date().toISOString() }).eq("id", activeCallIdRef.current);
+              // Backend-owned: mark_missed validates ringing state with row locking.
+              supabase.rpc("match_call_transition", { p_call_id: activeCallIdRef.current, p_action: "mark_missed" });
             }
             endCall();
           }
@@ -251,7 +251,11 @@ export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
       const local = co.participants().local;
       if (local) attachTracks(local, localVideoRef.current, true);
 
-      await supabase.from("match_calls").update({ status: "active", started_at: new Date().toISOString() }).eq("id", incomingCall.callId);
+      // Backend-owned transition: answer sets status=active, started_at=now() server-side.
+      // Called after token issued and Daily join initiated; already activated inside answer_match_call
+      // Edge Function. This call is a belt-and-suspenders fallback for any answer path not
+      // going through the Edge Function. Idempotent for active state.
+      await supabase.rpc("match_call_transition", { p_call_id: incomingCall.callId, p_action: "answer" });
 
       setIncomingCall(null);
     } catch (error) {
@@ -263,7 +267,8 @@ export const useMatchCall = ({ matchId, onCallEnded }: UseMatchCallOptions) => {
 
   const declineCall = useCallback(async () => {
     if (!incomingCall) return;
-    await supabase.from("match_calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", incomingCall.callId);
+    // Backend-owned: decline validates callee + ringing with row locking.
+    await supabase.rpc("match_call_transition", { p_call_id: incomingCall.callId, p_action: "decline" });
     setIncomingCall(null);
   }, [incomingCall]);
 

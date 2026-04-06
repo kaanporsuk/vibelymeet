@@ -44,19 +44,38 @@ export async function answerMatchCall(callId: string): Promise<AnswerMatchCallRe
   };
 }
 
+/**
+ * Backend-owned lifecycle transition via match_call_transition RPC.
+ * Maps legacy action names to RPC action strings.
+ * Duration and timestamps are derived server-side; client-supplied values ignored.
+ */
 export async function updateMatchCallStatus(
   callId: string,
   status: 'active' | 'ended' | 'declined' | 'missed',
-  extra?: { ended_at?: string; started_at?: string; duration_seconds?: number }
+  _extra?: { ended_at?: string; started_at?: string; duration_seconds?: number }
 ): Promise<void> {
-  const payload: Record<string, unknown> = { status };
-  if (extra?.ended_at) payload.ended_at = extra.ended_at;
-  if (extra?.started_at) payload.started_at = extra.started_at;
-  if (extra?.duration_seconds != null) payload.duration_seconds = extra.duration_seconds;
-  const { error } = await supabase.from('match_calls').update(payload).eq('id', callId);
+  const actionMap: Record<string, string> = {
+    active: 'answer',
+    ended: 'end',
+    declined: 'decline',
+    missed: 'mark_missed',
+  };
+  const action = actionMap[status];
+  if (!action) {
+    if (__DEV__) console.warn('[matchCallApi] updateMatchCallStatus: unknown status', status);
+    return;
+  }
+  const { data, error } = await supabase.rpc('match_call_transition', {
+    p_call_id: callId,
+    p_action: action,
+  });
   if (error) {
-    if (__DEV__) console.warn('[matchCallApi] updateMatchCallStatus failed:', error.message);
-    throw new Error(`Failed to update call status: ${error.message}`);
+    if (__DEV__) console.warn('[matchCallApi] match_call_transition failed:', error.message);
+    throw new Error(`Failed to transition call: ${error.message}`);
+  }
+  const result = data as { ok?: boolean; code?: string } | null;
+  if (result && result.ok === false && __DEV__) {
+    console.warn('[matchCallApi] match_call_transition rejected:', result.code);
   }
 }
 

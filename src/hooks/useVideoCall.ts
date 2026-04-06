@@ -246,5 +246,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     endCall,
     toggleMute,
     toggleVideo,
+    // Stable getter for the canonical room name after startCall succeeds.
+    getRoomName: useCallback(() => roomNameRef.current, []),
   };
 };
