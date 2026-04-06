@@ -46,6 +46,18 @@ function logLifecycle(payload: {
   console.log('lifecycle.stripe_webhook', JSON.stringify(payload))
 }
 
+/** Non-2xx tells Stripe to retry; use only for transient / unknown DB failures (not RPC business `success: false`). */
+function stripeRetryResponse(
+  corsHeaders: Record<string, string>,
+  message: string,
+  extra?: Record<string, unknown>
+) {
+  return new Response(
+    JSON.stringify({ success: false, received: false, error: message, ...extra }),
+    { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  )
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -82,6 +94,9 @@ Deno.serve(async (req) => {
       )
     }
 
+    /** When true, respond 500 so Stripe retries (transient / infra). Not used for RPC `success: false` business outcomes. */
+    let requestStripeRetry = false
+
     switch (event.type) {
 
       case 'checkout.session.completed': {
@@ -111,17 +126,20 @@ Deno.serve(async (req) => {
                 result: 'rpc_error',
                 error_reason: settleError.message,
               })
-            } else {
-              console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
-              logLifecycle({
-                event_id: eventId,
-                user_id: userId,
-                admission_status: pickAdmissionStatus(settleResult),
-                category: 'stripe_event_ticket_settlement',
-                result: pickResultCode(settleResult),
-                error_reason: null,
-              })
+              requestStripeRetry = true
+              break
             }
+            console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
+            const settled = settleResult as { success?: boolean; idempotent?: boolean } | null
+            logLifecycle({
+              event_id: eventId,
+              user_id: userId,
+              admission_status: pickAdmissionStatus(settleResult),
+              category: 'stripe_event_ticket_settlement',
+              result: pickResultCode(settleResult),
+              error_reason: settled?.success === false ? (settled as { code?: string }).code ?? 'business_reject' : null,
+            })
+            // RPC returned JSON with success: false (event closed, tier mismatch, etc.) — final; do not retry.
           } else {
             logLifecycle({
               event_id: eventId ?? null,
@@ -155,6 +173,7 @@ Deno.serve(async (req) => {
             }
             if (idemErr) {
               console.error('stripe_credit_checkout_grants insert error:', idemErr)
+              requestStripeRetry = true
               break
             }
 
@@ -198,6 +217,7 @@ Deno.serve(async (req) => {
                 .from('stripe_credit_checkout_grants')
                 .delete()
                 .eq('checkout_session_id', session.id)
+              requestStripeRetry = true
               break
             }
 
@@ -265,7 +285,7 @@ Deno.serve(async (req) => {
         const subscriptionId = session.subscription as string
         const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
-        await supabase.from('subscriptions').upsert({
+        const { error: subUpsertErr } = await supabase.from('subscriptions').upsert({
           user_id: userId,
           provider: 'stripe',
           stripe_customer_id: session.customer as string,
@@ -276,12 +296,24 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,provider' })
 
+        if (subUpsertErr) {
+          console.error('subscriptions upsert (checkout.session.completed):', subUpsertErr)
+          requestStripeRetry = true
+          break
+        }
+
         const planMeta = (plan || 'premium') as string
         const tier = planMeta.toLowerCase().includes('vip') ? 'vip' : 'premium'
-        await supabase
+        const { error: profileTierErr } = await supabase
           .from('profiles')
           .update({ subscription_tier: tier })
           .eq('id', userId)
+
+        if (profileTierErr) {
+          console.error('profiles subscription_tier update (checkout.session.completed):', profileTierErr)
+          requestStripeRetry = true
+          break
+        }
 
         break
       }
@@ -387,15 +419,23 @@ Deno.serve(async (req) => {
         break
     }
 
+    if (requestStripeRetry) {
+      return stripeRetryResponse(
+        corsHeaders,
+        'checkout_processing_failed',
+        { hint: 'Stripe will retry this webhook; settlement was not acknowledged as complete.' }
+      )
+    }
+
     return new Response(
       JSON.stringify({ success: true, received: true }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    return stripeRetryResponse(
+      corsHeaders,
+      error instanceof Error ? error.message : 'webhook_handler_exception'
     )
   }
 })
