@@ -45,6 +45,7 @@ import { format } from "date-fns";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { isCurrentEmailVerified } from "@shared/verificationSemantics";
+import { LinkedSignInMethods } from "@/components/settings/LinkedSignInMethods";
 
 interface AccountSettingsDrawerProps {
   open: boolean;
@@ -936,6 +937,8 @@ export const AccountSettingsDrawer = ({
               )}
             </AnimatePresence>
           </div>
+
+          <LinkedSignInMethods />
 
           <div className="space-y-2 border-t border-border/50 pt-4">
             <p className="text-xs font-semibold uppercase tracking-wider text-destructive/90">Danger zone</p>
