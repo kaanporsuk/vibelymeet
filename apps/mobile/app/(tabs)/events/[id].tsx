@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, router } from 'expo-router';
 import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +40,11 @@ import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { FLOATING_TAB_BAR_HEIGHT } from '@/constants/tabBarMetrics';
 import { withAlpha } from '@/lib/colorUtils';
 import { deriveEventPhase } from '@/lib/eventPhase';
+import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
+import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
+
+/** Same key as web `EventDetails` (`vibely_phone_nudge_event_dismissed`) for product-consistent dismiss semantics. */
+const EVENT_PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_event_dismissed';
 
 export default function EventDetailScreen() {
   // === ALL HOOKS — must run before any conditional return (Rules of Hooks) ===
@@ -64,6 +70,9 @@ export default function EventDetailScreen() {
   const [phaseClockMs, setPhaseClockMs] = useState(() => Date.now());
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused } = useAccountPauseStatus();
+  const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
+  const [showEventPhoneVerify, setShowEventPhoneVerify] = useState(false);
+  const [eventPhoneInitialE164, setEventPhoneInitialE164] = useState<string | null>(null);
 
   const { data: attendeePreview, isLoading: attendeePreviewLoading } = useEventAttendeePreview(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
@@ -140,6 +149,42 @@ export default function EventDetailScreen() {
       const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
       if (data?.gender) setUserGender(String(data.gender).toLowerCase());
     })();
+  }, [user?.id]);
+
+  const refreshEventPhoneNudgeStatus = useCallback(async () => {
+    if (!user?.id) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('phone_verified, phone_number')
+      .eq('id', user.id)
+      .maybeSingle();
+    const verified = (data as { phone_verified?: boolean } | null)?.phone_verified === true;
+    setEventPhoneInitialE164((data as { phone_number?: string | null } | null)?.phone_number ?? null);
+    setShowEventPhoneNudge(!verified);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setShowEventPhoneNudge(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const dismissed = await AsyncStorage.getItem(EVENT_PHONE_NUDGE_DISMISSED_KEY);
+      if (dismissed === 'true') return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('phone_verified, phone_number')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      const verified = (data as { phone_verified?: boolean } | null)?.phone_verified === true;
+      setEventPhoneInitialE164((data as { phone_number?: string | null } | null)?.phone_number ?? null);
+      setShowEventPhoneNudge(!verified);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   useEffect(() => {
@@ -605,6 +650,23 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
 
+        {showEventPhoneNudge && !hasAdmission && !isCancelled ? (
+          <View style={{ marginBottom: spacing.lg }}>
+            <PhoneVerificationNudge
+              variant="event"
+              onDismiss={async () => {
+                await AsyncStorage.setItem(EVENT_PHONE_NUDGE_DISMISSED_KEY, 'true');
+                setShowEventPhoneNudge(false);
+              }}
+              onVerify={() => setShowEventPhoneVerify(true)}
+              onVerified={() => {
+                void refreshEventPhoneNudgeStatus();
+                setShowEventPhoneVerify(false);
+              }}
+            />
+          </View>
+        ) : null}
+
         <Pressable
           onPress={() => setShowInviteSheet(true)}
           style={({ pressed }) => [styles.inviteFriendsBtn, { opacity: pressed ? 0.85 : 1 }]}
@@ -877,6 +939,16 @@ export default function EventDetailScreen() {
           cover_url: eventCoverUrl(event.cover_image),
           start_time: event.event_date,
           city: eventRow.location_name ?? undefined,
+        }}
+      />
+
+      <PhoneVerificationFlow
+        visible={showEventPhoneVerify}
+        onClose={() => setShowEventPhoneVerify(false)}
+        initialPhoneE164={eventPhoneInitialE164}
+        onVerified={() => {
+          void refreshEventPhoneNudgeStatus();
+          setShowEventPhoneVerify(false);
         }}
       />
     </View>
