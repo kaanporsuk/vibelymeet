@@ -36,9 +36,6 @@ import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission"
 import { differenceInSeconds, differenceInMinutes, differenceInHours, format, startOfDay } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
-import { DeletionRecoveryBanner } from "@/components/settings/DeletionRecoveryBanner";
-import { useDeletionRecovery } from "@/hooks/useDeletionRecovery";
-
 function isToday(date: Date): boolean {
   const now = new Date();
   return (
@@ -99,7 +96,6 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
   useRealtimeEvents();
-  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery();
 
   const [activeSession, setActiveSession] = useState<{
     sessionId: string;
@@ -556,14 +552,6 @@ const Dashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {pendingDeletion && (
-          <DeletionRecoveryBanner
-            scheduledDate={pendingDeletion.scheduled_deletion_at}
-            onCancel={cancelDeletion}
-            isCancelling={isCancelling}
-          />
-        )}
 
         <AnimatePresence>
           {showDashboardPhoneNudge && (

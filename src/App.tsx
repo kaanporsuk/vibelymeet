@@ -55,6 +55,7 @@ import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
+import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -111,6 +112,7 @@ const App = () => (
             <BrowserRouter>
               <PostHogPageTracker />
               <WebOnBreakBanner />
+              <WebPendingDeletionBanner />
               <AppContent />
               <NotificationContainer />
               <NotificationManager />
