@@ -5,6 +5,8 @@
 **Scope:** Live database, RPCs, Edge Functions, storage, RLS, realtime, secrets, migrations, and codebase alignment (web `src/` and native `apps/mobile/`).
 
 > Update 2026-04-06: `public.match_mutes` was later retired after `match_notification_mutes` became the sole canonical per-match mute table. References below to `match_mutes` reflect the historical 2026-03-18 snapshot.
+>
+> Historical note: this document preserves a March 18, 2026 live audit snapshot. For current schema truth, use the latest migrations, live DB state, and `src/integrations/supabase/types.ts`.
 
 ---
 
