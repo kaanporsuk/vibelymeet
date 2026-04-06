@@ -103,6 +103,15 @@ export function useVideoDateSession(
       }
 
       const s = row as unknown as VideoDateSession;
+
+      const isParticipant = userId === s.participant_1_id || userId === s.participant_2_id;
+      if (!isParticipant) {
+        setError("You don't have access to this date.");
+        setSession(null);
+        setPartner(null);
+        return;
+      }
+
       setSession(s);
 
       if (s.ended_at || (s.state === 'ended' || s.phase === 'ended')) {
@@ -388,20 +397,36 @@ export type PartnerProfileData = {
   prompts: { question: string; answer: string }[];
 };
 
+export type FetchPartnerProfileResult =
+  | {
+      ok: true;
+      partnerId: string;
+      eventId: string;
+      isParticipant1: boolean;
+      partner: PartnerProfileData;
+    }
+  | { ok: false; reason: 'not_found' }
+  | { ok: false; reason: 'access_denied'; eventId: string | null };
+
 /** Fetch full partner profile for video date (session + profiles + profile_vibes). */
 export async function fetchPartnerProfile(
   sessionId: string,
   userId: string,
   avatarUrlResolver: (path: string | null) => string
-): Promise<{ partnerId: string; eventId: string; isParticipant1: boolean; partner: PartnerProfileData } | null> {
+): Promise<FetchPartnerProfileResult> {
   const { data: session } = await supabase
     .from('video_sessions')
     .select('participant_1_id, participant_2_id, event_id')
     .eq('id', sessionId)
     .maybeSingle();
-  if (!session) return null;
+  if (!session) return { ok: false, reason: 'not_found' };
 
   const isP1 = session.participant_1_id === userId;
+  const isParticipant = isP1 || session.participant_2_id === userId;
+  if (!isParticipant) {
+    return { ok: false, reason: 'access_denied', eventId: session.event_id ?? null };
+  }
+
   const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
   const { data: profile } = await supabase
@@ -409,7 +434,7 @@ export async function fetchPartnerProfile(
     .select('name, age, avatar_url, photos, about_me, job, location, height_cm, prompts')
     .eq('id', partnerId)
     .maybeSingle();
-  if (!profile) return null;
+  if (!profile) return { ok: false, reason: 'not_found' };
 
   const { data: vibes } = await supabase
     .from('profile_vibes')
@@ -438,6 +463,7 @@ export async function fetchPartnerProfile(
   }
 
   return {
+    ok: true,
     partnerId,
     eventId: session.event_id ?? '',
     isParticipant1: isP1,

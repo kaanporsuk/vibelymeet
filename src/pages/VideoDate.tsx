@@ -27,9 +27,22 @@ import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
+import { Button } from "@/components/ui/button";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
+
+type VideoDateAccess = "loading" | "allowed" | "denied" | "not_found";
+
+function messageForHandshakeFailure(code?: string): string {
+  if (code === "READY_GATE_NOT_READY") {
+    return "Almost there — finish the Ready Gate with your match first.";
+  }
+  if (code === "SESSION_ENDED") {
+    return "This date has already ended.";
+  }
+  return "Could not start your video date. Go back and try again.";
+}
 
 interface PartnerData {
   name: string;
@@ -54,7 +67,11 @@ const VideoDate = () => {
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [serverTimeLoaded, setServerTimeLoaded] = useState(false);
+  const [videoDateAccess, setVideoDateAccess] = useState<VideoDateAccess>("loading");
+  const [deniedEventId, setDeniedEventId] = useState<string | undefined>(undefined);
+  const [timingReady, setTimingReady] = useState(false);
+  const [handshakeStartFailed, setHandshakeStartFailed] = useState(false);
+  const [handshakeFailureCode, setHandshakeFailureCode] = useState<string | undefined>(undefined);
   const [blurAmount, setBlurAmount] = useState(20);
   const [showFeedback, setShowFeedback] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
@@ -113,7 +130,7 @@ const VideoDate = () => {
   });
 
   const reconnection = useReconnection({
-    sessionId: id,
+    sessionId: videoDateAccess === "allowed" ? id : undefined,
     isConnected,
     phase,
     onReconnected: () => {
@@ -139,30 +156,51 @@ const VideoDate = () => {
     return resolvePhotoUrl(path) || null;
   };
 
-  // Fetch partner profile
+  // Load session, enforce participant guard, then resolve partner profile (only when allowed).
   useEffect(() => {
-    if (!id || !user?.id) return;
+    if (!id) {
+      setVideoDateAccess("not_found");
+      return;
+    }
+    if (!user?.id) return;
 
-    const fetchPartner = async () => {
+    let cancelled = false;
+
+    const load = async () => {
+      setVideoDateAccess("loading");
+      setTimingReady(false);
+      setHandshakeStartFailed(false);
+      setHandshakeFailureCode(undefined);
+      setCallStarted(false);
+
       try {
-        const { data: session } = await supabase
+        const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
           .select("participant_1_id, participant_2_id, event_id, daily_room_name")
           .eq("id", id)
           .maybeSingle();
 
-        if (!session) return;
+        if (cancelled) return;
 
-        // Store canonical room name for safe beforeunload cleanup (never reconstructed).
-        if (session.daily_room_name) {
-          canonicalRoomNameRef.current = session.daily_room_name;
+        if (sessionErr || !sessionRow) {
+          setVideoDateAccess("not_found");
+          return;
         }
 
-        const isP1 = session.participant_1_id === user.id;
-        setIsParticipant1(isP1);
-        setEventId(session.event_id);
+        const isP1 = sessionRow.participant_1_id === user.id;
+        const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
+        if (!isParticipant) {
+          setDeniedEventId(sessionRow.event_id ?? undefined);
+          setVideoDateAccess("denied");
+          return;
+        }
 
-        const pId = isP1 ? session.participant_2_id : session.participant_1_id;
+        if (sessionRow.daily_room_name) {
+          canonicalRoomNameRef.current = sessionRow.daily_room_name;
+        }
+        setIsParticipant1(isP1);
+        setEventId(sessionRow.event_id);
+        const pId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
         setPartnerId(pId);
 
         const { data: profile } = await supabase
@@ -170,6 +208,8 @@ const VideoDate = () => {
           .select("name, age, avatar_url, photos, about_me, job, location, height_cm, prompts")
           .eq("id", pId)
           .maybeSingle();
+
+        if (cancelled) return;
 
         if (profile) {
           const { data: vibes } = await supabase
@@ -187,15 +227,14 @@ const VideoDate = () => {
             }));
           }
 
-          // Resolve photo URLs
           const photoArr = (profile.photos as string[]) || [];
           const primaryPath = photoArr[0] || profile.avatar_url;
           const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
           setPartnerPhotoUrl(resolvedUrl);
 
-          // Resolve all photo URLs for the profile sheet
-          const resolvedPhotos: string[] = photoArr.slice(0, 6)
-            .map(p => resolvePhoto(p))
+          const resolvedPhotos: string[] = photoArr
+            .slice(0, 6)
+            .map((p) => resolvePhoto(p))
             .filter(Boolean) as string[];
 
           setPartner({
@@ -211,75 +250,141 @@ const VideoDate = () => {
             prompts,
           });
         }
+
+        if (!cancelled) {
+          setVideoDateAccess("allowed");
+        }
       } catch (err) {
-        console.error("Error fetching partner:", err);
+        console.error("Error loading video date session:", err);
+        if (!cancelled) {
+          setVideoDateAccess("not_found");
+        }
       }
     };
 
-    fetchPartner();
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, user?.id]);
 
-  // Auto-start call
+  // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {
-    if (!callStarted && id) {
-      setCallStarted(true);
-      Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
-      startCall(id).then(() => {
-        // After room creation/join, capture canonical name for safe beforeunload cleanup.
-        const name = getRoomName();
-        if (name) canonicalRoomNameRef.current = name;
-      });
-    }
-  }, [callStarted, startCall, getRoomName, id]);
+    if (!id || videoDateAccess !== "allowed") return;
 
-  // Fetch server-side timing on mount and refresh
-  useEffect(() => {
-    if (!id) return;
+    let cancelled = false;
 
     const fetchTiming = async () => {
-      const { data } = await supabase
+      setTimingReady(false);
+      setHandshakeStartFailed(false);
+      setHandshakeFailureCode(undefined);
+
+      const { data, error } = await supabase
         .from("video_sessions")
         .select("handshake_started_at, date_started_at, phase, state, ended_at")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
-      if (!data) {
-        // Fallback: use frontend-only timer
-        setTimeLeft(HANDSHAKE_TIME);
-        setServerTimeLoaded(true);
+      if (cancelled) return;
+
+      if (error || !data) {
+        setHandshakeStartFailed(true);
+        setHandshakeFailureCode(undefined);
+        setTimeLeft(null);
+        setTimingReady(true);
         return;
       }
 
       const now = Date.now();
 
-      if (data.ended_at || (data.state as any) === "ended" || data.phase === "ended") {
+      if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         setPhase("ended");
         setTimeLeft(0);
-        setServerTimeLoaded(true);
+        setTimingReady(true);
         return;
       }
 
-      if (((data.state as any) === "date" || data.phase === "date") && data.date_started_at) {
+      if (((data.state as string) === "date" || data.phase === "date") && data.date_started_at) {
         const elapsed = (now - new Date(data.date_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
         setPhase("date");
-      } else if (data.handshake_started_at) {
+        setTimingReady(true);
+        return;
+      }
+
+      if (data.handshake_started_at) {
         const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed)));
-      } else {
-        // No server timestamp yet — set it via server-owned transition
-        await supabase.rpc("video_date_transition", { p_session_id: id, p_action: "enter_handshake" });
-        setTimeLeft(HANDSHAKE_TIME);
+        setTimingReady(true);
+        return;
       }
-      setServerTimeLoaded(true);
+
+      const { data: rpcData, error: rpcErr } = await supabase.rpc("video_date_transition", {
+        p_session_id: id,
+        p_action: "enter_handshake",
+      });
+
+      if (cancelled) return;
+
+      if (rpcErr) {
+        console.error("enter_handshake RPC error:", rpcErr);
+        captureSupabaseError("video_date_enter_handshake", rpcErr);
+        setHandshakeStartFailed(true);
+        setHandshakeFailureCode(undefined);
+        setTimeLeft(null);
+        setTimingReady(true);
+        return;
+      }
+
+      const payload = rpcData as { success?: boolean; code?: string } | null;
+      if (payload && payload.success === false) {
+        setHandshakeStartFailed(true);
+        setHandshakeFailureCode(payload.code);
+        setTimeLeft(null);
+        setTimingReady(true);
+        return;
+      }
+
+      setHandshakeStartFailed(false);
+      setTimeLeft(HANDSHAKE_TIME);
+      setTimingReady(true);
     };
 
-    fetchTiming();
-  }, [id]);
+    void fetchTiming();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, videoDateAccess]);
+
+  // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
+  useEffect(() => {
+    if (!id) return;
+    if (videoDateAccess !== "allowed" || !timingReady || handshakeStartFailed) return;
+    if (phase === "ended") return;
+    if (callStarted) return;
+
+    setCallStarted(true);
+    Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
+    startCall(id).then(() => {
+      const name = getRoomName();
+      if (name) canonicalRoomNameRef.current = name;
+    });
+  }, [
+    id,
+    videoDateAccess,
+    timingReady,
+    handshakeStartFailed,
+    phase,
+    callStarted,
+    startCall,
+    getRoomName,
+  ]);
 
   // Subscribe to phase changes via Realtime
   useEffect(() => {
-    if (!id) return;
+    if (!id || videoDateAccess !== "allowed") return;
 
     const channel = supabase
       .channel(`session-timer-${id}`)
@@ -320,7 +425,7 @@ const VideoDate = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id]);
+  }, [id, videoDateAccess]);
 
   // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
@@ -386,7 +491,7 @@ const VideoDate = () => {
 
   // Beforeunload — warn user and cleanup via keepalive fetch
   useEffect(() => {
-    if (!id || !user?.id) return;
+    if (!id || !user?.id || videoDateAccess !== "allowed") return;
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isConnected) {
@@ -438,7 +543,7 @@ const VideoDate = () => {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [id, user?.id, eventId, isConnected]);
+  }, [id, user?.id, eventId, isConnected, videoDateAccess]);
 
   // Record user's vibe
   const handleUserVibe = useCallback(async () => {
@@ -533,6 +638,80 @@ const VideoDate = () => {
 
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
+
+  if (!id || videoDateAccess === "not_found") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
+        <User className="w-14 h-14 text-muted-foreground" />
+        <h1 className="text-xl font-display font-semibold">We couldn&apos;t open this date</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          This link may be invalid or the session no longer exists.
+        </p>
+        <Button type="button" onClick={() => navigate("/events")}>
+          Back to events
+        </Button>
+      </div>
+    );
+  }
+
+  if (!user?.id) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (videoDateAccess === "loading") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
+        <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <p className="text-sm text-muted-foreground">Loading your date…</p>
+      </div>
+    );
+  }
+
+  if (videoDateAccess === "denied") {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
+        <User className="w-14 h-14 text-muted-foreground" />
+        <h1 className="text-xl font-display font-semibold">You don&apos;t have access to this date</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          This video date is for matched participants only.
+        </p>
+        <Button
+          type="button"
+          onClick={() =>
+            deniedEventId
+              ? navigate(`/event/${encodeURIComponent(deniedEventId)}/lobby`)
+              : navigate("/events")
+          }
+        >
+          {deniedEventId ? "Back to event lobby" : "Back to events"}
+        </Button>
+      </div>
+    );
+  }
+
+  if (handshakeStartFailed) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
+        <User className="w-14 h-14 text-muted-foreground" />
+        <h1 className="text-xl font-display font-semibold">Video date couldn&apos;t start</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">{messageForHandshakeFailure(handshakeFailureCode)}</p>
+        <Button
+          type="button"
+          onClick={() =>
+            eventId
+              ? navigate(`/event/${encodeURIComponent(eventId)}/lobby`)
+              : navigate("/events")
+          }
+        >
+          {eventId ? "Back to event lobby" : "Back to events"}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
