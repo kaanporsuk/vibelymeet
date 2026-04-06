@@ -138,11 +138,13 @@ function RootLayout() {
 function PostHogScreenTracker() {
   const pathname = usePathname();
   const posthog = usePostHog();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
     if (posthog) setPostHogClient(posthog);
     if (!posthog) return;
+    // Avoid reset/identify while session is still hydrating (cold start).
+    if (authLoading) return;
     if (!user?.id) {
       resetAnalytics();
       return;
@@ -151,7 +153,7 @@ function PostHogScreenTracker() {
       email: user.email ?? null,
       created_at: user.created_at ?? null,
     });
-  }, [posthog, user?.id, user?.email, user?.created_at]);
+  }, [posthog, authLoading, user?.id, user?.email, user?.created_at]);
 
   useEffect(() => {
     if (pathname && posthog) {

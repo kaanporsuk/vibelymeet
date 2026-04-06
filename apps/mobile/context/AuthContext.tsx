@@ -119,12 +119,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sentry user context — parity with web `useAppBootstrap` (stable session user id only).
   useEffect(() => {
+    if (loading) return;
     if (!currentUserId) {
       Sentry.setUser(null);
       return;
     }
     Sentry.setUser({ id: currentUserId });
-  }, [currentUserId]);
+  }, [loading, currentUserId]);
 
   useEffect(() => {
     if (currentUserId) {
