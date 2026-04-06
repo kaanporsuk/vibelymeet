@@ -30,9 +30,10 @@ import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
 import SupportInbox from "@/components/admin/SupportInbox";
 import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
 import AdminTierConfigPanel from "@/components/admin/AdminTierConfigPanel";
+import { AdminGhostBootstrapPanel } from "@/components/admin/AdminGhostBootstrapPanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -130,6 +131,7 @@ const AdminDashboard = () => {
                 {activePanel === 'feedback' && 'Legacy feedback'}
                 {activePanel === 'support' && 'Support inbox'}
                 {activePanel === 'tier-config' && 'Tier configuration'}
+                {activePanel === 'ghost-bootstrap' && 'Ghost Bootstrap Accounts'}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {activePanel === 'overview' && 'Real-time platform analytics'}
@@ -212,6 +214,7 @@ const AdminDashboard = () => {
           {activePanel === 'feedback' && <AdminFeedbackPanel />}
           {activePanel === 'support' && <SupportInbox />}
           {activePanel === 'tier-config' && <AdminTierConfigPanel />}
+          {activePanel === 'ghost-bootstrap' && <AdminGhostBootstrapPanel />}
         </main>
       </div>
 
