@@ -132,7 +132,10 @@ export type OneSignalTagsInput = {
   userId: string;
   onboardingComplete?: boolean;
   hasPhotos?: boolean;
+  /** True when billable sub active/trialing OR profiles.is_premium (see useBackendSubscription). */
   isPremium?: boolean;
+  /** profiles.subscription_tier (free | premium | vip) via useEntitlements tierId. */
+  subscriptionTier?: string | null;
   city?: string | null;
   signupDate?: string | null; // YYYY-MM-DD or ISO string (we take date part)
 };
@@ -148,11 +151,14 @@ export function setOneSignalTags(input: OneSignalTagsInput): void {
       input.signupDate != null
         ? (input.signupDate.includes('T') ? input.signupDate.split('T')[0] : input.signupDate)
         : '';
+    const tier =
+      (input.subscriptionTier ?? '').toString().trim().toLowerCase() || 'free';
     const tags: Record<string, string> = {
       user_id: input.userId,
       onboarding_complete: input.onboardingComplete === true ? 'true' : 'false',
       has_photos: input.hasPhotos === true ? 'true' : 'false',
       is_premium: input.isPremium === true ? 'true' : 'false',
+      subscription_tier: tier,
       city: (input.city ?? '').toString().trim(),
       signup_date: signupDate,
     };

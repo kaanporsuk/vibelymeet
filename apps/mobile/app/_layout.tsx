@@ -34,7 +34,9 @@ import { NotificationPauseForeground } from '@/components/NotificationPauseForeg
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
 import { connectivityService } from '@/lib/connectivityService';
-import { identifyUser, resetAnalytics, setPostHogClient } from '@/lib/analytics';
+import { identifyUser, resetAnalytics, setPostHogClient, setUserProperties } from '@/lib/analytics';
+import { useEntitlements } from '@/hooks/useEntitlements';
+import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { initRevenueCat, isRevenueCatConfigured, setRevenueCatUserId } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
@@ -140,6 +142,8 @@ function PostHogScreenTracker() {
   const pathname = usePathname();
   const posthog = usePostHog();
   const { user, loading: authLoading } = useAuth();
+  const { tierId, isLoading: entLoading } = useEntitlements();
+  const { isPremium, isLoading: subLoading } = useBackendSubscription(user?.id);
 
   useEffect(() => {
     if (posthog) setPostHogClient(posthog);
@@ -155,6 +159,16 @@ function PostHogScreenTracker() {
       created_at: user.created_at ?? null,
     });
   }, [posthog, authLoading, user?.id, user?.email, user?.created_at]);
+
+  // Premium person props — parity with web `useAppBootstrap` → PostHog `is_premium` + `subscription_tier`.
+  useEffect(() => {
+    if (!posthog || authLoading || !user?.id) return;
+    if (entLoading || subLoading) return;
+    setUserProperties({
+      is_premium: isPremium,
+      subscription_tier: tierId,
+    });
+  }, [posthog, authLoading, user?.id, entLoading, subLoading, isPremium, tierId]);
 
   useEffect(() => {
     if (pathname && posthog) {
