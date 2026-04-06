@@ -147,7 +147,12 @@ AS $$
           THEN collision_type || ' (' || collision_count::text || ')'
           ELSE NULL
         END
-        ORDER BY collision_type || ' (' || collision_count::text || ')'
+        ORDER BY
+          CASE
+            WHEN collision_type IS NOT NULL
+            THEN collision_type || ' (' || collision_count::text || ')'
+            ELSE NULL
+          END
       ) FILTER (WHERE collision_type IS NOT NULL) as collision_hints
     FROM activity_counts ac
     LEFT JOIN LATERAL (
