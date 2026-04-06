@@ -98,7 +98,7 @@ serve(async (req) => {
             ? `${row.event_title} starts soon. You’re still on the waitlist, so keep an eye on the event page for status updates.`
             : `${row.event_title} is about to begin. You’re still on the waitlist, so keep an eye on the event page for status updates.`;
 
-        const { error: invokeError } = await supabase.functions.invoke(
+        const { data: notifyResult, error: invokeError } = await supabase.functions.invoke(
           "send-notification",
           {
             body: {
@@ -129,6 +129,38 @@ serve(async (req) => {
             category: row.reminder_type,
             result: "delivery_error",
             error_reason: invokeError.message,
+          });
+          await supabase
+            .from("event_reminder_queue")
+            .update({ sent_at: null })
+            .eq("id", row.id);
+          continue;
+        }
+
+        const notifyOk =
+          notifyResult &&
+          typeof notifyResult === "object" &&
+          (notifyResult as { success?: boolean }).success !== false;
+        if (!notifyOk) {
+          const reason =
+            notifyResult &&
+            typeof notifyResult === "object" &&
+            typeof (notifyResult as { reason?: string }).reason === "string"
+              ? (notifyResult as { reason: string }).reason
+              : "send_notification_failed";
+          console.error(
+            "send-notification logical failure for",
+            row.id,
+            notifyResult,
+          );
+          logLifecycle({
+            event_id: row.event_id,
+            user_id: row.profile_id,
+            admission_status: admissionStatus,
+            queue_id: row.id,
+            category: row.reminder_type,
+            result: "delivery_error",
+            error_reason: reason,
           });
           await supabase
             .from("event_reminder_queue")

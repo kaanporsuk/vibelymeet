@@ -596,18 +596,29 @@ Deno.serve(async (req) => {
       /* non-JSON body */
     }
     console.log('OneSignal:', osResponse.status, notificationId || 'no-id')
-    if (osResponse.ok) {
-      emitLifecycle('delivered', null)
-    } else {
-      emitLifecycle('delivery_error', `onesignal_http_${osResponse.status}`)
+    if (!osResponse.ok) {
+      const errSnippet =
+        osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
+      const suppressed = `onesignal_http_${osResponse.status}`
+      emitLifecycle('delivery_error', suppressed)
+      await logNotification(user_id, category, finalTitle, finalBody, data, false, suppressed)
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: 'onesignal_error',
+          status: osResponse.status,
+          detail: errSnippet || undefined,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
     }
 
-    // 12. Log success
+    emitLifecycle('delivered', null)
     await logNotification(user_id, category, finalTitle, finalBody, data, true)
 
     return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: true, onesignal_id: notificationId ?? null }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error) {
     emitLifecycle('error', error?.message || 'internal_error')

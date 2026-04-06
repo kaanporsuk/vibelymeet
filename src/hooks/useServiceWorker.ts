@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
  * Legacy helpers for scheduling/showing notifications via a custom service worker.
  * We no longer register public/sw.js — OneSignal owns the root-scoped worker (OneSignalSDK.sw.js)
  * for web push. These APIs remain as no-ops when there is no custom registration; callers
- * (usePushNotifications, useEventReminders) fall back to localStorage + window.Notification.
+ * (e.g. usePushNotifications) should not rely on custom SW scheduling.
  */
 export function useServiceWorker() {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);

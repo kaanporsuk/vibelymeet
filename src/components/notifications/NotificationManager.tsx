@@ -1,26 +1,24 @@
-import { useEffect } from "react";
-import { useUserProfile } from "@/contexts/AuthContext";
-import { useEventReminders } from "@/hooks/useEventReminders";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useEffect } from 'react';
+import { useUserProfile } from '@/contexts/AuthContext';
+import { useEventReminders } from '@/hooks/useEventReminders';
 
 /**
- * Background notification manager that handles:
- * - Event reminders (30 min before registered events)
- * - Date reminders
- * 
- * Daily Drop notifications are now handled server-side via generate-daily-drops.
+ * Lightweight hook host for upcoming registered events (debug / future UI).
+ * Event push reminders are server-driven (`event-reminders` → `send-notification`).
  */
 export function NotificationManager() {
   const { user } = useUserProfile();
-  const { permission, isGranted } = usePushNotifications();
-  const { registeredEvents, scheduledCount } = useEventReminders();
+  const { registeredEvents } = useEventReminders();
 
   useEffect(() => {
-    if (!user || !isGranted) return;
-    
-    console.log('[NotificationManager] Active event reminders:', scheduledCount);
-    console.log('[NotificationManager] Registered upcoming events:', registeredEvents.length);
-  }, [user, isGranted, scheduledCount, registeredEvents.length]);
+    if (!user) return;
+    if (import.meta.env.DEV) {
+      console.log(
+        '[NotificationManager] Upcoming registered events (server handles reminders):',
+        registeredEvents.length,
+      );
+    }
+  }, [user, registeredEvents.length]);
 
   return null;
 }
