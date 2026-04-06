@@ -101,26 +101,34 @@ AS $$
       GROUP BY sender_id
     ) msg_count ON pc.id = msg_count.sender_id
     LEFT JOIN (
-      SELECT
-        CASE WHEN profile_id_1 = pc.id THEN profile_id_1 ELSE profile_id_2 END as profile_id,
-        COUNT(*) as cnt
-      FROM public.matches
-      WHERE matched_at > now() - interval '30 days'
-      GROUP BY CASE WHEN profile_id_1 = pc.id THEN profile_id_1 ELSE profile_id_2 END
+      SELECT participant_id as profile_id, COUNT(*) as cnt
+      FROM (
+        SELECT profile_id_1 as participant_id
+        FROM public.matches
+        WHERE matched_at > now() - interval '30 days'
+
+        UNION ALL
+
+        SELECT profile_id_2 as participant_id
+        FROM public.matches
+        WHERE matched_at > now() - interval '30 days'
+      ) match_participants
+      GROUP BY participant_id
     ) match_count ON pc.id = match_count.profile_id
     LEFT JOIN (
-      SELECT
-        CASE
-          WHEN participant_1_id = pc.id THEN participant_1_id
-          ELSE participant_2_id
-        END as participant_id,
-        COUNT(*) as cnt
-      FROM public.video_sessions
-      WHERE started_at > now() - interval '30 days'
-      GROUP BY CASE
-          WHEN participant_1_id = pc.id THEN participant_1_id
-          ELSE participant_2_id
-        END
+      SELECT participant_id, COUNT(*) as cnt
+      FROM (
+        SELECT participant_1_id as participant_id
+        FROM public.video_sessions
+        WHERE started_at > now() - interval '30 days'
+
+        UNION ALL
+
+        SELECT participant_2_id as participant_id
+        FROM public.video_sessions
+        WHERE started_at > now() - interval '30 days'
+      ) video_participants
+      GROUP BY participant_id
     ) video_count ON pc.id = video_count.participant_id
     LEFT JOIN (
       SELECT profile_id, COUNT(*) as cnt
