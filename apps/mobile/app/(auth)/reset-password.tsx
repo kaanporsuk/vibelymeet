@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View, TextInput, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as WebBrowser from 'expo-web-browser';
 import { router } from 'expo-router';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -9,6 +10,8 @@ import { useAuth } from '@/context/AuthContext';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
 import { VibelyButton } from '@/components/ui';
 import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
+
+const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
 
 export default function ResetPasswordScreen() {
   const { session } = useAuth();
@@ -112,6 +115,26 @@ export default function ResetPasswordScreen() {
       {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
       {message ? <Text style={[styles.success, { color: theme.tint }]}>{message}</Text> : null}
 
+      <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
+        By continuing, you agree to our{' '}
+        <Text
+          accessibilityRole="link"
+          style={[styles.legalLink, { color: theme.tint }]}
+          onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/terms`).catch(() => {})}
+        >
+          Terms
+        </Text>
+        {' and '}
+        <Text
+          accessibilityRole="link"
+          style={[styles.legalLink, { color: theme.tint }]}
+          onPress={() => void WebBrowser.openBrowserAsync(`${WEB_APP_ORIGIN}/privacy`).catch(() => {})}
+        >
+          Privacy Policy
+        </Text>
+        .
+      </Text>
+
       <Pressable onPress={() => router.replace('/(auth)/sign-in')} style={{ marginTop: 18 }}>
         <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Back to sign in</Text>
       </Pressable>
@@ -132,4 +155,15 @@ const styles = StyleSheet.create({
   },
   error: { fontSize: 13, marginTop: 10 },
   success: { fontSize: 13, marginTop: 10 },
+  legalNotice: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  legalLink: {
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
 });
