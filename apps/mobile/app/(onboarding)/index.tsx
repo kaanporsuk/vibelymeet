@@ -85,6 +85,7 @@ export default function OnboardingV2Screen() {
       !entryState
       || entryState.state === 'missing_profile'
       || entryState.state === 'suspected_fragmented_identity'
+      || entryState.state === 'account_suspended'
       || entryState.state === 'hard_error'
     ) {
       router.replace(ENTRY_RECOVERY_HREF);

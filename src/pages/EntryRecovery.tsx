@@ -25,6 +25,14 @@ function getRecoveryCopy(state: string) {
         primaryLabel: "Retry setup check",
         secondaryLabel: "Sign out",
       };
+    case "account_suspended":
+      return {
+        title: "Account restricted",
+        description:
+          "This account has been suspended. Contact support if you think this is a mistake. You can sign out or check again after your account is restored.",
+        primaryLabel: "Check again",
+        secondaryLabel: "Sign out",
+      };
     default:
       return {
         title: "We couldn't verify your account right now",
@@ -51,6 +59,7 @@ const EntryRecovery = () => {
     if (
       entryState.state !== "missing_profile"
       && entryState.state !== "suspected_fragmented_identity"
+      && entryState.state !== "account_suspended"
       && entryState.state !== "hard_error"
     ) {
       navigate(entryState.route_hint === "app" ? "/home" : "/onboarding", { replace: true });

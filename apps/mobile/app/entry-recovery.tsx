@@ -28,6 +28,14 @@ function getRecoveryCopy(state: string) {
         primaryLabel: 'Retry setup check',
         secondaryLabel: 'Sign out',
       };
+    case 'account_suspended':
+      return {
+        title: 'Account restricted',
+        description:
+          'This account has been suspended. Contact support if you think this is a mistake. You can sign out or check again after your account is restored.',
+        primaryLabel: 'Check again',
+        secondaryLabel: 'Sign out',
+      };
     default:
       return {
         title: "We couldn't verify your account right now",
