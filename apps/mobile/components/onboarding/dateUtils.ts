@@ -6,10 +6,12 @@ export interface DateParts {
 
 export function parseDateParts(value: string): DateParts | null {
   if (!value) return null;
-  const parts = value.slice(0, 10).split('-').map(Number);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parts = value.split('-').map(Number);
   if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
   const [year, month, day] = parts;
   if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  if (day > daysInMonth(year, month)) return null;
   return { year, month, day };
 }
 
