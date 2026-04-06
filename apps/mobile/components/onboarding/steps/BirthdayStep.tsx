@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
@@ -43,6 +43,7 @@ export default function BirthdayStep({
   const month = selectedMonth;
   const year = selectedYear;
   const [activePicker, setActivePicker] = useState<PickerType>(null);
+  const lastEmittedRef = useRef('');
   const years = useMemo(() => {
     const max = new Date().getFullYear() - 18;
     const out: number[] = [];
@@ -51,30 +52,34 @@ export default function BirthdayStep({
   }, []);
   const fullDateValue =
     day && month && year
-      ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      ? formatIsoDate({ year, month, day: Math.min(day, daysInMonth(year, month)) })
       : '';
   const age = calculateAgeFromIsoDate(fullDateValue || value);
 
   useEffect(() => {
+    if (!value) {
+      if (lastEmittedRef.current) {
+        setSelectedDay(0);
+        setSelectedMonth(0);
+        setSelectedYear(0);
+        lastEmittedRef.current = '';
+      }
+      return;
+    }
     const next = parseDateParts(value);
-    setSelectedDay(next?.day ?? 0);
-    setSelectedMonth(next?.month ?? 0);
-    setSelectedYear(next?.year ?? 0);
+    if (!next) return;
+    setSelectedDay(next.day);
+    setSelectedMonth(next.month);
+    setSelectedYear(next.year);
   }, [value]);
 
   const commitDate = (d: number, m: number, y: number) => {
-    if (!d || !m || !y) {
-      onChange('');
-      return;
-    }
+    if (!d || !m || !y) return;
     const maxDay = daysInMonth(y, m);
     const safeDay = Math.min(d, maxDay);
-    const candidate = new Date(y, m - 1, safeDay);
-    if (candidate.getDate() !== safeDay || candidate.getMonth() !== m - 1 || candidate.getFullYear() !== y) {
-      onChange('');
-      return;
-    }
-    onChange(formatIsoDate({ year: y, month: m, day: safeDay }));
+    const iso = formatIsoDate({ year: y, month: m, day: safeDay });
+    lastEmittedRef.current = iso;
+    onChange(iso);
   };
 
   const applySelection = (next: { day?: number; month?: number; year?: number }) => {

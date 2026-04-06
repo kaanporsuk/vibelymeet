@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   calculateAgeFromIsoDate,
@@ -20,38 +20,91 @@ const MONTHS = [
 ];
 
 export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: BirthdayStepProps) => {
-  const parsed = useMemo(() => {
-    const p = parseDateParts(value);
-    if (!p) return { day: "", month: "", year: "" };
-    return {
-      day: String(p.day),
-      month: String(p.month),
-      year: String(p.year),
-    };
-  }, [value]);
-
-  const age = useMemo(() => calculateAgeFromIsoDate(value), [value]);
+  const [day, setDay] = useState(() => {
+    const initial = parseDateParts(value);
+    return initial ? String(initial.day) : "";
+  });
+  const [month, setMonth] = useState(() => {
+    const initial = parseDateParts(value);
+    return initial ? String(initial.month) : "";
+  });
+  const [year, setYear] = useState(() => {
+    const initial = parseDateParts(value);
+    return initial ? String(initial.year) : "";
+  });
+  const lastEmittedRef = useRef<string>("");
   const currentYear = new Date().getFullYear();
 
-  const setDate = (day: string, month: string, year: string) => {
+  useEffect(() => {
+    const parsed = parseDateParts(value);
+    if (parsed) {
+      setDay(String(parsed.day));
+      setMonth(String(parsed.month));
+      setYear(String(parsed.year));
+      return;
+    }
+    // Only clear local state when parent clears a value we emitted.
+    if (!value && lastEmittedRef.current) {
+      setDay("");
+      setMonth("");
+      setYear("");
+      lastEmittedRef.current = "";
+    }
+  }, [value]);
+
+  const maybeEmit = (nextDay: string, nextMonth: string, nextYear: string) => {
+    const d = parseInt(nextDay, 10);
+    const m = parseInt(nextMonth, 10);
+    const y = parseInt(nextYear, 10);
+    if (!d || !m || !y) return;
+
+    const safeDay = Math.min(d, daysInMonth(y, m));
+    if (safeDay !== d) setDay(String(safeDay));
+    const iso = formatIsoDate({ year: y, month: m, day: safeDay });
+    lastEmittedRef.current = iso;
+    onChange(iso);
+  };
+
+  const handleDayChange = (nextDay: string) => {
+    setDay(nextDay);
+    maybeEmit(nextDay, month, year);
+  };
+
+  const handleMonthChange = (nextMonth: string) => {
+    let nextDay = day;
+    const d = parseInt(day, 10);
+    const m = parseInt(nextMonth, 10);
+    const y = parseInt(year, 10);
+    if (d && m && y) {
+      nextDay = String(Math.min(d, daysInMonth(y, m)));
+    }
+    setMonth(nextMonth);
+    setDay(nextDay);
+    maybeEmit(nextDay, nextMonth, year);
+  };
+
+  const handleYearChange = (nextYear: string) => {
+    let nextDay = day;
+    const d = parseInt(day, 10);
+    const m = parseInt(month, 10);
+    const y = parseInt(nextYear, 10);
+    if (d && m && y) {
+      nextDay = String(Math.min(d, daysInMonth(y, m)));
+    }
+    setYear(nextYear);
+    setDay(nextDay);
+    maybeEmit(nextDay, month, nextYear);
+  };
+
+  const fullIso = useMemo(() => {
     const d = parseInt(day, 10);
     const m = parseInt(month, 10);
     const y = parseInt(year, 10);
-    if (!d || !m || !y) {
-      onChange("");
-      return;
-    }
-    const maxDay = daysInMonth(y, m);
-    const safeDay = Math.min(d, maxDay);
-    const date = new Date(y, m - 1, safeDay);
-    if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== safeDay) {
-      onChange("");
-      return;
-    }
-    onChange(formatIsoDate({ year: y, month: m, day: safeDay }));
-  };
-
-  const valid = !!value && age != null && age >= 18;
+    if (!d || !m || !y) return "";
+    return formatIsoDate({ year: y, month: m, day: Math.min(d, daysInMonth(y, m)) });
+  }, [day, month, year]);
+  const age = useMemo(() => calculateAgeFromIsoDate(fullIso), [fullIso]);
+  const valid = !!fullIso && age != null && age >= 18;
 
   const handleContinue = () => {
     if (age != null && age < 18) {
@@ -77,8 +130,8 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
 
       <div className="flex gap-3">
         <select
-          value={parsed.day}
-          onChange={(e) => setDate(e.target.value, parsed.month, parsed.year)}
+          value={day}
+          onChange={(e) => handleDayChange(e.target.value)}
           className={selectClass}
         >
           <option value="">Day</option>
@@ -88,8 +141,8 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
         </select>
 
         <select
-          value={parsed.month}
-          onChange={(e) => setDate(parsed.day, e.target.value, parsed.year)}
+          value={month}
+          onChange={(e) => handleMonthChange(e.target.value)}
           className={selectClass}
         >
           <option value="">Month</option>
@@ -99,8 +152,8 @@ export const BirthdayStep = ({ value, onChange, onNext, onAgeBlocked }: Birthday
         </select>
 
         <select
-          value={parsed.year}
-          onChange={(e) => setDate(parsed.day, parsed.month, e.target.value)}
+          value={year}
+          onChange={(e) => handleYearChange(e.target.value)}
           className={selectClass}
         >
           <option value="">Year</option>
