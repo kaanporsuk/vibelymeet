@@ -46,11 +46,11 @@ export function useBlockUser(userId: string | null | undefined) {
         const { error: dpErr } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
         if (dpErr) throw dpErr;
 
-        const { error: mmErr } = await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-        if (mmErr) throw mmErr;
-
         const { error: mnmErr } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
         if (mnmErr) throw mnmErr;
+
+        const { error: mmErr } = await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
+        if (mmErr && __DEV__) console.warn('[useBlockUser] legacy match_mutes delete failed:', mmErr.message);
 
         const { error: matchErr } = await supabase.from('matches').delete().eq('id', matchId);
         if (matchErr) throw matchErr;

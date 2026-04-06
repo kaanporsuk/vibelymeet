@@ -1,5 +1,5 @@
 /**
- * Mute match notifications — match_mutes + match_notification_mutes. Parity with web useMuteMatch.
+ * Mute match notifications using the canonical match_notification_mutes table.
  */
 import { addHours, addDays, addWeeks } from 'date-fns';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,8 +11,8 @@ export type MatchMute = {
   id: string;
   match_id: string;
   user_id: string;
-  muted_until: string;
-  created_at: string;
+  muted_until: string | null;
+  created_at: string | null;
 };
 
 function getMutedUntilDate(duration: MuteDuration): Date {
@@ -54,7 +54,7 @@ export function useMuteMatch(userId: string | null | undefined) {
     queryFn: async (): Promise<MatchMute[]> => {
       if (!userId) return [];
       const { data, error } = await supabase
-        .from('match_mutes')
+        .from('match_notification_mutes')
         .select('*')
         .eq('user_id', userId)
         .gt('muted_until', new Date().toISOString());
@@ -69,26 +69,20 @@ export function useMuteMatch(userId: string | null | undefined) {
       if (!userId) throw new Error('Not authenticated');
       const mutedUntil = getMutedUntilDate(duration).toISOString();
 
-      const { error } = await supabase.from('match_mutes').upsert(
+      const { error } = await supabase.from('match_notification_mutes').upsert(
         { match_id: matchId, user_id: userId, muted_until: mutedUntil },
         { onConflict: 'match_id,user_id' }
       );
 
       if (error) {
-        await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-        const { error: insertError } = await supabase.from('match_mutes').insert({
+        await supabase.from('match_notification_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
+        const { error: insertError } = await supabase.from('match_notification_mutes').insert({
           match_id: matchId,
           user_id: userId,
           muted_until: mutedUntil,
         });
         if (insertError) throw insertError;
       }
-
-      const { error: muteError } = await supabase.from('match_notification_mutes').upsert(
-        { match_id: matchId, user_id: userId, muted_until: mutedUntil },
-        { onConflict: 'match_id,user_id' }
-      );
-      if (muteError && __DEV__) console.warn('[useMuteMatch] mute upsert failed:', muteError.message);
       return { duration };
     },
     onSuccess: () => {
@@ -99,16 +93,12 @@ export function useMuteMatch(userId: string | null | undefined) {
   const unmuteMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error('Not authenticated');
-      const { error } = await supabase.from('match_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
-      if (error) throw error;
-      const { error: notifMuteError } = await supabase
+      const { error } = await supabase
         .from('match_notification_mutes')
         .delete()
         .eq('match_id', matchId)
         .eq('user_id', userId);
-      if (notifMuteError && __DEV__) {
-        console.warn('[useMuteMatch] notification mute delete failed:', notifMuteError.message);
-      }
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['match-mutes'] });

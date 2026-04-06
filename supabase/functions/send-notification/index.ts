@@ -447,28 +447,7 @@ Deno.serve(async (req) => {
 
     // 8. Check per-match mute (messages, new_match, and date suggestion categories)
     if ((category === 'messages' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
-      // Check match_mutes table (written by useMuteMatch on the client)
-      const { data: matchMute } = await supabase
-        .from('match_mutes')
-        .select('id, muted_until')
-        .eq('user_id', user_id)
-        .eq('match_id', data.match_id)
-        .maybeSingle()
-
-      if (matchMute) {
-        if (new Date(matchMute.muted_until) > new Date()) {
-          await logNotification(user_id, category, title, body, data, false, 'match_muted')
-          emitLifecycle('suppressed', 'match_muted')
-          return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        } else {
-          // Expired mute — clean up
-          await supabase.from('match_mutes').delete().eq('id', matchMute.id)
-        }
-      }
-
-      // Also check match_notification_mutes table (legacy)
+      // Canonical per-match mute table.
       const { data: notifMute } = await supabase
         .from('match_notification_mutes')
         .select('id, muted_until')
@@ -486,6 +465,27 @@ Deno.serve(async (req) => {
         } else {
           // Expired mute — clean up
           await supabase.from('match_notification_mutes').delete().eq('id', notifMute.id)
+        }
+      }
+
+      // Temporary rollout fallback for older clients that may still leave
+      // legacy-only rows behind. Remove once match_mutes is retired.
+      const { data: legacyMute } = await supabase
+        .from('match_mutes')
+        .select('id, muted_until')
+        .eq('user_id', user_id)
+        .eq('match_id', data.match_id)
+        .maybeSingle()
+
+      if (legacyMute) {
+        if (new Date(legacyMute.muted_until) > new Date()) {
+          await logNotification(user_id, category, title, body, data, false, 'match_muted')
+          emitLifecycle('suppressed', 'match_muted')
+          return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        } else {
+          await supabase.from('match_mutes').delete().eq('id', legacyMute.id)
         }
       }
     }

@@ -11,10 +11,10 @@ async function deleteMatchCascade(matchId: string) {
   if (messagesError) throw messagesError;
   const { error: dateProposalsError } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
   if (dateProposalsError) throw dateProposalsError;
-  const { error: matchMutesError } = await supabase.from('match_mutes').delete().eq('match_id', matchId);
-  if (matchMutesError) throw matchMutesError;
   const { error: notifMutesError } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId);
   if (notifMutesError) throw notifMutesError;
+  const { error: matchMutesError } = await supabase.from('match_mutes').delete().eq('match_id', matchId);
+  if (matchMutesError && __DEV__) console.warn('[useUnmatch] legacy match_mutes delete failed:', matchMutesError.message);
   const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
   if (matchError) throw matchError;
   return { success: true };
