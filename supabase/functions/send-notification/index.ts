@@ -14,7 +14,29 @@ const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID')!
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
 const APP_URL = Deno.env.get('APP_URL') || 'https://vibelymeet.com'
 
-// Map notification category → notify_* column (settings UI + DB). No entry = do not block on category toggles (e.g. safety_alerts).
+/**
+ * Map notification category → notify_* column (settings UI + DB).
+ *
+ * Known callers (repo audit) — every push category used in code should appear here or in CATEGORY_PREFERENCE_BYPASS:
+ * - send-message, send-game-event → messages
+ * - swipe-actions → ready_gate, someone_vibed_you
+ * - useEventVibes → mutual_vibe, someone_vibed_you
+ * - post-date-verdict, daily-drop-actions (reply) → new_match
+ * - generate-daily-drops, daily-drop-actions (opener) → daily_drop
+ * - date-suggestion-actions → date_suggestion_*
+ * - date-suggestion-expiry → date_suggestion_expiring_soon
+ * - event-reminders → event_reminder
+ * - process-waitlist-promotion-notify-queue → event_waitlist_promoted
+ * - date-reminder-cron → date_reminder
+ * - stripe-webhook (credits pack) → credits_subscription
+ * - send-support-reply → support_reply (bypass bucket prefs)
+ * - AdminEventControls / AdminEventAttendeesModal → event_live, event_reminder
+ * - adminEventCancellationNotify → event_cancelled
+ * - PushPermissionPrompt → safety_alerts (bypass bucket prefs)
+ *
+ * Any category not listed in CATEGORY_TO_COLUMN and not in CATEGORY_PREFERENCE_BYPASS is rejected (fail closed)
+ * so users cannot receive pushes that ignore their per-bucket toggles.
+ */
 const CATEGORY_TO_COLUMN: Record<string, string> = {
   new_message: 'notify_messages',
   voice_message: 'notify_messages',
@@ -61,6 +83,16 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   recommendations: 'notify_recommendations',
   product_updates: 'notify_product_updates',
   credits_subscription: 'notify_credits_subscription',
+}
+
+/** Skip per-bucket notify_* checks (and use the same set for pause bypasses below). Trust & safety + support only. */
+const CATEGORY_PREFERENCE_BYPASS: Record<string, true> = {
+  safety_alerts: true,
+  support_reply: true,
+}
+
+function skipsPerBucketPreferenceCheck(category: string): boolean {
+  return CATEGORY_PREFERENCE_BYPASS[category] === true
 }
 
 // Categories that bypass quiet hours (time-critical / safety / support)
@@ -386,7 +418,7 @@ Deno.serve(async (req) => {
     // The safety_alerts category ALWAYS bypasses pause gates.
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 4. Check account-level pause (legacy is_paused + account_paused)
-    if (category !== 'safety_alerts' && category !== 'support_reply') {
+    if (!skipsPerBucketPreferenceCheck(category)) {
       const { data: profileRow } = await supabase
         .from('profiles')
         .select('is_paused, paused_until, account_paused, account_paused_until')
@@ -411,7 +443,7 @@ Deno.serve(async (req) => {
     }
 
     // 5. Check notification-prefs pause (paused_until on notification_preferences)
-    if (category !== 'safety_alerts' && category !== 'support_reply' && prefs.paused_until) {
+    if (!skipsPerBucketPreferenceCheck(category) && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
         await logNotification(user_id, category, title, body, data, false, 'paused')
         emitLifecycle('suppressed', 'paused')
@@ -431,9 +463,16 @@ Deno.serve(async (req) => {
     }
 
     // 7. Check category toggle (notify_* columns only — matches settings UI)
-    if (category !== 'safety_alerts' && category !== 'support_reply') {
+    if (!skipsPerBucketPreferenceCheck(category)) {
       const col = CATEGORY_TO_COLUMN[category]
-      if (col && prefs[col] === false) {
+      if (!col) {
+        await logNotification(user_id, category, title, body, data, false, 'unknown_category')
+        emitLifecycle('suppressed', 'unknown_category')
+        return new Response(JSON.stringify({ success: false, reason: 'unknown_category' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      if (prefs[col] === false) {
         await logNotification(user_id, category, title, body, data, false, 'user_disabled')
         emitLifecycle('suppressed', 'user_disabled')
         return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
