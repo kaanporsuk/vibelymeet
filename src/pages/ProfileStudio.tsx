@@ -271,6 +271,8 @@ const ProfileStudio = () => {
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  /** After a successful save/remove, skip resetting shared draft state when the drawer closes (avoids racing stale `profile`). */
+  const suppressProfileDraftResetRef = useRef(false);
 
   const { mySchedule, dateRange, isLoading: scheduleLoading } = useSchedule();
 
@@ -560,6 +562,7 @@ const ProfileStudio = () => {
       if (type !== "photos") {
         await updateMyProfile(updates);
       }
+      suppressProfileDraftResetRef.current = true;
       setProfileRefreshKey((k) => k + 1);
       setActiveDrawer(null);
       setEditingPromptIndex(null);
@@ -571,6 +574,22 @@ const ProfileStudio = () => {
       setIsSaving(false);
     }
   };
+
+  const handleProfileStudioDrawerOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) return;
+      if (!suppressProfileDraftResetRef.current) {
+        setEditForm({ ...profile });
+        setEditPhotoFiles(profile.photos.map(() => null));
+        const mp = profile.lifestyle?.meeting_preference;
+        setMeetingPref(mp === "events" || mp === "dates" || mp === "both" ? mp : "both");
+        setEditingPromptIndex(null);
+      }
+      suppressProfileDraftResetRef.current = false;
+      setActiveDrawer(null);
+    },
+    [profile],
+  );
 
   const openDrawer = (type: DrawerType) => {
     if (type === "tagline") {
@@ -592,6 +611,10 @@ const ProfileStudio = () => {
       return;
     }
     if (type === "photos") setEditPhotoFiles(profile.photos.map(() => null));
+    if (type === "intent") {
+      const mp = profile.lifestyle?.meeting_preference;
+      setMeetingPref(mp === "events" || mp === "dates" || mp === "both" ? mp : "both");
+    }
     setEditForm({ ...profile });
     setActiveDrawer(type);
   };
@@ -627,6 +650,7 @@ const ProfileStudio = () => {
     try {
       const next = profile.prompts.filter((_, i) => i !== editingPromptIndex);
       await updateMyProfile({ prompts: next });
+      suppressProfileDraftResetRef.current = true;
       setProfileRefreshKey((k) => k + 1);
       setActiveDrawer(null);
       setEditingPromptIndex(null);
@@ -1407,7 +1431,7 @@ const ProfileStudio = () => {
       {/* ═══ Drawers (reused from legacy) ═══ */}
 
       {/* Photo Editor */}
-      <Drawer open={activeDrawer === "photos"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "photos"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">Manage Your Gallery</DrawerTitle>
@@ -1432,7 +1456,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Vibes Editor */}
-      <Drawer open={activeDrawer === "vibes"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "vibes"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">Choose Your Vibes</DrawerTitle>
@@ -1456,7 +1480,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Basics Editor */}
-      <Drawer open={activeDrawer === "basics"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "basics"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">The Basics</DrawerTitle>
@@ -1504,7 +1528,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Bio Editor */}
-      <Drawer open={activeDrawer === "bio"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "bio"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">About Me</DrawerTitle>
@@ -1531,7 +1555,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Prompt Editor */}
-      <Drawer open={activeDrawer === "prompt"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "prompt"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">
@@ -1594,7 +1618,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Intent Editor */}
-      <Drawer open={activeDrawer === "intent"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "intent"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">What are you looking for?</DrawerTitle>
@@ -1635,7 +1659,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Lifestyle Editor */}
-      <Drawer open={activeDrawer === "lifestyle"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "lifestyle"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">Lifestyle</DrawerTitle>
@@ -1655,7 +1679,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Vibe Video Drawer */}
-      <Drawer open={activeDrawer === "vibe-video"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "vibe-video"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader className="pb-2">
             <DrawerTitle className="font-display">Vibe Video</DrawerTitle>
@@ -1721,6 +1745,7 @@ const ProfileStudio = () => {
                   const result = await res.json();
                   if (result.success) {
                     setProfile((prev) => ({ ...prev, bunnyVideoUid: null, bunnyVideoStatus: "none", vibeCaption: "" }));
+                    suppressProfileDraftResetRef.current = true;
                     setActiveDrawer(null);
                     toast.success("Video deleted");
                   } else {
@@ -1740,7 +1765,7 @@ const ProfileStudio = () => {
       </Drawer>
 
       {/* Tagline */}
-      <Drawer open={activeDrawer === "tagline"} onOpenChange={(open) => !open && setActiveDrawer(null)}>
+      <Drawer open={activeDrawer === "tagline"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
           <DrawerHeader>
             <DrawerTitle className="font-display">Your Tagline</DrawerTitle>

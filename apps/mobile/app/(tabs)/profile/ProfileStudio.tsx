@@ -218,6 +218,18 @@ export default function ProfileStudio() {
 
   const { show, dialog } = useVibelyDialog();
 
+  /** Revert optimistic photo rows when publish fails or throws after `setQueryData`. */
+  const rollbackMyProfilePhotoOptimistic = React.useCallback(
+    (prev: ProfileRow | undefined) => {
+      if (prev !== undefined) {
+        qc.setQueryData(['my-profile'], prev);
+      } else {
+        void qc.invalidateQueries({ queryKey: ['my-profile'] });
+      }
+    },
+    [qc],
+  );
+
   const refreshPhotoVerificationState = React.useCallback(async () => {
     if (!user?.id) return;
     const next = await fetchMyPhotoVerificationState(user.id);
@@ -473,6 +485,8 @@ export default function ProfileStudio() {
       return;
     }
     setPhotoUploading(true);
+    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
+    let optimisticApplied = false;
     try {
       const asset = result.assets[0];
       const path = await uploadProfilePhoto({
@@ -484,23 +498,23 @@ export default function ProfileStudio() {
       // Append: new photos always go to the end; use PhotoManageDrawer to reorder/promote.
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
-      // Optimistic update — rolled back below if publish fails.
-      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
+      optimisticApplied = true;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) {
-        // Rollback optimistic update so UI does not show unpublished state.
-        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
-        throw pubErr;
+      if (pubErr) throw pubErr;
+      const pr = pubData as Record<string, unknown> | null;
+      if (pr && pr.success !== true) {
+        throw new Error(String(pr.error ?? 'Photo save failed'));
       }
-      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
+      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
       show({
         title: 'Upload failed',
         message: e instanceof Error ? e.message : 'Upload failed',
@@ -540,6 +554,8 @@ export default function ProfileStudio() {
       return;
     }
     setPhotoUploading(true);
+    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
+    let optimisticApplied = false;
     try {
       const asset = result.assets[0];
       const path = await uploadProfilePhoto({
@@ -550,21 +566,23 @@ export default function ProfileStudio() {
       const currentPhotos = profile?.photos ?? [];
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
-      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
+      optimisticApplied = true;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) {
-        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
-        throw pubErr;
+      if (pubErr) throw pubErr;
+      const pr = pubData as Record<string, unknown> | null;
+      if (pr && pr.success !== true) {
+        throw new Error(String(pr.error ?? 'Photo save failed'));
       }
-      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
+      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
       show({
         title: 'Upload failed',
         message: e instanceof Error ? e.message : 'Upload failed',
@@ -613,6 +631,8 @@ export default function ProfileStudio() {
       return;
     }
     setPhotoUploading(true);
+    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
+    let optimisticApplied = false;
     try {
       const path = await uploadProfilePhoto({
         uri: a.uri,
@@ -622,21 +642,23 @@ export default function ProfileStudio() {
       const currentPhotos = profile?.photos ?? [];
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
-      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
+      optimisticApplied = true;
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { error: pubErr } = await supabase.rpc('publish_photo_set', {
+      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) {
-        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
-        throw pubErr;
+      if (pubErr) throw pubErr;
+      const pr = pubData as Record<string, unknown> | null;
+      if (pr && pr.success !== true) {
+        throw new Error(String(pr.error ?? 'Photo save failed'));
       }
-      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      await qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
+      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
       show({
         title: 'Upload failed',
         message: e instanceof Error ? e.message : 'Upload failed',
@@ -750,6 +772,30 @@ export default function ProfileStudio() {
   const discardBioDrawer = () => {
     setAboutMeEdit((profile?.about_me ?? '').slice(0, MAX_ABOUT_ME_LENGTH));
     setShowBioDrawer(false);
+  };
+
+  const discardDetailsDrawer = () => {
+    if (profile) {
+      setNameEdit(profile.name ?? '');
+      setJobEdit(profile.job ?? '');
+      setHeightEdit(profile.height_cm ? String(profile.height_cm) : '');
+      setLocationEdit(profile.location ?? '');
+      setLifestyleEdit({ ...(profile.lifestyle ?? {}) });
+    }
+    setShowDetailsDrawer(false);
+  };
+
+  const discardIntentDrawer = () => {
+    if (profile) {
+      setLookingForEdit(profile.relationship_intent ?? profile.looking_for ?? '');
+      const stored = (profile.lifestyle as Record<string, string> | null)?.meeting_preference;
+      if (stored === 'events' || stored === 'dates' || stored === 'both') {
+        setMeetingPref(stored);
+      } else {
+        setMeetingPref('both');
+      }
+    }
+    setShowIntentDrawer(false);
   };
 
   /** Prompt questions used in other slots — native prompt picker disables these. */
@@ -2147,7 +2193,7 @@ export default function ProfileStudio() {
       {/* Intent editor modal — keyboard-aware for parity with other profile sheets */}
       <KeyboardAwareBottomSheetModal
         visible={showIntentDrawer}
-        onRequestClose={() => setShowIntentDrawer(false)}
+        onRequestClose={discardIntentDrawer}
         scrollable={false}
         backdropColor="rgba(0,0,0,0.55)"
       >
@@ -2172,7 +2218,7 @@ export default function ProfileStudio() {
             <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
             <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
           </Pressable>
-          <Pressable onPress={() => setShowIntentDrawer(false)} style={s.sheetCancel}>
+          <Pressable onPress={discardIntentDrawer} style={s.sheetCancel}>
             <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
           </Pressable>
         </RNView>
@@ -2216,7 +2262,7 @@ export default function ProfileStudio() {
       {/* Details editor modal */}
       <KeyboardAwareBottomSheetModal
         visible={showDetailsDrawer}
-        onRequestClose={() => setShowDetailsDrawer(false)}
+        onRequestClose={discardDetailsDrawer}
         scrollable={false}
         maxHeightRatio={0.85}
         backdropColor="rgba(0,0,0,0.55)"
@@ -2274,7 +2320,7 @@ export default function ProfileStudio() {
               <LinearGradient colors={['#8B5CF6', '#E84393']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} />
               <Text style={s.sheetSaveBtnText}>{saving ? 'Saving…' : 'Save'}</Text>
             </Pressable>
-            <Pressable onPress={() => setShowDetailsDrawer(false)} style={s.sheetCancel}>
+            <Pressable onPress={discardDetailsDrawer} style={s.sheetCancel}>
               <Text style={[s.sheetCancelText, { color: theme.textSecondary }]}>Cancel</Text>
             </Pressable>
           </RNView>
