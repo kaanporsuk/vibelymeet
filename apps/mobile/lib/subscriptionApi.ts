@@ -1,6 +1,7 @@
 /**
  * Canonical subscription state from backend (Stripe + RevenueCat).
- * Same source of truth as web: subscriptions table, profiles.is_premium.
+ * - `hasBillableSubscription`: active/trialing row in `subscriptions` (Stripe portal / renew dates).
+ * - `isPremium`: true when billable OR profiles.is_premium (admin/sync); use display helpers for UI labels.
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -13,7 +14,15 @@ export function useBackendSubscription(userId: string | null | undefined) {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['backend-subscription', userId],
     queryFn: async () => {
-      if (!userId) return { isPremium: false, plan: null as SubscriptionPlan, currentPeriodEnd: null as string | null };
+      if (!userId) {
+        return {
+          isPremium: false,
+          hasBillableSubscription: false,
+          plan: null as SubscriptionPlan,
+          currentPeriodEnd: null as string | null,
+          provider: null as string | null,
+        };
+      }
       const { data: rows } = await supabase
         .from('subscriptions')
         .select('status, plan, current_period_end, provider')
@@ -23,6 +32,7 @@ export function useBackendSubscription(userId: string | null | undefined) {
       if (active) {
         return {
           isPremium: true,
+          hasBillableSubscription: true,
           plan: (active.plan as SubscriptionPlan) ?? null,
           currentPeriodEnd: active.current_period_end ?? null,
           provider: active.provider ?? 'stripe',
@@ -35,6 +45,7 @@ export function useBackendSubscription(userId: string | null | undefined) {
         .maybeSingle();
       return {
         isPremium: profile?.is_premium ?? false,
+        hasBillableSubscription: false,
         plan: null as SubscriptionPlan,
         currentPeriodEnd: null as string | null,
         provider: null as string | null,
@@ -44,6 +55,7 @@ export function useBackendSubscription(userId: string | null | undefined) {
   });
   return {
     isPremium: data?.isPremium ?? false,
+    hasBillableSubscription: data?.hasBillableSubscription ?? false,
     plan: data?.plan ?? null,
     currentPeriodEnd: data?.currentPeriodEnd ?? null,
     provider: data?.provider ?? null,
