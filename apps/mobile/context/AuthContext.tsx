@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import * as Sentry from '@sentry/react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { resetAnalytics, trackEvent } from '@/lib/analytics';
@@ -114,6 +115,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  // Sentry user context — parity with web `useAppBootstrap` (stable session user id only).
+  useEffect(() => {
+    if (!currentUserId) {
+      Sentry.setUser(null);
+      return;
+    }
+    Sentry.setUser({ id: currentUserId });
   }, [currentUserId]);
 
   useEffect(() => {
