@@ -40,6 +40,7 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { PhotoVerificationFlow } from '@/components/verification/PhotoVerificationFlow';
 import { avatarUrl } from '@/lib/imageUrl';
+import { LinkedSignInMethods } from '@/components/settings/LinkedSignInMethods';
 import { isRevenueCatConfigured, restorePurchasesWithCustomerInfo } from '@/lib/revenuecat';
 import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscriber';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -834,6 +835,8 @@ export default function AccountSettingsScreen() {
                 onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy').catch(() => {})}
               />
             </CardShell>
+
+            <LinkedSignInMethods theme={theme} />
 
             <SectionTitle theme={theme} text="MEMBERSHIP & PURCHASES" />
             <CardShell theme={theme}>
