@@ -27,7 +27,9 @@ export interface SupabaseClient {
   };
   auth: {
     getUser(): Promise<{
-      data: { user: { email?: string | null } | null };
+      data: {
+        user: { email?: string | null; new_email?: string | null } | null;
+      };
     }>;
   };
 }
@@ -146,6 +148,21 @@ const FAILED = (errorCode: string, errors: string[]): CompletionResult => ({
   errorCode,
 });
 
+/** Minimal shape check; matches onboarding EmailCollectionStep intent. */
+const WELCOME_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function resolveWelcomeEmailRecipient(user: {
+  email?: string | null;
+  new_email?: string | null;
+} | null): string | null {
+  if (!user) return null;
+  const primary = typeof user.email === "string" ? user.email.trim() : "";
+  if (primary && WELCOME_EMAIL_RE.test(primary)) return primary;
+  const pending = typeof user.new_email === "string" ? user.new_email.trim() : "";
+  if (pending && WELCOME_EMAIL_RE.test(pending)) return pending;
+  return null;
+}
+
 export interface CompletionDeps {
   supabase: SupabaseClient;
   userId: string;
@@ -209,10 +226,11 @@ export async function executeOnboardingCompletion(
     if (!alreadyCompleted) {
       try {
         const { data: userData } = await supabase.auth.getUser();
-        if (userData?.user?.email) {
+        const to = resolveWelcomeEmailRecipient(userData?.user ?? null);
+        if (to) {
           await supabase.functions.invoke("send-email", {
             body: {
-              to: userData.user.email,
+              to,
               template: "welcome",
               data: { name: data.name.trim() },
             },
