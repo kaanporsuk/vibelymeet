@@ -35,7 +35,7 @@ This document is the result of a full audit of web and native notification code,
 - **notification_preferences:** user_id, push_enabled, paused_until, notify_new_match, notify_messages, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start/end/timezone, message_bundle_enabled, onesignal_player_id, onesignal_subscribed, mobile_onesignal_player_id, mobile_onesignal_subscribed (from migration).
 - **push_notification_events:** delivery tracking (sent, delivered, opened, clicked, failed); used by push-webhook (FCM/APNs/Web).
 - **notification_log:** (send-notification) user_id, category, title, body, data, delivered, suppressed_reason.
-- **match_mutes / match_notification_mutes:** per-match mute; send-notification skips messages/new_match when muted.
+- **match_notification_mutes:** canonical per-match mute table; send-notification skips messages/new_match when muted. Legacy `match_mutes` was retired after the canonicalization rollout.
 
 ### 1.3 Web behavior summary
 
