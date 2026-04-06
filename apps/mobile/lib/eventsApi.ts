@@ -223,6 +223,8 @@ export function useEvents(viewerProfileId: string | null | undefined, canCityBro
 }
 
 export type EventDetailsRow = EventRow & {
+  /** Recurring series parent id — same as web `parentEventId` / DB `parent_event_id`. */
+  parent_event_id?: string | null;
   location_name?: string | null;
   location_address?: string | null;
   is_location_specific?: boolean | null;

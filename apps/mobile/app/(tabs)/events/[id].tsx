@@ -4,7 +4,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar, Card, LoadingState, ErrorState, VibelyButton } from '@/components/ui';
 import { spacing, radius, typography, layout } from '@/constants/theme';
@@ -449,6 +449,27 @@ export default function EventDetailScreen() {
     }
   }, [event, isWaitlisted, handleUnregister, showDialog]);
 
+  /** Web `EventDetails` parity: next occurrence in same recurring series (`parent_event_id`). */
+  const parentEventIdForSeries = event?.parent_event_id ?? null;
+  const currentEventDateIso = event?.event_date;
+  const { data: nextInSeries } = useQuery({
+    queryKey: ['next-in-series', parentEventIdForSeries, id, currentEventDateIso],
+    enabled: !!parentEventIdForSeries && !!currentEventDateIso && !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('id, event_date, occurrence_number')
+        .eq('parent_event_id', parentEventIdForSeries!)
+        .gt('event_date', currentEventDateIso!)
+        .is('archived_at', null)
+        .order('event_date', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string; event_date: string; occurrence_number?: number | null } | null;
+    },
+  });
+
   // Conditional returns — after ALL hooks
   if ((isLoading && !event) || (user?.id && regLoading)) {
     return (
@@ -600,6 +621,36 @@ export default function EventDetailScreen() {
               </View>
             ) : null;
           })()}
+          {eventRow.parent_event_id ? (
+            <View
+              style={[
+                styles.recurringSeriesRow,
+                {
+                  backgroundColor: withAlpha(theme.muted, 0.35),
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Ionicons name="refresh-outline" size={16} color={theme.textSecondary} />
+              <Text style={[styles.recurringSeriesLabel, { color: theme.textSecondary }]}>
+                Part of a recurring series
+              </Text>
+              {nextInSeries ? (
+                <>
+                  <Text style={[styles.recurringSeriesDot, { color: theme.textSecondary }]}>·</Text>
+                  <Pressable
+                    onPress={() => router.push(`/events/${nextInSeries.id}` as const)}
+                    accessibilityRole="link"
+                    accessibilityLabel={`Next in series ${format(new Date(nextInSeries.event_date), 'MMM d')}`}
+                  >
+                    <Text style={[styles.recurringSeriesNext, { color: theme.tint }]}>
+                      Next: {format(new Date(nextInSeries.event_date), 'MMM d')}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+          ) : null}
           {tags.length > 0 && (
             <View style={styles.tagsRow}>
               {tags.slice(0, 5).map((tag) => (
@@ -997,6 +1048,20 @@ const styles = StyleSheet.create({
   eventInfoText: { fontSize: 14 },
   venueRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
   venueText: { fontSize: 14, flex: 1 },
+  recurringSeriesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  recurringSeriesLabel: { fontSize: 14, flexShrink: 1 },
+  recurringSeriesDot: { fontSize: 14 },
+  recurringSeriesNext: { fontSize: 14, fontWeight: '600' },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
   tag: {
     paddingHorizontal: spacing.md,
