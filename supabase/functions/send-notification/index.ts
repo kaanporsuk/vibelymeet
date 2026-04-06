@@ -468,26 +468,6 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Temporary rollout fallback for older clients that may still leave
-      // legacy-only rows behind. Remove once match_mutes is retired.
-      const { data: legacyMute } = await supabase
-        .from('match_mutes')
-        .select('id, muted_until')
-        .eq('user_id', user_id)
-        .eq('match_id', data.match_id)
-        .maybeSingle()
-
-      if (legacyMute) {
-        if (new Date(legacyMute.muted_until) > new Date()) {
-          await logNotification(user_id, category, title, body, data, false, 'match_muted')
-          emitLifecycle('suppressed', 'match_muted')
-          return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        } else {
-          await supabase.from('match_mutes').delete().eq('id', legacyMute.id)
-        }
-      }
     }
 
     // 8. Check quiet hours

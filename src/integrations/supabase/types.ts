@@ -1347,38 +1347,6 @@ export type Database = {
           },
         ]
       }
-      match_mutes: {
-        Row: {
-          created_at: string
-          id: string
-          match_id: string
-          muted_until: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          match_id: string
-          muted_until: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          match_id?: string
-          muted_until?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "match_mutes_match_id_fkey"
-            columns: ["match_id"]
-            isOneToOne: false
-            referencedRelation: "matches"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       match_notification_mutes: {
         Row: {
           created_at: string | null
