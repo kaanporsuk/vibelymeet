@@ -793,14 +793,14 @@ export default function ProfileStudio() {
         location: locationEdit.trim() || undefined,
         lifestyle: Object.keys(lifestyleEdit).length > 0 ? lifestyleEdit : undefined,
       });
-      qc.invalidateQueries({ queryKey: [‘my-profile’] });
+      qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowDetailsDrawer(false);
     } catch (e) {
       show({
-        title: ‘Couldn’t save’,
-        message: e instanceof Error ? e.message : ‘Something went wrong.’,
-        variant: ‘warning’,
-        primaryAction: { label: ‘OK’, onPress: () => {} },
+        title: 'Couldn’t save',
+        message: e instanceof Error ? e.message : 'Something went wrong.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
       });
     } finally {
       setSaving(false);
@@ -2231,6 +2231,12 @@ export default function ProfileStudio() {
           <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
           <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
             <Text style={{ color: theme.textSecondary, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
+          </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Birthday</Text>
+          <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
+            <Text style={{ color: theme.textSecondary, fontSize: 15, fontFamily: fonts.body }}>
+              {formatBirthdayUsWithZodiac(profile?.birth_date) || 'Not set'}
+            </Text>
           </RNView>
           <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job / Role</Text>
           <TextInput
