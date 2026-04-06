@@ -33,7 +33,7 @@ import { NotificationPauseForeground } from '@/components/NotificationPauseForeg
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
 import { connectivityService } from '@/lib/connectivityService';
-import { setPostHogClient } from '@/lib/analytics';
+import { identifyUser, resetAnalytics, setPostHogClient } from '@/lib/analytics';
 import { initRevenueCat, isRevenueCatConfigured, setRevenueCatUserId } from '@/lib/revenuecat';
 import { useActivityHeartbeat } from '@/lib/useActivityHeartbeat';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
@@ -131,14 +131,27 @@ function RootLayout() {
   return <RootLayoutNav />;
 }
 
-/** Track screen views in PostHog (matches web PostHogPageTracker). */
+/**
+ * PostHog: client wiring, auth identity, and screen views.
+ * Parity with web `useAppBootstrap` (identify on session user id + reset when logged out).
+ */
 function PostHogScreenTracker() {
   const pathname = usePathname();
   const posthog = usePostHog();
+  const { user } = useAuth();
 
   useEffect(() => {
     if (posthog) setPostHogClient(posthog);
-  }, [posthog]);
+    if (!posthog) return;
+    if (!user?.id) {
+      resetAnalytics();
+      return;
+    }
+    identifyUser(user.id, {
+      email: user.email ?? null,
+      created_at: user.created_at ?? null,
+    });
+  }, [posthog, user?.id, user?.email, user?.created_at]);
 
   useEffect(() => {
     if (pathname && posthog) {
