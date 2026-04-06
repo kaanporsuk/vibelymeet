@@ -7,6 +7,7 @@ import {
   Shield,
   ShieldCheck,
   AlertTriangle,
+  Zap,
   Download,
   BarChart3,
   Activity,
@@ -20,7 +21,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -44,6 +45,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
     { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
+    { id: 'ghost-bootstrap' as const, label: 'Ghost Accounts', icon: Zap },
     { id: 'support' as const, label: 'Support', icon: LifeBuoy, badge: supportCount > 0 ? supportCount : undefined },
     { id: 'feedback' as const, label: 'Feedback', icon: MessageSquare, badge: feedbackCount > 0 ? feedbackCount : undefined },
     { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },

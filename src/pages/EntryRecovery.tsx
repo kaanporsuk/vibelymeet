@@ -173,6 +173,12 @@ const EntryRecovery = () => {
               </>
             )}
           </div>
+          {recoveryState === "suspected_fragmented_identity" && (
+            <div className="text-xs text-muted-foreground p-3 bg-blue-500/5 rounded-lg border border-blue-500/20">
+              💡 <strong>Tip:</strong> Once you sign in, go to Settings → Account to link additional sign-in methods 
+              (Google, Apple) to your account. This prevents future fragmentation.
+            </div>
+          )}
         </div>
       </div>
     </div>
