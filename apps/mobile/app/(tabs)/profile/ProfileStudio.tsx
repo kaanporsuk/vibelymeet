@@ -185,6 +185,8 @@ export default function ProfileStudio() {
   const [showDetailsDrawer, setShowDetailsDrawer] = useState(false);
   const [nameEdit, setNameEdit] = useState('');
   const [jobEdit, setJobEdit] = useState('');
+  const [heightEdit, setHeightEdit] = useState('');
+  const [locationEdit, setLocationEdit] = useState('');
   const [lifestyleEdit, setLifestyleEdit] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showTaglineSheet, setShowTaglineSheet] = useState(false);
@@ -204,6 +206,8 @@ export default function ProfileStudio() {
     setAboutMeEdit(profile.about_me ?? '');
     setNameEdit(profile.name ?? '');
     setJobEdit(profile.job ?? '');
+    setHeightEdit(profile.height_cm ? String(profile.height_cm) : '');
+    setLocationEdit(profile.location ?? '');
     setLifestyleEdit(profile.lifestyle ?? {});
     setThumbnailError(false);
     const stored = (profile.lifestyle as Record<string, string> | null)?.meeting_preference;
@@ -477,8 +481,11 @@ export default function ProfileStudio() {
         fileName: asset.fileName ?? undefined,
       });
       const currentPhotos = profile?.photos ?? [];
-      const newPhotos = [path, ...currentPhotos];
+      // Append: new photos always go to the end; use PhotoManageDrawer to reorder/promote.
+      const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
+      // Optimistic update — rolled back below if publish fails.
+      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
@@ -487,7 +494,11 @@ export default function ProfileStudio() {
       const { error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) throw pubErr;
+      if (pubErr) {
+        // Rollback optimistic update so UI does not show unpublished state.
+        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
+        throw pubErr;
+      }
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({
@@ -539,6 +550,7 @@ export default function ProfileStudio() {
       const currentPhotos = profile?.photos ?? [];
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
+      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
@@ -547,7 +559,10 @@ export default function ProfileStudio() {
       const { error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) throw pubErr;
+      if (pubErr) {
+        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
+        throw pubErr;
+      }
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({
@@ -607,6 +622,7 @@ export default function ProfileStudio() {
       const currentPhotos = profile?.photos ?? [];
       const newPhotos = [...currentPhotos, path];
       const primaryUrl = newPhotos[0] ?? null;
+      const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
       qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
         old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
       );
@@ -615,7 +631,10 @@ export default function ProfileStudio() {
       const { error: pubErr } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
       });
-      if (pubErr) throw pubErr;
+      if (pubErr) {
+        if (prevSnapshot) qc.setQueryData(['my-profile'], prevSnapshot);
+        throw pubErr;
+      }
       qc.invalidateQueries({ queryKey: ['my-profile'] });
     } catch (e) {
       show({
@@ -766,9 +785,12 @@ export default function ProfileStudio() {
   const handleSaveDetails = async () => {
     setSaving(true);
     try {
+      const parsedHeight = heightEdit.trim() ? parseInt(heightEdit.trim(), 10) : undefined;
       await updateMyProfile({
         name: nameEdit.trim() || undefined,
         job: jobEdit.trim() || undefined,
+        height_cm: parsedHeight !== undefined && !Number.isNaN(parsedHeight) ? parsedHeight : undefined,
+        location: locationEdit.trim() || undefined,
         lifestyle: Object.keys(lifestyleEdit).length > 0 ? lifestyleEdit : undefined,
       });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
@@ -2208,12 +2230,43 @@ export default function ProfileStudio() {
           <Text style={[s.sheetTitle, { color: theme.text }]}>Edit Details</Text>
           <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Name</Text>
           <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 15, fontFamily: fonts.body }}>{nameEdit}</Text>
           </RNView>
-          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job</Text>
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Birthday</Text>
           <RNView style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, minHeight: 44, justifyContent: 'center', paddingHorizontal: spacing.md }]}>
-            <Text style={{ color: theme.text, fontSize: 15, fontFamily: fonts.body }}>{jobEdit || 'Not set'}</Text>
+            <Text style={{ color: theme.textSecondary, fontSize: 15, fontFamily: fonts.body }}>
+              {formatBirthdayUsWithZodiac(profile?.birth_date) || 'Not set'}
+            </Text>
           </RNView>
+          <Text style={[s.detailLabel, { color: theme.textSecondary }]}>Job / Role</Text>
+          <TextInput
+            value={jobEdit}
+            onChangeText={setJobEdit}
+            placeholder="e.g. Software Engineer"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, color: theme.text, fontSize: 15, fontFamily: fonts.body, minHeight: 44, paddingHorizontal: spacing.md, paddingVertical: 0 }]}
+            returnKeyType="next"
+          />
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Height (cm)</Text>
+          <TextInput
+            value={heightEdit}
+            onChangeText={(t) => setHeightEdit(t.replace(/[^0-9]/g, ''))}
+            placeholder="e.g. 175"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            keyboardType="number-pad"
+            maxLength={3}
+            style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, color: theme.text, fontSize: 15, fontFamily: fonts.body, minHeight: 44, paddingHorizontal: spacing.md, paddingVertical: 0 }]}
+            returnKeyType="next"
+          />
+          <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Location</Text>
+          <TextInput
+            value={locationEdit}
+            onChangeText={setLocationEdit}
+            placeholder="e.g. London, UK"
+            placeholderTextColor="rgba(255,255,255,0.35)"
+            style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, color: theme.text, fontSize: 15, fontFamily: fonts.body, minHeight: 44, paddingHorizontal: spacing.md, paddingVertical: 0 }]}
+            returnKeyType="done"
+          />
           <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
           <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
           <RNView style={s.sheetFooter}>

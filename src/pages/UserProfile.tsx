@@ -1,6 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState } from "react";
 import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2 } from "lucide-react";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { cn } from "@/lib/utils";
@@ -10,67 +9,18 @@ import { ProfilePrompt } from "@/components/ProfilePrompt";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
-
-interface UserProfileData {
-  id: string;
-  name: string;
-  age: number;
-  about_me: string | null;
-  job: string | null;
-  company: string | null;
-  height_cm: number | null;
-  location: string | null;
-  country: string | null;
-  photos: string[] | null;
-  avatar_url: string | null;
-  tagline: string | null;
-  looking_for: string | null;
-  relationship_intent: string | null;
-  lifestyle: Record<string, string> | null;
-  prompts: Array<{ question: string; answer: string }> | null;
-  photo_verified: boolean | null;
-}
+import { useUserProfile } from "@/hooks/useUserProfile";
 
 const UserProfile = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<UserProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
-  useEffect(() => {
-    if (!userId) return;
-    const fetchProfile = async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select(
-          "id, name, age, about_me, job, company, height_cm, location, country, photos, avatar_url, tagline, looking_for, relationship_intent, lifestyle, prompts, photo_verified"
-        )
-        .eq("id", userId)
-        .single();
-      setProfile(data as UserProfileData | null);
-      setLoading(false);
-    };
-    fetchProfile();
-  }, [userId]);
+  // Canonical public-profile fetch — includes verification fields and vibes.
+  // userId is the viewed profile's id (route param), never the current user's id.
+  const { data: profile, isLoading } = useUserProfile(userId ?? null);
 
-  // Fetch vibe tags
-  const [vibeTags, setVibeTags] = useState<string[]>([]);
-  useEffect(() => {
-    if (!userId) return;
-    const fetchVibes = async () => {
-      const { data } = await supabase
-        .from("profile_vibes")
-        .select("vibe_tags(label)")
-        .eq("profile_id", userId);
-      if (data) {
-        setVibeTags(data.map((v: any) => v.vibe_tags?.label).filter(Boolean));
-      }
-    };
-    fetchVibes();
-  }, [userId]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -92,6 +42,8 @@ const UserProfile = () => {
   const prompts = (profile.prompts || []) as Array<{ question: string; answer: string }>;
   const lifestyle = (profile.lifestyle || {}) as Record<string, string>;
   const lookingForIntent = profile.relationship_intent ?? profile.looking_for;
+  // vibes come from the canonical fetch — no separate query needed.
+  const vibeTags = profile.vibes ?? [];
 
   return (
     <div className="min-h-screen bg-background pb-8">
@@ -113,7 +65,7 @@ const UserProfile = () => {
             <motion.img
               key={currentPhotoIndex}
               src={resolvedPhotos[currentPhotoIndex]}
-              alt={profile.name}
+              alt={profile.name ?? ""}
               className="w-full h-full object-cover"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -177,7 +129,7 @@ const UserProfile = () => {
             {profile.job && (
               <span className="flex items-center gap-1">
                 <Briefcase className="w-3.5 h-3.5" />
-                {profile.job}{profile.company ? ` at ${profile.company}` : ""}
+                {profile.job}
               </span>
             )}
             {profile.location && (

@@ -734,21 +734,8 @@ const ProfileStudio = () => {
     else setShowVibeStudio(true);
   };
 
-  const appendPhotoFileAndOpenDrawer = (file: File) => {
-    if (profile.photos.length >= MAX_PHOTOS) {
-      toast.error(`You can have up to ${MAX_PHOTOS} photos.`);
-      return;
-    }
-    const blobUrl = URL.createObjectURL(file);
-    const nextPhotos = [...profile.photos, blobUrl];
-    const nextFiles: (File | null)[] = profile.photos.map(() => null).concat([file]);
-    setEditForm({ ...profile, photos: nextPhotos });
-    setEditPhotoFiles(nextFiles);
-    setActiveDrawer("photos");
-  };
-
   const handleInviteFriends = async () => {
-    const link = `https://vibelymeet.com/auth?ref=${profile.id}`;
+    const link = `https://vibelymeet.com/invite?ref=${profile.id}`;
     try {
       await navigator.share({ title: "Join me on Vibely!", text: "I'm using Vibely for video dates — come find your vibe! 💜", url: link });
     } catch {
@@ -1099,16 +1086,7 @@ const ProfileStudio = () => {
                   key={`photo-slot-${index}`}
                   onClick={url
                     ? () => { setSelectedPhotoIndex(index); setShowPhotoViewer(true); }
-                    : () => {
-                        const input = document.createElement("input");
-                        input.type = "file";
-                        input.accept = "image/*";
-                        input.onchange = (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0];
-                          if (file) appendPhotoFileAndOpenDrawer(file);
-                        };
-                        input.click();
-                      }
+                    : () => setShowPhotoDrawer(true)
                   }
                   className={cn(
                     "relative rounded-2xl overflow-hidden flex items-center justify-center w-full h-full transition-all",
