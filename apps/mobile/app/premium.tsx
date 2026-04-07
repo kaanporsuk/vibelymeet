@@ -30,6 +30,12 @@ import type { PurchasesOfferings, PurchasesPackage } from 'react-native-purchase
 import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { trackEvent } from '@/lib/analytics';
+import {
+  getPremiumDefaultHero,
+  getPremiumEntryNudge,
+  getPremiumTierMarketingBullets,
+  PREMIUM_VIP_EXCLUSION_FOOTNOTE,
+} from '@shared/premiumPageMarketing';
 
 export default function PremiumScreen() {
   const insets = useSafeAreaInsets();
@@ -59,6 +65,19 @@ export default function PremiumScreen() {
   const [restoreLoading, setRestoreLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+
+  const entryNudge = useMemo(
+    () => getPremiumEntryNudge(funnelFromRoute.entry_surface),
+    [funnelFromRoute.entry_surface],
+  );
+  const defaultHero = useMemo(() => getPremiumDefaultHero(), []);
+  const featureBullets = useMemo(() => getPremiumTierMarketingBullets(), []);
+
+  const sortedPackages = useMemo(() => {
+    const list = offerings?.current?.availablePackages ?? [];
+    const rank = (t: string) => (t === 'ANNUAL' ? 0 : t === 'MONTHLY' ? 1 : 2);
+    return [...list].sort((a, b) => rank(a.packageType) - rank(b.packageType));
+  }, [offerings]);
 
   useEffect(() => {
     initRevenueCat();
@@ -205,7 +224,7 @@ export default function PremiumScreen() {
               </Text>
             )}
             <Text style={[styles.entitlementBody, { color: theme.textSecondary }]}>
-              Thanks for supporting Vibely. You have full access to premium features.
+              Thanks for supporting Vibely. Your plan includes the Premium tier capabilities tied to your account.
             </Text>
             <VibelyButton
               label="Go Home"
@@ -216,19 +235,51 @@ export default function PremiumScreen() {
           </Card>
         ) : (
           <>
+            {entryNudge ? (
+              <View
+                style={[
+                  styles.nudgeBanner,
+                  {
+                    borderColor:
+                      entryNudge.variant === 'caution'
+                        ? 'rgba(245, 158, 11, 0.45)'
+                        : withAlpha(theme.tint, 0.35),
+                    backgroundColor:
+                      entryNudge.variant === 'caution'
+                        ? 'rgba(245, 158, 11, 0.12)'
+                        : withAlpha(theme.surfaceSubtle, 0.9),
+                  },
+                ]}
+                accessibilityRole="summary"
+              >
+                <Text style={[styles.nudgeTitle, { color: theme.text }]}>{entryNudge.title}</Text>
+                <Text style={[styles.nudgeBody, { color: theme.textSecondary }]}>{entryNudge.body}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.heroBlock}>
               <View style={[styles.heroIconWrap, { backgroundColor: theme.tintSoft }]}>
                 <Ionicons name="sparkles" size={40} color={theme.tint} />
               </View>
-              <Text style={[styles.heroTitle, { color: theme.text }]}>Unlock Your Full Vibe</Text>
-              <Text style={[styles.heroSub, { color: theme.textSecondary }]}>
-                Meet people worth meeting — in real life.
-              </Text>
+              <Text style={[styles.heroTitle, { color: theme.text }]}>{defaultHero.title}</Text>
+              <Text style={[styles.heroSub, { color: theme.textSecondary }]}>{defaultHero.subtitle}</Text>
             </View>
 
+            <Card variant="glass" style={[styles.trustCard, { borderColor: theme.glassBorder }]}>
+              <View style={styles.trustRow}>
+                <Ionicons name="shield-checkmark-outline" size={22} color={theme.tint} />
+                <View style={styles.trustTextWrap}>
+                  <Text style={[styles.trustTitle, { color: theme.text }]}>Managed in the store</Text>
+                  <Text style={[styles.trustBody, { color: theme.textSecondary }]}>
+                    Subscriptions bill through your app store account. You can cancel or restore from device settings.
+                  </Text>
+                </View>
+              </View>
+            </Card>
+
             <Card variant="glass" style={[styles.featuresCard, { borderColor: theme.glassBorder }]}>
-              <Text style={[styles.featuresCardTitle, { color: theme.text }]}>What you get</Text>
-              {PREMIUM_FEATURES.map((feature) => (
+              <Text style={[styles.featuresCardTitle, { color: theme.text }]}>Included with Premium</Text>
+              {featureBullets.map((feature) => (
                 <View key={feature} style={styles.featureRow}>
                   <View style={[styles.featureCheckWrap, { backgroundColor: withAlpha(theme.tintSoft, 0.5) }]}>
                     <Ionicons name="checkmark" size={16} color={theme.tint} />
@@ -236,6 +287,19 @@ export default function PremiumScreen() {
                   <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
                 </View>
               ))}
+              <View style={[styles.vipFootnoteRow, { borderTopColor: theme.border }]}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color={theme.textSecondary}
+                  style={styles.vipFootnoteIcon}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+                <Text style={[styles.vipFootnoteText, { color: theme.textSecondary }]}>
+                  {PREMIUM_VIP_EXCLUSION_FOOTNOTE}
+                </Text>
+              </View>
             </Card>
 
             {error ? (
@@ -250,26 +314,45 @@ export default function PremiumScreen() {
               </View>
             ) : hasOfferings ? (
               <View style={styles.packages}>
-                {offerings!.current!.availablePackages.map((pkg) => (
-                  <Card key={pkg.identifier} variant="glass" style={[styles.packageCard, { borderColor: theme.glassBorder }]}>
-                    <Text style={[styles.packageLabel, { color: theme.text }]}>
-                      {pkg.packageType === 'ANNUAL' ? 'Annual' : pkg.packageType === 'MONTHLY' ? 'Monthly' : pkg.packageType}
-                    </Text>
-                    <Text style={[styles.packagePrice, { color: theme.tint }]}>
-                      {pkg.product.priceString}
-                      {pkg.packageType === 'MONTHLY' ? '/month' : '/year'}
-                    </Text>
-                    <VibelyButton
-                      label={purchaseLoading ? '…' : 'Get Premium'}
-                      onPress={() => handlePurchase(pkg)}
-                      loading={purchaseLoading}
-                      disabled={purchaseLoading}
-                      variant="gradient"
-                      size="lg"
-                      style={styles.packageCta}
-                    />
-                  </Card>
-                ))}
+                {sortedPackages.map((pkg) => {
+                  const isAnnual = pkg.packageType === 'ANNUAL';
+                  const isMonthly = pkg.packageType === 'MONTHLY';
+                  const label = isAnnual ? 'Annual' : isMonthly ? 'Monthly' : pkg.packageType;
+                  const billingHint = isAnnual ? 'Billed annually' : isMonthly ? 'Billed monthly' : null;
+                  return (
+                    <Card
+                      key={pkg.identifier}
+                      variant="glass"
+                      style={[
+                        styles.packageCard,
+                        {
+                          borderColor: isAnnual ? withAlpha(theme.tint, 0.55) : theme.glassBorder,
+                          borderWidth: isAnnual ? 2 : 1,
+                        },
+                      ]}
+                    >
+                      {isAnnual ? (
+                        <View style={[styles.recommendedPill, { backgroundColor: theme.tint }]}>
+                          <Text style={styles.recommendedPillText}>Best value</Text>
+                        </View>
+                      ) : null}
+                      <Text style={[styles.packageLabel, { color: theme.text }]}>{label}</Text>
+                      <Text style={[styles.packagePrice, { color: theme.tint }]}>{pkg.product.priceString}</Text>
+                      {billingHint ? (
+                        <Text style={[styles.packageBillingHint, { color: theme.textSecondary }]}>{billingHint}</Text>
+                      ) : null}
+                      <VibelyButton
+                        label={purchaseLoading ? '…' : isAnnual ? 'Get Premium — Annual' : 'Get Premium — Monthly'}
+                        onPress={() => handlePurchase(pkg)}
+                        loading={purchaseLoading}
+                        disabled={purchaseLoading}
+                        variant="gradient"
+                        size="lg"
+                        style={styles.packageCta}
+                      />
+                    </Card>
+                  );
+                })}
               </View>
             ) : showUnavailable ? (
               <Card variant="glass" style={[styles.unavailableCard, { borderColor: theme.glassBorder }]}>
@@ -307,13 +390,6 @@ export default function PremiumScreen() {
   );
 }
 
-const PREMIUM_FEATURES = [
-  'See who vibed you',
-  'Browse events in any city',
-  'Access Premium-tier events',
-  'Premium badge on your profile',
-];
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -336,6 +412,15 @@ const styles = StyleSheet.create({
   periodText: { fontSize: 14, marginBottom: spacing.sm },
   entitlementBody: { fontSize: 14, textAlign: 'center', marginBottom: spacing.lg },
   cta: { marginTop: spacing.sm, alignSelf: 'stretch' },
+  nudgeBanner: {
+    borderWidth: 1,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: 6,
+  },
+  nudgeTitle: { fontSize: 15, fontWeight: '700' },
+  nudgeBody: { fontSize: 14, lineHeight: 20 },
   heroBlock: { alignItems: 'center', marginBottom: spacing.xl },
   heroIconWrap: {
     width: 80,
@@ -347,9 +432,14 @@ const styles = StyleSheet.create({
   },
   heroTitle: { fontSize: 28, fontWeight: '800', textAlign: 'center', marginBottom: spacing.sm },
   heroSub: { fontSize: 16, textAlign: 'center' },
+  trustCard: { padding: spacing.lg, marginBottom: spacing.lg },
+  trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  trustTextWrap: { flex: 1, gap: 4 },
+  trustTitle: { fontSize: 15, fontWeight: '600' },
+  trustBody: { fontSize: 13, lineHeight: 18 },
   featuresCard: { padding: spacing.xl, marginBottom: spacing.xl },
   featuresCardTitle: { fontSize: 16, fontWeight: '600', marginBottom: spacing.md },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.sm },
+  featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.sm },
   featureCheckWrap: {
     width: 24,
     height: 24,
@@ -358,13 +448,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   featureText: { fontSize: 15, flex: 1 },
+  vipFootnoteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+  },
+  vipFootnoteIcon: { marginTop: 2 },
+  vipFootnoteText: { fontSize: 12, lineHeight: 17, flex: 1 },
   errorBar: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.lg, borderWidth: 1 },
   errorText: { fontSize: 14 },
   offeringLoadWrap: { marginBottom: spacing.lg },
   packages: { gap: spacing.lg, marginBottom: spacing.lg },
-  packageCard: { padding: spacing.xl, marginBottom: 0 },
-  packageLabel: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
-  packagePrice: { fontSize: 22, fontWeight: '700', marginBottom: spacing.md },
+  packageCard: { padding: spacing.xl, marginBottom: 0, position: 'relative' },
+  recommendedPill: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  recommendedPillText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  packageLabel: { fontSize: 18, fontWeight: '600', marginBottom: 4, paddingRight: 88 },
+  packagePrice: { fontSize: 22, fontWeight: '700', marginBottom: 4 },
+  packageBillingHint: { fontSize: 13, marginBottom: spacing.md },
   packageCta: { marginTop: spacing.sm, alignSelf: 'stretch' },
   unavailableCard: { padding: spacing.xl, alignItems: 'center', marginBottom: spacing.lg },
   unavailableIconWrap: {
