@@ -43,9 +43,13 @@ export function KeepTheVibe({
               { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },
               pressed && styles.pressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Get video date credits"
+            accessibilityHint="Opens credits in settings. Your date stays active."
           >
             <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get Credits</Text>
-            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>+2 / +5 min</Text>
+            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>Extra Time: +2 min</Text>
+            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>Extended Vibe: +5 min</Text>
           </Pressable>
         ) : (
           <Text style={[styles.hint, { color: theme.mutedForeground }]}>Get credits for +time</Text>
@@ -65,6 +69,8 @@ export function KeepTheVibe({
             { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },
             pressed && styles.pressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Add 2 minutes with Extra Time, ${extraTimeCredits} credit${extraTimeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.tint} />
@@ -86,6 +92,8 @@ export function KeepTheVibe({
             { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },
             pressed && styles.pressed,
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={`Add 5 minutes with Extended Vibe, ${extendedVibeCredits} credit${extendedVibeCredits === 1 ? '' : 's'} left`}
         >
           {isExtending ? (
             <ActivityIndicator size="small" color={theme.accent} />

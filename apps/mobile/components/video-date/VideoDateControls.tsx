@@ -1,5 +1,5 @@
 /**
- * Bottom bar: Profile, Mute, End Call (center), Camera, +Time (if credits).
+ * Bottom bar: Profile, Mute, End Call (center), Camera, +Time (date phase only when wired).
  */
 
 import React from 'react';
@@ -15,7 +15,9 @@ type Props = {
   onToggleVideo: () => void;
   onLeave: () => void;
   onViewProfile: () => void;
+  /** During date: opens credits or highlights in-call add-time controls. Omit during handshake to reserve layout. */
   onAddTime?: () => void;
+  /** Shapes accessibility label when onAddTime is set (credits vs get-credits path). */
   hasCredits?: boolean;
 };
 
@@ -32,6 +34,9 @@ export function VideoDateControls({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const btnSize = 56;
+  const addTimeLabel = hasCredits
+    ? 'Add time: use the plus two or plus five minute buttons above'
+    : 'Get video date credits to add time';
 
   return (
     <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
@@ -83,18 +88,23 @@ export function VideoDateControls({
         </Pressable>
       </View>
 
-      <Pressable
-        onPress={onAddTime}
-        style={[
-          styles.iconBtn,
-          { width: btnSize, height: btnSize, backgroundColor: theme.muted, opacity: hasCredits ? 1 : 0.5 },
-        ]}
-        disabled={!hasCredits}
-        accessibilityRole="button"
-        accessibilityLabel="Add more time"
-      >
-        <Text style={styles.iconLabel}>+⏱</Text>
-      </Pressable>
+      {onAddTime ? (
+        <Pressable
+          onPress={onAddTime}
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { width: btnSize, height: btnSize, backgroundColor: theme.muted },
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={addTimeLabel}
+          accessibilityHint={hasCredits ? undefined : 'Opens video date credits in settings'}
+        >
+          <Text style={styles.iconLabel}>+⏱</Text>
+        </Pressable>
+      ) : (
+        <View style={{ width: btnSize, height: btnSize }} accessibilityElementsHidden />
+      )}
     </View>
   );
 }
