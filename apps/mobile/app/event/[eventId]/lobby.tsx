@@ -1205,7 +1205,7 @@ function LobbyProfileCard({
           <Text style={styles.cardName} numberOfLines={1}>
             {profile.name}
           </Text>
-          <Text style={styles.cardAge}>{profile.age}</Text>
+          {profile.age != null ? <Text style={styles.cardAge}>{profile.age}</Text> : null}
         </View>
         {profile.tagline ? (
           <Text style={styles.cardTagline} numberOfLines={1}>

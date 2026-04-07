@@ -21,7 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { PhoneVerifiedBadge } from "@/components/PhoneVerifiedBadge";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
@@ -478,7 +477,6 @@ export const ProfileDetailDrawer = ({
                     </h2>
                     <span className="text-3xl font-light text-foreground/80">{match.age}</span>
                     <PhotoVerifiedMark verified={!!match.photoVerified} size="md" />
-                    <PhoneVerifiedBadge verified={!!match.phoneVerified} size="md" />
                   </div>
 
                   {/* Details */}

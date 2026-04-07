@@ -38,13 +38,22 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 export function parseEventDiscoveryPrefs(raw: unknown): EventDiscoveryPrefs {
-  if (!isRecord(raw)) return { ...DEFAULT_EVENT_DISCOVERY_PREFS };
+  let source = raw;
+  if (typeof source === "string") {
+    try {
+      source = JSON.parse(source);
+    } catch {
+      return { ...DEFAULT_EVENT_DISCOVERY_PREFS };
+    }
+  }
 
-  const mode = raw.locationMode === "city" ? "city" : "nearby";
-  const distanceKm = clampDiscoveryDistanceKm(raw.distanceKm);
+  if (!isRecord(source)) return { ...DEFAULT_EVENT_DISCOVERY_PREFS };
+
+  const mode = source.locationMode === "city" ? "city" : "nearby";
+  const distanceKm = clampDiscoveryDistanceKm(source.distanceKm);
 
   let selectedCity: EventDiscoverySelectedCity | null = null;
-  const sc = raw.selectedCity;
+  const sc = source.selectedCity;
   if (isRecord(sc)) {
     const name = typeof sc.name === "string" ? sc.name.trim() : "";
     const country = typeof sc.country === "string" ? sc.country.trim() : "";

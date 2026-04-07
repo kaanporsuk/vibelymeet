@@ -17,6 +17,7 @@ export const PREMIUM_ENTRY_SURFACE = {
   SETTINGS_UPGRADE_CARD: "settings_upgrade_card",
   LOBBY_PREMIUM_PILL: "lobby_premium_pill",
   ACCOUNT_PREMIUM_LINK: "account_premium_link",
+  SUBSCRIPTION_CANCEL: "subscription_cancel",
 } as const;
 
 export type PremiumEntrySurface =

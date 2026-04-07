@@ -7,6 +7,8 @@ import { spacing, typography } from '@/constants/theme';
 import { VibelyButton } from '@/components/ui';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 
 export default function SubscriptionCancelScreen() {
   const insets = useSafeAreaInsets();
@@ -23,7 +25,11 @@ export default function SubscriptionCancelScreen() {
         <VibelyButton
           label="Try Again"
           variant="primary"
-          onPress={() => router.replace('/premium')}
+          onPress={() =>
+            openPremium(router.replace, {
+              entry_surface: PREMIUM_ENTRY_SURFACE.SUBSCRIPTION_CANCEL,
+            })
+          }
           style={{ width: '100%', marginTop: 24 }}
         />
         <VibelyButton

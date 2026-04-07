@@ -63,6 +63,7 @@ import {
 } from "../../shared/matches/spotlightResolver";
 import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
+import { isWebShareAbortError } from "@/lib/webShare";
 
 const Matches = () => {
   const navigate = useNavigate();
@@ -558,7 +559,8 @@ const Matches = () => {
                               url: link,
                             });
                             trackEvent("invite_link_shared", { surface: "matches", channel: "system_share" });
-                          } catch {
+                          } catch (error) {
+                            if (isWebShareAbortError(error)) return;
                             try {
                               await navigator.clipboard.writeText(link);
                               trackEvent("invite_link_copied", { surface: "matches", channel: "clipboard" });

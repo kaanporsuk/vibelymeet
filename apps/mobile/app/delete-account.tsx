@@ -52,7 +52,9 @@ export default function DeleteAccountScreen() {
     cancelDeletion,
     isCancelling,
     refetchDeletionState,
+    deletionStateError,
     cancelDeletionError,
+    clearDeletionStateError,
     clearCancelDeletionError,
   } = useDeletionRecovery(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
@@ -144,23 +146,28 @@ export default function DeleteAccountScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        {pendingDeletion ? (
+        {pendingDeletion || deletionStateError ? (
           <>
             <DeletionRecoveryBanner
-              scheduledDate={pendingDeletion.scheduled_deletion_at}
+              scheduledDate={pendingDeletion?.scheduled_deletion_at}
               onCancel={handleCancelPress}
               isCancelling={isCancelling}
+              deletionStateError={deletionStateError}
+              onRetryDeletionState={() => void refetchDeletionState()}
+              onDismissDeletionStateError={clearDeletionStateError}
               cancelDeletionError={cancelDeletionError}
               onDismissCancelDeletionError={clearCancelDeletionError}
             />
-            <Text style={[styles.body, { color: theme.textSecondary }]}>
-              Your account is in the recovery window. You can keep using the app until the date above. Cancel anytime with the button on this screen, Account &
-              Security, or your home banner.
-            </Text>
+            {pendingDeletion ? (
+              <Text style={[styles.body, { color: theme.textSecondary }]}>
+                Your account is in the recovery window. You can keep using the app until the date above. Cancel anytime with the button on this screen, Account &
+                Security, or your home banner.
+              </Text>
+            ) : null}
           </>
         ) : null}
 
-        {!pendingDeletion ? (
+        {!pendingDeletion && !deletionStateError ? (
           <>
             <Text style={[styles.lede, { color: theme.text }]}>
               Account deletion is scheduled, not instant: you get a multi-week period to cancel before data is permanently removed.

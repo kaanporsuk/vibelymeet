@@ -3,7 +3,7 @@ import { asProfileId, type ProfileId } from "./identity";
 export type EventDeckProfileRow = {
   profile_id: string;
   name: string;
-  age: number;
+  age: number | null;
   gender: string;
   avatar_url: string | null;
   photos: string[] | null;
@@ -58,7 +58,7 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
       toEventDeckProfile({
         profile_id: source.profile_id,
         name: typeof source.name === "string" ? source.name : "",
-        age: typeof source.age === "number" ? source.age : 0,
+        age: typeof source.age === "number" ? source.age : null,
         gender: typeof source.gender === "string" ? source.gender : "",
         avatar_url: typeof source.avatar_url === "string" ? source.avatar_url : null,
         photos: Array.isArray(source.photos)

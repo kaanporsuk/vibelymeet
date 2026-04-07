@@ -15,11 +15,13 @@ export function useDeletionRecovery(userId: string | null | undefined) {
   const queryClient = useQueryClient();
   const [pendingDeletion, setPendingDeletion] = useState<DeletionRequest | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [deletionStateError, setDeletionStateError] = useState<string | null>(null);
   const [cancelDeletionError, setCancelDeletionError] = useState<string | null>(null);
 
   const refetchDeletionState = useCallback(async () => {
     if (!userId) {
       setPendingDeletion(null);
+      setDeletionStateError(null);
       return;
     }
     const { data, error } = await supabase
@@ -29,9 +31,11 @@ export function useDeletionRecovery(userId: string | null | undefined) {
       .eq('status', 'pending')
       .maybeSingle();
     if (error) {
+      setDeletionStateError('We couldn’t load your scheduled deletion status. Try again in a moment.');
       if (__DEV__) console.warn('[useDeletionRecovery] fetch failed:', error.message);
       return;
     }
+    setDeletionStateError(null);
     setPendingDeletion(data as DeletionRequest | null);
   }, [userId]);
 
@@ -41,6 +45,10 @@ export function useDeletionRecovery(userId: string | null | undefined) {
 
   const clearCancelDeletionError = useCallback(() => {
     setCancelDeletionError(null);
+  }, []);
+
+  const clearDeletionStateError = useCallback(() => {
+    setDeletionStateError(null);
   }, []);
 
   const cancelDeletion = useCallback(async (): Promise<boolean> => {
@@ -85,7 +93,9 @@ export function useDeletionRecovery(userId: string | null | undefined) {
     cancelDeletion,
     isCancelling,
     refetchDeletionState,
+    deletionStateError,
     cancelDeletionError,
+    clearDeletionStateError,
     clearCancelDeletionError,
   };
 }

@@ -211,7 +211,10 @@ export default function AccountSettingsScreen() {
     pendingDeletion,
     cancelDeletion,
     isCancelling,
+    refetchDeletionState,
+    deletionStateError,
     cancelDeletionError,
+    clearDeletionStateError,
     clearCancelDeletionError,
   } = useDeletionRecovery(user?.id);
 
@@ -651,11 +654,14 @@ export default function AccountSettingsScreen() {
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {pendingDeletion ? (
+        {pendingDeletion || deletionStateError ? (
           <DeletionRecoveryBanner
-            scheduledDate={pendingDeletion.scheduled_deletion_at}
+            scheduledDate={pendingDeletion?.scheduled_deletion_at}
             onCancel={() => void cancelDeletion()}
             isCancelling={isCancelling}
+            deletionStateError={deletionStateError}
+            onRetryDeletionState={() => void refetchDeletionState()}
+            onDismissDeletionStateError={clearDeletionStateError}
             cancelDeletionError={cancelDeletionError}
             onDismissCancelDeletionError={clearCancelDeletionError}
           />

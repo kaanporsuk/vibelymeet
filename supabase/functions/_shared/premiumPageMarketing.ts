@@ -108,6 +108,11 @@ export function getPremiumEntryNudge(entrySurface: string | undefined): PremiumE
         title: "Upgrade from Free",
         body: "You’ll get stronger discovery, Premium-tier events, and who-liked-you access — see exactly what’s included below.",
       };
+    case PREMIUM_ENTRY_SURFACE.SUBSCRIPTION_CANCEL:
+      return {
+        title: "Ready to try membership again?",
+        body: "If checkout didn’t go through, you can review the available plans and what each tier includes before trying again.",
+      };
     default:
       return null;
   }
