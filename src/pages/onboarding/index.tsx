@@ -98,8 +98,10 @@ const Onboarding = () => {
       applyDraft(localDraft.step, localDraft.data);
     }
 
-    // Then load authoritative server draft
-    loadOnboardingDraft(supabase as any, userId).then((result) => {
+    // Server draft then profile photo hydration — sequential so an empty draft cannot race
+    // ahead and wipe photos already merged from `profiles`.
+    void (async () => {
+      const result = await loadOnboardingDraft(supabase as any, userId);
       if (result.draft) {
         const sd = result.draft;
         const serverData: OnboardingData = {
@@ -110,11 +112,7 @@ const Onboarding = () => {
         };
         applyDraft(sd.current_step, serverData);
       }
-      setDraftLoaded(true);
-    });
 
-    // Load existing photos from partial profile
-    const loadExistingPhotos = async () => {
       const { data: profile } = await supabase
         .from("profiles")
         .select("photos")
@@ -124,8 +122,8 @@ const Onboarding = () => {
       if (existing.length > 0) {
         setData((prev) => (prev.photos.length > 0 ? prev : { ...prev, photos: existing }));
       }
-    };
-    loadExistingPhotos();
+      setDraftLoaded(true);
+    })();
   }, [session?.user?.id, draftLoaded]);
 
   // Write local cache on every change (non-authoritative, for fast resume on same device)
