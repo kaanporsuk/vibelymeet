@@ -203,6 +203,7 @@ export default function OnboardingV2Screen() {
     handledVideoTokenRef.current = token;
 
     updateField('vibeVideoRecorded', true);
+    // Hint for draft / analytics only; finalize reads profiles.bunny_video_uid when present.
     updateField('bunnyVideoUid', videoUid);
 
     const vibeStepIndex = needsEmailCollection ? 13 : 12;
@@ -248,10 +249,29 @@ export default function OnboardingV2Screen() {
     setSubmitting(true);
 
     try {
+      // finalize_onboarding copies `bunnyVideoUid` from the payload onto profiles.bunny_video_uid.
+      // The authoritative uid is already on the profile after create-video-upload; drafts can lag or
+      // go empty and would otherwise clear the column. Align the payload with the profile snapshot.
+      let dataForFinalize = data;
+      if (data.vibeVideoRecorded) {
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('bunny_video_uid')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        const canonical =
+          typeof profileRow?.bunny_video_uid === 'string'
+            ? profileRow.bunny_video_uid.trim()
+            : '';
+        if (canonical) {
+          dataForFinalize = { ...data, bunnyVideoUid: canonical };
+        }
+      }
+
       const result = await executeOnboardingCompletion({
         supabase: supabase as any,
         userId: session.user.id,
-        data,
+        data: dataForFinalize,
         clearLocalDraft: async () => {
           await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
         },
