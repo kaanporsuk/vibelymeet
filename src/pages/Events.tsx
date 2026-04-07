@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import type { UseVisibleEventsOptions } from "@/hooks/useVisibleEvents";
 import { useNavigate } from "react-router-dom";
 import { trackEvent } from "@/lib/analytics";
+import { openPremium } from "@/lib/premiumNavigation";
+import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -89,6 +91,7 @@ const LocationPromptBanner = () => {
 
 // ── Premium Upsell: Other Cities ──────────────────────────────────────────────
 const HappeningElsewhere = () => {
+  const navigate = useNavigate();
   const { data: cities = [], isLoading } = useOtherCityEvents();
   if (isLoading || cities.length === 0) return null;
 
@@ -138,7 +141,16 @@ const HappeningElsewhere = () => {
             <p className="text-sm text-muted-foreground mt-1">
               Explore events in any city, match with people worldwide, and never miss a vibe.
             </p>
-            <Button size="sm" className="mt-3 bg-gradient-to-r from-primary to-accent text-primary-foreground gap-2">
+            <Button
+              size="sm"
+              className="mt-3 bg-gradient-to-r from-primary to-accent text-primary-foreground gap-2"
+              onClick={() =>
+                openPremium(navigate, {
+                  entry_surface: PREMIUM_ENTRY_SURFACE.HAPPENING_ELSEWHERE_PROMO,
+                  feature: "canCityBrowse",
+                })
+              }
+            >
               <Sparkles className="w-4 h-4" />Explore with Premium →
             </Button>
           </div>
@@ -412,7 +424,12 @@ const Events = () => {
         upcomingOnly={upcomingOnly} onUpcomingOnlyChange={setUpcomingOnly}
         extraFilterCount={extraFilterCount}
         canCityBrowse={canCityBrowse}
-        onPremiumUpgrade={() => navigate('/premium')}
+        onPremiumUpgrade={() =>
+          openPremium(navigate, {
+            entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_EVENTS_FILTER,
+            feature: "canCityBrowse",
+          })
+        }
       />
 
       {/* Content */}
@@ -495,7 +512,15 @@ const Events = () => {
                 </div>
                 <h3 className="text-lg font-semibold text-foreground mb-1">No events near you yet 💫</h3>
                 <p className="text-sm text-muted-foreground mb-4">But there are events happening in other cities!</p>
-                <Button className="bg-gradient-to-r from-primary to-accent gap-2" onClick={() => navigate('/premium')}>
+                <Button
+                  className="bg-gradient-to-r from-primary to-accent gap-2"
+                  onClick={() =>
+                    openPremium(navigate, {
+                      entry_surface: PREMIUM_ENTRY_SURFACE.EVENTS_EMPTY_PROMO,
+                      feature: "canCityBrowse",
+                    })
+                  }
+                >
                   <Sparkles className="w-4 h-4" />Go Premium to explore →
                 </Button>
               </div>

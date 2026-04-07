@@ -33,6 +33,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { useNavigate } from "react-router-dom";
+import { openPremium } from "@/lib/premiumNavigation";
+import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -500,7 +502,7 @@ export const AccountSettingsDrawer = ({
             onClick={async () => {
               if (!showElevatedMembership) {
                 onOpenChange(false);
-                navigate("/premium");
+                openPremium(navigate, { entry_surface: PREMIUM_ENTRY_SURFACE.ACCOUNT_PREMIUM_LINK });
                 return;
               }
               if (!hasBillableSubscription) {

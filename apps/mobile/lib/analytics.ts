@@ -9,7 +9,7 @@ let client: PostHog | null = null;
 
 type CleanProps = Record<string, string | number | boolean>;
 
-function sanitize(props?: Record<string, string | number | boolean | null>): CleanProps | undefined {
+function sanitize(props?: Record<string, string | number | boolean | null | undefined>): CleanProps | undefined {
   if (!props) return undefined;
   const clean: CleanProps = {};
   for (const [k, v] of Object.entries(props)) {
@@ -34,7 +34,10 @@ export function resetAnalytics() {
   client?.reset();
 }
 
-export function trackEvent(eventName: string, properties?: Record<string, string | number | boolean | null>) {
+export function trackEvent(
+  eventName: string,
+  properties?: Record<string, string | number | boolean | null | undefined>
+) {
   client?.capture(eventName, sanitize(properties));
 }
 

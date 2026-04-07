@@ -3,9 +3,9 @@
  * Stage 2: hero, feature callouts, entitlement states, resilient no-offerings/unavailable UX.
  */
 
-import { useEffect, useState } from 'react';
-import { StyleSheet, View, Text, ScrollView, Pressable } from 'react-native';
-import { router } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View, Text, ScrollView, Pressable, Platform } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
@@ -33,7 +33,22 @@ import { trackEvent } from '@/lib/analytics';
 
 export default function PremiumScreen() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{
+    entry_surface?: string | string[];
+    feature?: string | string[];
+    source_context?: string | string[];
+  }>();
   const { user } = useAuth();
+
+  const funnelFromRoute = useMemo(() => {
+    const one = (v: string | string[] | undefined) =>
+      v === undefined ? undefined : Array.isArray(v) ? v[0] : v;
+    return {
+      entry_surface: one(params.entry_surface),
+      feature: one(params.feature),
+      source_context: one(params.source_context),
+    };
+  }, [params.entry_surface, params.feature, params.source_context]);
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { isPremium, plan, currentPeriodEnd, isLoading: subLoading, refetch } = useBackendSubscription(user?.id);
@@ -47,8 +62,14 @@ export default function PremiumScreen() {
 
   useEffect(() => {
     initRevenueCat();
-    trackEvent('premium_page_viewed');
   }, []);
+
+  useEffect(() => {
+    trackEvent('premium_page_viewed', {
+      ...funnelFromRoute,
+      platform: Platform.OS === 'ios' ? 'ios' : 'android',
+    });
+  }, [funnelFromRoute]);
 
   useEffect(() => {
     if (user?.id && isRevenueCatConfigured()) {

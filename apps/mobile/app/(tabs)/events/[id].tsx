@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, router } from 'expo-router';
-import { StyleSheet, ScrollView, Pressable, Image, View, Text, Dimensions, Linking, Alert } from 'react-native';
+import {
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Image,
+  View,
+  Text,
+  Dimensions,
+  Linking,
+  Alert,
+  Platform,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -42,6 +53,8 @@ import { withAlpha } from '@/lib/colorUtils';
 import { deriveEventPhase } from '@/lib/eventPhase';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 
 /** Same key as web `EventDetails` (`vibely_phone_nudge_event_dismissed`) for product-consistent dismiss semantics. */
 const EVENT_PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_event_dismissed';
@@ -213,21 +226,51 @@ export default function EventDetailScreen() {
     }
     const vis = (event as EventDetailsRow).visibility;
     if (vis === 'premium' && !canAccessPremiumEvents) {
+      trackEvent('premium_entry_tapped', {
+        entry_surface: PREMIUM_ENTRY_SURFACE.PREMIUM_EVENT_REGISTER,
+        feature: 'canAccessPremiumEvents',
+        source_context: event.id,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      });
       showDialog({
         title: 'Premium only',
         message: 'This event is for Premium members. Upgrade to join.',
         variant: 'info',
-        primaryAction: { label: 'View Premium', onPress: () => router.push('/premium') },
+        primaryAction: {
+          label: 'View Premium',
+          onPress: () =>
+            openPremium(router.push, {
+              entry_surface: PREMIUM_ENTRY_SURFACE.PREMIUM_EVENT_REGISTER,
+              feature: 'canAccessPremiumEvents',
+              source_context: event.id,
+              recordEntryTapped: false,
+            }),
+        },
         secondaryAction: { label: 'Not now', onPress: () => {} },
       });
       return;
     }
     if (vis === 'vip' && !canAccessVipEvents) {
+      trackEvent('premium_entry_tapped', {
+        entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,
+        feature: 'canAccessVipEvents',
+        source_context: event.id,
+        platform: Platform.OS === 'ios' ? 'ios' : 'android',
+      });
       showDialog({
         title: 'VIP only',
         message: 'This event is for VIP members. Upgrade to unlock access.',
         variant: 'info',
-        primaryAction: { label: 'View Premium', onPress: () => router.push('/premium') },
+        primaryAction: {
+          label: 'View Premium',
+          onPress: () =>
+            openPremium(router.push, {
+              entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,
+              feature: 'canAccessVipEvents',
+              source_context: event.id,
+              recordEntryTapped: false,
+            }),
+        },
         secondaryAction: { label: 'Not now', onPress: () => {} },
       });
       return;

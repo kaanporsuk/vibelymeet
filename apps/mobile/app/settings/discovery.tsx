@@ -23,6 +23,8 @@ import { spacing, layout, radius } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 import { supabase } from '@/lib/supabase';
 import { RelationshipIntentSelector } from '@/components/profile/RelationshipIntentSelector';
 import {
@@ -272,7 +274,15 @@ export default function DiscoverySettingsScreen() {
           </Pressable>
         </View>
         {!canCityBrowse ? (
-          <Pressable onPress={() => router.push('/premium')} style={styles.premiumLink}>
+          <Pressable
+            onPress={() =>
+              openPremium(router.push, {
+                entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
+                feature: 'canCityBrowse',
+              })
+            }
+            style={styles.premiumLink}
+          >
             <Ionicons name="sparkles" size={14} color={theme.tint} />
             <Text style={{ color: theme.tint, fontSize: 13, marginLeft: 6 }}>Upgrade for city browse</Text>
           </Pressable>

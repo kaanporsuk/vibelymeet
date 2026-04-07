@@ -31,6 +31,8 @@ import {
 import Constants from 'expo-constants';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -170,7 +172,9 @@ export default function SettingsScreen() {
                 icon={<Ionicons name="sparkles" size={20} color={theme.tint} />}
                 title="Upgrade to Premium"
                 subtitle="Unlock all features"
-                onPress={() => router.push('/premium')}
+                onPress={() =>
+                  openPremium(router.push, { entry_surface: PREMIUM_ENTRY_SURFACE.SETTINGS_UPGRADE_CARD })
+                }
               />
             )}
           </Card>

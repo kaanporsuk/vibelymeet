@@ -39,6 +39,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { trackEvent } from "@/lib/analytics";
+import { PremiumUpsellDialog } from "@/components/premium/PremiumUpsellDialog";
+import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -118,6 +120,7 @@ const EventDetails = () => {
   const [showTicket, setShowTicket] = useState(false);
   const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
   const [freeRegisterBusy, setFreeRegisterBusy] = useState(false);
+  const [visibilityUpsell, setVisibilityUpsell] = useState<"premium" | "vip" | null>(null);
   /** Wired after purchase handler exists — lets MiniProfile use the same guarded funnel. */
   const purchasePressRef = useRef<() => void>(() => {});
 
@@ -277,14 +280,24 @@ const EventDetails = () => {
       }
       return;
     }
-    if (event.visibility === 'premium' && !canAccessPremiumEvents) {
-      toast.error('This event is exclusive to Vibely Premium members ✦');
-      navigate('/premium');
+    if (event.visibility === "premium" && !canAccessPremiumEvents) {
+      trackEvent("premium_entry_tapped", {
+        entry_surface: PREMIUM_ENTRY_SURFACE.PREMIUM_EVENT_REGISTER,
+        feature: "canAccessPremiumEvents",
+        source_context: event.id,
+        platform: "web",
+      });
+      setVisibilityUpsell("premium");
       return;
     }
-    if (event.visibility === 'vip' && !canAccessVipEvents) {
-      toast.error('This event is exclusive to Vibely VIP members ✦');
-      navigate('/premium');
+    if (event.visibility === "vip" && !canAccessVipEvents) {
+      trackEvent("premium_entry_tapped", {
+        entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,
+        feature: "canAccessVipEvents",
+        source_context: event.id,
+        platform: "web",
+      });
+      setVisibilityUpsell("vip");
       return;
     }
     setShowPaymentModal(true);
@@ -685,6 +698,38 @@ const EventDetails = () => {
         onConfirm={handleCancelConfirm}
         eventTitle={event.title}
         admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
+      />
+
+      <PremiumUpsellDialog
+        open={visibilityUpsell !== null}
+        onOpenChange={(o) => {
+          if (!o) setVisibilityUpsell(null);
+        }}
+        navigate={navigate}
+        title={
+          visibilityUpsell === "vip"
+            ? "This event needs VIP access"
+            : "This event is Premium-only"
+        }
+        description={
+          visibilityUpsell === "vip"
+            ? "Your current membership tier does not include VIP-tier events. Upgrade or change plans to match what this experience requires."
+            : "Premium members can register for Premium-tier events on Vibely. Upgrade to unlock this registration path."
+        }
+        funnel={
+          visibilityUpsell === "vip"
+            ? {
+                entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,
+                feature: "canAccessVipEvents",
+                source_context: id ?? undefined,
+              }
+            : {
+                entry_surface: PREMIUM_ENTRY_SURFACE.PREMIUM_EVENT_REGISTER,
+                feature: "canAccessPremiumEvents",
+                source_context: id ?? undefined,
+              }
+        }
+        continueLabel="View membership options"
       />
 
       {/* Ticket Stub */}

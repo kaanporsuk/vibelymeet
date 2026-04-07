@@ -44,6 +44,8 @@ import { LinkedSignInMethods } from '@/components/settings/LinkedSignInMethods';
 import { isRevenueCatConfigured, restorePurchasesWithCustomerInfo } from '@/lib/revenuecat';
 import { syncRevenueCatSubscriberFromServer } from '@/lib/syncRevenueCatSubscriber';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useStatusDialog } from '@/components/ui/StatusDialog';
@@ -864,7 +866,9 @@ export default function AccountSettingsScreen() {
                     )}
                   </View>
                 }
-                onPress={() => router.push('/premium')}
+                onPress={() =>
+                  openPremium(router.push, { entry_surface: PREMIUM_ENTRY_SURFACE.ACCOUNT_PREMIUM_LINK })
+                }
               />
               <Hairline theme={theme} />
               <AccountRow
