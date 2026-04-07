@@ -66,10 +66,15 @@ const EventLobby = () => {
   // Track seen profile IDs to prevent duplicates on refetch (bump deckNonce when this changes).
   const seenProfileIds = useRef<Set<string>>(new Set());
   const [deckNonce, setDeckNonce] = useState(0);
+  // Track whether the deck ever had profiles (to distinguish "initial empty" from "exhausted")
+  const deckEverLoadedRef = useRef(false);
+  const deckExhaustedFiredRef = useRef(false);
 
   useEffect(() => {
     seenProfileIds.current = new Set();
     setDeckNonce((n) => n + 1);
+    deckEverLoadedRef.current = false;
+    deckExhaustedFiredRef.current = false;
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
@@ -313,6 +318,27 @@ const EventLobby = () => {
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
 
+  // Track deck loaded / exhausted
+  useEffect(() => {
+    if (sortedProfiles.length > 0) {
+      deckEverLoadedRef.current = true;
+      deckExhaustedFiredRef.current = false;
+    }
+  }, [sortedProfiles.length]);
+
+  useEffect(() => {
+    if (
+      deckEverLoadedRef.current &&
+      !deckExhaustedFiredRef.current &&
+      sortedProfiles.length === 0 &&
+      !deckLoading &&
+      eventId
+    ) {
+      deckExhaustedFiredRef.current = true;
+      trackEvent("lobby_deck_exhausted", { event_id: eventId });
+    }
+  }, [sortedProfiles.length, deckLoading, eventId]);
+
   const afterSuccessfulSwipe = useCallback(
     (targetId: string) => {
       seenProfileIds.current.add(targetId);
@@ -332,12 +358,14 @@ const EventLobby = () => {
     const code = result.result === "swipe_recorded" ? "vibe_recorded" : result.result;
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", profile_id: targetId });
+
     if (code === "match" || code === "match_queued") {
       haptics.medium();
     }
 
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing) return;
@@ -348,8 +376,10 @@ const EventLobby = () => {
     const code = result.result;
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", profile_id: targetId });
+
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
 
   const handleSuperVibe = useCallback(async () => {
     if (!currentProfile || isProcessing) return;
@@ -363,10 +393,13 @@ const EventLobby = () => {
 
     if (code === "super_vibe_sent") {
       setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
+      trackEvent("super_vibe_used", { event_id: eventId, profile_id: targetId });
     }
 
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", profile_id: targetId });
+
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe]);
+  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
 
   // Loading state
   if (eventLoading || regLoading) {

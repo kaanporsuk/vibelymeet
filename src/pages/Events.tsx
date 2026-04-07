@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import type { UseVisibleEventsOptions } from "@/hooks/useVisibleEvents";
 import { useNavigate } from "react-router-dom";
+import { trackEvent } from "@/lib/analytics";
 import { motion, AnimatePresence } from "framer-motion";
 import { Calendar, Sparkles, MapPin, Globe, Lock } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -169,6 +170,11 @@ const Events = () => {
   const { user } = useUserProfile();
   const { canCityBrowse } = useEntitlements();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    trackEvent('events_page_viewed');
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);

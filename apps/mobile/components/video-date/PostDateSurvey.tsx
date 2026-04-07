@@ -10,6 +10,8 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
+import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
+import { supabase } from '@/lib/supabase';
 
 type Props = {
   sessionId: string;
@@ -20,7 +22,13 @@ type Props = {
   eventId: string | undefined;
   onSubmitVerdict: (liked: boolean) => Promise<SubmitVerdictAndCheckMutualResult>;
   onMutualMatch: () => void;
+  /** Called when user taps "Start Chatting"; receives the match_id if available. */
+  onStartChatting?: (matchId?: string) => void;
   onDone: () => void;
+};
+
+type CelebrationData = {
+  sharedVibes: string[];
 };
 
 function verdictFailureUserMessage(result: Extract<SubmitVerdictAndCheckMutualResult, { ok: false }>): string {
@@ -47,10 +55,13 @@ function verdictFailureUserMessage(result: Extract<SubmitVerdictAndCheckMutualRe
 
 export function PostDateSurvey({
   sessionId,
+  userId,
+  partnerId,
   partnerName,
   partnerImage,
   onSubmitVerdict,
   onMutualMatch,
+  onStartChatting,
   onDone,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -58,15 +69,37 @@ export function PostDateSurvey({
   const [step, setStep] = useState<'verdict' | 'celebration' | 'done'>('verdict');
   const [submitting, setSubmitting] = useState(false);
   const [verdictError, setVerdictError] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
+  const [matchId, setMatchId] = useState<string | undefined>(undefined);
 
+  // Fetch shared vibes when celebration step is reached
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current !== null) {
-        clearTimeout(timeoutRef.current);
-      }
+    if (step !== 'celebration' || !userId || !partnerId) return;
+    let cancelled = false;
+
+    const fetchShared = async () => {
+      const [{ data: myVibes }, { data: partnerVibes }] = await Promise.all([
+        supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', userId),
+        supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', partnerId),
+      ]);
+      if (cancelled) return;
+
+      const extractLabels = (rows: unknown[] | null): string[] =>
+        (rows ?? [])
+          .map((v: unknown) => {
+            const raw = (v as { vibe_tags: { label: string } | { label: string }[] | null }).vibe_tags;
+            const tag = Array.isArray(raw) ? raw[0] : raw;
+            return tag?.label ?? null;
+          })
+          .filter((l): l is string => !!l);
+
+      const shared = extractLabels(myVibes).filter((l) => extractLabels(partnerVibes).includes(l));
+      setCelebrationData({ sharedVibes: shared });
     };
-  }, []);
+
+    fetchShared();
+    return () => { cancelled = true; };
+  }, [step, userId, partnerId]);
 
   const handleVerdict = async (liked: boolean) => {
     if (submitting) return;
@@ -83,13 +116,8 @@ export function PostDateSurvey({
         verdict: liked ? 'vibe' : 'pass',
       });
       if (result.mutual) {
+        setMatchId(result.match_id);
         setStep('celebration');
-        if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => {
-          setStep('done');
-          onMutualMatch();
-          timeoutRef.current = null;
-        }, 2000);
       } else {
         setStep('done');
         onDone();
@@ -103,10 +131,19 @@ export function PostDateSurvey({
 
   if (step === 'celebration') {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <Text style={[styles.celebrationTitle, { color: theme.text }]}>It's a match! 🎉</Text>
-        <Text style={[styles.celebrationSub, { color: theme.mutedForeground }]}>You both vibed</Text>
-      </View>
+      <MatchCelebrationScreen
+        partnerName={partnerName}
+        partnerImage={partnerImage}
+        sharedVibes={celebrationData?.sharedVibes}
+        onStartChatting={() => {
+          if (onStartChatting) {
+            onStartChatting(matchId);
+          } else {
+            onMutualMatch();
+          }
+        }}
+        onKeepVibing={onMutualMatch}
+      />
     );
   }
 
@@ -220,12 +257,5 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.9,
-  },
-  celebrationTitle: {
-    ...typography.titleLG,
-    marginBottom: spacing.sm,
-  },
-  celebrationSub: {
-    ...typography.body,
   },
 });

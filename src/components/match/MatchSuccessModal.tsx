@@ -13,12 +13,15 @@ import { useUserProfile } from "@/contexts/AuthContext";
 interface MatchSuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Override the default navigate("/chat") behaviour for "Start Chatting" */
+  onStartChatting?: () => void;
   matchData?: {
     name: string;
     age: number;
     avatar: string;
     sharedVibes: string[];
-    vibeScore: number;
+    /** Omit to hide the chemistry badge — only show when backed by real data. */
+    vibeScore?: number;
   };
   userData?: {
     name: string;
@@ -29,6 +32,7 @@ interface MatchSuccessModalProps {
 const MatchSuccessModal = ({
   isOpen,
   onClose,
+  onStartChatting,
   matchData = {
     name: "Sarah",
     age: 24,
@@ -147,7 +151,11 @@ const MatchSuccessModal = ({
 
   const handleStartChatting = () => {
     onClose();
-    navigate("/chat");
+    if (onStartChatting) {
+      onStartChatting();
+    } else {
+      navigate("/chat");
+    }
   };
 
   const handleKeepVibing = () => {
@@ -369,9 +377,9 @@ const MatchSuccessModal = ({
                 )}
               </AnimatePresence>
 
-              {/* Vibe Score Badge */}
+              {/* Vibe Score Badge — only shown when an authoritative score is provided */}
               <AnimatePresence>
-                {animationPhase >= 4 && (
+                {animationPhase >= 4 && (matchData.vibeScore ?? 0) > 0 && (
                   <motion.div
                     initial={{ scale: 0, y: 20 }}
                     animate={{ scale: 1, y: 0 }}

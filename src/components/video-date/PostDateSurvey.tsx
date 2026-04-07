@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
-import { MutualMatchCelebration } from "./survey/MutualMatchCelebration";
 import { EventEndedModal } from "@/components/events/EventEndedModal";
+import MatchSuccessModal from "@/components/match/MatchSuccessModal";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
@@ -42,6 +42,49 @@ export const PostDateSurvey = ({
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
+
+  // Data for the polished mutual-match celebration
+  const [celebrationData, setCelebrationData] = useState<{
+    partnerAge: number;
+    sharedVibes: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (step !== "celebration" || !user?.id) return;
+    let cancelled = false;
+
+    const fetchCelebrationData = async () => {
+      const [{ data: partnerProfile }, { data: myVibes }, { data: partnerVibes }] =
+        await Promise.all([
+          supabase.from("profiles").select("age").eq("id", partnerId).maybeSingle(),
+          supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
+          supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", partnerId),
+        ]);
+
+      if (cancelled) return;
+
+      const extractLabels = (rows: unknown[] | null): string[] =>
+        (rows ?? [])
+          .map((v: unknown) => {
+            const raw = (v as { vibe_tags: { label: string } | { label: string }[] | null }).vibe_tags;
+            const tag = Array.isArray(raw) ? raw[0] : raw;
+            return tag?.label ?? null;
+          })
+          .filter((l): l is string => !!l);
+
+      const myLabels = extractLabels(myVibes);
+      const partnerLabels = extractLabels(partnerVibes);
+      const shared = myLabels.filter((l) => partnerLabels.includes(l));
+
+      setCelebrationData({
+        partnerAge: (partnerProfile?.age as number | null) ?? 0,
+        sharedVibes: shared,
+      });
+    };
+
+    fetchCelebrationData();
+    return () => { cancelled = true; };
+  }, [step, user?.id, partnerId]);
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
@@ -235,6 +278,29 @@ export const PostDateSurvey = ({
     return <EventEndedModal isOpen={true} />;
   }
 
+  // Celebration step: use the full-screen polished modal wired to real production data.
+  // onClose → continue to highlights; onStartChatting → go directly to chat.
+  if (step === "celebration") {
+    return (
+      <MatchSuccessModal
+        isOpen={true}
+        onClose={() => setStep("highlights")}
+        onStartChatting={() => navigate("/chat")}
+        matchData={celebrationData ? {
+          name: partnerName,
+          age: celebrationData.partnerAge,
+          avatar: partnerImage,
+          sharedVibes: celebrationData.sharedVibes,
+          // vibeScore intentionally omitted — no authoritative backend field without schema changes
+        } : undefined}
+        userData={{
+          name: user?.name ?? "You",
+          avatar: user?.avatarUrl ?? "",
+        }}
+      />
+    );
+  }
+
   return (
     <AnimatePresence>
       <motion.div
@@ -282,15 +348,6 @@ export const PostDateSurvey = ({
                   partnerImage={partnerImage}
                   onVerdict={handleVerdict}
                   onReport={handleReportFromVerdict}
-                />
-              )}
-
-              {step === "celebration" && (
-                <MutualMatchCelebration
-                  key="celebration"
-                  partnerName={partnerName}
-                  partnerImage={partnerImage}
-                  onContinue={() => setStep("highlights")}
                 />
               )}
 

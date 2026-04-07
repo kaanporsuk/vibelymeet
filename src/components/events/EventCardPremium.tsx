@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { trackEvent } from "@/lib/analytics";
 import { motion, AnimatePresence } from "framer-motion";
 import { Ticket, MapPin, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ export const EventCardPremium = ({
 
   const handleOpenDetails = (e: React.MouseEvent) => {
     e.stopPropagation();
+    trackEvent('event_card_tapped', { event_id: id, title });
     navigate(`/events/${id}`);
   };
 
@@ -85,7 +87,7 @@ export const EventCardPremium = ({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       whileHover={{ y: -4 }}
-      onClick={() => navigate(`/events/${id}`)}
+      onClick={() => { trackEvent('event_card_tapped', { event_id: id, title }); navigate(`/events/${id}`); }}
       className="relative w-[280px] md:w-[320px] flex-shrink-0 rounded-2xl overflow-hidden bg-card border border-border/50 group cursor-pointer"
     >
       {/* Image */}

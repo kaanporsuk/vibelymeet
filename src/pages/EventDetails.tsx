@@ -230,11 +230,13 @@ const EventDetails = () => {
     const nowWaitlisted = (freshSnap?.isWaitlisted ?? false) && !nowConfirmed;
 
     if (nowWaitlisted) {
+      trackEvent('event_waitlisted', { event_id: id ?? '', event_title: event.title });
       toast.success("You're on the waitlist", {
         description:
           "The event was full when you joined — we'll confirm you if a spot opens. Check the event page for your status.",
       });
     } else if (nowConfirmed) {
+      trackEvent('event_registered', { event_id: id ?? '', event_title: event.title });
       confetti({
         particleCount: 100,
         spread: 70,
