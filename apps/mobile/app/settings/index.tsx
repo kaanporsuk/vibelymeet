@@ -1,7 +1,7 @@
 /**
  * Settings — web parity: stateful Premium card, dynamic Credits, native delete, Support & Feedback, legal links.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet, Linking } from 'react-native';
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +33,8 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { openPremium } from '@/lib/premiumNavigation';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
+import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
+import { trackEvent } from '@/lib/analytics';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -100,6 +102,7 @@ export default function SettingsScreen() {
   const { data: credits, isLoading: creditsLoading } = useCredits(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused, remainingLabel } = useAccountPauseStatus();
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
 
   const handleManageSubscription = async () => {
     try {
@@ -189,6 +192,18 @@ export default function SettingsScreen() {
                   : `${credits?.extra_time_credits ?? 0} Extra Time · ${credits?.extended_vibe_credits ?? 0} Extended Vibe`
               }
               onPress={() => router.push('/settings/credits')}
+            />
+          </Card>
+
+          <Card variant="glass" style={styles.navCard}>
+            <SettingsRow
+              icon={<Ionicons name="person-add-outline" size={20} color={theme.tint} />}
+              title="Invite friends"
+              subtitle="Share your link — events, video dates, real connections"
+              onPress={() => {
+                trackEvent('invite_sheet_opened', { surface: 'settings' });
+                setShowInviteSheet(true);
+              }}
             />
           </Card>
 
@@ -295,6 +310,11 @@ export default function SettingsScreen() {
         </View>
       </ScrollView>
 
+      <InviteFriendsSheet
+        visible={showInviteSheet}
+        onClose={() => setShowInviteSheet(false)}
+        analyticsSurface="settings"
+      />
     </View>
   );
 }

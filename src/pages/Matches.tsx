@@ -61,6 +61,8 @@ import {
   getUtcDateKey,
   resolveMatchesSpotlight,
 } from "../../shared/matches/spotlightResolver";
+import { buildInviteLandingUrl } from "@/lib/inviteLinks";
+import { trackEvent } from "@/lib/analytics";
 
 const Matches = () => {
   const navigate = useNavigate();
@@ -548,16 +550,22 @@ const Matches = () => {
                     >
                       <button
                         onClick={async () => {
-                          const link = `https://vibelymeet.com/auth?ref=${user?.id || ""}`;
+                          const link = buildInviteLandingUrl(user?.id ?? null);
                           try {
                             await navigator.share({
                               title: "Join me on Vibely!",
                               text: "I'm using Vibely for video dates — come find your vibe! 💜",
                               url: link,
                             });
+                            trackEvent("invite_link_shared", { surface: "matches", channel: "system_share" });
                           } catch {
-                            await navigator.clipboard.writeText(link);
-                            toast.success("Invite link copied!");
+                            try {
+                              await navigator.clipboard.writeText(link);
+                              trackEvent("invite_link_copied", { surface: "matches", channel: "clipboard" });
+                              toast.success("Invite link copied!");
+                            } catch {
+                              toast.error("Could not copy link. Try again.");
+                            }
                           }
                         }}
                         className="w-full p-3 glass-card rounded-2xl border border-border/50 flex items-center gap-3 hover:bg-secondary/30 transition-colors"

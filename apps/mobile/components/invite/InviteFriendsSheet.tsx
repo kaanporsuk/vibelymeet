@@ -42,6 +42,7 @@ import {
   type InviteSheetEventRow,
 } from '@/lib/eventsApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { trackEvent } from '@/lib/analytics';
 
 const SHEET_HEIGHT = Dimensions.get('window').height * 0.85;
 
@@ -68,6 +69,8 @@ export interface InviteFriendsSheetProps {
   visible: boolean;
   onClose: () => void;
   event?: InviteFriendsSheetEvent;
+  /** PostHog `surface` on invite_link_* events (e.g. settings, profile_studio, matches). */
+  analyticsSurface?: string;
 }
 
 const CHANNELS = [
@@ -99,7 +102,12 @@ function resolveCoverUri(cover?: string | null): string | undefined {
   return eventCoverUrl(cover);
 }
 
-export function InviteFriendsSheet({ visible, onClose, event: eventProp }: InviteFriendsSheetProps) {
+export function InviteFriendsSheet({
+  visible,
+  onClose,
+  event: eventProp,
+  analyticsSurface = 'invite_sheet',
+}: InviteFriendsSheetProps) {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -182,9 +190,12 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
     return msg ? `${msg}\n\n${shareUrl}` : shareUrl;
   }, [customMessage, shareUrl]);
 
+  const inviteContext = activeEvent ? 'event' : 'general';
+
   const onChannelPress = useCallback(
     async (key: string) => {
       if (!shareUrl) return;
+      const baseProps = { surface: analyticsSurface, context: inviteContext };
       switch (key) {
         case 'messages': {
           const body = fullShareBody;
@@ -195,6 +206,7 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
           const can = await Linking.canOpenURL(sms).catch(() => false);
           if (can) {
             await Linking.openURL(sms);
+            trackEvent('invite_link_shared', { ...baseProps, channel: 'sms' });
           } else {
             const result = await Share.share({
               message: body,
@@ -202,6 +214,7 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
             }).catch(() => null);
             if (result?.action === Share.sharedAction) {
               showFeedbackToast('Ready to send');
+              trackEvent('invite_link_shared', { ...baseProps, channel: 'share_sheet' });
             }
           }
           break;
@@ -212,10 +225,12 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
           const can = await Linking.canOpenURL('whatsapp://send').catch(() => false);
           if (can) {
             await Linking.openURL(wa);
+            trackEvent('invite_link_shared', { ...baseProps, channel: 'whatsapp' });
           } else {
             const result = await Share.share({ message: fullShareBody, title: shareSheetTitle }).catch(() => null);
             if (result?.action === Share.sharedAction) {
               showFeedbackToast('Invite shared');
+              trackEvent('invite_link_shared', { ...baseProps, channel: 'share_sheet' });
             }
           }
           break;
@@ -223,6 +238,7 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
         case 'copy': {
           await Clipboard.setStringAsync(fullShareBody);
           showFeedbackToast('Copied to clipboard');
+          trackEvent('invite_link_copied', { ...baseProps, channel: 'clipboard' });
           break;
         }
         case 'more':
@@ -234,12 +250,13 @@ export function InviteFriendsSheet({ visible, onClose, event: eventProp }: Invit
           }).catch(() => null);
           if (result?.action === Share.sharedAction) {
             showFeedbackToast('Invite shared');
+            trackEvent('invite_link_shared', { ...baseProps, channel: 'share_sheet' });
           }
           break;
         }
       }
     },
-    [fullShareBody, shareUrl, shareSheetTitle, showFeedbackToast]
+    [fullShareBody, shareUrl, shareSheetTitle, showFeedbackToast, analyticsSurface, inviteContext]
   );
 
   const renderEventMini = ({ item }: { item: InviteSheetEventRow }) => {

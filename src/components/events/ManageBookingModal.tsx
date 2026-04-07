@@ -2,6 +2,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Ticket, Calendar, Clock, MapPin, QrCode, Share2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { buildEventShareUrl } from "@/lib/inviteLinks";
+import { trackEvent } from "@/lib/analytics";
 
 export type BookingAdmissionStatus = "confirmed" | "waitlisted";
 
@@ -9,6 +11,10 @@ interface ManageBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCancel: () => void;
+  /** Canonical event id for referral-tagged share URL */
+  eventId: string;
+  /** Logged-in sharer; omit for anonymous */
+  referrerUserId?: string | null;
   eventTitle: string;
   eventDate: string;
   eventTime: string;
@@ -24,6 +30,8 @@ const ManageBookingModal = ({
   isOpen,
   onClose,
   onCancel,
+  eventId,
+  referrerUserId,
   eventTitle,
   eventDate,
   eventTime,
@@ -36,14 +44,22 @@ const ManageBookingModal = ({
   const isWaitlisted = admissionStatus === "waitlisted";
 
   const handleShare = async () => {
+    const url = buildEventShareUrl(eventId, referrerUserId);
     try {
       await navigator.share({
         title: `My Vibely Ticket - ${eventTitle}`,
         text: `I'm going to ${eventTitle}! Join me on Vibely.`,
-        url: window.location.href,
+        url,
       });
+      trackEvent("invite_link_shared", { surface: "manage_booking_modal", channel: "system_share" });
     } catch {
-      toast.success("Link copied to clipboard!");
+      try {
+        await navigator.clipboard.writeText(url);
+        trackEvent("invite_link_copied", { surface: "manage_booking_modal", channel: "clipboard" });
+        toast.success("Link copied to clipboard!");
+      } catch {
+        toast.error("Could not copy link. Try again.");
+      }
     }
   };
 
