@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
@@ -38,6 +38,8 @@ import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionSt
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import Colors from '@/constants/Colors';
+import { useColorScheme } from '@/components/useColorScheme';
 import {
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
@@ -53,6 +55,8 @@ export default function OnboardingV2Screen() {
   const { session, loading, entryState, entryStateLoading, refreshEntryState } = useAuth();
   const logout = useNativeLogout();
   const { show, dialog } = useVibelyDialog();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -61,6 +65,8 @@ export default function OnboardingV2Screen() {
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [vibeScore, setVibeScore] = useState(0);
   const [vibeScoreLabel, setVibeScoreLabel] = useState('Rising');
+  /** Non-blocking: server draft save failed; local cache still updated. */
+  const [draftCloudSaveHint, setDraftCloudSaveHint] = useState<string | null>(null);
   const submitOnceRef = useRef(false);
   const startedAtRef = useRef<number>(Date.now());
   const currentStepRef = useRef(currentStep);
@@ -119,6 +125,11 @@ export default function OnboardingV2Screen() {
 
       // Then load authoritative server draft
       const result = await loadOnboardingDraft(supabase as any, userId);
+      if (result.error) {
+        setDraftCloudSaveHint(
+          'Could not load saved progress from the server. You can continue; we will keep saving locally and retry syncing.',
+        );
+      }
       if (result.draft) {
         const sd = result.draft;
         const serverData: OnboardingData = {
@@ -159,10 +170,15 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || !draftLoaded || completed) return;
 
     const timer = setTimeout(() => {
-      saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native')
-        .catch(() => {
+      void saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native').then((r) => {
+        if (r.success) setDraftCloudSaveHint(null);
+        else {
           console.warn('[onboarding] server draft save failed (non-fatal)');
-        });
+          setDraftCloudSaveHint(
+            'Could not sync progress to your account (tap to retry). Your answers stay on this device.',
+          );
+        }
+      });
     }, 500);
 
     return () => clearTimeout(timer);
@@ -218,6 +234,23 @@ export default function OnboardingV2Screen() {
     }
   }, [currentStep, submitting, stepNames]);
 
+  const retryCloudDraftSync = useCallback(async () => {
+    if (!session?.user?.id || !draftLoaded || completed) return;
+    const r = await saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native');
+    if (r.success) setDraftCloudSaveHint(null);
+    else {
+      setDraftCloudSaveHint(
+        'Still could not sync. Check your connection and tap to try again.',
+      );
+    }
+  }, [session?.user?.id, draftLoaded, completed, currentStep, data]);
+
+  const handleFinalizeErrorBack = useCallback(() => {
+    setCompletionError(null);
+    submitOnceRef.current = false;
+    setCurrentStep((s) => Math.max(0, s - 1));
+  }, []);
+
   const confirmLeaveOnboarding = useCallback(() => {
     show({
       title: 'Leave onboarding?',
@@ -248,6 +281,7 @@ export default function OnboardingV2Screen() {
     setSubmitting(true);
 
     try {
+      setCompletionError(null);
       const result = await executeOnboardingCompletion({
         supabase: supabase as any,
         userId: session.user.id,
@@ -340,10 +374,40 @@ export default function OnboardingV2Screen() {
         if (needsEmailCollection) {
           return <VibeVideoStep onNext={goNext} />;
         }
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={() => {
+              submitOnceRef.current = false;
+              void completeOnboarding();
+            }}
+            onGoBackToEdit={handleFinalizeErrorBack}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
       case 14:
       default:
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={() => {
+              submitOnceRef.current = false;
+              void completeOnboarding();
+            }}
+            onGoBackToEdit={handleFinalizeErrorBack}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
     }
   }, [
     currentStep,
@@ -360,14 +424,30 @@ export default function OnboardingV2Screen() {
     vibeScore,
     vibeScoreLabel,
     updateField,
+    handleFinalizeErrorBack,
   ]);
 
   const layoutOnBack =
     currentStep === 0
       ? confirmLeaveOnboarding
-      : currentStep > 0 && currentStep < totalSteps - 1
-        ? goBack
-        : undefined;
+      : currentStep === totalSteps - 1 && completionError && !completed && !submitting
+        ? handleFinalizeErrorBack
+        : currentStep > 0 && currentStep < totalSteps - 1
+          ? goBack
+          : undefined;
+
+  const topNotice =
+    draftCloudSaveHint && !completed ? (
+      <Pressable
+        onPress={() => void retryCloudDraftSync()}
+        style={[styles.syncBanner, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+        accessibilityRole="button"
+        accessibilityLabel="Retry saving onboarding progress to your account"
+      >
+        <Text style={[styles.syncBannerText, { color: theme.textSecondary }]}>{draftCloudSaveHint}</Text>
+        <Text style={[styles.syncBannerAction, { color: theme.tint }]}>Retry</Text>
+      </Pressable>
+    ) : null;
 
   if (loading || entryStateLoading || !session?.user?.id || entryState?.state !== 'incomplete') {
     return (
@@ -384,6 +464,7 @@ export default function OnboardingV2Screen() {
         totalSteps={totalSteps}
         onBack={layoutOnBack}
         showProgress={currentStep !== totalSteps - 1}
+        topNotice={topNotice}
       >
         {content}
       </OnboardingLayout>
@@ -391,3 +472,17 @@ export default function OnboardingV2Screen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  syncBannerText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  syncBannerAction: { fontSize: 12, fontWeight: '700' },
+});

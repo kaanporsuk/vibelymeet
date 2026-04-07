@@ -13,6 +13,8 @@ interface OnboardingLayoutProps {
   onBack?: () => void;
   showProgress?: boolean;
   backgroundVariant?: 'default' | 'muted';
+  /** Optional non-blocking notice (e.g. draft sync issues) — kept compact for onboarding. */
+  topNotice?: React.ReactNode;
 }
 
 export default function OnboardingLayout({
@@ -22,6 +24,7 @@ export default function OnboardingLayout({
   onBack,
   showProgress = true,
   backgroundVariant = 'default',
+  topNotice,
 }: OnboardingLayoutProps) {
   const theme = Colors[useColorScheme()];
   const progressPct = Math.max(0, Math.min(100, ((currentStep + 1) / totalSteps) * 100));
@@ -47,6 +50,8 @@ export default function OnboardingLayout({
           />
         </View>
       ) : null}
+
+      {topNotice ? <View style={styles.noticeWrap}>{topNotice}</View> : null}
 
       <View style={styles.headerRow}>
         {onBack ? (
@@ -79,6 +84,7 @@ const styles = StyleSheet.create({
   headerRow: { minHeight: 44, paddingHorizontal: 12, alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   stepText: { fontSize: 12 },
+  noticeWrap: { paddingHorizontal: 16, paddingTop: 6 },
   content: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 16, paddingBottom: 24 },
   card: { width: '100%', maxWidth: 460, alignSelf: 'center', borderWidth: 1, borderRadius: 20, padding: 16 },
 });
