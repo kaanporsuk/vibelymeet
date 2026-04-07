@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useState } from "react";
-import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2, Play } from "lucide-react";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,16 +9,41 @@ import { ProfilePrompt } from "@/components/ProfilePrompt";
 import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
+import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 import { useUserProfile } from "@/hooks/useUserProfile";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 const UserProfile = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
 
   // Canonical public-profile fetch — includes verification fields and vibes.
   // userId is the viewed profile's id (route param), never the current user's id.
   const { data: profile, isLoading } = useUserProfile(userId ?? null);
+
+  const vibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState(
+        profile
+          ? {
+              bunny_video_uid: profile.bunny_video_uid,
+              bunny_video_status: profile.bunny_video_status,
+              vibe_caption: profile.vibe_caption,
+            }
+          : {
+              bunny_video_uid: null,
+              bunny_video_status: null,
+              vibe_caption: null,
+            },
+      ),
+    [profile],
+  );
+  const hasVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const playbackUrl = vibeVideo.playbackUrl;
+  const thumbnailUrl = vibeVideo.thumbnailUrl;
+  const vibeCaption = profile?.vibe_caption?.trim() ?? "";
 
   if (isLoading) {
     return (
@@ -147,6 +172,49 @@ const UserProfile = () => {
           </div>
         </div>
 
+        {/* Vibe Video — same readiness/playback contract as ProfilePreview / ProfileDetailDrawer */}
+        {hasVibeVideo && playbackUrl ? (
+          <div className="glass-card overflow-hidden border border-border">
+            <button
+              type="button"
+              className="relative w-full text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-2xl"
+              style={{ aspectRatio: "16/9" }}
+              onClick={() => setShowVideoPlayer(true)}
+              aria-label="Play vibe video"
+            >
+              {thumbnailUrl ? (
+                <img
+                  src={thumbnailUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className="absolute inset-0 bg-muted" />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                  className="w-16 h-16 rounded-full flex items-center justify-center border border-white/30"
+                  style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)" }}
+                >
+                  <Play className="w-7 h-7 text-white ml-1" />
+                </div>
+              </div>
+              {vibeCaption ? (
+                <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-cyan-400 mb-0.5">
+                    Vibing on
+                  </p>
+                  <p className="text-white text-sm font-bold drop-shadow-sm">{vibeCaption}</p>
+                </div>
+              ) : null}
+            </button>
+          </div>
+        ) : null}
+
         {/* Vibe Tags */}
         {vibeTags.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -196,6 +264,33 @@ const UserProfile = () => {
           </div>
         )}
       </div>
+
+      {showVideoPlayer && hasVibeVideo && playbackUrl ? (
+        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg">
+            <div className="flex justify-end mb-3">
+              <button
+                type="button"
+                onClick={() => setShowVideoPlayer(false)}
+                className="px-3 py-1.5 rounded-full bg-white/10 text-white text-sm font-semibold hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+            <div className="rounded-2xl overflow-hidden bg-black">
+              <VibePlayer
+                videoUrl={playbackUrl}
+                thumbnailUrl={thumbnailUrl ?? undefined}
+                vibeCaption={vibeCaption}
+                autoPlay={true}
+                showControls={true}
+                className="w-full h-full"
+                backendReportsReady
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

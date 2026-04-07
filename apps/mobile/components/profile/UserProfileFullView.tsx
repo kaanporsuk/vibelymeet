@@ -110,6 +110,11 @@ export function UserProfileFullView({
   const emailVerified = profile.email_verified === true;
   const phoneVerified = profile.phone_verified === true;
   const photoVerified = profile.photo_verified === true;
+  /** Public/member profile: photo verification only (no email/phone on others’ profiles). */
+  const showEmailTrustPill = isOwnProfile && emailVerified;
+  const showPhoneTrustPill = isOwnProfile && phoneVerified;
+  const showPhotoTrustPill = photoVerified;
+  const showAnyTrustPill = showEmailTrustPill || showPhoneTrustPill || showPhotoTrustPill;
 
   const hasLookingFor =
     typeof lookingForId === 'string' && lookingForId.trim().length > 0 && !!lookingForDisplay;
@@ -208,55 +213,55 @@ export function UserProfileFullView({
                 </RNView>
               ) : null}
 
-              {(emailVerified || phoneVerified || photoVerified) && (
+              {showAnyTrustPill ? (
                 <RNView style={s.badgeRow}>
-                  {emailVerified && (
+                  {showEmailTrustPill ? (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="mail" size={12} color="#0D9488" />
                       <Text style={s.verifiedPillText}>Email verified</Text>
                     </RNView>
-                  )}
-                  {photoVerified && (
+                  ) : null}
+                  {showPhotoTrustPill ? (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="camera" size={12} color="#0D9488" />
                       <Text style={s.verifiedPillText}>Photo verified</Text>
                     </RNView>
-                  )}
-                  {phoneVerified && (
+                  ) : null}
+                  {showPhoneTrustPill ? (
                     <RNView style={s.verifiedPill}>
                       <Ionicons name="call" size={12} color="#0D9488" />
                       <Text style={s.verifiedPillText}>Phone verified</Text>
                     </RNView>
-                  )}
+                  ) : null}
                 </RNView>
-              )}
+              ) : null}
             </RNView>
           </>
         ) : (
           <RNView style={{ paddingTop: spacing.lg }} />
         )}
 
-        {hideHero && (emailVerified || phoneVerified || photoVerified) ? (
+        {hideHero && showAnyTrustPill ? (
           <RNView style={[s.identitySection, { paddingTop: spacing.md }]}>
             <RNView style={s.badgeRow}>
-              {emailVerified && (
+              {showEmailTrustPill ? (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="mail" size={12} color="#0D9488" />
                   <Text style={s.verifiedPillText}>Email verified</Text>
                 </RNView>
-              )}
-              {photoVerified && (
+              ) : null}
+              {showPhotoTrustPill ? (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="camera" size={12} color="#0D9488" />
                   <Text style={s.verifiedPillText}>Photo verified</Text>
                 </RNView>
-              )}
-              {phoneVerified && (
+              ) : null}
+              {showPhoneTrustPill ? (
                 <RNView style={s.verifiedPill}>
                   <Ionicons name="call" size={12} color="#0D9488" />
                   <Text style={s.verifiedPillText}>Phone verified</Text>
                 </RNView>
-              )}
+              ) : null}
             </RNView>
           </RNView>
         ) : null}
