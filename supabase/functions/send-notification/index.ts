@@ -149,6 +149,27 @@ function logLifecycle(payload: {
   console.log('lifecycle.send_notification', JSON.stringify(payload))
 }
 
+/**
+ * OneSignal sometimes returns HTTP 200 with a JSON body that still reports send failures
+ * (e.g. invalid_player_ids, non-empty errors array). Only treat as failure when the body
+ * clearly indicates provider-side error — do not guess on ambiguous shapes.
+ */
+function onesignalJsonIndicatesLogicalFailure(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object') return null
+  const p = parsed as Record<string, unknown>
+  if (typeof p.id === 'string' && p.id.length === 0) {
+    return 'onesignal_empty_notification_id'
+  }
+  const err = p.errors
+  if (Array.isArray(err) && err.length > 0) {
+    return 'onesignal_errors_array'
+  }
+  if (err && typeof err === 'object' && !Array.isArray(err) && Object.keys(err as Record<string, unknown>).length > 0) {
+    return 'onesignal_errors_object'
+  }
+  return null
+}
+
 function eventDeepLink(category: string, data: any): string | null {
   const eventId = getEventId(data)
   if (!eventId) return null
@@ -628,9 +649,11 @@ Deno.serve(async (req) => {
 
     const osResultText = await osResponse.text()
     let notificationId: string | undefined
+    let osParsed: unknown = null
     try {
-      const parsed = JSON.parse(osResultText) as { id?: string }
-      notificationId = typeof parsed?.id === 'string' ? parsed.id : undefined
+      osParsed = JSON.parse(osResultText)
+      const p = osParsed as { id?: string }
+      notificationId = typeof p?.id === 'string' && p.id.length > 0 ? p.id : undefined
     } catch {
       /* non-JSON body */
     }
@@ -646,6 +669,23 @@ Deno.serve(async (req) => {
           success: false,
           reason: 'onesignal_error',
           status: osResponse.status,
+          detail: errSnippet || undefined,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const osLogicalFailure = onesignalJsonIndicatesLogicalFailure(osParsed)
+    if (osLogicalFailure) {
+      const errSnippet =
+        osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
+      emitLifecycle('delivery_error', osLogicalFailure)
+      await logNotification(user_id, category, finalTitle, finalBody, data, false, osLogicalFailure)
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: 'onesignal_error',
+          onesignal_reason: osLogicalFailure,
           detail: errSnippet || undefined,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },

@@ -465,8 +465,11 @@ Deno.serve(async (req) => {
     if (requestStripeRetry) {
       return stripeRetryResponse(
         corsHeaders,
-        'checkout_processing_failed',
-        { hint: 'Stripe will retry this webhook; settlement was not acknowledged as complete.' }
+        'stripe_webhook_persist_failed',
+        {
+          hint:
+            'Stripe will retry this webhook; a required database write failed (checkout, subscription lifecycle, or invoice handling) and the event was not fully applied.',
+        },
       )
     }
 
