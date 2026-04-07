@@ -36,7 +36,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 |----------|------|---------|------------|
 | `get_visible_events` | RPC | Events list (location-aware) | Same |
 | `get_other_city_events` | RPC | Other cities | Same |
-| `get_event_deck` | RPC | Deck for lobby (pause-aware, auth guard) | Same; get_event_deck_exclude_paused semantics |
+| `get_event_deck` | RPC | Deck for lobby (pause-aware, auth guard); filters targets by viewer **`profiles.preferred_age_min` / `preferred_age_max`** when target **`profiles.age`** is non-null (migration `20260415100000_get_event_deck_preferred_age.sql`) | Same |
 | `update_participant_status` | RPC | Lobby status (browsing, in_room, etc.) | Same |
 | `drain_match_queue` | RPC | Drain match queue on lobby | Same |
 | `events`, `event_registrations` | Tables | Event detail, register/unregister | Same |

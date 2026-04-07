@@ -1848,6 +1848,7 @@ export type Database = {
           email_unsubscribed: boolean
           email_verified: boolean | null
           event_attendance_visibility: string | null
+          event_discovery_prefs: Json | null
           events_attended: number | null
           gender: string
           height_cm: number | null
@@ -1879,6 +1880,8 @@ export type Database = {
           premium_granted_at: string | null
           premium_granted_by: string | null
           premium_until: string | null
+          preferred_age_max: number | null
+          preferred_age_min: number | null
           prompts: Json | null
           proof_selfie_url: string | null
           referred_by: string | null
@@ -1920,6 +1923,7 @@ export type Database = {
           email_unsubscribed?: boolean
           email_verified?: boolean | null
           event_attendance_visibility?: string | null
+          event_discovery_prefs?: Json | null
           events_attended?: number | null
           gender: string
           height_cm?: number | null
@@ -1951,6 +1955,8 @@ export type Database = {
           premium_granted_at?: string | null
           premium_granted_by?: string | null
           premium_until?: string | null
+          preferred_age_max?: number | null
+          preferred_age_min?: number | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
@@ -1992,6 +1998,7 @@ export type Database = {
           email_unsubscribed?: boolean
           email_verified?: boolean | null
           event_attendance_visibility?: string | null
+          event_discovery_prefs?: Json | null
           events_attended?: number | null
           gender?: string
           height_cm?: number | null
@@ -2023,6 +2030,8 @@ export type Database = {
           premium_granted_at?: string | null
           premium_granted_by?: string | null
           premium_until?: string | null
+          preferred_age_max?: number | null
+          preferred_age_min?: number | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null

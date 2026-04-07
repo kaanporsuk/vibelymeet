@@ -226,6 +226,12 @@ export default function SettingsScreen() {
                 subtitle="Who finds you, what they see, how you stay protected"
                 onPress={() => router.push('/settings/privacy')}
               />
+              <SettingsRow
+                icon={<Ionicons name="compass-outline" size={20} color={theme.tint} />}
+                title="Discovery"
+                subtitle="Decks, intent, default event filters"
+                onPress={() => router.push('/settings/discovery')}
+              />
             </View>
           </Card>
 

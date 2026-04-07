@@ -102,6 +102,8 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 **Discovery / lobby truth:** `get_visible_events` excludes **`status = 'cancelled'`** (migration `20260412120000_event_cancel_truth_capacity.sql`). **`get_event_deck`** returns **no rows** for cancelled/archived events; **`handle_swipe`** returns **`event_not_active`** for cancelled/archived. Web [`EventDetails.tsx`](../src/pages/EventDetails.tsx) reads `events.status`; lobby redirects when cancelled.
 
+**Discovery preferences (Sprint 2):** `profiles.event_discovery_prefs` (jsonb) persists default event-list UI state; **`get_visible_events` is unchanged**. **`get_event_deck`** (migration `20260415100000_get_event_deck_preferred_age.sql`) additionally respects viewer **`preferred_age_min` / `preferred_age_max`** against candidate **`profiles.age`** when age is known; null candidate age is not excluded by that clause. Settings: web **Discovery** drawer from [`Settings`](../src/pages/Settings.tsx); native **`/settings/discovery`**.
+
 **Admin per-gender counts:** **`admin_get_event_confirmed_gender_counts(p_event_id)`** (same migration) — admin-only confirmed counts by normalized profile gender for edit-form warnings only (admission still **aggregate** `max_attendees` / `current_attendees`).
 
 ---

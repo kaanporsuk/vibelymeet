@@ -43,6 +43,7 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
 | `/profile` | `Profile` | `app/(tabs)/profile/index` | persistPhotos / uploadImage (upload-image EF), useLogout, usePremium; vibe video (create-video-upload, delete-vibe-video) | profiles update; upload-image (EF); create-video-upload, video-webhook, delete-vibe-video (EF) | — | P0 |
 | `/settings` | `Settings` | `app/settings` | useLogout, useDeleteAccount, useCredits, usePremium | account-pause, account-resume (EF); delete-account (EF); notification_preferences; create-checkout-session (EF) | OneSignal | P0 |
+| *(Settings entry)* | `DiscoveryDrawer` (drawer from Settings) | `app/settings/discovery` | `fetchMyProfile` / `updateMyProfile` (web `src/services/profileService.ts`; native `apps/mobile/lib/profileApi.ts`), `useEntitlements`, `forward-geocode` (EF) | `profiles` update (`interested_in`, `relationship_intent` / `looking_for`, `preferred_age_min`, `preferred_age_max`, `event_discovery_prefs`) | — | P0 |
 
 ---
 

@@ -92,7 +92,7 @@ export default function EventFilterSheet({
     if (visible) {
       let f = filters;
       if (f.locationMode === 'city' && !canCityBrowse) {
-        f = { ...f, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
+        f = { ...f, locationMode: 'nearby', selectedCity: null };
       }
       setDraft(f);
       setCityQuery('');

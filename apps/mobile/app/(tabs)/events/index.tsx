@@ -4,7 +4,7 @@
  * Uses existing discover RPC and event-detail navigation; no new backend contracts.
  */
 
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -48,6 +48,7 @@ import EventFilterSheet, {
   countActiveFilters,
 } from '@/components/events/EventFilterSheet';
 import * as Location from 'expo-location';
+import { parseEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const TIME_FILTERS = [
@@ -658,12 +659,13 @@ export default function EventsListScreen() {
   const { user } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { canCityBrowse } = useEntitlements();
+  const { canCityBrowse, isLoading: entitlementsLoading } = useEntitlements();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<string | null>(null);
   const [filters, setFilters] = useState<EventFilters>(DEFAULT_FILTERS);
   const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const seededEventDiscoveryPrefs = useRef(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
   const [locationEnableLoading, setLocationEnableLoading] = useState(false);
@@ -687,6 +689,40 @@ export default function EventsListScreen() {
   });
   const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
   const showLocationPrompt = !hasLocation;
+
+  const { data: serverEventPrefs } = useQuery({
+    queryKey: ['event-discovery-prefs', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('event_discovery_prefs')
+        .eq('id', user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return parseEventDiscoveryPrefs(data?.event_discovery_prefs);
+    },
+    enabled: !!user?.id,
+  });
+
+  useEffect(() => {
+    if (!user?.id || entitlementsLoading || serverEventPrefs == null || seededEventDiscoveryPrefs.current) return;
+    seededEventDiscoveryPrefs.current = true;
+    setFilters((prev) => {
+      const next: EventFilters = { ...prev, distanceKm: serverEventPrefs.distanceKm };
+      if (canCityBrowse && serverEventPrefs.locationMode === 'city' && serverEventPrefs.selectedCity) {
+        const c = serverEventPrefs.selectedCity;
+        next.locationMode = 'city';
+        next.selectedCity = {
+          name: c.name,
+          country: c.country,
+          lat: c.lat,
+          lng: c.lng,
+          region: c.region ?? null,
+        };
+      }
+      return next;
+    });
+  }, [user?.id, entitlementsLoading, canCityBrowse, serverEventPrefs]);
 
   const handleEnableProfileLocation = useCallback(async () => {
     if (!user?.id || locationEnableLoading) return;
@@ -763,7 +799,7 @@ export default function EventsListScreen() {
     if (!canCityBrowse) {
       setFilters((prev) => {
         if (prev.locationMode === 'nearby' && prev.selectedCity == null) return prev;
-        return { ...prev, locationMode: 'nearby', selectedCity: null, distanceKm: 50 };
+        return { ...prev, locationMode: 'nearby', selectedCity: null };
       });
     }
   }, [canCityBrowse]);

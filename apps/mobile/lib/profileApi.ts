@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeRelationshipIntent } from '@shared/profileContracts';
+import type { EventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
+import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 
 export type ProfileRow = {
   id: string;
@@ -40,6 +42,9 @@ export type ProfileRow = {
   /** Server-computed profile completeness (0–100). */
   vibe_score?: number | null;
   vibe_score_label?: string | null;
+  preferred_age_min?: number | null;
+  preferred_age_max?: number | null;
+  event_discovery_prefs?: EventDiscoveryPrefs | null;
 };
 
 /** Zodiac sign from birth date (web parity). */
@@ -143,10 +148,10 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST; vibe columns omitted on retry if schema lags migration. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
 
 const PROFILE_SELECT_BASE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, events_attended, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, preferred_age_min, preferred_age_max, event_discovery_prefs';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -160,7 +165,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       .maybeSingle();
     const vibeColMissing =
       profileRes.error &&
-      /vibe_score|vibe_score_label|column .* does not exist|schema cache/i.test(
+      /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i.test(
         profileRes.error.message ?? ''
       );
     if (vibeColMissing) {
@@ -225,6 +230,9 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       premium_until: (row.premium_until as string) ?? null,
       vibe_score: vibeScore,
       vibe_score_label: vibeScoreLabel,
+      preferred_age_min: (row.preferred_age_min as number | null | undefined) ?? null,
+      preferred_age_max: (row.preferred_age_max as number | null | undefined) ?? null,
+      event_discovery_prefs: parseEventDiscoveryPrefs(row.event_discovery_prefs),
     } as ProfileRow;
   } catch (e) {
     if (__DEV__) console.warn('[profileApi] fetchMyProfile failed:', e);
@@ -253,6 +261,9 @@ export async function updateMyProfile(updates: Partial<{
   location_data: { lat: number; lng: number } | null;
   /** Vibe tag labels — persisted via `profile_vibes` + `vibe_tags` (not a column on `profiles`). */
   vibes: string[];
+  preferred_age_min: number | null;
+  preferred_age_max: number | null;
+  event_discovery_prefs: EventDiscoveryPrefs;
 }>): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
@@ -288,6 +299,11 @@ export async function updateMyProfile(updates: Partial<{
   }
   if (updates.height_cm !== undefined) db.height_cm = updates.height_cm;
   if (updates.location_data !== undefined) db.location_data = updates.location_data;
+  if (updates.preferred_age_min !== undefined) db.preferred_age_min = updates.preferred_age_min;
+  if (updates.preferred_age_max !== undefined) db.preferred_age_max = updates.preferred_age_max;
+  if (updates.event_discovery_prefs !== undefined) {
+    db.event_discovery_prefs = serializeEventDiscoveryPrefs(updates.event_discovery_prefs);
+  }
   if (Object.keys(db).length > 0) {
     const { error } = await supabase.from('profiles').update(db).eq('id', user.id);
     if (error) throw error;
