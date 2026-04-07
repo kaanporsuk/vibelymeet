@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Crown, Loader2, ArrowLeft, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSubscription } from '@/hooks/useSubscription';
 import { format } from 'date-fns';
 import { trackEvent } from '@/lib/analytics';
+import { readPremiumEntryFromSearchParams } from '@shared/premiumFunnel';
 
 const features = [
   'See who vibed you',
@@ -15,13 +16,18 @@ const features = [
 
 const Premium = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { subscription, isPremium, isLoading, startCheckout } = useSubscription();
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   useEffect(() => {
-    trackEvent('premium_page_viewed');
-  }, []);
+    const funnel = readPremiumEntryFromSearchParams((k) => searchParams.get(k));
+    trackEvent('premium_page_viewed', {
+      ...funnel,
+      platform: 'web',
+    });
+  }, [searchParams]);
 
   const handlePlanToggle = (plan: 'monthly' | 'annual') => {
     setSelectedPlan(plan);

@@ -3,52 +3,94 @@
  * Reference: src/components/premium/WhoLikedYouGate.tsx
  */
 import React from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { VibelyText, VibelyButton } from '@/components/ui';
+import { VibelyText } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
+import { trackEvent } from '@/lib/analytics';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 type WhoLikedYouGateProps = { count: number };
 
 export function WhoLikedYouGate({ count }: WhoLikedYouGateProps) {
   const router = useRouter();
   const theme = Colors[useColorScheme()];
+  const { show, dialog: dialogEl } = useVibelyDialog();
 
   if (count === 0) return null;
 
+  const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+
+  const handleUnlockPress = () => {
+    trackEvent('premium_entry_tapped', {
+      entry_surface: PREMIUM_ENTRY_SURFACE.WHO_LIKED_YOU,
+      feature: 'canSeeLikedYou',
+      platform,
+    });
+    show({
+      title: 'See who vibed you',
+      message:
+        'Premium includes profiles of people who liked you on Vibely — the same capability shown in your membership benefits.',
+      variant: 'info',
+      primaryAction: {
+        label: 'View Premium plans',
+        onPress: () =>
+          openPremium(router.push, {
+            entry_surface: PREMIUM_ENTRY_SURFACE.WHO_LIKED_YOU,
+            feature: 'canSeeLikedYou',
+            recordEntryTapped: false,
+          }),
+      },
+      secondaryAction: { label: 'Not now', onPress: () => {} },
+    });
+  };
+
   return (
-    <View style={[styles.wrap, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-      {/* Blurred avatar row */}
-      <View style={styles.avatarRow} pointerEvents="none">
-        {Array.from({ length: Math.min(count, 5) }).map((_, i) => (
-          <View
-            key={i}
-            style={[styles.blurAvatar, { backgroundColor: theme.tintSoft }]}
-          />
-        ))}
-      </View>
-      <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-      <View style={[styles.overlay, { backgroundColor: withAlpha(theme.background, 0.6) }]}>
-        <View style={[styles.lockIcon, { backgroundColor: theme.tintSoft }]}>
-          <Ionicons name="lock-closed" size={20} color={theme.tint} />
+    <>
+      <View style={[styles.wrap, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
+        {/* Blurred avatar row */}
+        <View style={styles.avatarRow} pointerEvents="none">
+          {Array.from({ length: Math.min(count, 5) }).map((_, i) => (
+            <View
+              key={i}
+              style={[styles.blurAvatar, { backgroundColor: theme.tintSoft }]}
+            />
+          ))}
         </View>
-        <VibelyText variant="body" style={[styles.title, { color: theme.text }]}>
-          {count} {count === 1 ? 'person likes' : 'people like'} you
-        </VibelyText>
-        <VibelyText variant="caption" style={{ color: theme.textSecondary }}>See who likes you</VibelyText>
-        <Pressable
-          onPress={() => router.push('/premium' as const)}
-          style={({ pressed }) => [styles.cta, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
-        >
-          <VibelyText variant="body" style={styles.ctaLabel}>Unlock with Premium</VibelyText>
-        </Pressable>
+        <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={[styles.overlay, { backgroundColor: withAlpha(theme.background, 0.6) }]}>
+          <View style={[styles.lockIcon, { backgroundColor: theme.tintSoft }]}>
+            <Ionicons name="lock-closed" size={20} color={theme.tint} />
+          </View>
+          <VibelyText variant="body" style={[styles.title, { color: theme.text }]}>
+            {count} {count === 1 ? 'person likes' : 'people like'} you
+          </VibelyText>
+          <VibelyText variant="caption" style={{ color: theme.textSecondary }}>
+            See who likes you
+          </VibelyText>
+          <Pressable
+            onPress={handleUnlockPress}
+            style={({ pressed }) => [
+              styles.cta,
+              { backgroundColor: theme.tint },
+              pressed && { opacity: 0.9 },
+            ]}
+          >
+            <VibelyText variant="body" style={styles.ctaLabel}>
+              Unlock with Premium
+            </VibelyText>
+          </Pressable>
+        </View>
       </View>
-    </View>
+      {dialogEl}
+    </>
   );
 }
 

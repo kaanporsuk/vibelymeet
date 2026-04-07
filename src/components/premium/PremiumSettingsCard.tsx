@@ -13,6 +13,8 @@ import {
   getSettingsPlanLabel,
   showSettingsMemberElevated,
 } from "@shared/settingsMembershipDisplay";
+import { openPremium } from "@/lib/premiumNavigation";
+import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 
 /**
  * Membership DISPLAY only — see @shared/settingsMembershipDisplay for precedence.
@@ -102,7 +104,13 @@ export const PremiumSettingsCard = () => {
           <h3 className="font-display font-semibold text-foreground">Upgrade to Premium</h3>
           <p className="text-xs text-muted-foreground">Unlock all features</p>
         </div>
-        <Button size="sm" variant="gradient" onClick={() => navigate("/premium")}>
+        <Button
+          size="sm"
+          variant="gradient"
+          onClick={() =>
+            openPremium(navigate, { entry_surface: PREMIUM_ENTRY_SURFACE.SETTINGS_UPGRADE_CARD })
+          }
+        >
           Go Premium
         </Button>
       </div>

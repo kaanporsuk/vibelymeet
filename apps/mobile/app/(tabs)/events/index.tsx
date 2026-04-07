@@ -42,6 +42,8 @@ import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 import EventFilterSheet, {
   type EventFilters,
   DEFAULT_FILTERS,
@@ -1032,7 +1034,12 @@ export default function EventsListScreen() {
         filters={filters}
         onApply={setFilters}
         canCityBrowse={canCityBrowse}
-        onPremiumUpgrade={() => router.push('/premium')}
+        onPremiumUpgrade={() =>
+          openPremium(router.push, {
+            entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_EVENTS_FILTER,
+            feature: 'canCityBrowse',
+          })
+        }
       />
 
       {/* Content — max width for tablet parity */}
@@ -1117,7 +1124,12 @@ export default function EventsListScreen() {
                   But there are events happening in other cities!
                 </Text>
                 <Pressable
-                  onPress={() => router.push('/premium')}
+                  onPress={() =>
+                    openPremium(router.push, {
+                      entry_surface: PREMIUM_ENTRY_SURFACE.EVENTS_EMPTY_PROMO,
+                      feature: 'canCityBrowse',
+                    })
+                  }
                   style={({ pressed }) => [styles.emptyLocalCta, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
                 >
                   <Ionicons name="sparkles" size={16} color="#fff" />
@@ -1179,7 +1191,12 @@ export default function EventsListScreen() {
                       </Text>
                       <VibelyButton
                         label="Explore with Premium →"
-                        onPress={() => router.push('/premium')}
+                        onPress={() =>
+                          openPremium(router.push, {
+                            entry_surface: PREMIUM_ENTRY_SURFACE.HAPPENING_ELSEWHERE_PROMO,
+                            feature: 'canCityBrowse',
+                          })
+                        }
                         variant="primary"
                         size="sm"
                         style={styles.premiumCardCta}

@@ -36,6 +36,8 @@ import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
+import { openPremium } from "@/lib/premiumNavigation";
+import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { useCredits } from "@/hooks/useCredits";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { usePremium } from "@/hooks/usePremium";
@@ -329,7 +331,10 @@ const Settings = () => {
         onOpenChange={(open) => !open && setActiveDrawer(null)}
         onPremiumNavigate={() => {
           setActiveDrawer(null);
-          navigate("/premium");
+          openPremium(navigate, {
+            entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
+            feature: "canCityBrowse",
+          });
         }}
       />
 
