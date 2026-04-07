@@ -207,7 +207,13 @@ export default function AccountSettingsScreen() {
   const [rcExpiry, setRcExpiry] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
 
-  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
+  const {
+    pendingDeletion,
+    cancelDeletion,
+    isCancelling,
+    cancelDeletionError,
+    clearCancelDeletionError,
+  } = useDeletionRecovery(user?.id);
 
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ['profile-account', user?.id],
@@ -505,8 +511,8 @@ export default function AccountSettingsScreen() {
   const openDeleteFlow = () => {
     const isPremium = rcTier !== 'none';
     const msg = isPremium
-      ? 'You have an active Vibely Premium subscription. Deleting your account does NOT automatically cancel your subscription. Cancel it in the App Store or Play Store first.'
-      : 'Your account and all data will be permanently deleted.';
+      ? 'You have an active Vibely Premium subscription. Scheduling deletion does NOT automatically cancel your subscription. Cancel it in the App Store or Play Store first.'
+      : 'You’ll start a scheduled deletion with about 30 days to cancel. After that window ends, your account and data are permanently removed.';
     const subUrl = subscriptionManageUrl();
     if (isPremium) {
       show({
@@ -648,8 +654,10 @@ export default function AccountSettingsScreen() {
         {pendingDeletion ? (
           <DeletionRecoveryBanner
             scheduledDate={pendingDeletion.scheduled_deletion_at}
-            onCancel={cancelDeletion}
+            onCancel={() => void cancelDeletion()}
             isCancelling={isCancelling}
+            cancelDeletionError={cancelDeletionError}
+            onDismissCancelDeletionError={clearCancelDeletionError}
           />
         ) : null}
 
@@ -1018,7 +1026,7 @@ export default function AccountSettingsScreen() {
                 icon="trash-outline"
                 iconColor="#EF4444"
                 title="Delete account"
-                subtitle="Permanently delete your account and all data. This cannot be undone."
+                subtitle="Schedule removal (~30 days to cancel before data is deleted)."
                 onPress={openDeleteFlow}
               />
             </View>

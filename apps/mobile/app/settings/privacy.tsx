@@ -627,7 +627,7 @@ export default function PrivacySettingsScreen() {
                 icon="trash-outline"
                 iconColor="#EF4444"
                 label="Delete account"
-                description="Permanently remove your account and data"
+                description="Schedule account removal (~30 days to cancel)"
                 onPress={() => router.push('/settings/account')}
                 right={<Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />}
               />

@@ -15,6 +15,7 @@ export function useDeletionRecovery(userId: string | null | undefined) {
   const queryClient = useQueryClient();
   const [pendingDeletion, setPendingDeletion] = useState<DeletionRequest | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelDeletionError, setCancelDeletionError] = useState<string | null>(null);
 
   const refetchDeletionState = useCallback(async () => {
     if (!userId) {
@@ -38,13 +39,19 @@ export function useDeletionRecovery(userId: string | null | undefined) {
     refetchDeletionState();
   }, [refetchDeletionState]);
 
+  const clearCancelDeletionError = useCallback(() => {
+    setCancelDeletionError(null);
+  }, []);
+
   const cancelDeletion = useCallback(async (): Promise<boolean> => {
+    setCancelDeletionError(null);
     if (!userId) return false;
     setIsCancelling(true);
     try {
       const authRes = await supabase.auth.getSession();
       const session = authRes.data?.session ?? null;
       if (!session) {
+        setCancelDeletionError('Sign in again to cancel deletion.');
         setIsCancelling(false);
         return false;
       }
@@ -52,7 +59,13 @@ export function useDeletionRecovery(userId: string | null | undefined) {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const result = invokeData as { success?: boolean; error?: string } | null;
-      if (error || !result?.success) {
+      if (error) {
+        setCancelDeletionError(error.message || 'Couldn’t cancel deletion. Try again.');
+        setIsCancelling(false);
+        return false;
+      }
+      if (!result?.success) {
+        setCancelDeletionError(result?.error || 'Couldn’t cancel deletion. Try again.');
         setIsCancelling(false);
         return false;
       }
@@ -61,10 +74,18 @@ export function useDeletionRecovery(userId: string | null | undefined) {
       setIsCancelling(false);
       return true;
     } catch {
+      setCancelDeletionError('Something went wrong. Check your connection and try again.');
       setIsCancelling(false);
       return false;
     }
   }, [userId, queryClient]);
 
-  return { pendingDeletion, cancelDeletion, isCancelling, refetchDeletionState };
+  return {
+    pendingDeletion,
+    cancelDeletion,
+    isCancelling,
+    refetchDeletionState,
+    cancelDeletionError,
+    clearCancelDeletionError,
+  };
 }
