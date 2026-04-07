@@ -14,9 +14,17 @@ type DeletionRecoveryBannerProps = {
   scheduledDate: string;
   onCancel: () => void;
   isCancelling: boolean;
+  cancelDeletionError?: string | null;
+  onDismissCancelDeletionError?: () => void;
 };
 
-export function DeletionRecoveryBanner({ scheduledDate, onCancel, isCancelling }: DeletionRecoveryBannerProps) {
+export function DeletionRecoveryBanner({
+  scheduledDate,
+  onCancel,
+  isCancelling,
+  cancelDeletionError,
+  onDismissCancelDeletionError,
+}: DeletionRecoveryBannerProps) {
   const theme = Colors[useColorScheme()];
   const formatted = format(new Date(scheduledDate), 'MMMM d, yyyy');
 
@@ -30,6 +38,8 @@ export function DeletionRecoveryBanner({ scheduledDate, onCancel, isCancelling }
         <Pressable
           onPress={onCancel}
           disabled={isCancelling}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel scheduled account deletion"
           style={[styles.btn, { borderColor: withAlpha(theme.danger, 0.5) }, isCancelling && styles.btnDisabled]}
         >
           {isCancelling ? (
@@ -38,6 +48,16 @@ export function DeletionRecoveryBanner({ scheduledDate, onCancel, isCancelling }
             <Text style={[styles.btnLabel, { color: theme.danger }]}>Cancel Deletion</Text>
           )}
         </Pressable>
+        {cancelDeletionError ? (
+          <View style={styles.errWrap}>
+            <Text style={[styles.errText, { color: theme.danger }]}>{cancelDeletionError}</Text>
+            {onDismissCancelDeletionError ? (
+              <Pressable onPress={onDismissCancelDeletionError} hitSlop={8} accessibilityRole="button" accessibilityLabel="Dismiss error">
+                <Text style={[styles.dismissErr, { color: theme.tint }]}>Dismiss</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -66,4 +86,7 @@ const styles = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.7 },
   btnLabel: { fontSize: 13, fontWeight: '600' },
+  errWrap: { marginTop: spacing.sm, gap: 6 },
+  errText: { fontSize: 12, lineHeight: 17, fontWeight: '500' },
+  dismissErr: { fontSize: 12, fontWeight: '700' },
 });

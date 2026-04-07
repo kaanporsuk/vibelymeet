@@ -121,7 +121,13 @@ export default function DashboardScreen() {
   const qc = useQueryClient();
   const { user, onboardingComplete } = useAuth();
   const { activeSession, refetch: refetchActiveSession } = useActiveSession(user?.id);
-  const { pendingDeletion, cancelDeletion, isCancelling } = useDeletionRecovery(user?.id);
+  const {
+    pendingDeletion,
+    cancelDeletion,
+    isCancelling,
+    cancelDeletionError,
+    clearCancelDeletionError,
+  } = useDeletionRecovery(user?.id);
   const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
@@ -742,6 +748,8 @@ export default function DashboardScreen() {
               scheduledDate={pendingDeletion.scheduled_deletion_at}
               onCancel={handleCancelDeletion}
               isCancelling={isCancelling}
+              cancelDeletionError={cancelDeletionError}
+              onDismissCancelDeletionError={clearCancelDeletionError}
             />
           )}
           <PushPermissionPrompt
