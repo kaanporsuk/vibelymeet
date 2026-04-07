@@ -49,10 +49,15 @@ export function getPremiumTierMarketingBullets(): string[] {
     lines.push("Higher Daily Drop priority than Free");
   }
 
-  lines.push("Premium does not include VIP-only events or VIP-tier registration.");
-
   return lines;
 }
+
+/**
+ * VIP scope clarification for the paywall. Render separately from benefit bullets — never with a ✓
+ * checkmark, so it is not mistaken for an included feature.
+ */
+export const PREMIUM_VIP_EXCLUSION_FOOTNOTE =
+  "Premium does not include VIP-only events or VIP-tier registration.";
 
 export function getPremiumDefaultHero(): { title: string; subtitle: string } {
   return {

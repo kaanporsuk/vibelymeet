@@ -34,6 +34,7 @@ import {
   getPremiumDefaultHero,
   getPremiumEntryNudge,
   getPremiumTierMarketingBullets,
+  PREMIUM_VIP_EXCLUSION_FOOTNOTE,
 } from '@shared/premiumPageMarketing';
 
 export default function PremiumScreen() {
@@ -286,6 +287,19 @@ export default function PremiumScreen() {
                   <Text style={[styles.featureText, { color: theme.text }]}>{feature}</Text>
                 </View>
               ))}
+              <View style={[styles.vipFootnoteRow, { borderTopColor: theme.border }]}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={18}
+                  color={theme.textSecondary}
+                  style={styles.vipFootnoteIcon}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                />
+                <Text style={[styles.vipFootnoteText, { color: theme.textSecondary }]}>
+                  {PREMIUM_VIP_EXCLUSION_FOOTNOTE}
+                </Text>
+              </View>
             </Card>
 
             {error ? (
@@ -434,6 +448,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   featureText: { fontSize: 15, flex: 1 },
+  vipFootnoteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+  },
+  vipFootnoteIcon: { marginTop: 2 },
+  vipFootnoteText: { fontSize: 12, lineHeight: 17, flex: 1 },
   errorBar: { padding: spacing.md, borderRadius: radius.lg, marginBottom: spacing.lg, borderWidth: 1 },
   errorText: { fontSize: 14 },
   offeringLoadWrap: { marginBottom: spacing.lg },

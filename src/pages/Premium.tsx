@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Check, Crown, Loader2, ArrowLeft, Sparkles, ShieldCheck } from 'lucide-react';
+import { Check, Crown, Loader2, ArrowLeft, Sparkles, ShieldCheck, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSubscription } from '@/hooks/useSubscription';
 import { format } from 'date-fns';
@@ -10,6 +10,7 @@ import {
   getPremiumDefaultHero,
   getPremiumEntryNudge,
   getPremiumTierMarketingBullets,
+  PREMIUM_VIP_EXCLUSION_FOOTNOTE,
 } from '@shared/premiumPageMarketing';
 import { cn } from '@/lib/utils';
 
@@ -209,6 +210,16 @@ const Premium = () => {
                     </li>
                   ))}
                 </ul>
+                <div
+                  role="note"
+                  className="mt-4 pt-4 border-t border-border/60 flex gap-2.5 items-start text-xs text-muted-foreground leading-relaxed"
+                >
+                  <Info
+                    className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5"
+                    aria-hidden
+                  />
+                  <span>{PREMIUM_VIP_EXCLUSION_FOOTNOTE}</span>
+                </div>
               </div>
 
               <Button
