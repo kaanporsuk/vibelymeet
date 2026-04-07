@@ -79,17 +79,21 @@ export const KeepTheVibe = ({
           </AnimatePresence>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-0.5">
+        <div className="flex flex-col items-center gap-1 max-w-[220px]">
+          <p className="text-[9px] text-muted-foreground text-center leading-snug">
+            Extra Time adds <span className="text-foreground/90 font-medium">+2 min</span>. Extended Vibe adds{" "}
+            <span className="text-foreground/90 font-medium">+5 min</span>.
+          </p>
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => window.open('/credits', '_blank')}
-            aria-label="Get Video Date Credits (opens in new tab)"
+            aria-label="Get video date credits (opens in a new tab)"
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >
             <Sparkles className="w-3 h-3 text-primary" />
             ⚡ Get Credits
           </motion.button>
-          <span className="text-[9px] text-muted-foreground">Opens in new tab — date continues</span>
+          <span className="text-[9px] text-muted-foreground text-center">Opens in new tab — date continues</span>
         </div>
       )}
     </motion.div>

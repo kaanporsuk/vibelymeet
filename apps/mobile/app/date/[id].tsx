@@ -16,6 +16,7 @@ import {
   Platform,
   Animated,
   Dimensions,
+  AccessibilityInfo,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -175,6 +176,7 @@ export default function VideoDateScreen() {
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepVibePulse = useRef(new Animated.Value(1)).current;
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -431,6 +433,23 @@ export default function VideoDateScreen() {
     setShowMutualToast(false);
     setLocalTimeLeft(DATE_SECONDS);
   }, []);
+
+  const focusKeepTheVibeAddTime = useCallback(() => {
+    void AccessibilityInfo.announceForAccessibility(
+      'Add time using the plus two minute or plus five minute buttons at the top of the screen.'
+    );
+    keepVibePulse.setValue(1);
+    Animated.sequence([
+      Animated.timing(keepVibePulse, { toValue: 1.06, duration: 140, useNativeDriver: true }),
+      Animated.timing(keepVibePulse, { toValue: 1, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [keepVibePulse]);
+
+  const handleAddTimeShortcut = useCallback(() => {
+    const has = credits.extraTime > 0 || credits.extendedVibe > 0;
+    if (has) focusKeepTheVibeAddTime();
+    else router.push('/settings/credits');
+  }, [credits.extraTime, credits.extendedVibe, focusKeepTheVibeAddTime]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<boolean> => {
@@ -959,7 +978,10 @@ export default function VideoDateScreen() {
       )}
 
       {phase === 'date' && (
-        <View style={styles.keepTheVibeWrap}>
+        <Animated.View
+          style={[styles.keepTheVibeWrap, { transform: [{ scale: keepVibePulse }] }]}
+          accessibilityLiveRegion="polite"
+        >
           <KeepTheVibe
             extraTimeCredits={credits.extraTime}
             extendedVibeCredits={credits.extendedVibe}
@@ -967,7 +989,7 @@ export default function VideoDateScreen() {
             isExtending={isExtending}
             onGetCredits={() => router.push('/settings/credits')}
           />
-        </View>
+        </Animated.View>
       )}
 
       {callError ? (
@@ -984,6 +1006,7 @@ export default function VideoDateScreen() {
           onToggleVideo={toggleVideo}
           onLeave={handleLeave}
           onViewProfile={() => setShowProfileSheet(true)}
+          onAddTime={phase === 'date' ? handleAddTimeShortcut : undefined}
           hasCredits={credits.extraTime > 0 || credits.extendedVibe > 0}
         />
       </View>
