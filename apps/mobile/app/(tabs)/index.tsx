@@ -125,7 +125,10 @@ export default function DashboardScreen() {
     pendingDeletion,
     cancelDeletion,
     isCancelling,
+    refetchDeletionState,
+    deletionStateError,
     cancelDeletionError,
+    clearDeletionStateError,
     clearCancelDeletionError,
   } = useDeletionRecovery(user?.id);
   const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
@@ -743,11 +746,14 @@ export default function DashboardScreen() {
       >
         <Animated.View style={[{ opacity: fadeAnim }, styles.scrollInner]}>
           <OnBreakBanner variant="full" />
-          {pendingDeletion && (
+          {(pendingDeletion || deletionStateError) && (
             <DeletionRecoveryBanner
-              scheduledDate={pendingDeletion.scheduled_deletion_at}
+              scheduledDate={pendingDeletion?.scheduled_deletion_at}
               onCancel={handleCancelDeletion}
               isCancelling={isCancelling}
+              deletionStateError={deletionStateError}
+              onRetryDeletionState={() => void refetchDeletionState()}
+              onDismissDeletionStateError={clearDeletionStateError}
               cancelDeletionError={cancelDeletionError}
               onDismissCancelDeletionError={clearCancelDeletionError}
             />

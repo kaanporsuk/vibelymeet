@@ -158,7 +158,9 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
             <h3 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight drop-shadow-sm">
               {profile.name}
             </h3>
-            <span className="text-lg sm:text-xl font-medium text-white/75 tabular-nums">{profile.age}</span>
+            {profile.age != null ? (
+              <span className="text-lg sm:text-xl font-medium text-white/75 tabular-nums">{profile.age}</span>
+            ) : null}
           </div>
           {profile.tagline ? (
             <p className="text-sm text-white/80 font-medium mt-1 line-clamp-1">{profile.tagline}</p>

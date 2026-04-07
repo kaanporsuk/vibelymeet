@@ -53,6 +53,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
+import { isWebShareAbortError } from "@/lib/webShare";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -106,7 +107,8 @@ const Settings = () => {
         url: link,
       });
       trackEvent("invite_link_shared", { surface: "settings", channel: "system_share" });
-    } catch {
+    } catch (error) {
+      if (isWebShareAbortError(error)) return;
       try {
         await navigator.clipboard.writeText(link);
         trackEvent("invite_link_copied", { surface: "settings", channel: "clipboard" });

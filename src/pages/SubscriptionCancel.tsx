@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { openPremium } from '@/lib/premiumNavigation';
+import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 
 const SubscriptionCancel = () => {
   const navigate = useNavigate();
@@ -30,7 +32,11 @@ const SubscriptionCancel = () => {
 
         <div className="flex flex-col gap-3">
           <Button
-            onClick={() => navigate('/premium')}
+            onClick={() =>
+              openPremium(navigate, {
+                entry_surface: PREMIUM_ENTRY_SURFACE.SUBSCRIPTION_CANCEL,
+              })
+            }
             className="w-full py-6 text-lg font-semibold rounded-2xl bg-gradient-to-r from-[hsl(var(--neon-violet))] to-[hsl(var(--neon-pink))] hover:opacity-90 transition-opacity text-primary-foreground"
           >
             Try Again

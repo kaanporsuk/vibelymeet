@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { buildEventShareUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
+import { isWebShareAbortError } from "@/lib/webShare";
 
 export type BookingAdmissionStatus = "confirmed" | "waitlisted";
 
@@ -52,7 +53,8 @@ const ManageBookingModal = ({
         url,
       });
       trackEvent("invite_link_shared", { surface: "manage_booking_modal", channel: "system_share" });
-    } catch {
+    } catch (error) {
+      if (isWebShareAbortError(error)) return;
       try {
         await navigator.clipboard.writeText(url);
         trackEvent("invite_link_copied", { surface: "manage_booking_modal", channel: "clipboard" });

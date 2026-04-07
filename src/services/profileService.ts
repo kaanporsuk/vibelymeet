@@ -85,6 +85,15 @@ interface DbProfile {
   event_discovery_prefs?: unknown;
 }
 
+const PROFILE_SELECT_WITH_DISCOVERY =
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
+
+const PROFILE_SELECT_BASE =
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until";
+
+const PROFILE_SELECT_RETRYABLE_ERROR =
+  /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i;
+
 // Zodiac sign calculation from birth date
 export const getZodiacSign = (birthDate: Date): string => {
   const month = birthDate.getMonth() + 1;
@@ -232,13 +241,22 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
-    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs").eq("id", user.id).maybeSingle(),
+  const [initialProfileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
+    supabase.from("profiles").select(PROFILE_SELECT_WITH_DISCOVERY).eq("id", user.id).maybeSingle(),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`).not("last_message_at", "is", null),
   ]);
+  let profileResult = initialProfileResult;
+
+  if (profileResult.error && PROFILE_SELECT_RETRYABLE_ERROR.test(profileResult.error.message ?? "")) {
+    profileResult = await supabase
+      .from("profiles")
+      .select(PROFILE_SELECT_BASE)
+      .eq("id", user.id)
+      .maybeSingle();
+  }
 
   if (profileResult.error) throw profileResult.error;
   if (!profileResult.data) return null;

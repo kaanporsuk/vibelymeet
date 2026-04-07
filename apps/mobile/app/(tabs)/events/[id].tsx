@@ -258,11 +258,12 @@ export default function EventDetailScreen() {
         platform: Platform.OS === 'ios' ? 'ios' : 'android',
       });
       showDialog({
-        title: 'VIP only',
-        message: 'This event is for VIP members. Upgrade to unlock access.',
+        title: 'This event needs VIP access',
+        message:
+          'Your current membership tier does not include VIP-tier events. Upgrade or change plans to match what this experience requires.',
         variant: 'info',
         primaryAction: {
-          label: 'View Premium',
+          label: 'View membership options',
           onPress: () =>
             openPremium(router.push, {
               entry_surface: PREMIUM_ENTRY_SURFACE.VIP_EVENT_REGISTER,

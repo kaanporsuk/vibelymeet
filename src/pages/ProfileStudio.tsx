@@ -82,6 +82,7 @@ import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
 import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
+import { isWebShareAbortError } from "@/lib/webShare";
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -765,7 +766,8 @@ const ProfileStudio = () => {
     try {
       await navigator.share({ title: "Join me on Vibely!", text: "I'm using Vibely for video dates — come find your vibe! 💜", url: link });
       trackEvent("invite_link_shared", { surface: "profile_studio", channel: "system_share" });
-    } catch {
+    } catch (error) {
+      if (isWebShareAbortError(error)) return;
       try {
         await navigator.clipboard.writeText(link);
         trackEvent("invite_link_copied", { surface: "profile_studio", channel: "clipboard" });

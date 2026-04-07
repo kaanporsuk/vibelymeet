@@ -80,12 +80,22 @@ const CHANNELS = [
   { key: 'more', icon: 'share-outline' as const, label: 'More', color: '#6B7280' },
 ];
 
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
 function buildInviteUrl(userId: string) {
-  return `${WEB_ORIGIN}/invite?ref=${encodeURIComponent(userId)}`;
+  const ref = userId.trim();
+  if (!isUuidLike(ref)) return `${WEB_ORIGIN}/invite`;
+  return `${WEB_ORIGIN}/invite?ref=${encodeURIComponent(ref)}`;
 }
 
 function buildEventInviteUrl(eventId: string, userId: string) {
-  return `${WEB_ORIGIN}/events/${eventId}?ref=${encodeURIComponent(userId)}`;
+  const id = eventId.trim();
+  const path = id ? `/events/${encodeURIComponent(id)}` : '/events';
+  const ref = userId.trim();
+  if (!isUuidLike(ref)) return `${WEB_ORIGIN}${path}`;
+  return `${WEB_ORIGIN}${path}?ref=${encodeURIComponent(ref)}`;
 }
 
 function formatEventWhen(iso: string) {

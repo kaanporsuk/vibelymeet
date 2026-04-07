@@ -1830,7 +1830,7 @@ export type Database = {
           account_paused: boolean
           account_paused_until: string | null
           activity_status_visibility: string | null
-          age: number
+          age: number | null
           avatar_url: string | null
           bio: string | null
           birth_date: string | null

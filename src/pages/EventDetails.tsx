@@ -42,6 +42,7 @@ import { trackEvent } from "@/lib/analytics";
 import { PremiumUpsellDialog } from "@/components/premium/PremiumUpsellDialog";
 import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { buildEventShareUrl } from "@/lib/inviteLinks";
+import { isWebShareAbortError } from "@/lib/webShare";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -350,7 +351,8 @@ const EventDetails = () => {
         url,
       });
       trackEvent("invite_link_shared", { surface: "event_details", channel: "system_share" });
-    } catch {
+    } catch (error) {
+      if (isWebShareAbortError(error)) return;
       try {
         await navigator.clipboard.writeText(url);
         trackEvent("invite_link_copied", { surface: "event_details", channel: "clipboard" });
