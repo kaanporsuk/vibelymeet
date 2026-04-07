@@ -43,6 +43,7 @@ import {
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
 } from '@shared/onboardingTypes';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 export default function OnboardingV2Screen() {
   const params = useLocalSearchParams<{
@@ -246,6 +247,7 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || submitOnceRef.current) return;
     submitOnceRef.current = true;
     setSubmitting(true);
+    rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_attempt', { step: currentStep });
 
     try {
       const result = await executeOnboardingCompletion({
@@ -262,17 +264,27 @@ export default function OnboardingV2Screen() {
       });
 
       if (!result.success) {
+        rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_failed', {
+          error_code: result.errorCode ?? null,
+          error_count: result.errors.length,
+        });
         submitOnceRef.current = false;
         setCompletionError(result.errors.join(', ') || "Couldn't save your profile. Check your connection and try again.");
         return;
       }
 
+      rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_success', {
+        already_completed: result.alreadyCompleted,
+      });
       setVibeScore(result.vibeScore);
       setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
       setCompletionError(null);
       await refreshEntryState();
     } catch (error: any) {
+      rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_exception', {
+        message_snippet: String(error?.message ?? 'unknown').slice(0, 120),
+      });
       submitOnceRef.current = false;
       setCompletionError(
         String(error?.message || "Couldn't save your profile. Check your connection and try again.")
@@ -280,7 +292,20 @@ export default function OnboardingV2Screen() {
     } finally {
       setSubmitting(false);
     }
-  }, [session?.user?.id, session?.user?.phone, session?.user?.app_metadata?.provider, data, refreshEntryState]);
+  }, [
+    session?.user?.id,
+    session?.user?.phone,
+    session?.user?.app_metadata?.provider,
+    data,
+    refreshEntryState,
+    currentStep,
+  ]);
+
+  const retryFinalizeOnboarding = useCallback(() => {
+    rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_retry_tap', {});
+    submitOnceRef.current = false;
+    void completeOnboarding();
+  }, [completeOnboarding]);
 
   useEffect(() => {
     if (currentStep === totalSteps - 1) {
@@ -340,10 +365,32 @@ export default function OnboardingV2Screen() {
         if (needsEmailCollection) {
           return <VibeVideoStep onNext={goNext} />;
         }
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={retryFinalizeOnboarding}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
       case 14:
       default:
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={retryFinalizeOnboarding}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
     }
   }, [
     currentStep,
@@ -360,6 +407,7 @@ export default function OnboardingV2Screen() {
     vibeScore,
     vibeScoreLabel,
     updateField,
+    retryFinalizeOnboarding,
   ]);
 
   const layoutOnBack =

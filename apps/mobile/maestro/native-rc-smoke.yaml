@@ -1,0 +1,14 @@
+# Golden-path smoke: cold launch → auth shell visible.
+# Requires Maestro CLI (https://maestro.mobile.dev) and a device/simulator with the RC build.
+#
+# Run from repo root:
+#   cd apps/mobile && maestro test maestro/native-rc-smoke.yaml
+#
+# Optional: export MAESTRO_DEVICE_PLATFORM=ios (default) or android
+appId: com.vibelymeet.vibely
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Welcome to Vibely!"
+    timeout: 20000

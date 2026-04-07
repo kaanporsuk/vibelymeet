@@ -13,6 +13,7 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const GATE_TIMEOUT_SEC = 30;
 
@@ -45,7 +46,18 @@ export default function ReadyGateScreen() {
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const invalidSessionLoggedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+
+  useEffect(() => {
+    if (sessionId && user?.id) return;
+    if (invalidSessionLoggedRef.current) return;
+    invalidSessionLoggedRef.current = true;
+    rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_invalid_session', {
+      has_session_id: Boolean(sessionId),
+      has_user: Boolean(user?.id),
+    });
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -76,6 +88,7 @@ export default function ReadyGateScreen() {
       setTransitioning(true);
       if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
       transitionTimeoutRef.current = setTimeout(() => {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', { session_id: sessionId });
         router.replace(`/date/${sessionId}`);
       }, 1500);
     }
@@ -89,10 +102,14 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     if (isForfeited) {
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeited', {
+        session_id: sessionId ?? null,
+        event_id: eventId,
+      });
       if (eventId) router.replace(`/event/${eventId}/lobby`);
       else if (sessionLookupDone) router.replace('/(tabs)');
     }
-  }, [isForfeited, eventId, sessionLookupDone]);
+  }, [isForfeited, eventId, sessionLookupDone, sessionId]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
