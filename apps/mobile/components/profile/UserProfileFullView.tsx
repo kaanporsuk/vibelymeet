@@ -476,7 +476,7 @@ export function UserProfileFullView({
         visible={showFullscreenVibe && vibeInfo.canPlay}
         onClose={() => setShowFullscreenVibe(false)}
         playbackUrl={vibeInfo.playbackUrl}
-        bunnyVideoUid={profile.bunny_video_uid ?? vibeInfo.uid}
+        bunnyVideoUid={vibeInfo.uid}
         vibeCaption={caption}
         posterUrl={vibeInfo.thumbnailUrl}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}

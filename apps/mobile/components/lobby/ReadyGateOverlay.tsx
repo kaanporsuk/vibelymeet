@@ -14,6 +14,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useReadyGate } from '@/lib/readyGateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -50,16 +51,18 @@ export function ReadyGateOverlay({
     if (closedRef.current) return;
     closedRef.current = true;
     setIsTransitioning(true);
+    rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
     // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
     setTimeout(() => {
       onNavigateToDate(sessionId);
     }, 1200);
-  }, [sessionId, onNavigateToDate]);
+  }, [sessionId, onNavigateToDate, eventId]);
 
   const handleForfeited = useCallback(
     async (_reason: 'timeout' | 'skip') => {
       if (closedRef.current) return;
       closedRef.current = true;
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason: _reason, eventId });
       await updateParticipantStatus(eventId, 'browsing');
       show({
         title: _reason === 'timeout' ? "They weren't ready" : 'No worries',
@@ -218,6 +221,10 @@ export function ReadyGateOverlay({
                     void (async () => {
                       try {
                         await markReady();
+                      } catch (e) {
+                        rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {
+                          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+                        });
                       } finally {
                         setMarkingReady(false);
                       }

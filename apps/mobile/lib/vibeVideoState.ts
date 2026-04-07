@@ -1,6 +1,13 @@
 /**
  * Canonical vibe video state resolver — single source of truth for ALL native surfaces.
  * Every component that renders video state MUST use resolveVibeVideoState().
+ *
+ * Contract: `bunny_video_uid` + `bunny_video_status` on `profiles` are backend-owned (create-video-upload,
+ * webhooks / media-session RPCs). Clients only read them and derive UI via this resolver.
+ * `canPlay` requires normalized `ready` plus a constructible HLS URL — not merely a uid.
+ * Vibe Score video points use non-empty `bunny_video_uid` only; `canPlay` still follows `ready` +
+ * playback URL (same split as web `resolveWebVibeVideoState`). Incomplete-actions for vibe_video
+ * use uid-only to mirror score eligibility.
  */
 import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
 import { normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';

@@ -350,7 +350,7 @@ export function uploadVibeVideoToBunny(
             const playUrl = getVibeVideoPlaybackUrl(credentials.videoId);
             vibeVideoDiagVerbose('tus.complete', {
               videoId: credentials.videoId,
-              playableUrlReady: !!playUrl,
+              hasConstructedPlaybackUrl: !!playUrl,
             });
             resolve();
           },

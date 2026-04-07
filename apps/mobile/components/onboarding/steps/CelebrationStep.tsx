@@ -10,6 +10,7 @@ export default function CelebrationStep({
   completed,
   errorMessage,
   onRetry,
+  onGoBackToEdit,
   vibeScore,
   vibeScoreLabel,
   onGoNow,
@@ -19,6 +20,8 @@ export default function CelebrationStep({
   completed: boolean;
   errorMessage: string | null;
   onRetry: () => void;
+  /** When finalize fails, lets users leave the dead-end screen and fix answers (e.g. validation). */
+  onGoBackToEdit?: () => void;
   vibeScore: number;
   vibeScoreLabel: string;
   onGoNow: () => void;
@@ -39,8 +42,16 @@ export default function CelebrationStep({
     return (
       <View style={styles.root}>
         <Text style={[styles.h1, { color: theme.text }]}>Couldn't save your profile.</Text>
-        <Text style={{ color: theme.textSecondary }}>{errorMessage}</Text>
+        <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>
+          {errorMessage}
+        </Text>
+        <Text style={{ color: theme.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
+          Check your connection, then try again. If something in your answers needs changing, go back one step.
+        </Text>
         <VibelyButton label="Retry" onPress={onRetry} variant="gradient" />
+        {onGoBackToEdit ? (
+          <VibelyButton label="Go back to edit" onPress={onGoBackToEdit} variant="secondary" />
+        ) : null}
       </View>
     );
   }

@@ -8,9 +8,11 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { getImageUrl } from '@/lib/imageUrl';
+import { useVibelyDialog } from '@/components/VibelyDialog';
 
 export default function PhotosStep({ photos, onChange, onNext }: { photos: string[]; onChange: (v: string[]) => void; onNext: () => void; }) {
   const theme = Colors[useColorScheme()];
+  const { show, dialog } = useVibelyDialog();
   const [uploading, setUploading] = useState<number | null>(null);
   const photoCount = photos.length;
   const canContinue = photoCount >= 2;
@@ -25,7 +27,35 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
 
   const addPhoto = async () => {
     if (photos.length >= 6) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.85 });
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        show({
+          title: 'Photo library access',
+          message:
+            perm.canAskAgain === false
+              ? 'Photos access is turned off. Enable it in Settings to add pictures, or try again after allowing access.'
+              : 'We need access to your photos to upload profile pictures.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+    } catch {
+      show({
+        title: 'Permission error',
+        message: 'Could not request photo access. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.85,
+    });
     if (result.canceled || !result.assets?.[0]) return;
     setUploading(photos.length);
     try {
@@ -39,6 +69,14 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
         'onboarding',
       );
       onChange([...photos, path]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Upload failed.';
+      show({
+        title: "Couldn't upload photo",
+        message: msg || 'Check your connection and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
     } finally {
       setUploading(null);
     }
@@ -134,6 +172,7 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
         variant="gradient"
         style={[styles.cta, !canContinue ? styles.ctaDisabled : null]}
       />
+      {dialog}
     </View>
   );
 }

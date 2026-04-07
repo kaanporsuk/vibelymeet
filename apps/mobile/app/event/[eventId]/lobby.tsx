@@ -43,6 +43,7 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import {
@@ -1036,6 +1037,7 @@ export default function EventLobbyScreen() {
           userId={user.id}
           partnerImageUri={activeSessionPartnerImage}
           onNavigateToDate={(sessionIdToOpen) => {
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'navigate_to_video_date', { event_id: id, session_id: sessionIdToOpen });
             lastOpenedSessionRef.current = null;
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
