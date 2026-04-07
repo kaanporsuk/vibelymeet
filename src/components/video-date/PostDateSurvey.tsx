@@ -326,12 +326,10 @@ export const PostDateSurvey = ({
               <div
                 key={s}
                 className={`h-1.5 rounded-full transition-all ${
-                  step === s || (step === "celebration" && s === "verdict")
+                  step === s
                     ? "w-8 bg-primary"
                     : i <
-                      ["verdict", "highlights", "safety"].indexOf(
-                        step === "celebration" ? "verdict" : step
-                      )
+                      ["verdict", "highlights", "safety"].indexOf(step)
                     ? "w-4 bg-primary/40"
                     : "w-4 bg-secondary/50"
                 }`}
