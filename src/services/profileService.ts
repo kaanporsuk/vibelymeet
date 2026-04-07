@@ -1,5 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeRelationshipIntent } from "@shared/profileContracts";
+import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
+import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -40,6 +42,9 @@ export interface ProfileData {
   vibeScore: number;
   vibeScoreLabel: string;
   onboardingComplete?: boolean;
+  preferredAgeMin: number | null;
+  preferredAgeMax: number | null;
+  eventDiscoveryPrefs: EventDiscoveryPrefs;
 }
 
 // Database profile interface (snake_case)
@@ -75,6 +80,9 @@ interface DbProfile {
   total_conversations: number | null;
   vibe_score?: number | null;
   vibe_score_label?: string | null;
+  preferred_age_min?: number | null;
+  preferred_age_max?: number | null;
+  event_discovery_prefs?: unknown;
 }
 
 // Zodiac sign calculation from birth date
@@ -167,6 +175,9 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     vibeScore: dbProfile.vibe_score ?? 0,
     vibeScoreLabel: dbProfile.vibe_score_label ?? "New",
     onboardingComplete: dbProfile.onboarding_complete ?? undefined,
+    preferredAgeMin: dbProfile.preferred_age_min ?? null,
+    preferredAgeMax: dbProfile.preferred_age_max ?? null,
+    eventDiscoveryPrefs: parseEventDiscoveryPrefs(dbProfile.event_discovery_prefs),
   };
 };
 
@@ -207,6 +218,11 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.avatarUrl !== undefined) dbData.avatar_url = profile.avatarUrl;
   
   if (profile.vibeCaption !== undefined) dbData.vibe_caption = profile.vibeCaption;
+  if (profile.preferredAgeMin !== undefined) dbData.preferred_age_min = profile.preferredAgeMin;
+  if (profile.preferredAgeMax !== undefined) dbData.preferred_age_max = profile.preferredAgeMax;
+  if (profile.eventDiscoveryPrefs !== undefined) {
+    dbData.event_discovery_prefs = serializeEventDiscoveryPrefs(profile.eventDiscoveryPrefs);
+  }
 
   return dbData;
 };
@@ -217,7 +233,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (!user) return null;
 
   const [profileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
-    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs").eq("id", user.id).maybeSingle(),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),

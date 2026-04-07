@@ -49,7 +49,7 @@
       "services": 6,
       "edge_functions_deployable": 33,
       "edge_function_shared_dirs": 1,
-      "migrations": 111,
+      "migrations": 113,
       "public_tables": 41,
       "public_views": 1,
       "public_functions": 26,
@@ -1017,6 +1017,22 @@
       "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql",
       "20260412143000_phase3_legacy_queue_contract_cleanup.sql"
     ],
+    "sprint2_discovery_preference_controls_addendum_2026_04": {
+      "note": "Branch sprint-2-discovery-preference-controls. The files[] array above may lag; these two SQL files exist under supabase/migrations/.",
+      "sql": [
+        "20260407180000_sprint2_discovery_prefs.sql",
+        "20260415100000_get_event_deck_preferred_age.sql"
+      ],
+      "profiles_columns_added": [
+        "preferred_age_min",
+        "preferred_age_max",
+        "event_discovery_prefs"
+      ],
+      "routes": {
+        "web": "Settings page opens DiscoveryDrawer (no new URL path)",
+        "native": "app/settings/discovery"
+      }
+    },
     "phase1_event_presence_updates": [
       "update_participant_status(p_event_id, p_status) no longer writes last_lobby_foregrounded_at",
       "mark_lobby_foreground(p_event_id) is the canonical foreground-proof stamp",

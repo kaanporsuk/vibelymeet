@@ -13,6 +13,7 @@ import {
   Zap,
   Trash2,
   FileText,
+  Compass,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/navigation/BottomNav";
@@ -30,6 +31,7 @@ import {
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
 import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
 import { PrivacyDrawer } from "@/components/settings/PrivacyDrawer";
+import { DiscoveryDrawer } from "@/components/settings/DiscoveryDrawer";
 import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
@@ -65,7 +67,7 @@ const Settings = () => {
   const accessDateLine = getSettingsAccessDateLine(membershipDisplay);
   const showElevatedMembership = showSettingsMemberElevated(membershipDisplay);
 
-  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "account" | null>(null);
+  const [activeDrawer, setActiveDrawer] = useState<"notifications" | "privacy" | "discovery" | "account" | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -189,6 +191,30 @@ const Settings = () => {
           </button>
         </motion.div>
 
+        {/* Discovery preferences */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+          className="glass-card p-4"
+        >
+          <button
+            onClick={() => setActiveDrawer("discovery")}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                <Compass className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-semibold text-foreground">Discovery</h3>
+                <p className="text-xs text-muted-foreground">Decks, intent, and default event filters</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </button>
+        </motion.div>
+
         {/* Account Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -296,6 +322,15 @@ const Settings = () => {
       <PrivacyDrawer
         open={activeDrawer === "privacy"}
         onOpenChange={(open) => !open && setActiveDrawer(null)}
+      />
+
+      <DiscoveryDrawer
+        open={activeDrawer === "discovery"}
+        onOpenChange={(open) => !open && setActiveDrawer(null)}
+        onPremiumNavigate={() => {
+          setActiveDrawer(null);
+          navigate("/premium");
+        }}
       />
 
       <AccountSettingsDrawer

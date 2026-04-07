@@ -586,6 +586,19 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11f. Stream — discovery preference controls (Sprint 2, 2026-04)
+
+- **`supabase/migrations/20260407180000_sprint2_discovery_prefs.sql`**
+  - **`profiles.preferred_age_min`**, **`profiles.preferred_age_max`** — nullable `smallint`, CHECK 18–99, min ≤ max when both set.
+  - **`profiles.event_discovery_prefs`** — nullable `jsonb`, CHECK `jsonb_typeof = 'object'` when non-null; client-owned defaults for event list UI (`locationMode`, `distanceKm`, `selectedCity`); **not** used for premium entitlements (`get_visible_events` unchanged).
+- **`supabase/migrations/20260415100000_get_event_deck_preferred_age.sql`**
+  - **`CREATE OR REPLACE public.get_event_deck`** — same contract as post–`20260412120000` deck; adds filtering when target **`p.age` IS NOT NULL** against viewer `preferred_age_min` / `preferred_age_max` (open bounds when either null). **`p.age` NULL** still passes the age clause (no exclusion by age).
+  - **Ordering:** Timestamp **after** `20260412120000_event_cancel_truth_capacity.sql` so this definition is not overwritten by that migration.
+
+**Product surfaces (reference):** Web Settings → Discovery drawer [`src/components/settings/DiscoveryDrawer.tsx`](../src/components/settings/DiscoveryDrawer.tsx); native stack route `app/settings/discovery.tsx`. Events tabs seed filters from `event_discovery_prefs` (city mode applied only when tier allows `canCityBrowse`).
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

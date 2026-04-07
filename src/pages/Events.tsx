@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import type { UseVisibleEventsOptions } from "@/hooks/useVisibleEvents";
 import { useNavigate } from "react-router-dom";
 import { trackEvent } from "@/lib/analytics";
@@ -17,7 +17,8 @@ import { FeaturedEventSkeleton, EventsRailSkeleton } from "@/components/ShimmerS
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { parseEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -168,7 +169,7 @@ const ScopeLabel = ({ scope, city, country, distanceKm }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const Events = () => {
   const { user } = useUserProfile();
-  const { canCityBrowse } = useEntitlements();
+  const { canCityBrowse, isLoading: entitlementsLoading } = useEntitlements();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -184,13 +185,44 @@ const Events = () => {
   const [upcomingOnly, setUpcomingOnly] = useState(true);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [hasLocation, setHasLocation] = useState<boolean | null>(null);
+  const seededEventPrefs = useRef(false);
+
+  const { data: serverEventPrefs } = useQuery({
+    queryKey: ["event-discovery-prefs", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("event_discovery_prefs")
+        .eq("id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return parseEventDiscoveryPrefs(data?.event_discovery_prefs);
+    },
+    enabled: !!user?.id,
+  });
+
+  useEffect(() => {
+    if (!user?.id || entitlementsLoading || serverEventPrefs == null || seededEventPrefs.current) return;
+    seededEventPrefs.current = true;
+    setDistanceKm(serverEventPrefs.distanceKm);
+    if (canCityBrowse && serverEventPrefs.locationMode === "city" && serverEventPrefs.selectedCity) {
+      const c = serverEventPrefs.selectedCity;
+      setLocationMode("city");
+      setSelectedCity({
+        name: c.name,
+        country: c.country,
+        lat: c.lat,
+        lng: c.lng,
+        region: c.region ?? null,
+      });
+    }
+  }, [user?.id, entitlementsLoading, canCityBrowse, serverEventPrefs]);
 
   useEffect(() => {
     if (!canCityBrowse) {
       if (locationMode !== "nearby" || selectedCity) {
         setLocationMode("nearby");
         setSelectedCity(null);
-        setDistanceKm(50);
       }
     }
   }, [canCityBrowse, locationMode, selectedCity]);
