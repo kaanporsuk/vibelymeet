@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { router, usePathname, type Href } from 'expo-router';
 import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
@@ -71,7 +72,14 @@ export function NotificationDeepLinkHandler() {
       }
       const href = resolveNotificationHref(additionalData, launchURL);
       if (href) {
+        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
+          href: String(href),
+        });
         router.push(href);
+      } else if (additionalData && typeof additionalData === 'object') {
+        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
+          has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
+        });
       }
     };
 
@@ -94,6 +102,9 @@ export function NotificationDeepLinkHandler() {
           path === `/chat/${chatPeerProfileId}` &&
           (cat === 'messages' || cat === 'new_match' || isDateSuggestionCat)
         ) {
+          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_same_thread', {
+            category: cat ?? null,
+          });
           event.preventDefault();
           return;
         }

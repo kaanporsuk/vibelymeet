@@ -1,0 +1,46 @@
+# Native RC smoke — host-safe checks from apps/mobile/scripts/rc-smoke-check.sh
+# (TypeScript typecheck + ESLint on RC-touched surfaces).
+#
+# Maestro/device flows are intentionally not run here; use MAESTRO_RUN=1 locally or on a runner with simulators.
+name: Native RC smoke
+
+on:
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/native-rc-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/native-rc-smoke.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Host-safe smoke (typecheck + ESLint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
+
+      - name: Install root dependencies (ESLint)
+        run: npm ci
+
+      - name: Install mobile dependencies (tsc)
+        working-directory: apps/mobile
+        run: npm ci
+
+      - name: Run native RC smoke script
+        run: bash apps/mobile/scripts/rc-smoke-check.sh

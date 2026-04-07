@@ -180,23 +180,39 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
       )}
 
       {feedback ? (
-        <View
-          style={[
-            styles.feedback,
-            {
-              borderColor: feedback.tone === 'error' ? 'rgba(239, 68, 68, 0.3)' : theme.border,
-              backgroundColor: feedback.tone === 'error' ? theme.dangerSoft : 'rgba(255,255,255,0.03)',
-            },
-          ]}
-        >
-          <Ionicons
-            name={feedback.tone === 'error' ? 'warning-outline' : 'information-circle-outline'}
-            size={16}
-            color={feedback.tone === 'error' ? theme.danger : theme.tint}
-          />
-          <Text style={[styles.feedbackText, { color: feedback.tone === 'error' ? theme.text : theme.textSecondary }]}>
-            {feedback.text}
-          </Text>
+        <View style={{ gap: 8 }}>
+          <View
+            style={[
+              styles.feedback,
+              {
+                borderColor: feedback.tone === 'error' ? 'rgba(239, 68, 68, 0.3)' : theme.border,
+                backgroundColor: feedback.tone === 'error' ? theme.dangerSoft : 'rgba(255,255,255,0.03)',
+              },
+            ]}
+          >
+            <Ionicons
+              name={feedback.tone === 'error' ? 'warning-outline' : 'information-circle-outline'}
+              size={16}
+              color={feedback.tone === 'error' ? theme.danger : theme.tint}
+            />
+            <Text style={[styles.feedbackText, { color: feedback.tone === 'error' ? theme.text : theme.textSecondary }]}>
+              {feedback.text}
+            </Text>
+          </View>
+          {feedback.tone === 'error' ? (
+            <Pressable
+              onPress={() => {
+                if (showSearch && search.trim().length >= MIN_SEARCH_CHARS) void searchCity();
+                else void autoDetect();
+              }}
+              disabled={detecting || searching}
+              style={{ alignSelf: 'flex-start', opacity: detecting || searching ? 0.55 : 1 }}
+            >
+              <Text style={{ color: theme.tint, fontSize: 14, fontWeight: '600' }}>
+                {showSearch && search.trim().length >= MIN_SEARCH_CHARS ? 'Retry search' : 'Retry location'}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

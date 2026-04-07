@@ -1,0 +1,36 @@
+/**
+ * Narrow release-candidate diagnostics for native: Sentry breadcrumbs with stable
+ * category names so RC issues can be filtered without broad PII.
+ *
+ * Do not log raw emails, tokens, or deep-link query strings here.
+ */
+
+import * as Sentry from '@sentry/react-native';
+
+/** Stable category namespaces — match `apps/mobile/docs/native-release-validation.md`. */
+export const RC_CATEGORY = {
+  authBoot: 'rc.auth.boot',
+  authEntryState: 'rc.auth.entry_state',
+  authRedirectUrl: 'rc.auth.redirect_url',
+  notifDeepLink: 'rc.notif.deep_link',
+  onboardingFinalize: 'rc.onboarding.finalize',
+  readyGate: 'rc.ready_gate',
+  lobbyDateEntry: 'rc.lobby.date_entry',
+} as const;
+
+export function rcBreadcrumb(
+  category: string,
+  message: string,
+  data?: Record<string, string | number | boolean | null | undefined>,
+): void {
+  try {
+    Sentry.addBreadcrumb({
+      category,
+      message,
+      level: 'info',
+      data: data && Object.keys(data).length > 0 ? (data as Record<string, unknown>) : undefined,
+    });
+  } catch {
+    /* noop: diagnostic helper must never throw */
+  }
+}

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { useAuth } from '@/context/AuthContext';
@@ -38,11 +38,14 @@ import EmailCollectionStep from '@/components/onboarding/steps/EmailCollectionSt
 import VibeVideoStep from '@/components/onboarding/steps/VibeVideoStep';
 import CelebrationStep from '@/components/onboarding/steps/CelebrationStep';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import Colors from '@/constants/Colors';
+import { useColorScheme } from '@/components/useColorScheme';
 import {
   ONBOARDING_STEP_NAMES,
   TOTAL_STEPS_NO_EMAIL,
   TOTAL_STEPS_WITH_EMAIL,
 } from '@shared/onboardingTypes';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 export default function OnboardingV2Screen() {
   const params = useLocalSearchParams<{
@@ -53,6 +56,8 @@ export default function OnboardingV2Screen() {
   const { session, loading, entryState, entryStateLoading, refreshEntryState } = useAuth();
   const logout = useNativeLogout();
   const { show, dialog } = useVibelyDialog();
+  const colorScheme = useColorScheme();
+  const theme = Colors[colorScheme];
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -61,6 +66,8 @@ export default function OnboardingV2Screen() {
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [vibeScore, setVibeScore] = useState(0);
   const [vibeScoreLabel, setVibeScoreLabel] = useState('Rising');
+  /** Non-blocking: server draft save failed; local cache still updated. */
+  const [draftCloudSaveHint, setDraftCloudSaveHint] = useState<string | null>(null);
   const submitOnceRef = useRef(false);
   const startedAtRef = useRef<number>(Date.now());
   const currentStepRef = useRef(currentStep);
@@ -119,6 +126,11 @@ export default function OnboardingV2Screen() {
 
       // Then load authoritative server draft
       const result = await loadOnboardingDraft(supabase as any, userId);
+      if (result.error) {
+        setDraftCloudSaveHint(
+          'Could not load saved progress from the server. You can continue; we will keep saving locally and retry syncing.',
+        );
+      }
       if (result.draft) {
         const sd = result.draft;
         const serverData: OnboardingData = {
@@ -159,10 +171,15 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || !draftLoaded || completed) return;
 
     const timer = setTimeout(() => {
-      saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native')
-        .catch(() => {
+      void saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native').then((r) => {
+        if (r.success) setDraftCloudSaveHint(null);
+        else {
           console.warn('[onboarding] server draft save failed (non-fatal)');
-        });
+          setDraftCloudSaveHint(
+            'Could not sync progress to your account (tap to retry). Your answers stay on this device.',
+          );
+        }
+      });
     }, 500);
 
     return () => clearTimeout(timer);
@@ -203,6 +220,7 @@ export default function OnboardingV2Screen() {
     handledVideoTokenRef.current = token;
 
     updateField('vibeVideoRecorded', true);
+    // Hint for draft / analytics only; finalize reads profiles.bunny_video_uid when present.
     updateField('bunnyVideoUid', videoUid);
 
     const vibeStepIndex = needsEmailCollection ? 13 : 12;
@@ -217,6 +235,23 @@ export default function OnboardingV2Screen() {
       setCurrentStep((s) => s - 1);
     }
   }, [currentStep, submitting, stepNames]);
+
+  const retryCloudDraftSync = useCallback(async () => {
+    if (!session?.user?.id || !draftLoaded || completed) return;
+    const r = await saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native');
+    if (r.success) setDraftCloudSaveHint(null);
+    else {
+      setDraftCloudSaveHint(
+        'Still could not sync. Check your connection and tap to try again.',
+      );
+    }
+  }, [session?.user?.id, draftLoaded, completed, currentStep, data]);
+
+  const handleFinalizeErrorBack = useCallback(() => {
+    setCompletionError(null);
+    submitOnceRef.current = false;
+    setCurrentStep((s) => Math.max(0, s - 1));
+  }, []);
 
   const confirmLeaveOnboarding = useCallback(() => {
     show({
@@ -246,12 +281,33 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || submitOnceRef.current) return;
     submitOnceRef.current = true;
     setSubmitting(true);
+    rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_attempt', { step: currentStep });
 
     try {
+      setCompletionError(null);
+      // finalize_onboarding copies `bunnyVideoUid` from the payload onto profiles.bunny_video_uid.
+      // The authoritative uid is already on the profile after create-video-upload; drafts can lag or
+      // go empty and would otherwise clear the column. Align the payload with the profile snapshot.
+      let dataForFinalize = data;
+      if (data.vibeVideoRecorded) {
+        const { data: profileRow } = await supabase
+          .from('profiles')
+          .select('bunny_video_uid')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        const canonical =
+          typeof profileRow?.bunny_video_uid === 'string'
+            ? profileRow.bunny_video_uid.trim()
+            : '';
+        if (canonical) {
+          dataForFinalize = { ...data, bunnyVideoUid: canonical };
+        }
+      }
+
       const result = await executeOnboardingCompletion({
         supabase: supabase as any,
         userId: session.user.id,
-        data,
+        data: dataForFinalize,
         clearLocalDraft: async () => {
           await AsyncStorage.removeItem(ONBOARDING_STORAGE_KEY);
         },
@@ -262,17 +318,27 @@ export default function OnboardingV2Screen() {
       });
 
       if (!result.success) {
+        rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_failed', {
+          error_code: result.errorCode ?? null,
+          error_count: result.errors.length,
+        });
         submitOnceRef.current = false;
         setCompletionError(result.errors.join(', ') || "Couldn't save your profile. Check your connection and try again.");
         return;
       }
 
+      rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_success', {
+        already_completed: result.alreadyCompleted,
+      });
       setVibeScore(result.vibeScore);
       setVibeScoreLabel(result.vibeScoreLabel);
       setCompleted(true);
       setCompletionError(null);
       await refreshEntryState();
     } catch (error: any) {
+      rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_exception', {
+        message_snippet: String(error?.message ?? 'unknown').slice(0, 120),
+      });
       submitOnceRef.current = false;
       setCompletionError(
         String(error?.message || "Couldn't save your profile. Check your connection and try again.")
@@ -280,7 +346,20 @@ export default function OnboardingV2Screen() {
     } finally {
       setSubmitting(false);
     }
-  }, [session?.user?.id, session?.user?.phone, session?.user?.app_metadata?.provider, data, refreshEntryState]);
+  }, [
+    session?.user?.id,
+    session?.user?.phone,
+    session?.user?.app_metadata?.provider,
+    data,
+    refreshEntryState,
+    currentStep,
+  ]);
+
+  const retryFinalizeOnboarding = useCallback(() => {
+    rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_retry_tap', {});
+    submitOnceRef.current = false;
+    void completeOnboarding();
+  }, [completeOnboarding]);
 
   useEffect(() => {
     if (currentStep === totalSteps - 1) {
@@ -340,10 +419,34 @@ export default function OnboardingV2Screen() {
         if (needsEmailCollection) {
           return <VibeVideoStep onNext={goNext} />;
         }
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={retryFinalizeOnboarding}
+            onGoBackToEdit={handleFinalizeErrorBack}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
       case 14:
       default:
-        return <CelebrationStep submitting={submitting} completed={completed} errorMessage={completionError} onRetry={() => { submitOnceRef.current = false; void completeOnboarding(); }} vibeScore={vibeScore} vibeScoreLabel={vibeScoreLabel} onGoNow={() => router.replace('/(tabs)')} onExploreEvents={() => router.replace('/(tabs)/events')} />;
+        return (
+          <CelebrationStep
+            submitting={submitting}
+            completed={completed}
+            errorMessage={completionError}
+            onRetry={retryFinalizeOnboarding}
+            onGoBackToEdit={handleFinalizeErrorBack}
+            vibeScore={vibeScore}
+            vibeScoreLabel={vibeScoreLabel}
+            onGoNow={() => router.replace('/(tabs)')}
+            onExploreEvents={() => router.replace('/(tabs)/events')}
+          />
+        );
     }
   }, [
     currentStep,
@@ -360,14 +463,31 @@ export default function OnboardingV2Screen() {
     vibeScore,
     vibeScoreLabel,
     updateField,
+    retryFinalizeOnboarding,
+    handleFinalizeErrorBack,
   ]);
 
   const layoutOnBack =
     currentStep === 0
       ? confirmLeaveOnboarding
-      : currentStep > 0 && currentStep < totalSteps - 1
-        ? goBack
-        : undefined;
+      : currentStep === totalSteps - 1 && completionError && !completed && !submitting
+        ? handleFinalizeErrorBack
+        : currentStep > 0 && currentStep < totalSteps - 1
+          ? goBack
+          : undefined;
+
+  const topNotice =
+    draftCloudSaveHint && !completed ? (
+      <Pressable
+        onPress={() => void retryCloudDraftSync()}
+        style={[styles.syncBanner, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
+        accessibilityRole="button"
+        accessibilityLabel="Retry saving onboarding progress to your account"
+      >
+        <Text style={[styles.syncBannerText, { color: theme.textSecondary }]}>{draftCloudSaveHint}</Text>
+        <Text style={[styles.syncBannerAction, { color: theme.tint }]}>Retry</Text>
+      </Pressable>
+    ) : null;
 
   if (loading || entryStateLoading || !session?.user?.id || entryState?.state !== 'incomplete') {
     return (
@@ -384,6 +504,7 @@ export default function OnboardingV2Screen() {
         totalSteps={totalSteps}
         onBack={layoutOnBack}
         showProgress={currentStep !== totalSteps - 1}
+        topNotice={topNotice}
       >
         {content}
       </OnboardingLayout>
@@ -391,3 +512,17 @@ export default function OnboardingV2Screen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  syncBannerText: { flex: 1, fontSize: 12, lineHeight: 17 },
+  syncBannerAction: { fontSize: 12, fontWeight: '700' },
+});

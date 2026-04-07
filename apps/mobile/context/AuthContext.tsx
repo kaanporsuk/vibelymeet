@@ -13,6 +13,7 @@ import {
   getEntryStateOnboardingStatus,
   type EntryStateResponse,
 } from '@shared/entryState';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 type AuthState = {
   user: User | null;
@@ -54,6 +55,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const nextEntryState = await resolveCurrentEntryState();
       setEntryState(nextEntryState);
+      rcBreadcrumb(RC_CATEGORY.authEntryState, 'entry_state_resolved', {
+        state: nextEntryState.state,
+        reason_code: nextEntryState.reason_code ?? null,
+        evaluation_version: nextEntryState.evaluation_version ?? null,
+      });
       trackEvent('entry_state_resolved', {
         state: nextEntryState.state,
         reason_code: nextEntryState.reason_code,

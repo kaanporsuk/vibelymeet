@@ -45,6 +45,7 @@ import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 // ─── Sentry (matches web src/main.tsx)
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN ?? '';
@@ -226,6 +227,12 @@ function AuthRedirectHandler() {
       if (cancelled || !result.handled) return;
 
       lastHandledUrlRef.current = url;
+
+      rcBreadcrumb(RC_CATEGORY.authRedirectUrl, 'auth_return_url', {
+        recovery: result.recovery,
+        has_error: Boolean(result.error),
+        error_snippet: result.error ? String(result.error.message).slice(0, 120) : null,
+      });
 
       if (__DEV__ && result.error) {
         console.warn('[auth-link] session hydration failed:', result.error.message);

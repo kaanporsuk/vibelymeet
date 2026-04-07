@@ -17,6 +17,13 @@
 | `lib/vibeVideoPoll.ts` | Abortable post-upload polling with superseded detection |
 | `lib/vibeVideoDiagnostics.ts` | `vibeVideoDiagVerbose` (__DEV__), `vibeVideoDiagProdHint` (sparse prod signals) |
 
+### Score vs playback (backend contract)
+
+- **Vibe Score / incomplete-actions list:** treat the vibe-video task as satisfied when `bunny_video_uid` is non-empty (`calculate_vibe_score` awards on uid, not only `ready`).
+- **Playback and “live on profile” UX:** still driven by `resolveVibeVideoState()` — `canPlay` requires `bunny_video_status === 'ready'` (normalized) and a resolvable HLS hostname/URL.
+
+`bunny_video_uid` / `bunny_video_status` are **not** client-written; `create-video-upload`, webhooks, and `delete-vibe-video` own the snapshot.
+
 ## Hostname policy
 
 1. If `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` is set → all HLS/thumbnail URLs use it (aligned with web build).
