@@ -74,18 +74,29 @@ const Credits = () => {
 
   const handlePurchase = async (packId: string) => {
     if (!navigator.onLine) {
+      trackEvent("credit_purchase_failed", { pack_id: packId, reason: "offline" });
       toast.error("You're offline — purchases need a connection");
       return;
     }
-    trackEvent('credit_purchase_initiated', { pack_id: packId });
+    trackEvent("credit_purchase_initiated", { pack_id: packId });
     Sentry.addBreadcrumb({ category: "purchase", message: `Initiating checkout for ${packId}`, level: "info" });
     setLoadingPack(packId);
-    const { data, error } = await supabase.functions.invoke(
-      "create-credits-checkout",
-      { body: { packId } }
-    );
-    if (error || !data?.success) {
+    const { data, error } = await supabase.functions.invoke("create-credits-checkout", { body: { packId } });
+    if (error) {
+      trackEvent("credit_purchase_failed", { pack_id: packId, reason: "invoke_error" });
+      toast.error("Couldn't start checkout — try again");
+      setLoadingPack(null);
+      return;
+    }
+    if (!data?.success) {
+      trackEvent("credit_purchase_failed", { pack_id: packId, reason: "checkout_session_failed" });
       toast.error(data?.error || "Something went wrong");
+      setLoadingPack(null);
+      return;
+    }
+    if (!data.url) {
+      trackEvent("credit_purchase_failed", { pack_id: packId, reason: "missing_checkout_url" });
+      toast.error("Couldn't open payment — try again");
       setLoadingPack(null);
       return;
     }
@@ -101,7 +112,7 @@ const Credits = () => {
           </Button>
           <div>
             <h1 className="text-xl font-display font-bold text-foreground">Video Date Credits</h1>
-            <p className="text-xs text-muted-foreground">Extend great conversations on video dates</p>
+            <p className="text-xs text-muted-foreground">Add time during live video dates</p>
           </div>
         </div>
       </header>
@@ -123,6 +134,29 @@ const Credits = () => {
               Extended Vibe {credits.extendedVibe}
             </p>
           )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-card p-4 space-y-3 text-left border border-border/60"
+        >
+          <p className="text-xs font-semibold text-foreground uppercase tracking-wide">How credits work</p>
+          <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-4 leading-relaxed">
+            <li>
+              <span className="font-medium text-foreground">Extra Time</span> — one credit adds{" "}
+              <span className="text-foreground font-medium">+2 minutes</span> to the clock during a live video date
+              (use when you want a short extension).
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Extended Vibe</span> — one credit adds{" "}
+              <span className="text-foreground font-medium">+5 minutes</span> for a longer stretch on the same date.
+            </li>
+          </ul>
+          <p className="text-xs text-muted-foreground pt-2 border-t border-border/40 leading-relaxed">
+            Credits are used only when you choose +2 min or +5 min during a live date — nothing is spent automatically.
+          </p>
         </motion.div>
 
         {/* Credit packs */}

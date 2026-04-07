@@ -27,7 +27,8 @@ export default function CreditsSuccessScreen() {
         </View>
         <Text style={[styles.title, { color: theme.text }]}>Credits Added!</Text>
         <Text style={[styles.body, { color: theme.mutedForeground }]}>
-          Your credits are ready to use. Extend video dates, send super vibes, and more.
+          Your credits are ready. During a live video date, use +2 min (Extra Time) or +5 min (Extended Vibe) when you need
+          more time.
         </Text>
         <VibelyButton
           label="Got it"

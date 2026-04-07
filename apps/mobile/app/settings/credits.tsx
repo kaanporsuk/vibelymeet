@@ -80,6 +80,7 @@ export default function CreditsSettingsScreen() {
       await Linking.openURL(url);
       qc.invalidateQueries({ queryKey: ['user_credits'] });
     } catch (e) {
+      trackEvent('credit_purchase_failed', { pack_id: packId, reason: 'checkout_url_error' });
       showDialog({
         title: 'Checkout didn’t start',
         message: e instanceof Error ? e.message : 'Something blocked checkout. Try again.',
@@ -130,7 +131,8 @@ export default function CreditsSettingsScreen() {
               </Text>
             )}
             <Text style={[styles.body, { color: theme.textSecondary, marginTop: spacing.lg }]}>
-              Use Extra Time to add minutes in a date; Extended Vibe to extend the vibe round. Payment is processed on web (Stripe).
+              Extra Time adds +2 minutes per credit; Extended Vibe adds +5 minutes per credit — only when you tap extend
+              during a live video date. Payment runs in your browser (Stripe).
             </Text>
             {PACKS.map((pack) => {
               const rowInner = (
