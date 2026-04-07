@@ -74,7 +74,14 @@ export default function BirthdayStep({
   }, [value]);
 
   const commitDate = (d: number, m: number, y: number) => {
-    if (!d || !m || !y) return;
+    if (!d || !m || !y) {
+      /* Match web: if parent still holds a full ISO, clear it when local selection is incomplete. */
+      if (value) {
+        lastEmittedRef.current = '';
+        onChange('');
+      }
+      return;
+    }
     const maxDay = daysInMonth(y, m);
     const safeDay = Math.min(d, maxDay);
     const iso = formatIsoDate({ year: y, month: m, day: safeDay });

@@ -329,7 +329,7 @@ Deno.serve(async (req) => {
             ? 'annual' 
             : 'monthly')
 
-        await supabase.from('subscriptions').upsert({
+        const { error: subLifecycleUpsertErr } = await supabase.from('subscriptions').upsert({
           user_id: userId,
           provider: 'stripe',
           stripe_customer_id: subscription.customer as string,
@@ -340,26 +340,47 @@ Deno.serve(async (req) => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,provider' })
 
+        if (subLifecycleUpsertErr) {
+          console.error('subscriptions upsert (customer.subscription.updated):', subLifecycleUpsertErr)
+          requestStripeRetry = true
+          break
+        }
+
         if (subscription.status === 'active' || subscription.status === 'trialing') {
           const price = subscription.items.data[0]?.price as { lookup_key?: string | null } | undefined
           const tierPlanHint = (subscription.metadata?.plan || price?.lookup_key || 'premium') as string
           const tier = tierPlanHint.toLowerCase().includes('vip') ? 'vip' : 'premium'
-          await supabase
+          const { error: activeTierErr } = await supabase
             .from('profiles')
             .update({ subscription_tier: tier })
             .eq('id', userId)
+          if (activeTierErr) {
+            console.error('profiles subscription_tier update (customer.subscription.updated, active):', activeTierErr)
+            requestStripeRetry = true
+            break
+          }
         } else {
-          const { data: profileRow } = await supabase
+          const { data: profileRow, error: profileReadErr } = await supabase
             .from('profiles')
             .select('premium_until')
             .eq('id', userId)
             .maybeSingle()
+          if (profileReadErr) {
+            console.error('profiles select premium_until (customer.subscription.updated):', profileReadErr)
+            requestStripeRetry = true
+            break
+          }
           const adminActive = profileRow?.premium_until &&
             new Date(profileRow.premium_until) > new Date()
-          await supabase
+          const { error: inactiveTierErr } = await supabase
             .from('profiles')
             .update({ subscription_tier: adminActive ? 'premium' : 'free' })
             .eq('id', userId)
+          if (inactiveTierErr) {
+            console.error('profiles subscription_tier update (customer.subscription.updated, inactive):', inactiveTierErr)
+            requestStripeRetry = true
+            break
+          }
         }
 
         break
@@ -371,7 +392,7 @@ Deno.serve(async (req) => {
 
         if (!userId) break
 
-        await supabase.from('subscriptions')
+        const { error: subCanceledErr } = await supabase.from('subscriptions')
           .update({
             status: 'canceled',
             updated_at: new Date().toISOString(),
@@ -379,16 +400,32 @@ Deno.serve(async (req) => {
           .eq('user_id', userId)
           .eq('provider', 'stripe')
 
-        const { data: profile } = await supabase
+        if (subCanceledErr) {
+          console.error('subscriptions update canceled (customer.subscription.deleted):', subCanceledErr)
+          requestStripeRetry = true
+          break
+        }
+
+        const { data: profile, error: profileReadErr } = await supabase
           .from('profiles')
           .select('premium_until')
           .eq('id', userId)
           .maybeSingle()
+        if (profileReadErr) {
+          console.error('profiles select premium_until (customer.subscription.deleted):', profileReadErr)
+          requestStripeRetry = true
+          break
+        }
         const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
-        await supabase
+        const { error: deletedTierErr } = await supabase
           .from('profiles')
           .update({ subscription_tier: adminActive ? 'premium' : 'free' })
           .eq('id', userId)
+        if (deletedTierErr) {
+          console.error('profiles subscription_tier update (customer.subscription.deleted):', deletedTierErr)
+          requestStripeRetry = true
+          break
+        }
 
         break
       }
@@ -404,13 +441,19 @@ Deno.serve(async (req) => {
 
         if (!userId) break
 
-        await supabase.from('subscriptions')
+        const { error: pastDueErr } = await supabase.from('subscriptions')
           .update({
             status: 'past_due',
             updated_at: new Date().toISOString(),
           })
           .eq('user_id', userId)
           .eq('provider', 'stripe')
+
+        if (pastDueErr) {
+          console.error('subscriptions update past_due (invoice.payment_failed):', pastDueErr)
+          requestStripeRetry = true
+          break
+        }
 
         break
       }

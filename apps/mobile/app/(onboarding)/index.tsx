@@ -141,24 +141,20 @@ export default function OnboardingV2Screen() {
         };
         applyDraft(sd.current_step, serverData);
       }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('photos')
+        .eq('id', userId)
+        .maybeSingle();
+      const existingPhotos = (profile?.photos as string[] | null) ?? [];
+      if (existingPhotos.length > 0) {
+        setData((prev) => (prev.photos.length > 0 ? prev : { ...prev, photos: existingPhotos }));
+      }
       setDraftLoaded(true);
     };
     void load();
   }, [session?.user?.id, draftLoaded]);
-
-  // Load existing photos from partial profile
-  useEffect(() => {
-    if (!session?.user?.id) return;
-    const loadExistingPhotos = async () => {
-      if (data.photos.length > 0) return;
-      const { data: profile } = await supabase.from('profiles').select('photos').eq('id', session.user.id).maybeSingle();
-      const existingPhotos = (profile?.photos as string[] | null) ?? [];
-      if (existingPhotos.length > 0) {
-        updateField('photos', existingPhotos);
-      }
-    };
-    void loadExistingPhotos();
-  }, [session?.user?.id, data.photos.length, updateField]);
 
   // Write local cache on every change (non-authoritative)
   useEffect(() => {
