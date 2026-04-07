@@ -80,6 +80,8 @@ import {
 } from "@/services/profileService";
 import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
+import { buildInviteLandingUrl } from "@/lib/inviteLinks";
+import { trackEvent } from "@/lib/analytics";
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -759,12 +761,18 @@ const ProfileStudio = () => {
   };
 
   const handleInviteFriends = async () => {
-    const link = `https://vibelymeet.com/invite?ref=${profile.id}`;
+    const link = buildInviteLandingUrl(profile.id);
     try {
       await navigator.share({ title: "Join me on Vibely!", text: "I'm using Vibely for video dates — come find your vibe! 💜", url: link });
+      trackEvent("invite_link_shared", { surface: "profile_studio", channel: "system_share" });
     } catch {
-      await navigator.clipboard.writeText(link);
-      toast.success("Invite link copied!");
+      try {
+        await navigator.clipboard.writeText(link);
+        trackEvent("invite_link_copied", { surface: "profile_studio", channel: "clipboard" });
+        toast.success("Invite link copied!");
+      } catch {
+        toast.error("Could not copy link. Try again.");
+      }
     }
   };
 

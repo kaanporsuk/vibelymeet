@@ -2122,7 +2122,11 @@ export default function ProfileStudio() {
 
       {/* ═══ Modals & Sheets ═══ */}
 
-      <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
+      <InviteFriendsSheet
+        visible={showInviteSheet}
+        onClose={() => setShowInviteSheet(false)}
+        analyticsSurface="profile_studio"
+      />
 
       {vibeScoreProfile ? (
         <VibeScoreDrawer

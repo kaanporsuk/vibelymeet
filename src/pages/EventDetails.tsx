@@ -41,6 +41,7 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import { trackEvent } from "@/lib/analytics";
 import { PremiumUpsellDialog } from "@/components/premium/PremiumUpsellDialog";
 import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
+import { buildEventShareUrl } from "@/lib/inviteLinks";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -340,15 +341,23 @@ const EventDetails = () => {
   };
 
   const handleShare = async () => {
+    if (!event || !id) return;
+    const url = buildEventShareUrl(id, user?.id);
     try {
       await navigator.share({
         title: event.title,
         text: `Join me at ${event.title} on Vibely!`,
-        url: window.location.href,
+        url,
       });
+      trackEvent("invite_link_shared", { surface: "event_details", channel: "system_share" });
     } catch {
-      navigator.clipboard.writeText(window.location.href);
-      toast.success("Link copied to clipboard!");
+      try {
+        await navigator.clipboard.writeText(url);
+        trackEvent("invite_link_copied", { surface: "event_details", channel: "clipboard" });
+        toast.success("Link copied to clipboard!");
+      } catch {
+        toast.error("Could not copy link. Try again.");
+      }
     }
   };
 
@@ -683,6 +692,8 @@ const EventDetails = () => {
           setShowManageBooking(false);
           setShowCancelModal(true);
         }}
+        eventId={event.id}
+        referrerUserId={user?.id}
         eventTitle={event.title}
         eventDate={formatDate(event.eventDate)}
         eventTime={event.time}

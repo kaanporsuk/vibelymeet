@@ -1027,6 +1027,7 @@ export default function EventDetailScreen() {
       <InviteFriendsSheet
         visible={showInviteSheet}
         onClose={() => setShowInviteSheet(false)}
+        analyticsSurface="event_detail"
         event={{
           id: event.id,
           title: event.title,

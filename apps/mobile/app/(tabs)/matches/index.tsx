@@ -539,7 +539,11 @@ export default function MatchesListScreen() {
             </VibelyText>
           </Pressable>
         </ScrollView>
-        <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
+        <InviteFriendsSheet
+          visible={showInviteSheet}
+          onClose={() => setShowInviteSheet(false)}
+          analyticsSurface="matches"
+        />
       </ScreenContainer>
     );
   }
@@ -952,7 +956,11 @@ export default function MatchesListScreen() {
         }}
       />
 
-      <InviteFriendsSheet visible={showInviteSheet} onClose={() => setShowInviteSheet(false)} />
+      <InviteFriendsSheet
+        visible={showInviteSheet}
+        onClose={() => setShowInviteSheet(false)}
+        analyticsSurface="matches"
+      />
       <KeyboardAwareBottomSheetModal
         visible={showSortSheet}
         onRequestClose={() => setShowSortSheet(false)}

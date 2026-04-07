@@ -14,6 +14,7 @@ import {
   Trash2,
   FileText,
   Compass,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/navigation/BottomNav";
@@ -48,9 +49,14 @@ import {
   getSettingsPlanLabel,
   showSettingsMemberElevated,
 } from "@shared/settingsMembershipDisplay";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { buildInviteLandingUrl } from "@/lib/inviteLinks";
+import { trackEvent } from "@/lib/analytics";
+import { toast } from "sonner";
 
 const Settings = () => {
   const navigate = useNavigate();
+  const { user } = useUserProfile();
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
   const { credits } = useCredits();
@@ -89,6 +95,26 @@ const Settings = () => {
 
   const handleDeleteAccount = async (reason: string | null) => {
     await deleteAccount(reason);
+  };
+
+  const handleInviteFriends = async () => {
+    const link = buildInviteLandingUrl(user?.id ?? null);
+    try {
+      await navigator.share({
+        title: "Join me on Vibely!",
+        text: "I'm using Vibely for video dates — come find your vibe! 💜",
+        url: link,
+      });
+      trackEvent("invite_link_shared", { surface: "settings", channel: "system_share" });
+    } catch {
+      try {
+        await navigator.clipboard.writeText(link);
+        trackEvent("invite_link_copied", { surface: "settings", channel: "clipboard" });
+        toast.success("Invite link copied!");
+      } catch {
+        toast.error("Could not copy link. Try again.");
+      }
+    }
   };
 
   return (
@@ -140,6 +166,31 @@ const Settings = () => {
                         }`
                       : planLabel}
                 </p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          </button>
+        </motion.div>
+
+        {/* Invite friends */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          className="glass-card p-4"
+        >
+          <button
+            type="button"
+            onClick={() => void handleInviteFriends()}
+            className="w-full flex items-center justify-between group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/25 to-pink-500/25 flex items-center justify-center">
+                <UserPlus className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display font-semibold text-foreground">Invite friends</h3>
+                <p className="text-xs text-muted-foreground">Share your link so friends can join you on Vibely</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors" />
