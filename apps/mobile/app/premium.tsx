@@ -342,7 +342,7 @@ export default function PremiumScreen() {
                         <Text style={[styles.packageBillingHint, { color: theme.textSecondary }]}>{billingHint}</Text>
                       ) : null}
                       <VibelyButton
-                        label={purchaseLoading ? '…' : isAnnual ? 'Get Premium — Annual' : 'Get Premium — Monthly'}
+                        label={purchaseLoading ? '…' : `Get Premium — ${label}`}
                         onPress={() => handlePurchase(pkg)}
                         loading={purchaseLoading}
                         disabled={purchaseLoading}
