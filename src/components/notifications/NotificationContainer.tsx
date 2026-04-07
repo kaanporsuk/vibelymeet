@@ -3,6 +3,7 @@ import { useNotifications, Notification } from '@/contexts/NotificationContext';
 import MatchNotificationCard from './MatchNotificationCard';
 import MessageNotificationCard from './MessageNotificationCard';
 import EventNotificationCard from './EventNotificationCard';
+import DateProposalNotificationCard from './DateProposalNotificationCard';
 import { useNavigate } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -48,6 +49,16 @@ const NotificationContainer = () => {
             key={notification.id}
             notification={notification}
             onDismiss={() => dismissNotification(notification.id)}
+            index={index}
+          />
+        );
+      case 'date_proposal':
+        return (
+          <DateProposalNotificationCard
+            key={notification.id}
+            notification={notification}
+            onDismiss={() => dismissNotification(notification.id)}
+            onTap={() => navigate('/chat')}
             index={index}
           />
         );

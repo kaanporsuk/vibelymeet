@@ -29,6 +29,7 @@ import { PURCHASES_ERROR_CODE } from 'react-native-purchases';
 import type { PurchasesOfferings, PurchasesPackage } from 'react-native-purchases';
 import { format } from 'date-fns';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { trackEvent } from '@/lib/analytics';
 
 export default function PremiumScreen() {
   const insets = useSafeAreaInsets();
@@ -46,6 +47,7 @@ export default function PremiumScreen() {
 
   useEffect(() => {
     initRevenueCat();
+    trackEvent('premium_page_viewed');
   }, []);
 
   useEffect(() => {
@@ -75,14 +77,18 @@ export default function PremiumScreen() {
   }, [user?.id]);
 
   const handlePurchase = async (pkg: PurchasesPackage) => {
+    const planLabel = pkg.packageType === 'ANNUAL' ? 'annual' : pkg.packageType === 'MONTHLY' ? 'monthly' : pkg.packageType;
+    trackEvent('purchase_initiated', { plan: planLabel, product_id: pkg.product.identifier });
     setPurchaseLoading(true);
     setError(null);
     try {
       const result = await purchasePackage(pkg);
       if (result.success) {
+        trackEvent('purchase_completed', { plan: planLabel, product_id: pkg.product.identifier });
         await refetch();
         router.push('/subscription-success' as import('expo-router').Href);
       } else if (result.error && !result.error.includes('cancelled') && !result.error.includes('Cancel')) {
+        trackEvent('purchase_failed', { plan: planLabel, product_id: pkg.product.identifier, error: result.error });
         setError(result.error);
       }
     } finally {

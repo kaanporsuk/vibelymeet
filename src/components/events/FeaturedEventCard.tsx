@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { trackEvent } from "@/lib/analytics";
 import { motion } from "framer-motion";
 import { Clock, Sparkles, Users, ArrowRight, CalendarCheck, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ export const FeaturedEventCard = ({
   // Primary action button handler
   const handlePrimaryAction = (e: React.MouseEvent) => {
     e.stopPropagation();
+    trackEvent('event_card_tapped', { event_id: id, title, surface: 'featured' });
     navigate(`/events/${id}`);
   };
 
@@ -94,7 +96,7 @@ export const FeaturedEventCard = ({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      onClick={() => navigate(`/events/${id}`)}
+      onClick={() => { trackEvent('event_card_tapped', { event_id: id, title, surface: 'featured' }); navigate(`/events/${id}`); }}
       className="relative w-full h-[420px] md:h-[480px] rounded-3xl overflow-hidden cursor-pointer"
     >
       {/* Background Image */}

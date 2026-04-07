@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Ticket, ArrowRight, CalendarCheck } from "lucide-react";
@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import confetti from "canvas-confetti";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { trackEvent } from "@/lib/analytics";
 
 const EventPaymentSuccess = () => {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ const EventPaymentSuccess = () => {
   const [admissionStatus, setAdmissionStatus] = useState<"confirmed" | "waitlisted" | "unknown">(
     "unknown"
   );
+  const analyticsTrackedRef = useRef(false);
 
   useEffect(() => {
     if (!eventId) return;
@@ -79,6 +81,17 @@ const EventPaymentSuccess = () => {
       if (intervalId) clearInterval(intervalId);
     };
   }, [eventId, user?.id]);
+
+  useEffect(() => {
+    if (!eventId || admissionStatus === "unknown") return;
+    if (analyticsTrackedRef.current) return;
+    analyticsTrackedRef.current = true;
+    if (admissionStatus === "confirmed") {
+      trackEvent("event_registered", { event_id: eventId, source: "stripe" });
+    } else if (admissionStatus === "waitlisted") {
+      trackEvent("event_waitlisted", { event_id: eventId, source: "stripe" });
+    }
+  }, [eventId, admissionStatus]);
 
   useEffect(() => {
     if (!eventId || eventRowStatus === null) return;

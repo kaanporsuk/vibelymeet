@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Crown, Loader2, ArrowLeft, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSubscription } from '@/hooks/useSubscription';
 import { format } from 'date-fns';
+import { trackEvent } from '@/lib/analytics';
 
 const features = [
   'See who vibed you',
@@ -18,7 +19,17 @@ const Premium = () => {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'annual'>('annual');
   const [checkoutLoading, setCheckoutLoading] = useState(false);
 
+  useEffect(() => {
+    trackEvent('premium_page_viewed');
+  }, []);
+
+  const handlePlanToggle = (plan: 'monthly' | 'annual') => {
+    setSelectedPlan(plan);
+    trackEvent('premium_plan_toggled', { plan });
+  };
+
   const handleCheckout = async () => {
+    trackEvent('checkout_started', { plan: selectedPlan });
     setCheckoutLoading(true);
     const result = await startCheckout(selectedPlan);
     if (!result.success) {
@@ -102,7 +113,7 @@ const Premium = () => {
             <div className="flex justify-center">
               <div className="inline-flex items-center bg-muted rounded-full p-1 gap-1">
                 <button
-                  onClick={() => setSelectedPlan('monthly')}
+                  onClick={() => handlePlanToggle('monthly')}
                   className={`px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
                     selectedPlan === 'monthly'
                       ? 'bg-card text-foreground shadow-lg'
@@ -112,7 +123,7 @@ const Premium = () => {
                   Monthly
                 </button>
                 <button
-                  onClick={() => setSelectedPlan('annual')}
+                  onClick={() => handlePlanToggle('annual')}
                   className={`relative px-6 py-2.5 rounded-full text-sm font-medium transition-all duration-300 ${
                     selectedPlan === 'annual'
                       ? 'bg-card text-foreground shadow-lg'

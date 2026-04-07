@@ -771,6 +771,15 @@ export default function VideoDateScreen() {
     else router.replace('/(tabs)/matches');
   }, [eventId]);
 
+  /** "Start Chatting" from celebration — go directly to the match chat when we have the id. */
+  const handleSurveyStartChatting = useCallback((matchId?: string) => {
+    if (matchId) {
+      router.replace(`/chat/${matchId}` as const);
+    } else {
+      handleSurveyMutualMatch();
+    }
+  }, [handleSurveyMutualMatch]);
+
   const handleSurveyDone = useCallback(() => {
     if (eventId && user?.id) updateParticipantStatus(eventId, 'browsing');
     if (eventId) router.replace(`/event/${eventId}/lobby`);
@@ -808,6 +817,7 @@ export default function VideoDateScreen() {
         eventId={eventId || undefined}
         onSubmitVerdict={handleSurveySubmit}
         onMutualMatch={handleSurveyMutualMatch}
+        onStartChatting={handleSurveyStartChatting}
         onDone={handleSurveyDone}
       />
     );
