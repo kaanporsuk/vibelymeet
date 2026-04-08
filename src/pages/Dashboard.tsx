@@ -26,8 +26,8 @@ import { ActiveCallBanner } from "@/components/events/ActiveCallBanner";
 import { useNextRegisteredEvent, useRealtimeEvents } from "@/hooks/useEvents";
 import { useVisibleEvents, useOtherCityEvents } from "@/hooks/useVisibleEvents";
 import { useDashboardMatches } from "@/hooks/useMatches";
-import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
+import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -153,8 +153,8 @@ const Dashboard = () => {
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: visibleEventsRaw = [], isLoading: eventsLoading, refetch: refetchEvents } = useVisibleEvents();
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
-  const { proposals } = useSchedule();
-  const { nextReminder, imminentReminders } = useDateReminders(proposals);
+  const { reminderSources } = useScheduleHub();
+  const { nextReminder, imminentReminders } = useDateReminders(reminderSources);
   const { isGranted, isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
     usePushNotifications();
 
@@ -307,12 +307,10 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    if (isBrowserPermissionGranted && proposals.length > 0) {
-      proposals
-        .filter((p) => p.status === "accepted")
-        .forEach((p) => scheduleDateReminder(p.senderName || "Your match", p.date, 15));
+    if (isBrowserPermissionGranted && reminderSources.length > 0) {
+      reminderSources.forEach((reminder) => scheduleDateReminder(reminder.senderName || "Your match", reminder.date, 15));
     }
-  }, [isBrowserPermissionGranted, proposals, scheduleDateReminder]);
+  }, [isBrowserPermissionGranted, reminderSources, scheduleDateReminder]);
 
   useEffect(() => {
     if (!nextEvent?.eventDate || isLiveEvent) return;

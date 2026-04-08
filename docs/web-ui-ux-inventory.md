@@ -438,7 +438,7 @@ Redirect/landing; content depends on auth state. Typically redirects to `/auth`,
 - **HowItWorks:** `/how-it-works` — marketing.
 - **UserProfile:** `/user/:userId` — public profile view.
 - **VibeStudio:** `/vibe-studio` — dedicated Vibe Video studio page; recording/editing still reuse `VibeStudioModal`, but management now lives on the route itself.
-- **Schedule:** `/schedule` — date proposals/schedule.
+- **Schedule:** `/schedule` — first-class planning hub for availability, pending plans, upcoming plans, and history.
 - **SubscriptionSuccess / SubscriptionCancel:** post-payment.
 - **EventPaymentSuccess, CreditsSuccess:** success screens.
 - **PrivacyPolicy, TermsOfService, DeleteAccountWeb, CommunityGuidelines:** legal under `/privacy`, `/terms`, `/delete-account`, `/community-guidelines`.

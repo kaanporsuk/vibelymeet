@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Bell } from "lucide-react";
+import { ArrowLeft, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VibeSchedule } from "@/components/schedule/VibeSchedule";
 import { MyDatesSection } from "@/components/schedule/MyDatesSection";
@@ -10,24 +10,31 @@ import { NotificationPermissionFlow, NotificationPermissionButton } from "@/comp
 import { BottomNav } from "@/components/BottomNav";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
+import { useScheduleHub } from "@/hooks/useScheduleHub";
+import { dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { useNotifications } from "@/contexts/NotificationContext";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { supabase } from "@/integrations/supabase/client";
+import type { ScheduleHubItem } from "../../shared/schedule/planningHub";
 
 const SchedulePage = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
-  const { proposals, respondToProposal, getTimeBlockInfo, mySchedule, toggleSlot } = useSchedule();
-  const { addNotification } = useNotifications();
-  const { reminders, imminentReminders, soonReminders } = useDateReminders(proposals);
+  const { mySchedule } = useSchedule();
+  const {
+    pendingItems,
+    upcomingItems,
+    historyItems,
+    reminderSources,
+    isLoading: plansLoading,
+    refetch: refetchScheduleHub,
+  } = useScheduleHub();
+  const { imminentReminders, soonReminders } = useDateReminders(reminderSources);
   const { isGranted, refreshSubscriptionState } = usePushNotifications();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [activeDateSessionId, setActiveDateSessionId] = useState<string | null>(null);
-  const [, forceUpdate] = useState({});
 
   useEffect(() => {
     const checkActiveDateSession = async () => {
@@ -72,53 +79,41 @@ const SchedulePage = () => {
     return ok;
   }, [user?.id, refreshSubscriptionState]);
 
-  const handleAcceptProposal = (proposalId: string) => {
-    const proposal = proposals.find(p => p.id === proposalId);
-    respondToProposal(proposalId, true);
-    
-    // Add the accepted date to the schedule
-    if (proposal) {
-      toggleSlot(proposal.date, proposal.block);
+  const handleAcceptProposal = useCallback(async (item: ScheduleHubItem) => {
+    try {
+      await dateSuggestionApply("accept", { suggestion_id: item.suggestionId });
+      toast.success("Plan confirmed.");
+      await refetchScheduleHub();
+    } catch {
+      toast.error("Could not accept this plan.");
     }
-    
-    // Force re-render to update VibeSchedule
-    forceUpdate({});
-    
-    toast.success("Date accepted and added to your schedule!");
-    
-    // Send notification to proposer (mock)
-    if (proposal?.senderName) {
-      addNotification({
-        type: "date_proposal",
-        proposalId,
-        matchName: proposal.senderName,
-        matchAvatar: proposal.senderAvatar || "",
-        action: "accepted",
-        dateInfo: `${format(proposal.date, "MMM d")} • ${getTimeBlockInfo(proposal.block).label}`,
-        mode: proposal.mode,
-      });
-    }
-  };
+  }, [refetchScheduleHub]);
 
-  const handleDeclineProposal = (proposalId: string) => {
-    const proposal = proposals.find(p => p.id === proposalId);
-    respondToProposal(proposalId, false);
-    toast.info("Date declined");
-    
-    if (proposal?.senderName) {
-      addNotification({
-        type: "date_proposal",
-        proposalId,
-        matchName: proposal.senderName,
-        matchAvatar: proposal.senderAvatar || "",
-        action: "declined",
-        dateInfo: `${format(proposal.date, "MMM d")} • ${getTimeBlockInfo(proposal.block).label}`,
-        mode: proposal.mode,
-      });
+  const handleDeclineProposal = useCallback(async (item: ScheduleHubItem) => {
+    try {
+      await dateSuggestionApply("decline", { suggestion_id: item.suggestionId });
+      toast.info("Plan declined.");
+      await refetchScheduleHub();
+    } catch {
+      toast.error("Could not decline this plan.");
     }
-  };
+  }, [refetchScheduleHub]);
+
+  const handleCancelProposal = useCallback(async (item: ScheduleHubItem) => {
+    try {
+      await dateSuggestionApply("cancel", { suggestion_id: item.suggestionId });
+      toast.success("Proposal cancelled.");
+      await refetchScheduleHub();
+    } catch {
+      toast.error("Could not cancel this proposal.");
+    }
+  }, [refetchScheduleHub]);
 
   const upcomingReminders = [...imminentReminders, ...soonReminders];
+  const availabilityCount = useMemo(
+    () => Object.values(mySchedule).filter((slot) => slot.status === "open").length,
+    [mySchedule],
+  );
 
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col pb-[100px]">
@@ -156,6 +151,28 @@ const SchedulePage = () => {
         animate={{ opacity: 1 }}
         className="flex-1 overflow-y-auto"
       >
+        <div className="p-4 pb-0">
+          <div className="rounded-2xl border border-border/60 bg-card/70 p-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <Calendar className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">Availability</p>
+                {availabilityCount > 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    You have {availabilityCount} open {availabilityCount === 1 ? "slot" : "slots"} ready for date planning.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No availability set yet. Mark a few open blocks below so matches can build real plans from your schedule.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Upcoming Date Reminders */}
         {upcomingReminders.length > 0 && (
           <div className="p-4 space-y-3 bg-gradient-to-b from-primary/5 to-transparent">
@@ -171,7 +188,11 @@ const SchedulePage = () => {
                     navigate(`/date/${activeDateSessionId}`);
                     return;
                   }
-                  navigate('/schedule');
+                  if (reminder.partnerUserId) {
+                    navigate(`/chat/${reminder.partnerUserId}`);
+                    return;
+                  }
+                  navigate("/schedule");
                 }}
                 onEnableNotifications={() => setShowNotificationFlow(true)}
                 notificationsEnabled={isGranted}
@@ -180,14 +201,19 @@ const SchedulePage = () => {
           </div>
         )}
 
-        <VibeSchedule key={Object.keys(mySchedule).length} />
+        <VibeSchedule />
         
         {/* My Dates Section */}
         <div className="pb-4">
           <MyDatesSection
-            proposals={proposals}
-            onAccept={handleAcceptProposal}
-            onDecline={handleDeclineProposal}
+            pendingItems={pendingItems}
+            upcomingItems={upcomingItems}
+            historyItems={historyItems}
+            isLoading={plansLoading}
+            onAccept={(item) => void handleAcceptProposal(item)}
+            onDecline={(item) => void handleDeclineProposal(item)}
+            onCancel={(item) => void handleCancelProposal(item)}
+            onOpenChat={(item) => navigate(`/chat/${item.partnerUserId}`)}
           />
         </div>
       </motion.main>

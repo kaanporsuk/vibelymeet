@@ -23,13 +23,13 @@
 
 | Area | Location | What exists today |
 |------|----------|-------------------|
-| **DB** | `public.date_proposals` (`supabase/migrations/20251228022019_184acae1-ce11-4e1a-be8e-6a031d1d887b.sql`) | `proposer_id`, `recipient_id`, `match_id`, `proposed_date` (timestamptz), `time_block`, `activity`, `status` ∈ `pending` \| `accepted` \| `declined`, `responded_at`. RLS: both can read; proposer insert; **recipient-only update**. |
-| **Native API** | `apps/mobile/lib/dateProposalsApi.ts` | CRUD-shaped hooks; recipient responds. |
-| **Native chat** | `apps/mobile/app/chat/[id].tsx` | “Suggest a Date” → `DateSuggestionSheet` → insert `date_proposals` + **plain-text** chat line: `` `📅 Suggested ${date} (${timeLabel}): ${activity}` ``. Banners for pending **incoming** proposals above the list. |
-| **Web schedule** | `src/hooks/useSchedule.ts` | **`proposals` are React state only** (`sendProposal` / `respondToProposal`) — **not** persisted to `date_proposals`. |
+| **Legacy DB** | `public.date_proposals` (`supabase/migrations/20251228022019_184acae1-ce11-4e1a-be8e-6a031d1d887b.sql`) | Historical contract with `proposer_id`, `recipient_id`, `match_id`, `proposed_date`, `time_block`, `activity`, `status`. Still present for cleanup / legacy paths, but no longer the canonical schedule hub source. |
+| **Active chat + planning DB** | `public.date_suggestions`, `public.date_suggestion_revisions`, `public.date_plans` | Server-owned revisioned suggestion flow with accept / decline / counter / cancel and accepted-plan rows. |
+| **Native chat** | `apps/mobile/app/chat/[id].tsx` | Uses `DateSuggestionSheet` + `DateSuggestionChatCard` backed by `date_suggestions` / `date_plans`. |
+| **Web schedule + native schedule** | `src/hooks/useScheduleHub.ts`, `apps/mobile/lib/useScheduleHub.ts` | Both Schedule hubs now read backend-backed plan buckets from `date_suggestions` / `date_plans` while keeping availability in `user_schedules`. |
 | **Cleanup** | `src/hooks/useUnmatch.ts`, `apps/mobile/lib/useUnmatch.ts` | Deletes `date_proposals` for match. |
 
-**Gap:** Web and native are **not aligned** on persistence; statuses are a **subset** of the locked product list; no revision/counter model; chat uses **string encoding** (explicitly disallowed for the new feature).
+**Gap:** The repo still carries legacy `date_proposals` cleanup / helper code, but active chat and schedule surfaces are now aligned on the server-owned `date_suggestions` contract. Full legacy cleanup is deferred.
 
 ### 1.3 “Vibely Calendar” / My Dates (today)
 
@@ -37,11 +37,11 @@ There is **no** dedicated `calendar_events` or `vibely_calendar` table in migrat
 
 | Concept | Implementation today |
 |---------|------------------------|
-| **Web “My Dates”** | Driven by **local** `proposals` in `useSchedule` + `MyDatesSection` / `DateReminderCard` (`src/components/schedule/`). |
-| **Native reminders** | `useScheduleProposals` + `partitionScheduleProposals` (`apps/mobile/lib/useScheduleProposals.ts`); `useDateReminders` (`apps/mobile/lib/useDateReminders.ts`) computes countdowns from **accepted** `date_proposals`. |
+| **Web “My Dates” / native “My Plans”** | Both Schedule hubs now bucket backend-backed rows into availability, pending, upcoming, and history from `date_suggestions` / `date_plans`. |
+| **Reminders** | `useDateReminders` on web and native now computes countdowns from accepted `date_plans` surfaced through `useScheduleHub`. |
 | **Event product calendar** | `events` / `event_registrations` — **separate** domain (ticketed events), not match date plans. |
 
-**Conclusion:** “Issue into both users’ Vibely Calendar” is a **new capability**: introduce a **small persisted plan model** (see §4) that both web Schedule and native Schedule can list. Today’s “calendar” is **UI + hooks**, not a single shared table.
+**Conclusion:** The persisted plan model now exists in the active `date_suggestions` / `date_plans` stack, so Schedule can surface real backend-backed plans without introducing a separate calendar schema.
 
 ### 1.4 Chat messages schema & rendering
 

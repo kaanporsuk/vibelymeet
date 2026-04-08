@@ -88,7 +88,7 @@ This audited snapshot intentionally excludes secret values. It records required 
 - `/match-celebration` → `MatchCelebration` — Celebration screen
 - `/vibe-studio` → `VibeStudio` — Dedicated vibe-video studio surface
 - `/vibe-feed` → `VibeFeed` — Mock-data video feed
-- `/schedule` → `Schedule` — Availability scheduling
+- `/schedule` → `Schedule` — Availability + planning hub
 - `/credits` → `Credits` — Credits purchase
 - `/credits/success` → `CreditsSuccess` — Credits checkout success
 - `/event-payment/success` → `EventPaymentSuccess` — Event checkout success
