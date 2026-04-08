@@ -1,5 +1,5 @@
 /**
- * Block user — insert blocked_users; optionally remove match. Parity with web useBlockUser.
+ * Block user — insert blocked_users; optionally remove messages/mutes/match. Parity with web useBlockUser.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -42,9 +42,6 @@ export function useBlockUser(userId: string | null | undefined) {
       if (matchId) {
         const { error: msgErr } = await supabase.from('messages').delete().eq('match_id', matchId);
         if (msgErr) throw msgErr;
-
-        const { error: dpErr } = await supabase.from('date_proposals').delete().eq('match_id', matchId);
-        if (dpErr) throw dpErr;
 
         const { error: mnmErr } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId).eq('user_id', userId);
         if (mnmErr) throw mnmErr;
