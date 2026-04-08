@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { ensureProfileReady } from "@/lib/profileBootstrap";
+import { useDeletionRecovery } from "@/hooks/useDeletionRecovery";
 import { getAuthProvider } from "@shared/entryState";
 
 function getRecoveryCopy(state: string) {
@@ -23,6 +25,14 @@ function getRecoveryCopy(state: string) {
         description:
           "We could not verify your profile setup yet. Retry setup check or sign out and try signing in again.",
         primaryLabel: "Retry setup check",
+        secondaryLabel: "Sign out",
+      };
+    case "deletion_requested":
+      return {
+        title: "Your account is scheduled for deletion",
+        description:
+          "Your account is in the recovery window. You can still cancel deletion and keep using Vibely before the scheduled removal date.",
+        primaryLabel: "Cancel deletion / Recover account",
         secondaryLabel: "Sign out",
       };
     case "account_suspended":
@@ -49,15 +59,25 @@ const EntryRecovery = () => {
   const { session, entryState, entryStateLoading, refreshEntryState, logout } = useAuth();
   const [isRetrying, setIsRetrying] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const { cancelDeletion, isCancelling } = useDeletionRecovery();
   const provider = getAuthProvider(session?.user);
 
   const recoveryState = entryState?.state ?? "hard_error";
   const copy = useMemo(() => getRecoveryCopy(recoveryState), [recoveryState]);
+  const scheduledDeletionLabel = useMemo(() => {
+    if (!entryState?.scheduled_deletion_at) return null;
+    try {
+      return format(new Date(entryState.scheduled_deletion_at), "MMMM d, yyyy");
+    } catch {
+      return null;
+    }
+  }, [entryState?.scheduled_deletion_at]);
 
   useEffect(() => {
     if (!entryState) return;
     if (
-      entryState.state !== "missing_profile"
+      entryState.state !== "deletion_requested"
+      && entryState.state !== "missing_profile"
       && entryState.state !== "suspected_fragmented_identity"
       && entryState.state !== "account_suspended"
       && entryState.state !== "hard_error"
@@ -103,6 +123,16 @@ const EntryRecovery = () => {
     }
   };
 
+  const routeFromEntryState = (nextState: NonNullable<typeof entryState>) => {
+    if (nextState.route_hint === "app") {
+      navigate("/home", { replace: true });
+      return;
+    }
+    if (nextState.route_hint === "onboarding") {
+      navigate("/onboarding", { replace: true });
+    }
+  };
+
   const handleTryAnotherMethod = async () => {
     if (isSigningOut || isRetrying) return;
     setIsSigningOut(true);
@@ -125,6 +155,17 @@ const EntryRecovery = () => {
     }
   };
 
+  const handleRecoverAccount = async () => {
+    if (isCancelling || isSigningOut || isRetrying) return;
+
+    const cancelled = await cancelDeletion();
+    if (!cancelled) return;
+
+    const nextEntryState = await refreshEntryState();
+    if (!nextEntryState) return;
+    routeFromEntryState(nextEntryState);
+  };
+
   if (entryStateLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -139,8 +180,41 @@ const EntryRecovery = () => {
         <div className="space-y-4 rounded-2xl border border-border bg-card/80 p-6 backdrop-blur-sm">
           <h2 className="text-xl font-display font-bold text-foreground">{copy.title}</h2>
           <p className="text-sm text-muted-foreground">{copy.description}</p>
+          {recoveryState === "deletion_requested" && (
+            <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-destructive/80">
+                Scheduled deletion date
+              </p>
+              <p className="text-sm font-medium text-foreground">
+                {scheduledDeletionLabel ?? "Still within the active grace period"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Cancel deletion to keep your account, profile, and access before the grace period ends.
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
-            {recoveryState === "suspected_fragmented_identity" ? (
+            {recoveryState === "deletion_requested" ? (
+              <>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={handleRecoverAccount}
+                  disabled={isCancelling || isSigningOut || isRetrying}
+                >
+                  {isCancelling ? "Recovering account..." : copy.primaryLabel}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut || isCancelling || isRetrying}
+                >
+                  {isSigningOut ? "Signing out..." : copy.secondaryLabel}
+                </Button>
+              </>
+            ) : recoveryState === "suspected_fragmented_identity" ? (
               <>
                 <Button
                   type="button"
@@ -166,7 +240,7 @@ const EntryRecovery = () => {
                   type="button"
                   className="w-full"
                   onClick={handleRetry}
-                  disabled={isRetrying || isSigningOut}
+                  disabled={isRetrying || isSigningOut || isCancelling}
                 >
                   {isRetrying ? "Checking account..." : copy.primaryLabel}
                 </Button>
@@ -175,7 +249,7 @@ const EntryRecovery = () => {
                   variant="outline"
                   className="w-full"
                   onClick={handleSignOut}
-                  disabled={isSigningOut || isRetrying}
+                  disabled={isSigningOut || isRetrying || isCancelling}
                 >
                   {isSigningOut ? "Signing out..." : copy.secondaryLabel}
                 </Button>

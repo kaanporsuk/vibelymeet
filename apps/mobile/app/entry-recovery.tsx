@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
+import { format } from 'date-fns';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
@@ -8,6 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { trackEvent } from '@/lib/analytics';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
+import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { getAuthProvider } from '@shared/entryState';
 
 function getRecoveryCopy(state: string) {
@@ -26,6 +28,14 @@ function getRecoveryCopy(state: string) {
         description:
           'We could not verify your profile setup yet. Retry setup check or sign out and try signing in again.',
         primaryLabel: 'Retry setup check',
+        secondaryLabel: 'Sign out',
+      };
+    case 'deletion_requested':
+      return {
+        title: 'Your account is scheduled for deletion',
+        description:
+          'Your account is in the recovery window. You can still cancel deletion and keep using Vibely before the scheduled removal date.',
+        primaryLabel: 'Cancel deletion / Recover account',
         secondaryLabel: 'Sign out',
       };
     case 'account_suspended':
@@ -52,10 +62,19 @@ export default function EntryRecoveryScreen() {
   const { session, entryState, entryStateLoading, refreshEntryState, signOut } = useAuth();
   const [isRetrying, setIsRetrying] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const { cancelDeletion, isCancelling } = useDeletionRecovery(session?.user?.id);
   const provider = getAuthProvider(session?.user);
 
   const recoveryState = entryState?.state ?? 'hard_error';
   const copy = useMemo(() => getRecoveryCopy(recoveryState), [recoveryState]);
+  const scheduledDeletionLabel = useMemo(() => {
+    if (!entryState?.scheduled_deletion_at) return null;
+    try {
+      return format(new Date(entryState.scheduled_deletion_at), 'MMMM d, yyyy');
+    } catch {
+      return null;
+    }
+  }, [entryState?.scheduled_deletion_at]);
 
   useEffect(() => {
     if (!session) {
@@ -82,8 +101,18 @@ export default function EntryRecoveryScreen() {
     });
   }, [entryState, provider, session]);
 
+  const routeFromEntryState = (nextEntryState: NonNullable<typeof entryState>) => {
+    if (nextEntryState.state === 'complete') {
+      router.replace('/(tabs)');
+      return;
+    }
+    if (nextEntryState.state === 'incomplete') {
+      router.replace('/(onboarding)');
+    }
+  };
+
   const handleRetry = async () => {
-    if (!session?.user || isRetrying || isSigningOut) return;
+    if (!session?.user || isRetrying || isSigningOut || isCancelling) return;
 
     setIsRetrying(true);
     trackEvent('entry_recovery_retry_clicked', {
@@ -98,20 +127,14 @@ export default function EntryRecoveryScreen() {
       await ensureProfileReady(session.user, 'sign_in_screen_effect');
       const nextEntryState = await refreshEntryState();
       if (!nextEntryState) return;
-      if (nextEntryState.state === 'complete') {
-        router.replace('/(tabs)');
-        return;
-      }
-      if (nextEntryState.state === 'incomplete') {
-        router.replace('/(onboarding)');
-      }
+      routeFromEntryState(nextEntryState);
     } finally {
       setIsRetrying(false);
     }
   };
 
   const handleTryAnotherMethod = async () => {
-    if (isSigningOut || isRetrying) return;
+    if (isSigningOut || isRetrying || isCancelling) return;
     setIsSigningOut(true);
     try {
       await signOut();
@@ -122,7 +145,7 @@ export default function EntryRecoveryScreen() {
   };
 
   const handleSignOut = async () => {
-    if (isSigningOut || isRetrying) return;
+    if (isSigningOut || isRetrying || isCancelling) return;
     setIsSigningOut(true);
     try {
       await signOut();
@@ -130,6 +153,17 @@ export default function EntryRecoveryScreen() {
     } finally {
       setIsSigningOut(false);
     }
+  };
+
+  const handleRecoverAccount = async () => {
+    if (isCancelling || isSigningOut || isRetrying) return;
+
+    const cancelled = await cancelDeletion();
+    if (!cancelled) return;
+
+    const nextEntryState = await refreshEntryState();
+    if (!nextEntryState) return;
+    routeFromEntryState(nextEntryState);
   };
 
   if (entryStateLoading) {
@@ -145,19 +179,43 @@ export default function EntryRecoveryScreen() {
       <View style={[styles.card, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
         <Text style={[styles.title, { color: theme.text }]}>{copy.title}</Text>
         <Text style={[styles.description, { color: theme.textSecondary }]}>{copy.description}</Text>
-        {recoveryState === 'suspected_fragmented_identity' ? (
+        {recoveryState === 'deletion_requested' ? (
+          <>
+            <View style={[styles.deletionBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.deletionLabel, { color: theme.danger }]}>Scheduled deletion date</Text>
+              <Text style={[styles.deletionDate, { color: theme.text }]}>
+                {scheduledDeletionLabel ?? 'Still within the active grace period'}
+              </Text>
+              <Text style={[styles.deletionNote, { color: theme.textSecondary }]}>
+                Cancel deletion to keep your account, profile, and access before the grace period ends.
+              </Text>
+            </View>
+            <VibelyButton
+              label={isCancelling ? 'Recovering account...' : copy.primaryLabel}
+              onPress={handleRecoverAccount}
+              variant="gradient"
+              disabled={isCancelling || isSigningOut || isRetrying}
+            />
+            <VibelyButton
+              label={isSigningOut ? 'Signing out...' : copy.secondaryLabel}
+              onPress={handleSignOut}
+              variant="secondary"
+              disabled={isSigningOut || isRetrying || isCancelling}
+            />
+          </>
+        ) : recoveryState === 'suspected_fragmented_identity' ? (
           <>
             <VibelyButton
               label={isSigningOut ? 'Signing out...' : copy.primaryLabel}
               onPress={handleTryAnotherMethod}
               variant="gradient"
-              disabled={isSigningOut || isRetrying}
+              disabled={isSigningOut || isRetrying || isCancelling}
             />
             <VibelyButton
               label={isRetrying ? 'Checking account...' : copy.secondaryLabel}
               onPress={handleRetry}
               variant="secondary"
-              disabled={isRetrying || isSigningOut}
+              disabled={isRetrying || isSigningOut || isCancelling}
             />
           </>
         ) : (
@@ -166,13 +224,13 @@ export default function EntryRecoveryScreen() {
               label={isRetrying ? 'Checking account...' : copy.primaryLabel}
               onPress={handleRetry}
               variant="gradient"
-              disabled={isRetrying || isSigningOut}
+              disabled={isRetrying || isSigningOut || isCancelling}
             />
             <VibelyButton
               label={isSigningOut ? 'Signing out...' : copy.secondaryLabel}
               onPress={handleSignOut}
               variant="secondary"
-              disabled={isSigningOut || isRetrying}
+              disabled={isSigningOut || isRetrying || isCancelling}
             />
           </>
         )}
@@ -195,6 +253,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     gap: 12,
+  },
+  deletionBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    gap: 6,
+  },
+  deletionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  deletionDate: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  deletionNote: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   title: {
     fontSize: 22,

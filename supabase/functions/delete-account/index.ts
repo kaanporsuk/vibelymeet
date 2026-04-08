@@ -63,30 +63,42 @@ serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // 1. Insert deletion request
-    const { error: insertError } = await supabaseAdmin
+    // 1. Insert deletion request if none is already pending.
+    const { data: existingPending, error: existingPendingError } = await supabaseAdmin
       .from("account_deletion_requests")
-      .insert({
-        user_id: userId,
-        reason,
-        status: "pending",
-      });
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "pending")
+      .limit(1)
+      .maybeSingle();
 
-    if (insertError) {
-      console.error("Error inserting deletion request:", insertError.message);
+    if (existingPendingError) {
+      console.error("Error checking existing deletion request:", existingPendingError.message);
       return new Response(
-        JSON.stringify({ success: false, error: "Failed to create deletion request" }),
+        JSON.stringify({ success: false, error: "Failed to check deletion status" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 2. Suspend the profile immediately (hides from other users)
-    await supabaseAdmin
-      .from("profiles")
-      .update({ is_suspended: true, suspension_reason: "Account deletion requested" })
-      .eq("id", userId);
+    if (!existingPending) {
+      const { error: insertError } = await supabaseAdmin
+        .from("account_deletion_requests")
+        .insert({
+          user_id: userId,
+          reason,
+          status: "pending",
+        });
 
-    // 3. Cancel any active Stripe subscription
+      if (insertError) {
+        console.error("Error inserting deletion request:", insertError.message);
+        return new Response(
+          JSON.stringify({ success: false, error: "Failed to create deletion request" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // 2. Cancel any active Stripe subscription
     try {
       const { data: subscription } = await supabaseAdmin
         .from("subscriptions")
@@ -130,7 +142,7 @@ serve(async (req) => {
       // Don't fail the deletion request if Stripe fails
     }
 
-    // 4. Sign the user out
+    // 3. Sign the user out
     const { error: signOutError } = await supabaseAdmin.auth.admin.signOut(userId);
     if (signOutError) {
       console.error("Error signing out user:", signOutError.message);

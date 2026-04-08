@@ -42,14 +42,13 @@ serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    // Cancel the pending deletion request
+    // Cancel any live pending deletion request(s).
     const { data, error } = await supabaseAdmin
       .from("account_deletion_requests")
       .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
       .eq("user_id", userId)
       .eq("status", "pending")
-      .select()
-      .maybeSingle();
+      .select();
 
     if (error) {
       console.error("Error cancelling deletion:", error.message);
@@ -59,18 +58,36 @@ serve(async (req) => {
       );
     }
 
-    if (!data) {
+    if (!data || data.length === 0) {
       return new Response(
         JSON.stringify({ success: false, error: "No pending deletion request found" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Unsuspend the profile
-    await supabaseAdmin
-      .from("profiles")
-      .update({ is_suspended: false, suspension_reason: null })
-      .eq("id", userId);
+    const { data: activeSuspensionRows, error: activeSuspensionError } = await supabaseAdmin
+      .from("user_suspensions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .limit(1);
+
+    if (activeSuspensionError) {
+      console.error("Error checking active suspensions:", activeSuspensionError.message);
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to verify account restriction state" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Only reverse legacy deletion-induced suspension holds.
+    if (!activeSuspensionRows || activeSuspensionRows.length === 0) {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ is_suspended: false, suspension_reason: null })
+        .eq("id", userId)
+        .eq("suspension_reason", "Account deletion requested");
+    }
 
     console.log(`Deletion cancelled for user: ${userId}`);
 

@@ -117,7 +117,7 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Frontend call sites:** `src/hooks/useDeletionRecovery.ts`
 - **Primary tables touched:** `account_deletion_requests`, `profiles`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`
+- **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`; only clears legacy deletion-induced `profiles.is_suspended` holds and must not lift genuine moderation suspensions
 
 ### `account-pause` (Stream 1B)
 - **Purpose:** set profile to paused state (backend-authoritative); updates `profiles.is_paused`, `paused_at`, `paused_until`, `pause_reason`
@@ -136,13 +136,13 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Rebuild notes:** sets `is_paused = false`, `paused_at`/`paused_until`/`pause_reason` = null
 
 ### `delete-account`
-- **Purpose:** executes account deletion flow, including profile/subscription cleanup and Stripe-linked cleanup logic
+- **Purpose:** authenticated deletion-request wrapper; schedules the same pending deletion hold, signs the user out, and performs Stripe-linked cleanup
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/hooks/useDeleteAccount.ts`
 - **Primary tables touched:** `account_deletion_requests`, `profiles`, `subscriptions`
 - **External services:** Stripe
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
-- **Rebuild notes:** uses shared rate-limiter helper; deletion behavior is destructive and should be replay-tested carefully in non-production first
+- **Rebuild notes:** uses shared rate-limiter helper; must stay aligned with `request-account-deletion` semantics and should not mark deletion-hold users as moderation-suspended
 
 ---
 

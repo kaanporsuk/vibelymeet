@@ -4,12 +4,14 @@
  * The backend RPC is the source of truth. Clients should call resolveEntryState
  * and route off the returned state rather than inferring entry state from
  * profiles.onboarding_complete. Moderation may return `account_suspended` with
- * `route_hint` entry_recovery before the user would otherwise be `complete`.
+ * `route_hint` entry_recovery before the user would otherwise be `complete`,
+ * while scheduled account deletion may return `deletion_requested`.
  */
 
 export type EntryState =
   | "complete"
   | "incomplete"
+  | "deletion_requested"
   | "missing_profile"
   | "suspected_fragmented_identity"
   | "account_suspended"
@@ -19,6 +21,7 @@ export type EntryStateReasonCode =
   | "profile_complete"
   | "profile_incomplete"
   | "profile_incomplete_with_draft"
+  | "deletion_requested"
   | "profile_missing"
   | "fragment_verified_phone_match"
   | "fragment_confirmed_email_match"
@@ -57,6 +60,7 @@ export interface EntryStateResponse {
   route_hint: EntryRouteHint;
   onboarding_draft: EntryStateDraft;
   candidate_fragment: EntryStateCandidateFragment | null;
+  scheduled_deletion_at: string | null;
   retryable: boolean;
   evaluation_version: 1;
 }
@@ -84,6 +88,7 @@ const DEFAULT_EVALUATION_VERSION = 1 as const;
 const VALID_STATES = new Set<EntryState>([
   "complete",
   "incomplete",
+  "deletion_requested",
   "missing_profile",
   "suspected_fragmented_identity",
   "account_suspended",
@@ -94,6 +99,7 @@ const VALID_REASON_CODES = new Set<EntryStateReasonCode>([
   "profile_complete",
   "profile_incomplete",
   "profile_incomplete_with_draft",
+  "deletion_requested",
   "profile_missing",
   "fragment_verified_phone_match",
   "fragment_confirmed_email_match",
@@ -133,6 +139,7 @@ export function getFallbackEntryState(
     route_hint: "entry_recovery",
     onboarding_draft: DEFAULT_DRAFT,
     candidate_fragment: null,
+    scheduled_deletion_at: null,
     retryable: true,
     evaluation_version: DEFAULT_EVALUATION_VERSION,
   };
@@ -188,6 +195,10 @@ function normalizeCandidateFragment(value: unknown): EntryStateCandidateFragment
   };
 }
 
+function normalizeScheduledDeletionAt(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export function normalizeEntryStateResponse(payload: unknown): EntryStateResponse {
   if (!payload || typeof payload !== "object") {
     return getFallbackEntryState();
@@ -208,6 +219,7 @@ export function normalizeEntryStateResponse(payload: unknown): EntryStateRespons
     route_hint,
     onboarding_draft: normalizeDraft(record.onboarding_draft),
     candidate_fragment: normalizeCandidateFragment(record.candidate_fragment),
+    scheduled_deletion_at: normalizeScheduledDeletionAt(record.scheduled_deletion_at),
     retryable: record.retryable !== false,
     evaluation_version: DEFAULT_EVALUATION_VERSION,
   };
@@ -240,7 +252,8 @@ export function isRecoveryEntryState(
 ): boolean {
   if (!entryState) return false;
   return (
-    entryState.state === "missing_profile"
+    entryState.state === "deletion_requested"
+    || entryState.state === "missing_profile"
     || entryState.state === "suspected_fragmented_identity"
     || entryState.state === "account_suspended"
     || entryState.state === "hard_error"

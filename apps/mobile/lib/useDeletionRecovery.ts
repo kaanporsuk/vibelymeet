@@ -29,6 +29,8 @@ export function useDeletionRecovery(userId: string | null | undefined) {
       .select('id, scheduled_deletion_at, status')
       .eq('user_id', userId)
       .eq('status', 'pending')
+      .order('scheduled_deletion_at', { ascending: true })
+      .limit(1)
       .maybeSingle();
     if (error) {
       setDeletionStateError('We couldn’t load your scheduled deletion status. Try again in a moment.');
