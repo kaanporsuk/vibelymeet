@@ -2,7 +2,7 @@
 
 Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use for go/no-go and prioritization.
 
-**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done; OneSignal web production service-worker and rebuild rehearsal are accounted for as known risks.
+**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done. Rebuild rehearsal is now logged; remaining web-push risk is the lack of fresh interactive permission/subscription/click proof, not worker asset serving.
 
 ---
 
@@ -116,12 +116,12 @@ Expected in dev builds only; not bugs and not present in production builds.
 | RevenueCat real-device (purchase/restore) | | |
 | OneSignal dashboard setup | | |
 | OneSignal real-device (push) | | |
-| OneSignal web (production service-worker + origin) | | |
+| OneSignal web (production service-worker + origin) | Partial | Worker asset is live on production and backend has historical web-send evidence, but fresh permission/subscription/click proof still needs an interactive browser session with smoke auth. |
 | EAS preview build | | |
 | EAS production build | | |
 | iOS device validation checklist | | |
 | Android device validation checklist | | |
-| Rebuild rehearsal (post–Phase 7) | | |
+| Rebuild rehearsal (post–Phase 7) | Pass | Logged in `docs/rebuild-rehearsal-log.md`; `npm ci`, `npm run build`, and `./scripts/run_golden_path_smoke.sh` passed. Remaining gap is local `SUPABASE_DB_URL` for parity-helper replay, not rebuild failure. |
 
 Execution order and Kaan steps: `docs/native-sprint6-launch-closure-runbook.md`. Full release-readiness matrix and go/no-go: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
 
