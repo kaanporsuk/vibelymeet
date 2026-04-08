@@ -4,7 +4,9 @@
 
 Close remaining release-readiness and metadata gaps, update docs/checklists to current truth, and produce a strict go/no-go summary. Release readiness includes provider proof, environment clarity, and known-risk accounting.
 
-**Open hardening caveat (from web baseline) accounted for:** Production OneSignal **web** service-worker asset and origin configuration, and the logged rebuild rehearsal, are called out in §8 and §9 so they are not forgotten in the final readiness picture.
+**Open hardening caveat (from web baseline) accounted for:** Production OneSignal **web** service-worker asset and origin configuration, and the logged rebuild rehearsal, are called out in §5, §8, §9, and §12 so they are not forgotten in the final readiness picture.
+
+**Operator sequence:** `npm run launch:preflight` → **`docs/kaan-launch-closure-execution-sheet.md`**. Pass/fail evidence table: **`docs/native-final-blocker-matrix.md`**. Narrative and escalation: **`docs/native-launch-closure-master-runbook.md`**.
 
 ---
 
@@ -16,7 +18,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | **iOS** | Prebuild succeeded; run:ios compiles (Pods observed). Bundle ID, entitlements, OneSignal NSE in app.json. | — | Prebuild + compilation in progress observed; full run:ios not seen to completion in automation. | First launch on simulator/device; full runtime checklist; signing on physical device. |
 | **RevenueCat** | SDK init, logIn, offerings fetch (post–logIn), purchase, restore, backend refetch; premium UI states; webhook + trigger in repo. | — | Code and design validated in Phase 7 Stage 2; offerings refetch fix applied. | Real-device sandbox purchase + restore; webhook delivery to Supabase; DB sync. |
 | **OneSignal (mobile)** | Init, permission, login(userId), upsert notification_preferences; logout on sign out; app.config.js APNs mode. | — | Code path validated in Phase 7 Stage 3. | Real-device push receive; dashboard → device delivery; APNs/FCM configured. |
-| **OneSignal (web)** | Web SDK and notification_preferences; send-notification targets web + mobile. | — | — | **Production web:** service-worker asset at domain root + OneSignal dashboard origin/service-worker config (open caveat). |
+| **OneSignal (web)** | Web SDK and notification_preferences; send-notification targets web + mobile. | Production worker + authenticated subscribed browser session + `notification_preferences` sync (see `docs/browser-auth-runtime-proof-results.md`). | Interactive permission prompt + delivered-notification tap (manual-only; automation cannot own). | Residual: confirm dashboard origin / service-worker paths still match production after deploys (quick operator audit). |
 | **Daily** | Room/token, join, permissions, tracks, leave/endVideoDate on unmount; backend session cleanup fix in Phase 7 Stage 3. | — | Code path validated. | Real-device/simulator join, media, end; backend state after leave. |
 | **Env/config** | .env.example and checklist list all EXPO_PUBLIC_*; app.config.js OneSignal mode; EAS profiles (development, preview, production). | — | Env vars documented; EAS secrets must be set by operator. | EAS build with secrets; production env verification. |
 | **Store metadata / submission** | Bundle ID and package `com.vibelymeet.vibely`; eas.json profiles; store listing not in repo. | — | — | App Store Connect / Play Console listing; screenshots; privacy; submission. |
@@ -86,7 +88,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | **Production service-worker** | OneSignal v16 web push requires the OneSignal service-worker script to be served **from the domain root** so it does not 404. Site origin and service-worker configuration in the **OneSignal dashboard** must match production. |
 | **Rebuild rehearsal** | A rebuild rehearsal was logged (`_cursor_context/rebuild_rehearsals/2026-03-11_current-controlled-baseline.md`). For submission readiness, a **post–Phase-7** clean rebuild rehearsal (and, if applicable, verification that web OneSignal service-worker and origin are correct in production) should be run and logged so it is not forgotten. |
 
-**Verdict:** **Known unresolved risk** for full release: production web push depends on service-worker asset and OneSignal dashboard origin/service-worker setup; and a current rebuild rehearsal is recommended before submission.
+**Verdict:** Core **web** push plumbing and subscribed state are **proven** in automation; remaining gap for “full human confidence” is **interactive** prompt + notification tap. Treat production dashboard origin/service-worker parity as a short **KD** audit after material web deploys, not an unvalidated unknown.
 
 ---
 
@@ -129,13 +131,16 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 ## 9. Known Unresolved Risks
 
+**Ownership tags:** **KD** = Kaan dashboard/store; **KB** = Kaan build/install; **KV** = Kaan device proof; **CF** = Cursor repo/doc/code only if a defect is proven (see `docs/kaan-launch-closure-execution-sheet.md`).
+
 | Risk | Owner | Mitigation |
 |------|--------|------------|
-| **RevenueCat/OneSignal not configured** | Kaan | Complete native-external-setup-checklist.md §2 and §3; then run runbook Phases 1–4. |
-| **No real-device proof yet** | Kaan | Run Phase 7 Stage 4 iOS steps; run Android with device/emulator; run manual test matrix; record results in native-final-blocker-matrix.md Sprint 6 test results. |
-| **OneSignal web (production)** | Kaan / Cursor | Ensure production site serves OneSignal service-worker from domain root; configure OneSignal dashboard origin/service-worker for production; verify web push in production. |
-| **Rebuild rehearsal not re-run post–Phase 7** | Kaan / Cursor | Run a full clean rebuild rehearsal (and any web smoke) post–Phase 7; log result so submission is not blocked by unknown breakage. |
-| **TypeScript (tsc) errors** | Cursor | Phase 7 Stage 1 noted existing tsc errors (matches, profile, daily-drop, settings, ui); fix before or early in beta to avoid type/runtime drift. |
+| **RevenueCat / OneSignal mobile not configured** | **KD** | `docs/native-external-setup-checklist.md` §2–3; order in `docs/kaan-launch-closure-execution-sheet.md`. |
+| **No real-device proof yet (native)** | **KV** (after **KB**) | EAS or local install; Phase 7 Stage 4 iOS + Android manual matrix; record in `docs/native-final-blocker-matrix.md` § Sprint 6 test results. |
+| **OneSignal web — interactive gap** | **KV** (manual browser) | Close prompt acceptance + delivered-notification tap in a real browser session; worker/subscribed state already in `docs/browser-auth-runtime-proof-results.md`. |
+| **OneSignal web — dashboard / origin drift** | **KD** | After production web changes, quick audit that OneSignal dashboard origin + service-worker paths match the live site. |
+| **Rebuild rehearsal stale** | **KD** / **CF** | Re-run clean rebuild + smoke per `docs/rebuild-rehearsal-log.md`; **CF** only if the rehearsal fails for a repo defect. |
+| **Repo typecheck regression** | **CF** (if CI/local fails) | `npm run typecheck` at repo root is **closed** — keep green; **CF** only when a merge introduces errors (see `docs/phase7-closure-typecheck-and-repo-ready.md`). |
 
 ---
 
@@ -166,14 +171,15 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
    - Play Console: app record, subscription products, internal track upload.  
    - Store listings: screenshots, descriptions, privacy policy, etc., per platform.
 
-6. **Code quality (Cursor / Kaan)**  
-   - Fix remaining `npm run typecheck` errors in apps/mobile so typecheck passes.
+6. **Repo health (maintenance)**  
+   - Keep `npm run launch:preflight` and `npm run typecheck` green after material changes. **CF** only if either fails for non-secret reasons.
 
 **Step-by-step instructions for store consoles and provider dashboards:**  
-- **RevenueCat + Supabase:** `docs/native-external-setup-checklist.md` §1 (Supabase migrations + revenuecat-webhook deploy + REVENUECAT_WEBHOOK_AUTHORIZATION), §2 (RevenueCat dashboard: project, apps, products, entitlement, offering, webhook URL + auth).  
-- **OneSignal:** `docs/native-external-setup-checklist.md` §3 (env, iOS app + APNs, Android app + FCM, §3.5 web production service-worker + origin).  
-- **EAS builds and submit:** `docs/native-sprint6-launch-closure-runbook.md` Phase 1–6 (RevenueCat setup → real-device validation → OneSignal setup → OneSignal device validation → EAS preview build → EAS production + submit).  
-- **Device validation:** `docs/phase7-stage4-ios-build-and-runtime-validation.md` §7 for iOS local steps; `docs/phase7-stage1-android-validation.md` §4 for Android device/emulator steps; `docs/native-manual-test-matrix.md` for full test list.
+- **Single-page order:** `docs/kaan-launch-closure-execution-sheet.md`.  
+- **RevenueCat + Supabase:** `docs/native-external-setup-checklist.md` §1–2.  
+- **OneSignal:** `docs/native-external-setup-checklist.md` §3 (mobile + web notes).  
+- **EAS builds and submit:** `docs/native-sprint6-launch-closure-runbook.md` + master runbook `docs/native-launch-closure-master-runbook.md`.  
+- **Device validation:** `docs/phase7-stage4-ios-build-and-runtime-validation.md` §7; `docs/phase7-stage1-android-validation.md` §4; `docs/native-manual-test-matrix.md`.
 
 ---
 
@@ -195,7 +201,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 1. **Provider proof not yet done:** RevenueCat (dashboard + webhook + store products) and OneSignal (iOS + Android apps + credentials) must be completed; then real-device purchase/restore and push receive must be proven.
 2. **First device validation not yet done:** Full iOS and Android runtime checklists (Phase 7 Stage 4 and manual test matrix) require a successful build and device run; results not yet recorded.
-3. **OneSignal web production:** Service-worker at domain root and OneSignal dashboard origin/service-worker config for production are open; must be verified before submission.
+3. **OneSignal web — interactive proof:** Worker + subscribed browser state are proven; manual prompt + notification-tap proof still recommended before treating web push as “fully signed off.”
 4. **Rebuild rehearsal:** A post–Phase 7 clean rebuild rehearsal (and web smoke if applicable) should be run and logged before submission.
 5. ~~**TypeScript:** Existing tsc errors in apps/mobile~~ **Resolved in Phase 7 closure:** `npm run typecheck` now passes (see `docs/phase7-closure-typecheck-and-repo-ready.md`).
 
@@ -205,14 +211,14 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 **No-Go for submission today.**
 
-**Reason:** Provider proof (RevenueCat, OneSignal, Daily) and first iOS/Android device validation are **not yet proven**. Store metadata and submission steps are operator-owned and not completed. OneSignal web production service-worker and rebuild rehearsal are open hardening items.
+**Reason:** Native **KD** (RevenueCat, OneSignal mobile dashboards, webhook) + **KB** (EAS secrets/builds) + **KV** (purchase/restore, push receive, Daily join/leave on device) are **not yet proven**. Store metadata and submission are operator-owned. Web OneSignal core plumbing is proven; remaining web gap is mainly **interactive** push proof (see §5).
 
 **Shortest remaining critical path to submission-ready:**
 
 1. Complete **native-external-setup-checklist.md** (RevenueCat dashboard + webhook + Supabase deploy + secret; OneSignal dashboard iOS + Android + APNs + FCM; EAS secrets).  
 2. Run **one successful EAS preview build** for iOS and one for Android (or local run:ios / run:android with device).  
 3. Install on **real devices**; run **RevenueCat** (purchase + restore) and **OneSignal** (test push receive) and **Daily** (one join/leave).  
-4. Resolve **OneSignal web** production service-worker and dashboard config; run **rebuild rehearsal** and log.  
+4. Optional **KD** audit: OneSignal web dashboard origin/service-worker vs production after deploys; run **manual** web push prompt + tap if product requires it; run **rebuild rehearsal** and log.  
 5. ~~Fix **typecheck** in apps/mobile~~ **Done** (Phase 7 closure; see `docs/phase7-closure-typecheck-and-repo-ready.md`).  
 6. Complete **store** metadata and **submit** to TestFlight / Play internal.
 
