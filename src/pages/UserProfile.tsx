@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2, Play } from "lucide-react";
+import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2, Play, ShieldCheck } from "lucide-react";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,9 +55,12 @@ const UserProfile = () => {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-4">
-        <p className="text-lg font-semibold text-foreground">Profile not found</p>
-        <button onClick={() => navigate(-1)} className="text-primary font-medium">Go back</button>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="w-full max-w-sm glass-card border border-border rounded-2xl p-6 text-center space-y-3">
+          <p className="text-lg font-semibold text-foreground">Profile not found</p>
+          <p className="text-sm text-muted-foreground">This profile is unavailable right now.</p>
+          <button onClick={() => navigate(-1)} className="text-primary font-medium">Go back</button>
+        </div>
       </div>
     );
   }
@@ -141,35 +144,19 @@ const UserProfile = () => {
             <h1 className="text-2xl font-display font-bold text-foreground">
               {profile.name}, {profile.age}
             </h1>
-            {profile.photo_verified && (
-              <PhotoVerifiedMark verified />
-            )}
+            {profile.photo_verified && <PhotoVerifiedMark verified />}
           </div>
 
           {profile.tagline && (
             <p className="text-sm text-primary italic">"{profile.tagline}"</p>
           )}
 
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            {profile.job && (
-              <span className="flex items-center gap-1">
-                <Briefcase className="w-3.5 h-3.5" />
-                {profile.job}
-              </span>
-            )}
-            {profile.location && (
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" />
-                {profile.location}
-              </span>
-            )}
-            {profile.height_cm && (
-              <span className="flex items-center gap-1">
-                <Ruler className="w-3.5 h-3.5" />
-                {profile.height_cm} cm
-              </span>
-            )}
-          </div>
+          {profile.photo_verified ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-300">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Photo verified
+            </span>
+          ) : null}
         </div>
 
         {/* Vibe Video — same readiness/playback contract as ProfilePreview / ProfileDetailDrawer */}
@@ -215,23 +202,6 @@ const UserProfile = () => {
           </div>
         ) : null}
 
-        {/* Vibe Tags */}
-        {vibeTags.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {vibeTags.map((vibe) => (
-              <VibeTag key={vibe} label={vibe} variant="display" />
-            ))}
-          </div>
-        )}
-
-        {/* Looking For */}
-        {lookingForIntent && (
-          <div className="glass-card p-4 space-y-2">
-            <h3 className="text-sm font-semibold text-foreground">Looking For</h3>
-            <RelationshipIntent selected={lookingForIntent} />
-          </div>
-        )}
-
         {/* About Me */}
         {profile.about_me && (
           <div className="glass-card p-4 space-y-2">
@@ -253,6 +223,62 @@ const UserProfile = () => {
                 index={i}
               />
             ))}
+          </div>
+        )}
+
+        {/* Looking For */}
+        {lookingForIntent && (
+          <div className="glass-card p-4 space-y-2">
+            <h3 className="text-sm font-semibold text-foreground">Looking For</h3>
+            <RelationshipIntent selected={lookingForIntent} />
+          </div>
+        )}
+
+        {/* The Basics */}
+        {(profile.job || profile.location || profile.height_cm) && (
+          <div className="glass-card p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">The Basics</h3>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {profile.job ? (
+                <div className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Work</p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
+                    <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.job}
+                  </p>
+                </div>
+              ) : null}
+              {profile.location ? (
+                <div className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Location</p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
+                    <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.location}
+                  </p>
+                </div>
+              ) : null}
+              {profile.height_cm ? (
+                <div className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Height</p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
+                    <Ruler className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.height_cm} cm
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {/* Vibe Tags */}
+        {vibeTags.length > 0 && (
+          <div className="glass-card p-4 space-y-2">
+            <h3 className="text-sm font-semibold text-foreground">My Vibes</h3>
+            <div className="flex flex-wrap gap-2">
+              {vibeTags.map((vibe) => (
+                <VibeTag key={vibe} label={vibe} variant="display" />
+              ))}
+            </div>
           </div>
         )}
 
