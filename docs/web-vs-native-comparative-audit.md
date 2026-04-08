@@ -28,7 +28,7 @@
 | `/ready/:id` | ReadyGate (ReadyRedirect) | Yes | `apps/mobile/app/ready/[id].tsx` |
 | `/admin/create-event` | AdminCreateEvent | **MISSING** | — |
 | `/match-celebration` | MatchCelebration | Yes | `apps/mobile/app/match-celebration.tsx` |
-| `/vibe-studio` | VibeStudio | Partial (record only) | `apps/mobile/app/vibe-video-record.tsx` (no full studio UI) |
+| `/vibe-studio` | VibeStudio | Yes (foundation) | `apps/mobile/app/vibe-studio.tsx` + `apps/mobile/app/vibe-video-record.tsx` |
 | `/schedule` | Schedule | **MISSING** | — |
 | `/how-it-works` | HowItWorks | **MISSING** | — |
 | `/privacy` | PrivacyPolicy | **MISSING** (no legal route) | — |
@@ -364,7 +364,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | settings/DeleteAccountModal | — | MISSING (link to web) |
 | verification/* | — | MISSING (link to web) |
 | vibe-video/VibePlayer | VibeVideoPlayer (expo-video HLS) | EXISTS |
-| vibe-video/VibeStudioModal | — | MISSING (record only) |
+| vibe-video/VibeStudioModal | Vibe studio route orchestration | EXISTS via `app/vibe-studio.tsx` + `app/vibe-video-record.tsx` handoff |
 | video-date/* (HandshakeTimer, IceBreakerCard, etc.) | — | MISSING (minimal date screen) |
 | wizard/* (ProfileWizard, etc.) | — | MISSING / PARTIAL (onboarding) |
 
@@ -444,7 +444,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 - **Admin:** Web has `/kaan`, `/kaan/dashboard`, `/admin/create-event`; native has no admin routes.
 - **Legal / info:** Web has `/privacy`, `/terms`, `/delete-account`, `/community-guidelines`, `/how-it-works`; native has no equivalent routes (links to web or missing).
 - **Schedule:** Web has `/schedule`; native has no schedule route.
-- **Vibe studio:** Web `/vibe-studio`; native `vibe-video-record` only (record, no full studio).
+- **Vibe studio:** Web and native both expose `/vibe-studio` as a management hub; native recording continues in `vibe-video-record`.
 - **Match celebration:** Both have match-celebration; native at root stack.
 - **Lobby:** Both have event lobby; native under `event/[eventId]/lobby` in root stack.
 

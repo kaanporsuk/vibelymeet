@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-04",
+  "generated_at": "2026-04-08",
   "artifact_type": "machine_readable_inventory",
   "project": {
     "name": "Vibely",
@@ -329,12 +329,7 @@
     "unrouted_pages": [
       "VideoLobby.tsx"
     ],
-    "redirect_pages": [
-      {
-        "page": "VibeStudio.tsx",
-        "redirects_to": "/profile"
-      }
-    ],
+    "redirect_pages": [],
     "mock_or_noncanonical_pages": [
       "VibeFeed.tsx"
     ]

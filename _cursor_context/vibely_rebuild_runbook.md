@@ -532,7 +532,7 @@ Admin:
 ### Route caveats
 
 - `src/pages/VideoLobby.tsx` exists but is **not** routed.
-- `/vibe-studio` is effectively a redirect path to `/profile`, not a separate studio surface.
+- `/vibe-studio` is a dedicated studio surface (web + native) and should be treated as a first-class management route.
 - `/vibe-feed` contains mock/sample media and is not evidence of a production-wired feature.
 
 ---

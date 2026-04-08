@@ -709,6 +709,7 @@ Root Stack
 │   ├── account
 │   └── privacy
 ├── premium                  title: Premium
+├── vibe-studio              title: Vibe Studio
 ├── vibe-video-record        title: Record Vibe Video
 ├── user/[userId]            title: Profile
 ├── match-celebration        title: It's a match!

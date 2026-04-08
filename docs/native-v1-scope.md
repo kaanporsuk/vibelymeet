@@ -84,7 +84,7 @@ Verification flows (photo/phone/email) are routed through profile, onboarding, a
 
 ### 6. Vibes, feeds, schedule, referrals
 
-- `/vibe-studio` / **Vibe video** – **In v1**. Native foundation: record short vibe video, upload via create-video-upload (Bunny/tus), show state (none / uploading / processing / ready / failed), optional delete via delete-vibe-video. Full studio UX can follow in a later release.
+- `/vibe-studio` / **Vibe video** – **In v1**. Native foundation includes a dedicated Vibe Studio management route plus the existing record/upload engine, with state (none / uploading / processing / ready / failed), caption edit, preview, and delete via delete-vibe-video.
 - `/vibe-feed` – **Deferred** (v1.1+). Explicitly deferred in the remediation plan.
 - `/schedule` – **User schedule / calendar**
   - **Native v1**: **Deferred** (v1.1+). Not in this sprint; remains as current repo truth.

@@ -27,7 +27,7 @@
 | `/ready/:id` | `ReadyRedirect` → redirects | Protected | — | Same |
 | `/admin/create-event` | `AdminCreateEvent` | Protected + **admin** | Admin form | Same |
 | `/match-celebration` | `MatchCelebration` | Protected | Demo modal page | Same |
-| `/vibe-studio` | `VibeStudio` | Protected | Immediate redirect → `/profile` | Same |
+| `/vibe-studio` | `VibeStudio` | Protected | Dedicated Vibe Video studio surface | Same |
 | `/schedule` | `Schedule` | Protected | BottomNav | Same |
 | `/how-it-works` | `HowItWorks` | Public | BottomNav | Same |
 | `/privacy` | `PrivacyPolicy` | Public | Scroll legal | Same |
@@ -108,7 +108,7 @@
 | Submitting final | “Creating Profile…” spinner |
 | Photo upload partial fail | Toast “Some photos failed to upload…” |
 
-**Navigation:** “Record Vibe” → `/vibe-studio` (legacy compatibility route that immediately replaces to `/profile`; recording is owned by `VibeStudioModal` in Profile Studio).
+**Navigation:** “Record Vibe” → `/vibe-studio` (dedicated studio page; recording still uses `VibeStudioModal`, but management now lives on the route itself).
 
 **Toasts:** Location OK/error, photo added, welcome, profile error.
 
@@ -344,7 +344,8 @@
 
 ### Screen: Vibe Studio route
 - **Route:** `/vibe-studio`
-- **Behavior:** Minimal compatibility redirect that **replace navigates to `/profile`**; actual recording is `VibeStudioModal` on Profile.
+- **File:** `src/pages/VibeStudio.tsx`
+- **Behavior:** Dedicated Vibe Studio page for current state, create/replace/delete, caption editing, honest processing/failed/ready UX, and fullscreen preview. Recording still reuses `VibeStudioModal`.
 
 ---
 

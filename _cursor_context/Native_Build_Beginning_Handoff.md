@@ -238,4 +238,4 @@ Closure addendum (2026-04-04):
 Registered-journey refinement addendum (2026-04-05):
 - Reminder Join CTAs now prefer contextual active-session deep links when verifiable (`/date/:id`), with safe fallback preserved where no reliable session id exists.
 - Native schedule reminder join now reuses its contextual handler (active session first, chat fallback) instead of bypassing it.
-- Web `/vibe-studio` remains an intentional minimal compatibility redirect to `/profile` (legacy deep-link continuity).
+- Web `/vibe-studio` is now a dedicated Vibe Studio route; native mirrors this with `/vibe-studio` as the management hub and `vibe-video-record` as the authoring engine.

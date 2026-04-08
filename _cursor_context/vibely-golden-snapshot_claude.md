@@ -103,7 +103,7 @@ Source: `src/App.tsx`
 | `/ready/:id` | `ReadyGate` | Standalone Ready Gate page (LEGACY — lobby overlay is the canonical path) |
 | `/admin/create-event` | `AdminCreateEvent` | Admin-only event creation form |
 | `/match-celebration` | `MatchCelebration` | Match celebration animation page |
-| `/vibe-studio` | `VibeStudio` | Redirects to `/profile` (dead page — recording happens in VibeStudioModal) |
+| `/vibe-studio` | `VibeStudio` | Dedicated studio page (recording still uses `VibeStudioModal`) |
 | `/vibe-feed` | `VibeFeed` | TikTok-style video feed (USES MOCK DATA — not wired to real videos) |
 | `/schedule` | `Schedule` | Availability scheduling for date proposals |
 | `/credits` | `Credits` | Credit pack purchase page |
@@ -870,7 +870,7 @@ id (uuid PK), user_id, email_key, sent_at
 |------|----------|--------|
 | Standalone ReadyGate page | `src/pages/ReadyGate.tsx` at `/ready/:id` | LEGACY — lobby overlay is canonical |
 | VibeFeed with mock data | `src/pages/VibeFeed.tsx` at `/vibe-feed` | Uses `mockVibeVideos` — not wired to real data |
-| VibeStudio redirect | `src/pages/VibeStudio.tsx` at `/vibe-studio` | Just redirects to `/profile` — dead page |
+| VibeStudio route | `src/pages/VibeStudio.tsx` at `/vibe-studio` | Dedicated studio surface; records via shared `VibeStudioModal` and manages caption/delete/preview in-page |
 | face-api.js | `package.json` dependency | 422KB UNUSED — photo verification simplified to selfie capture |
 | Legacy FIFO matching | `find_video_date_match` RPC | May still exist alongside swipe system. Was superseded by `handle_swipe` + `get_event_deck` |
 | localStorage Daily Drop service | `src/services/vibelyService.ts` | Superseded by `useDailyDrop` hook with real DB |
