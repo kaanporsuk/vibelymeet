@@ -98,11 +98,11 @@ export default function EntryRecoveryScreen() {
       await ensureProfileReady(session.user, 'sign_in_screen_effect');
       const nextEntryState = await refreshEntryState();
       if (!nextEntryState) return;
-      if (nextEntryState.route_hint === 'app') {
+      if (nextEntryState.state === 'complete') {
         router.replace('/(tabs)');
         return;
       }
-      if (nextEntryState.route_hint === 'onboarding') {
+      if (nextEntryState.state === 'incomplete') {
         router.replace('/(onboarding)');
       }
     } finally {

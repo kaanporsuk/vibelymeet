@@ -44,6 +44,22 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
     setFeedback(null);
   };
 
+  const applySearchResult = (item: GeoResult) => {
+    if (item.lat == null || item.lng == null) {
+      setFeedback({
+        tone: 'error',
+        text: "We couldn't confirm that city's coordinates. Try another result or include the country in your search.",
+      });
+      return;
+    }
+
+    applyLocation({
+      location: item.formatted ?? `${item.city ?? ''}, ${item.country ?? ''}`,
+      country: item.country ?? '',
+      locationData: { lat: Number(item.lat), lng: Number(item.lng) },
+    });
+  };
+
   const autoDetect = async () => {
     setDetecting(true);
     setFeedback(null);
@@ -255,13 +271,7 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <Pressable
-                  onPress={() =>
-                    applyLocation({
-                      location: item.formatted ?? `${item.city ?? ''}, ${item.country ?? ''}`,
-                      country: item.country ?? '',
-                      locationData: item.lat != null && item.lng != null ? { lat: Number(item.lat), lng: Number(item.lng) } : null,
-                    })
-                  }
+                  onPress={() => applySearchResult(item)}
                   style={[styles.result, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}
                 >
                   <Ionicons name="location-outline" size={16} color={theme.tint} />

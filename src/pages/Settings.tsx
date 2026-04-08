@@ -92,7 +92,10 @@ const Settings = () => {
   };
 
   const handleDeleteAccount = async (reason: string | null) => {
-    await deleteAccount(reason);
+    const scheduled = await deleteAccount(reason);
+    if (scheduled) {
+      setShowDeleteDialog(false);
+    }
   };
 
   return (

@@ -28,7 +28,7 @@ export interface ScheduleDay {
   isToday: boolean;
 }
 
-export type ScheduleRecord = Record<string, { status: 'open' | 'busy' }>;
+export type ScheduleRecord = Record<string, { status: 'open' | 'busy' | 'event' }>;
 
 /** Shared React Query key — use for invalidation from any screen */
 export const SCHEDULE_QUERY_KEY = (userId: string) => ['user-schedule', userId] as const;
@@ -56,7 +56,7 @@ async function loadUserSchedule(userId: string): Promise<ScheduleRecord> {
   if (error) throw error;
   const next: ScheduleRecord = {};
   (data ?? []).forEach((row) => {
-    next[row.slot_key] = { status: (row.status as 'open' | 'busy') || 'open' };
+    next[row.slot_key] = { status: (row.status as 'open' | 'busy' | 'event') || 'open' };
   });
   return next;
 }
@@ -107,6 +107,7 @@ export function useSchedule() {
       if (lockedSlotKeys.has(key)) return 'locked';
       if (pendingKeys.has(key)) return 'saving';
       const row = schedule[key];
+      if (row?.status === 'event') return 'locked';
       if (row?.status === 'open') return 'open';
       return 'busy';
     },
@@ -121,6 +122,7 @@ export function useSchedule() {
       if (pendingKeys.has(key)) return;
       const prev = queryClient.getQueryData<ScheduleRecord>(qKey) ?? {};
       const current = prev[key];
+      if (current?.status === 'event') return;
       if (current?.status === 'open') {
         setPendingKeys((p) => new Set(p).add(key));
         queryClient.setQueryData<ScheduleRecord>(qKey, (old = {}) => {

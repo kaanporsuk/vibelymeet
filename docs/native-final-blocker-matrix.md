@@ -1,8 +1,10 @@
 # Native final blocker matrix (through Phase 7)
 
-Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use for go/no-go and prioritization.
+Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use this as the **single active launch backlog and evidence log** for go/no-go and prioritization.
 
-**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until **KD** (RevenueCat, OneSignal mobile, webhook), **KB** (EAS secrets + installable builds), and **KV** (sandbox purchase/restore, push receive, Daily on device) are done — not because core web or repo typecheck is failing. Rebuild rehearsal is logged; authenticated browser proof covers Schedule, Referrals, OneSignal worker + subscribed session + DB sync, and Vibe Studio read/caption/create-delete. Remaining **browser** gaps: interactive push prompt + notification tap (manual), and optional full web tus→ready→replace harness if product scope demands it. **Operator path:** `docs/kaan-launch-closure-execution-sheet.md` + `docs/native-launch-closure-master-runbook.md`.
+**Active doc map:** `docs/active-doc-map.md`
+
+**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until **KD** (RevenueCat, OneSignal mobile, webhook), **KB** (EAS secrets + installable builds), and **KV** (sandbox purchase/restore, push receive, Daily on device) are done — not because core web or repo typecheck is failing. Rebuild rehearsal is logged; authenticated browser proof covers Schedule, Referrals, OneSignal worker + subscribed session + DB sync, Vibe Studio read/caption/fresh binary upload→processing→ready/replace/cleanup, and public-profile route render. Remaining **browser** gaps: interactive push prompt + notification tap (manual). **Operator path:** `docs/kaan-launch-closure-execution-sheet.md` + `docs/native-launch-closure-master-runbook.md`.
 
 ---
 
@@ -83,7 +85,7 @@ Known issues that do not block release-readiness or dev validation. Fix when con
 | **Public profile** | `/user/:userId`; entry from chat. Sprint 4. |
 | **Match celebration** | Unread match → celebration → Message → chat. Sprint 4. |
 | **Credits** | Pack selection + create-credits-checkout → Stripe in browser. Sprint 4. |
-| **Delete account** | Native flow via delete-account EF. Sprint 3. |
+| **Delete account** | Scheduled/cancelable deletion flow via `request-account-deletion` + `cancel-deletion`; web Settings and native are now normalized to the same contract. |
 
 ## Explicitly accepted web handoff (no blocker)
 
@@ -114,18 +116,20 @@ Expected in dev builds only; not bugs and not present in production builds.
 
 | Phase | Pass/fail | Blocker (if fail) |
 |-------|-----------|--------------------|
-| RevenueCat dashboard setup | | |
-| RevenueCat real-device (purchase/restore) | | |
-| OneSignal dashboard setup | | |
-| OneSignal real-device (push) | | |
+| RevenueCat dashboard setup | Partial | Operator confirmed RevenueCat dashboard/apps/products/offering are configured. `revenuecat-webhook` is deployed and active in Supabase, but webhook delivery / DB sync is not yet evidenced here. Remaining blocker: **KD** for webhook/header truth, then **KV** for purchase proof. |
+| RevenueCat real-device (purchase/restore) | Blocked by KV | No operator evidence yet for sandbox/tester purchase + restore on device. |
+| OneSignal dashboard setup | Blocked by KD | No operator evidence yet for iOS + Android OneSignal credential/dashboard completion. |
+| OneSignal real-device (push) | Blocked by KD | No operator evidence yet for delivered mobile push on iOS or Android; dashboard setup remains the first blocker. |
+| Daily real-device (join/leave) | Blocked by KV | `daily-room` Edge Function is deployed and active in Supabase, but no operator evidence yet for join/leave media flow or backend cleanup confirmation on device. |
 | OneSignal web (production service-worker + origin) | Partial | **Proven:** worker + subscribed session + DB sync (`docs/browser-auth-runtime-proof-results.md`). **KV:** interactive prompt + delivered-notification click. **KD:** quick dashboard/origin audit after production web deploys. |
 | Authenticated browser proof (Schedule / Referrals / Vibe Studio / invite landing) | Pass | `docs/browser-auth-runtime-proof-results.md` hard-proves authenticated `/schedule`, schedule save + rollback, authenticated `/settings/referrals`, canonical invite copy, browser `/invite?ref=` handoff into `/auth?ref=...`, and post-fix authenticated `/vibe-studio` render health. |
-| Authenticated smoke-account browser bootstrap + proof | Pass | `npm run proof:smoke-bootstrap` now resets fresh smoke passwords via linked SQL, seeds tagged proof data, and hard-proves non-empty schedule buckets, reminder countdown routing on `/schedule` + `/dashboard`, referral set-once/self-ref/repeat immutability, Vibe Studio ready/caption save-revert, and create/upload-entry plus delete cleanup. |
-| Fresh Vibe video binary upload -> processing -> ready / replace (web harness) | Optional / not native-critical | Fresh smoke proof exercised create/upload entry and delete cleanup. Full tus→webhook→ready→replace in browser may stay **optional** for native go/no-go; **KV** validates native camera/upload path. **CF** only if native upload/processing fails on device. |
-| EAS preview build | | |
-| EAS production build | | |
-| iOS device validation checklist | | |
-| Android device validation checklist | | |
+| Authenticated public-profile browser proof | Pass | `npm run proof:smoke-bootstrap` now opens `/user/2cf4...` from an authenticated partner session and hard-proves public-profile render of name/age, tagline, photo verification, ready Vibe Video caption, About Me, vibes, and lifestyle without hitting the not-found shell. |
+| Authenticated smoke-account browser bootstrap + proof | Pass | `npm run proof:smoke-bootstrap` now resets fresh smoke passwords via linked SQL, seeds tagged proof data, and hard-proves non-empty schedule buckets, reminder countdown routing on `/schedule` + `/dashboard`, referral set-once/self-ref/repeat immutability, Vibe Studio ready/caption save-revert, create/upload-entry plus delete cleanup, and public-profile route render. |
+| Fresh Vibe video binary upload -> processing -> ready / replace (web harness) | Pass | `npm run proof:vibe-upload-processing` kept primary smoke profile `2cf4...` untouched, cleaned partner `2a09...` back to `none`, uploaded two real `video/webm` assets through Bunny tus, observed profile + `draft_media_sessions` `processing -> ready` on fresh uid `d4ccdc68...` and replacement uid `efb092da...`, verified the prior ready session became `abandoned`, re-rendered `/vibe-studio` in the ready state after both uploads, and finally deleted the replacement cleanly (`bunnyRemoteDeleteOk = true`, profile back to `bunny_video_uid = null`, session `deleted`). |
+| EAS preview build | Partial | Operator confirmed a preview iOS build succeeded and was installable. Remaining blocker: **KB** for Android preview evidence and recording the build id / URL here. |
+| EAS production build | Blocked by KB | No operator evidence yet for production-profile builds. |
+| iOS device validation checklist | Blocked by KV | A preview iOS build exists, but no full iOS runtime proof is recorded yet for premium, push, Daily, and shell flows. |
+| Android device validation checklist | Blocked by KB | No Android build/install evidence is recorded yet, so Android runtime validation has not started. |
 | Rebuild rehearsal (post–Phase 7) | Pass | Logged in `docs/rebuild-rehearsal-log.md`; `npm ci`, `npm run build`, and `./scripts/run_golden_path_smoke.sh` passed. Remaining gap is local `SUPABASE_DB_URL` for parity-helper replay, not rebuild failure. |
 
 Execution order (single page): `docs/kaan-launch-closure-execution-sheet.md`. Narrative: `docs/native-launch-closure-master-runbook.md` + `docs/native-sprint6-launch-closure-runbook.md`. Go/no-go matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.

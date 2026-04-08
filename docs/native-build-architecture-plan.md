@@ -1,3 +1,5 @@
+> **Historical planning baseline.** This document remains useful for architecture and parity context, but it is not the active launch-closure execution path. For current operator docs and evidence flow, start from `docs/active-doc-map.md`.
+
 ## 1. Executive summary
 
 Vibely’s current production baseline is a hardened web app running against a single Supabase-backed backend with Edge Functions and Stripe-based billing. The `origin/main` branch already includes server-owned state for video dates and Ready Gate, backend-owned Daily Drop transitions, and server-owned chat/swipe notification flows, with a controlled migration history and a documented rebuild pack in `_cursor_context`. The **golden-path regression harness** (`docs/golden-path-regression-runbook.md`, `scripts/run_golden_path_smoke.sh`) is **merged on main** and is the canonical regression checklist and static smoke for the web baseline.

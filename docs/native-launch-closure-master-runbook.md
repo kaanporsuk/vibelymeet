@@ -1,11 +1,12 @@
 # Native launch-closure — master runbook
 
 Date: 2026-04-08  
-Branch baseline: `feat/native-sprint6-launch-closure-execution` (canonical execution order; older phase docs are deep references)
+Branch baseline: `feat/native-sprint6-launch-closure-execution` (**historical execution-stream provenance only**; not the required current working branch)
 
 This is the **single canonical execution order** for moving from **current No-Go (submission)** to **provider-complete + device-proven** state. Use it instead of hopping between older phase docs alone.
 
 **Fast path for operators:** read `docs/kaan-launch-closure-execution-sheet.md` first (one-page compressed checklist), then use this file for criteria and escalation.
+**Active doc map:** `docs/active-doc-map.md`
 
 ---
 

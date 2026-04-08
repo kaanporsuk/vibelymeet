@@ -1,14 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
 import { captureSupabaseError } from "@/lib/errorTracking";
 
 export const useDeleteAccount = () => {
   const [isDeleting, setIsDeleting] = useState(false);
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const deleteAccount = async (reason: string | null = null) => {
     setIsDeleting(true);
@@ -22,39 +18,37 @@ export const useDeleteAccount = () => {
         return false;
       }
 
-      const { data, error } = await supabase.functions.invoke("delete-account", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
+      const email = session.user.email ?? "";
+      if (!email.includes("@")) {
+        toast.error("A valid account email is required to schedule deletion.");
+        setIsDeleting(false);
+        return false;
+      }
+
+      const { data, error } = await supabase.functions.invoke("request-account-deletion", {
+        body: {
+          email,
+          reason,
+          source: "web_settings",
         },
-        body: { reason },
       });
 
       if (error) {
         console.error("Delete account error:", error);
-        captureSupabaseError("delete-account", error);
-        toast.error("Failed to delete account. Please try again.");
+        captureSupabaseError("request-account-deletion", error);
+        toast.error("Failed to schedule account deletion. Please try again.");
         setIsDeleting(false);
         return false;
       }
 
       if (!data?.success) {
-        toast.error(data?.error || "Failed to delete account");
+        toast.error(data?.error || "Failed to schedule account deletion");
         setIsDeleting(false);
         return false;
       }
 
-      // Success - clean up
-      console.log("Account deletion scheduled, cleaning up...");
-
-      await supabase.auth.signOut();
-      queryClient.clear();
-      localStorage.clear();
-      sessionStorage.clear();
-
-      toast.success("Account scheduled for deletion");
-
-      window.history.replaceState(null, "", "/");
-      navigate("/", { replace: true });
+      window.dispatchEvent(new Event("vibely:deletion-state-changed"));
+      toast.success("Account deletion scheduled. You can cancel it before the removal date.");
 
       return true;
     } catch (err) {

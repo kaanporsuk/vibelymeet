@@ -7,6 +7,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 **Open hardening caveat (from web baseline) accounted for:** Production OneSignal **web** service-worker asset and origin configuration, and the logged rebuild rehearsal, are called out in §5, §8, §9, and §12 so they are not forgotten in the final readiness picture.
 
 **Operator sequence:** `npm run launch:preflight` → **`docs/kaan-launch-closure-execution-sheet.md`**. Pass/fail evidence table: **`docs/native-final-blocker-matrix.md`**. Narrative and escalation: **`docs/native-launch-closure-master-runbook.md`**.
+**Active doc map:** `docs/active-doc-map.md`
 
 ---
 

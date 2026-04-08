@@ -1,5 +1,7 @@
 # Native Deployment & Validation Sequence
 
+> **Superseded for active launch closure.** Use `docs/active-doc-map.md` plus the execution-sheet/master-runbook chain instead. This file is retained for historical rollout context and contains stale branch-specific provenance.
+
 Ordered execution guide for merging the native tranche, rolling out backend changes, configuring external providers, and validating before TestFlight/Play and production. No new product features—deployment and validation only.
 
 ---

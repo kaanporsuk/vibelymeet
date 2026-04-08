@@ -1,5 +1,7 @@
 # Native screen contract map
 
+> **Historical parity reference.** This file maps native screens against legacy web surfaces, but it is not the active launch-closure source of truth. For current execution and evidence docs, use `docs/active-doc-map.md`.
+
 Map of every native-v1 screen to web source, native route, hooks/services, RPCs/Edge Functions/realtime, platform adapters, and parity priority. Web is the product/design source of truth.
 
 **Conventions:** Web route and component from `src/App.tsx` and `src/pages/`. Native route from `apps/mobile` Expo Router (file-based). Priority: **P0** = required for v1, **P1** = first follow-up, **P2** = deferred.

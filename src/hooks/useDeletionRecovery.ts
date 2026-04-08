@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -16,25 +16,41 @@ export const useDeletionRecovery = () => {
   const [pendingDeletion, setPendingDeletion] = useState<DeletionRequest | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
 
+  const refetchDeletionState = useCallback(async () => {
+    if (!user?.id) {
+      setPendingDeletion(null);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("account_deletion_requests")
+      .select("id, scheduled_deletion_at, status")
+      .eq("user_id", user.id)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    setPendingDeletion(data as DeletionRequest | null);
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user?.id) {
       setPendingDeletion(null);
       return;
     }
 
-    const check = async () => {
-      const { data } = await supabase
-        .from("account_deletion_requests")
-        .select("id, scheduled_deletion_at, status")
-        .eq("user_id", user.id)
-        .eq("status", "pending")
-        .maybeSingle();
+    void refetchDeletionState();
+  }, [user?.id, refetchDeletionState]);
 
-      setPendingDeletion(data as DeletionRequest | null);
+  useEffect(() => {
+    const handleDeletionStateChanged = () => {
+      void refetchDeletionState();
     };
 
-    check();
-  }, [user?.id]);
+    window.addEventListener("vibely:deletion-state-changed", handleDeletionStateChanged);
+    return () => {
+      window.removeEventListener("vibely:deletion-state-changed", handleDeletionStateChanged);
+    };
+  }, [user?.id, refetchDeletionState]);
 
   const cancelDeletion = async () => {
     setIsCancelling(true);
@@ -60,6 +76,7 @@ export const useDeletionRecovery = () => {
 
       setPendingDeletion(null);
       queryClient.invalidateQueries({ queryKey: ["profile"] });
+      window.dispatchEvent(new Event("vibely:deletion-state-changed"));
       toast.success("Account deletion cancelled! Welcome back 🎉");
       setIsCancelling(false);
       return true;
@@ -71,5 +88,5 @@ export const useDeletionRecovery = () => {
     }
   };
 
-  return { pendingDeletion, cancelDeletion, isCancelling };
+  return { pendingDeletion, cancelDeletion, isCancelling, refetchDeletionState };
 };

@@ -1,5 +1,7 @@
 # Native Launch Readiness — Post–Sprint 6
 
+> **Historical / superseded for active launch closure.** Use `docs/active-doc-map.md` for the current entrypoint chain. This file is kept as a pre-consolidation readiness snapshot and should not be used as the primary operator runbook.
+
 Status after completion of Sprints 1–6 for the Vibely native build stream. This doc is integration- and release-prep focused; no new product features.
 
 ## Current completion status by domain

@@ -1,5 +1,7 @@
 # VIBELY — DISCREPANCY REPORT
 
+> **Historical rebuild audit.** Keep for provenance when comparing frozen-web artifacts, but do not use it as an active launch-closure entrypoint. For current launch docs, use `docs/active-doc-map.md`.
+
 **Date:** 2026-03-10  
 **Compared artifacts:**
 - Claude snapshot: `vibely-golden-snapshot_claude.md`

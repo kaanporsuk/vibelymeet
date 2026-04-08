@@ -11,6 +11,10 @@ Primary entrypoint:
 
 - `npm run proof:smoke-bootstrap`
 
+Dedicated Vibe Studio binary proof:
+
+- `npm run proof:vibe-upload-processing`
+
 Cleanup/reset only:
 
 - `node scripts/fresh-smoke-proof-bootstrap.mjs cleanup`
@@ -37,6 +41,15 @@ Cleanup/reset only:
   - `/dashboard`
   - `/invite?ref=...` -> `/auth?ref=...` -> `/settings/referrals`
   - `/vibe-studio`
+  - `/user/:userId`
+
+The dedicated Vibe Studio closure harness `scripts/fresh-vibe-upload-processing-proof.mjs` reuses the same smoke pair, keeps the primary ready account untouched as control, and drives the reversible partner account through:
+
+- cleanup back to `bunny_video_status='none'`
+- fresh `create-video-upload` + real Bunny tus upload
+- observed `processing -> ready`
+- replace to a new `bunny_video_uid`
+- final cleanup back to `none`
 
 No schema migration or deploy is required for this bootstrap. It uses linked SQL execution plus existing runtime routes/functions.
 
@@ -50,7 +63,8 @@ No schema migration or deploy is required for this bootstrap. It uses linked SQL
 | Referrals self-ref rejection | Fresh authenticated `kaanporsuk@gmail.com` browser session | No special data beyond clean local referral storage | Yes |
 | Vibe Studio ready render + caption save/revert | Fresh authenticated `kaanporsuk@gmail.com` browser session | Existing ready Vibe video on the primary smoke profile | Yes |
 | Vibe Studio create/upload entry + delete cleanup | Fresh authenticated `direklocal@gmail.com` browser session | Complete profile with no active video | Yes |
-| Vibe Studio binary upload -> processing -> ready / replace | Fresh authenticated browser session plus safe reversible media account | Real tus upload + webhook-ready completion + safe replace target | Not fully in this stream |
+| Public profile route render | Fresh authenticated `direklocal@gmail.com` browser session viewing `kaanporsuk@gmail.com` | Existing complete public profile data on the primary smoke account | Yes |
+| Vibe Studio binary upload -> processing -> ready / replace | Fresh authenticated browser session plus safe reversible media account | Real tus upload + webhook-ready completion + safe replace target | Yes, via `npm run proof:vibe-upload-processing` |
 | OneSignal prompt grant + delivered click | Interactive non-headless browser/device session | Real permission grant + delivered notification | No |
 
 ## 4. What is now hard-proved by the bootstrap
@@ -60,6 +74,8 @@ No schema migration or deploy is required for this bootstrap. It uses linked SQL
 - `/schedule` and `/dashboard` both render the upcoming-date reminder/countdown truth from the accepted smoke plan.
 - `/invite?ref=` stores the referrer id, `/auth?ref=` applies server-owned attribution after fresh auth, `/settings/referrals` shows the linked inviter, and repeat/self-ref attempts do not corrupt `referred_by`.
 - `/vibe-studio` renders the ready state for the primary smoke account, saves/reverts caption text, and safely proves create/upload-entry plus delete cleanup on the partner smoke account.
+- `npm run proof:vibe-upload-processing` generates real `video/webm` assets in headless Chromium, proves fresh Bunny tus upload through observed `processing -> ready`, proves replace with a new uid and abandoned prior session, and restores the reversible partner account back to `none`.
+- `/user/:userId` renders the primary smoke profile from an authenticated partner session, including name/age, tagline, photo verification, ready Vibe Video caption, About Me, vibes, and lifestyle sections without falling into the not-found shell.
 
 ## 5. Explicit exclusions
 
@@ -71,4 +87,4 @@ This bootstrap does **not** fake closure for manual/provider/device work:
 - OneSignal mobile dashboard setup
 - EAS/device validation
 
-It also does not currently prove a full fresh binary upload through `processing` / `ready` and safe `replace` on a dedicated reversible smoke media account.
+`npm run proof:smoke-bootstrap` itself still does not perform the long binary upload/replace cycle; that closure now lives in the dedicated `npm run proof:vibe-upload-processing` harness.

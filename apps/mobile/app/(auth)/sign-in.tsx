@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
-import { router, type Href } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Localization from 'expo-localization';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
+import { useNativeLogout } from '@/hooks/useNativeLogout';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import Colors from '@/constants/Colors';
@@ -14,7 +15,6 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
-import { applyNativeReferralAttribution } from '@/lib/referrals';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
@@ -61,6 +61,13 @@ const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 /** Canonical web origin for legal pages (matches `EXPO_PUBLIC_WEB_APP_URL` usage elsewhere). */
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
 
+function firstRouteParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' && value[0].trim() ? value[0].trim() : null;
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 const COUNTRIES: Country[] = [
   { name: 'Poland', code: '+48', flag: '🇵🇱', suggested: true },
   { name: 'Netherlands', code: '+31', flag: '🇳🇱', suggested: true },
@@ -103,11 +110,14 @@ const COUNTRIES: Country[] = [
 
 export default function SignInScreen() {
   const theme = Colors[useColorScheme()];
+  const params = useLocalSearchParams<{ authError?: string | string[] }>();
   const { session } = useAuth();
+  const logout = useNativeLogout();
   const defaultPhoneCountry = useMemo(
     () => getDefaultPhoneCountry(Localization.getLocales()[0]?.regionCode ?? null),
     [],
   );
+  const authLinkError = firstRouteParam(params.authError);
 
   const [view, setView] = useState<AuthView>('welcome');
   const [loading, setLoading] = useState(false);
@@ -133,6 +143,7 @@ export default function SignInScreen() {
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
+  const handledAuthLinkErrorRef = useRef<string | null>(null);
 
   const showProfileRecovery = (message?: string) => {
     setProfileBootstrapState('failed');
@@ -221,6 +232,14 @@ export default function SignInScreen() {
   }, []);
 
   useEffect(() => {
+    if (!authLinkError || handledAuthLinkErrorRef.current === authLinkError) return;
+    handledAuthLinkErrorRef.current = authLinkError;
+    setLoading(false);
+    setView('welcome');
+    setError(authLinkError);
+  }, [authLinkError]);
+
+  useEffect(() => {
     if (!session?.user?.id) {
       setProfileBootstrapState('idle');
       setProfileBootstrapMessage(null);
@@ -235,17 +254,6 @@ export default function SignInScreen() {
       const result = await settleProfileBootstrap();
       if (cancelled) return;
       if (result.status === 'ready') {
-        const referralResult = await applyNativeReferralAttribution(session.user.id);
-        if (
-          !cancelled &&
-          referralResult.status === 'rpc-failed'
-        ) {
-          console.warn('[referrals] native attribution failed', {
-            userId: session.user.id,
-            status: referralResult.status,
-            message: referralResult.message,
-          });
-        }
         setProfileBootstrapState('ready');
         return;
       }
@@ -285,9 +293,10 @@ export default function SignInScreen() {
   };
 
   const signOutFromRecovery = async () => {
-    await supabase.auth.signOut();
+    await logout();
     setProfileBootstrapState('idle');
     setProfileBootstrapMessage(null);
+    setError(null);
     setView('welcome');
   };
 
@@ -660,6 +669,14 @@ export default function SignInScreen() {
           <View style={styles.success}>
             <Text style={styles.emoji}>✨</Text>
             <Text style={[styles.h2, { color: theme.text }]}>Welcome to Vibely!</Text>
+            {profileBootstrapState === 'ensuring' ? (
+              <>
+                <ActivityIndicator color={theme.tint} style={{ marginTop: 12 }} />
+                <Text style={{ color: theme.textSecondary, textAlign: 'center', marginTop: 8 }}>
+                  Finishing your account setup...
+                </Text>
+              </>
+            ) : null}
           </View>
         ) : null}
 
