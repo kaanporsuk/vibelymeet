@@ -238,7 +238,7 @@ export default function SignInScreen() {
         const referralResult = await applyNativeReferralAttribution(session.user.id);
         if (
           !cancelled &&
-          (referralResult.status === 'lookup-failed' || referralResult.status === 'update-failed')
+          referralResult.status === 'rpc-failed'
         ) {
           console.warn('[referrals] native attribution failed', {
             userId: session.user.id,
