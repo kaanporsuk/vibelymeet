@@ -8,41 +8,21 @@ export type ReferralStorage = {
   removeItem: (key: string) => MaybePromise<void>;
 };
 
-type ReferralProfileRow = {
-  id: string;
-  referred_by: string | null;
-};
-
-type ReferralSelectBuilder = {
-  eq: (
-    column: string,
-    value: string,
-  ) => {
-    maybeSingle: () => PromiseLike<{ data: ReferralProfileRow | null; error: unknown | null }>;
-  };
-};
-
-type ReferralUpdateBuilder = {
-  eq: (column: string, value: string) => PromiseLike<{ error: unknown | null }>;
-};
-
-type ReferralProfilesTable = {
-  select: (columns: string) => ReferralSelectBuilder;
-  update: (values: { referred_by: string }) => ReferralUpdateBuilder;
-};
-
 export type ReferralAttributionClient = {
-  from: (table: "profiles") => ReferralProfilesTable;
+  rpc: (
+    fn: "apply_referral_attribution",
+    params: { p_referrer_id: string },
+  ) => PromiseLike<{ data: unknown; error: unknown | null }>;
 };
 
 export type ApplyStoredReferralResult =
   | { status: "no-pending" }
   | { status: "invalid" }
   | { status: "self" }
+  | { status: "auth-required" }
   | { status: "already-set"; referrerId: string | null }
   | { status: "missing-profile"; referrerId: string }
-  | { status: "lookup-failed"; referrerId: string; message: string }
-  | { status: "update-failed"; referrerId: string; message: string }
+  | { status: "rpc-failed"; referrerId: string; message: string }
   | { status: "applied"; referrerId: string };
 
 function asMessage(error: unknown): string {
@@ -92,34 +72,44 @@ export async function applyStoredReferralAttribution(
     return { status: "self" };
   }
 
-  const { data, error } = await client
-    .from("profiles")
-    .select("id, referred_by")
-    .eq("id", currentUserId)
-    .maybeSingle();
-
+  const { data, error } = await client.rpc("apply_referral_attribution", {
+    p_referrer_id: referrerId,
+  });
   if (error) {
-    return { status: "lookup-failed", referrerId, message: asMessage(error) };
+    return { status: "rpc-failed", referrerId, message: asMessage(error) };
   }
 
-  if (!data) {
+  const payload = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  const status = typeof payload?.status === "string" ? payload.status : null;
+  const returnedReferrerId =
+    typeof payload?.referrer_id === "string" ? normalizeReferralId(payload.referrer_id) : null;
+
+  if (status === "already-set") {
+    await clearStoredReferralId(storage);
+    return { status: "already-set", referrerId: returnedReferrerId };
+  }
+  if (status === "applied") {
+    await clearStoredReferralId(storage);
+    return { status: "applied", referrerId };
+  }
+  if (status === "missing-profile") {
     return { status: "missing-profile", referrerId };
   }
-
-  if (data.referred_by) {
+  if (status === "self") {
     await clearStoredReferralId(storage);
-    return { status: "already-set", referrerId: data.referred_by };
+    return { status: "self" };
+  }
+  if (status === "invalid") {
+    await clearStoredReferralId(storage);
+    return { status: "invalid" };
+  }
+  if (status === "auth-required") {
+    return { status: "auth-required" };
   }
 
-  const { error: updateError } = await client
-    .from("profiles")
-    .update({ referred_by: referrerId })
-    .eq("id", currentUserId);
-
-  if (updateError) {
-    return { status: "update-failed", referrerId, message: asMessage(updateError) };
-  }
-
-  await clearStoredReferralId(storage);
-  return { status: "applied", referrerId };
+  return {
+    status: "rpc-failed",
+    referrerId,
+    message: "Unexpected referral attribution response.",
+  };
 }

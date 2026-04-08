@@ -169,7 +169,7 @@ const Auth = () => {
         const referralResult = await applyBrowserReferralAttribution(sessionUser.id);
         if (
           !cancelled &&
-          (referralResult.status === "lookup-failed" || referralResult.status === "update-failed")
+          referralResult.status === "rpc-failed"
         ) {
           console.warn("[referrals] attribution failed", {
             userId: sessionUser.id,
