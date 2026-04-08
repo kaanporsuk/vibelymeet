@@ -119,7 +119,9 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 |----------|------|---------|------------|
 | `account-pause` | Edge Function | Pause account | Same (settings) |
 | `account-resume` | Edge Function | Resume account | Same |
-| `delete-account` | Edge Function | Request deletion | Same or link to web |
+| `request-account-deletion` | Edge Function | Start scheduled deletion grace window | Same |
+| `cancel-deletion` | Edge Function | Recover account during deletion grace window | Same |
+| `delete-account` | Edge Function | Legacy authenticated wrapper around scheduled deletion + cleanup/sign-out | Not required in normal app flow |
 | `verify-admin` | Edge Function | Admin gating | Web only (admin routes) |
 
 ---

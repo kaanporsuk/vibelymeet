@@ -27,6 +27,8 @@ export const useDeletionRecovery = () => {
       .select("id, scheduled_deletion_at, status")
       .eq("user_id", user.id)
       .eq("status", "pending")
+      .order("scheduled_deletion_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
 
     setPendingDeletion(data as DeletionRequest | null);
