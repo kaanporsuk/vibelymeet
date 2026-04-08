@@ -96,7 +96,7 @@ const EntryRecovery = () => {
   }, [entryState, navigate, provider]);
 
   const handleRetry = async () => {
-    if (!session?.user || isRetrying || isSigningOut) return;
+    if (!session?.user || isRetrying || isSigningOut || isCancelling) return;
 
     setIsRetrying(true);
     trackEvent("entry_recovery_retry_clicked", {
@@ -134,7 +134,7 @@ const EntryRecovery = () => {
   };
 
   const handleTryAnotherMethod = async () => {
-    if (isSigningOut || isRetrying) return;
+    if (isSigningOut || isRetrying || isCancelling) return;
     setIsSigningOut(true);
     try {
       await logout();
@@ -145,7 +145,7 @@ const EntryRecovery = () => {
   };
 
   const handleSignOut = async () => {
-    if (isSigningOut || isRetrying) return;
+    if (isSigningOut || isRetrying || isCancelling) return;
     setIsSigningOut(true);
     try {
       await logout();
@@ -220,7 +220,7 @@ const EntryRecovery = () => {
                   type="button"
                   className="w-full"
                   onClick={handleTryAnotherMethod}
-                  disabled={isSigningOut || isRetrying}
+                  disabled={isSigningOut || isRetrying || isCancelling}
                 >
                   {isSigningOut ? "Signing out..." : copy.primaryLabel}
                 </Button>
@@ -229,7 +229,7 @@ const EntryRecovery = () => {
                   variant="outline"
                   className="w-full"
                   onClick={handleRetry}
-                  disabled={isRetrying || isSigningOut}
+                  disabled={isRetrying || isSigningOut || isCancelling}
                 >
                   {isRetrying ? "Checking account..." : copy.secondaryLabel}
                 </Button>
