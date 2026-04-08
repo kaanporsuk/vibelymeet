@@ -26,7 +26,6 @@ import {
   MessageCircle,
   Heart,
   Calendar,
-  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +41,6 @@ import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector } from "@/components/HeightSelector";
-import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
@@ -163,7 +161,6 @@ type DrawerType =
   | "intent"
   | "lifestyle"
   | "verification"
-  | "vibe-video"
   | "tagline"
   | null;
 
@@ -252,7 +249,6 @@ const ProfileStudio = () => {
   const [editingPromptIndex, setEditingPromptIndex] = useState<number | null>(null);
   const [promptEditorMode, setPromptEditorMode] = useState<"add" | "edit">("edit");
   const [showVibeScoreDrawer, setShowVibeScoreDrawer] = useState(false);
-  const [showVibeStudio, setShowVibeStudio] = useState(false);
   const [showVibePlayer, setShowVibePlayer] = useState(false);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
@@ -380,11 +376,6 @@ const ProfileStudio = () => {
     loadProfile();
   }, [profileRefreshKey]);
 
-  useEffect(() => {
-    if (!showVibeStudio) return;
-    if (profile.bunnyVideoStatus === "failed") setProfile((prev) => ({ ...prev, bunnyVideoStatus: "none" }));
-  }, [showVibeStudio]);
-
   const vibeVideoInfo = useMemo(
     () =>
       resolveWebVibeVideoState({
@@ -394,7 +385,6 @@ const ProfileStudio = () => {
       }),
     [profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.vibeCaption],
   );
-  const vibeVideoPlaybackUrl = vibeVideoInfo.playbackUrl;
   const hasVibeVideo = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.playbackUrl;
   const isVibeVideoProcessing =
     vibeVideoInfo.state === "processing" || vibeVideoInfo.state === "uploading";
@@ -683,14 +673,17 @@ const ProfileStudio = () => {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const goToVibeStudio = useCallback(() => {
+    navigate("/vibe-studio");
+  }, [navigate]);
+
   const handleVibeScoreAction = (action: VibeScoreActionId) => {
     switch (action) {
       case "photos":
         setShowPhotoDrawer(true);
         break;
       case "vibe_video":
-        if (profile.bunnyVideoUid?.trim()) setActiveDrawer("vibe-video");
-        else setShowVibeStudio(true);
+        goToVibeStudio();
         break;
       case "vibes":
         setEditForm({ ...profile });
@@ -757,8 +750,7 @@ const ProfileStudio = () => {
   };
 
   const openHeroVideoFab = () => {
-    if (profile.bunnyVideoUid?.trim()) setActiveDrawer("vibe-video");
-    else setShowVibeStudio(true);
+    goToVibeStudio();
   };
 
   const handleInviteFriends = async () => {
@@ -994,7 +986,7 @@ const ProfileStudio = () => {
             {vibeVideoInfo.uid ? (
               <button
                 type="button"
-                onClick={() => openDrawer("vibe-video")}
+                onClick={goToVibeStudio}
                 className="flex shrink-0 items-center gap-0.5 text-sm font-medium text-violet-400 hover:text-violet-300"
               >
                 Manage <ChevronRight className="h-3.5 w-3.5" />
@@ -1014,7 +1006,7 @@ const ProfileStudio = () => {
               <p className="text-base font-display font-semibold text-white">Couldn&apos;t finish processing</p>
               <p className="text-sm text-gray-400 text-center px-6">Try recording again — your clip didn&apos;t make it through</p>
               <button
-                onClick={() => setShowVibeStudio(true)}
+                onClick={goToVibeStudio}
                 className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
               >
                 Record again
@@ -1027,10 +1019,10 @@ const ProfileStudio = () => {
               <p className="text-sm text-gray-400 text-center">Open Manage to refresh or re-upload if this persists.</p>
               <button
                 type="button"
-                onClick={() => openDrawer("vibe-video")}
+                onClick={goToVibeStudio}
                 className="mt-2 px-6 py-2.5 rounded-xl bg-white/10 text-white font-semibold text-sm"
               >
-                Manage
+                Open Studio
               </button>
             </div>
           ) : readyAwaitingPlaybackUrl ? (
@@ -1078,7 +1070,7 @@ const ProfileStudio = () => {
               <p className="text-base font-display font-semibold text-white">Record your Vibe Video</p>
               <p className="text-sm text-gray-400 text-center px-6">Profiles with video get 3x more quality conversations</p>
               <button
-                onClick={() => setShowVibeStudio(true)}
+                onClick={goToVibeStudio}
                 className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
               >
                 Record now
@@ -1688,92 +1680,6 @@ const ProfileStudio = () => {
         </DrawerContent>
       </Drawer>
 
-      {/* Vibe Video Drawer */}
-      <Drawer open={activeDrawer === "vibe-video"} onOpenChange={handleProfileStudioDrawerOpenChange}>
-        <DrawerContent className="max-h-[85vh]">
-          <DrawerHeader className="pb-2">
-            <DrawerTitle className="font-display">Vibe Video</DrawerTitle>
-          </DrawerHeader>
-          <div className="px-4 pb-4 space-y-4">
-            {/* Thumbnail preview */}
-            <div className="relative w-full rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
-              {thumbnailUrl && !thumbnailError ? (
-                <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={() => setThumbnailError(true)} />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-[#1C1A2E] to-[#0D0B1A]" />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-              <button onClick={() => { setActiveDrawer(null); setShowVibePlayer(true); }} className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center bg-violet-500/80 backdrop-blur-sm">
-                  <Play className="w-5 h-5 text-white ml-0.5" />
-                </div>
-              </button>
-              {profile.vibeCaption && (
-                <div className="absolute bottom-0 left-0 right-0 p-3 pointer-events-none">
-                  <p className="text-[9px] font-semibold uppercase tracking-widest text-violet-400 mb-0.5">Vibing on</p>
-                  <p className="text-white text-sm font-bold truncate">{profile.vibeCaption}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Status */}
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 text-xs font-semibold text-green-500">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Live
-              </span>
-            </div>
-
-            <div className="border-t border-white/5" />
-
-            {/* Action rows */}
-            {[
-              { icon: Video, label: "Record new video", onClick: () => { setActiveDrawer(null); setShowVibeStudio(true); }, chevron: true },
-              { icon: Eye, label: "Preview as others see it", onClick: () => { setActiveDrawer(null); setShowVibePlayer(true); }, chevron: true },
-            ].map((row) => (
-              <button
-                key={row.label}
-                onClick={row.onClick}
-                className="w-full flex items-center gap-3.5 h-14 hover:bg-white/5 rounded-lg transition-colors -mx-1 px-1"
-              >
-                <row.icon className="w-5 h-5 text-primary shrink-0" />
-                <span className="text-[15px] font-semibold text-white flex-1 text-left">{row.label}</span>
-                {row.chevron && <ChevronRight className="w-4 h-4 text-white/20" />}
-              </button>
-            ))}
-
-            <div className="border-t border-white/5" />
-
-            <button
-              onClick={async () => {
-                try {
-                  const { data: { session } } = await supabase.auth.getSession();
-                  if (!session) return;
-                  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-vibe-video`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-                  });
-                  const result = await res.json();
-                  if (result.success) {
-                    setProfile((prev) => ({ ...prev, bunnyVideoUid: null, bunnyVideoStatus: "none", vibeCaption: "" }));
-                    suppressProfileDraftResetRef.current = true;
-                    setActiveDrawer(null);
-                    toast.success("Video deleted");
-                  } else {
-                    toast.error("Failed to delete video.");
-                  }
-                } catch {
-                  toast.error("Failed to delete video.");
-                }
-              }}
-              className="w-full flex items-center gap-3.5 h-14 hover:bg-destructive/10 rounded-lg transition-colors -mx-1 px-1"
-            >
-              <Trash2 className="w-5 h-5 text-destructive shrink-0" />
-              <span className="text-[15px] font-semibold text-destructive flex-1 text-left">Delete video</span>
-            </button>
-          </div>
-        </DrawerContent>
-      </Drawer>
-
       {/* Tagline */}
       <Drawer open={activeDrawer === "tagline"} onOpenChange={handleProfileStudioDrawerOpenChange}>
         <DrawerContent className="max-h-[85vh]">
@@ -1810,27 +1716,6 @@ const ProfileStudio = () => {
         score={vibeScore}
         vibeScoreLabel={profile.vibeScoreLabel}
         onAction={handleVibeScoreAction}
-      />
-
-      <VibeStudioModal
-        open={showVibeStudio}
-        onOpenChange={setShowVibeStudio}
-        onSave={async (_pathOrUrl, caption) => {
-          await updateMyProfile({ vibeCaption: caption || "" });
-          const refreshed = await fetchMyProfile();
-          if (refreshed) {
-            setProfile((prev) => ({
-              ...prev,
-              bunnyVideoUid: refreshed.bunnyVideoUid || null,
-              bunnyVideoStatus: refreshed.bunnyVideoStatus || "none",
-              vibeCaption: caption || "",
-              vibeScore: refreshed.vibeScore ?? prev.vibeScore,
-              vibeScoreLabel: refreshed.vibeScoreLabel ?? prev.vibeScoreLabel,
-            }));
-          }
-        }}
-        existingVideoUrl={vibeVideoPlaybackUrl || undefined}
-        existingCaption={profile.vibeCaption}
       />
 
       <PhoneVerification

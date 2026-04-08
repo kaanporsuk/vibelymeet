@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   ScrollView,
   Image,
@@ -40,7 +40,6 @@ import {
 import { avatarUrl, getImageUrl, deckCardUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
-import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
@@ -52,8 +51,6 @@ import {
   AddPhotoSourcePopover,
   type AddPhotoAnchor,
 } from '@/components/photos/AddPhotoSourcePopover';
-import VibeVideoDrawer from '@/components/video/VibeVideoDrawer';
-import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { RelationshipIntentSelector, getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
 import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
@@ -154,10 +151,6 @@ export default function ProfileStudio() {
 
   // Photo upload state
   const [photoUploading, setPhotoUploading] = useState(false);
-  const [showVideoDrawer, setShowVideoDrawer] = useState(false);
-  const [showFullscreenVibe, setShowFullscreenVibe] = useState(false);
-  /** UI: hide system “VIBING ON” label after first natural full play; user caption stays visible. */
-  const [hideVibingOnLabelAfterComplete, setHideVibingOnLabelAfterComplete] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
@@ -297,10 +290,6 @@ export default function ProfileStudio() {
     });
   }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.state, profile]);
 
-  useEffect(() => {
-    setHideVibingOnLabelAfterComplete(false);
-  }, [videoInfo.playbackUrl, videoInfo.uid]);
-
   const registerSectionLayout = (key: string, y: number, height: number) => {
     sectionOffsets.current[key] = y;
     sectionLayouts.current[key] = { y, height };
@@ -362,6 +351,10 @@ export default function ProfileStudio() {
     });
   };
 
+  const openVibeStudio = useCallback(() => {
+    (router as { push: (p: string) => void }).push('/vibe-studio');
+  }, [router]);
+
   const handleVibeScoreDrawerAction = (action: VibeScoreActionId) => {
     switch (action) {
       case 'vibes':
@@ -372,7 +365,7 @@ export default function ProfileStudio() {
         setShowPhotoDrawer(true);
         break;
       case 'vibe_video':
-        (router as { push: (p: string) => void }).push('/vibe-video-record');
+        openVibeStudio();
         break;
       case 'prompts':
         scrollToSection('prompts');
@@ -1015,7 +1008,7 @@ export default function ProfileStudio() {
           )}
           {/* Video FAB — bottom left */}
           <Pressable
-            onPress={() => setShowVideoDrawer(true)}
+            onPress={openVibeStudio}
             style={[s.heroFab, s.heroFabLeft]}
           >
             <Ionicons name="videocam" size={18} color="white" />
@@ -1191,26 +1184,28 @@ export default function ProfileStudio() {
               <Text style={[s.sectionTitle, { color: theme.text }]}>Vibe Video</Text>
             </RNView>
             <Pressable
-              onPress={() => setShowVideoDrawer(true)}
+              onPress={openVibeStudio}
               style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
             >
-              <Text style={[s.sectionLinkText, { color: theme.tint }]}>Manage</Text>
+              <Text style={[s.sectionLinkText, { color: theme.tint }]}>Open Studio</Text>
               <Ionicons name="chevron-forward" size={16} color={theme.tint} />
             </Pressable>
           </RNView>
 
           {isVibeVideoProcessing ? (
-            <RNView
+            <Pressable
+              onPress={openVibeStudio}
               ref={setSectionCardRef('video')}
               collapsable={false}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 registerSectionCardLayout('video', y, height);
               }}
-              style={[
+              style={({ pressed }) => [
                 s.videoCard,
                 s.videoProcessingCard,
                 { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+                pressed && { opacity: 0.92 },
               ]}
             >
               <ActivityIndicator size="large" color="#8B5CF6" />
@@ -1218,16 +1213,22 @@ export default function ProfileStudio() {
               <Text style={[s.videoProcessingSubtitle, { color: theme.textSecondary }]}>
                 This usually takes 15–30 seconds
               </Text>
-            </RNView>
+              <Text style={[s.videoStudioHint, { color: theme.tint }]}>Open Vibe Studio</Text>
+            </Pressable>
           ) : hasVibeVideo ? (
-            <RNView
+            <Pressable
+              onPress={openVibeStudio}
               ref={setSectionCardRef('video')}
               collapsable={false}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 registerSectionCardLayout('video', y, height);
               }}
-              style={[s.videoCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}
+              style={({ pressed }) => [
+                s.videoCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+                pressed && { opacity: 0.96 },
+              ]}
             >
               {thumbnailUrl && !thumbnailError ? (
                 <Image
@@ -1257,39 +1258,37 @@ export default function ProfileStudio() {
                 <Text style={s.videoLiveText}>LIVE</Text>
               </RNView>
 
-              {videoInfo.canPlay ? (
-                <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
-                  <Pressable style={s.videoPlayBtn} onPress={() => setShowFullscreenVibe(true)}>
-                    <Ionicons name="play" size={28} color="#fff" />
-                  </Pressable>
+              <RNView style={s.videoPlayOverlay} pointerEvents="none">
+                <RNView style={s.videoPlayBtn}>
+                  <Ionicons name="arrow-forward" size={26} color="#fff" />
                 </RNView>
-              ) : null}
+              </RNView>
 
               <RNView style={s.videoCaptionStrip} pointerEvents="none">
                 {caption ? (
                   <>
-                    {!hideVibingOnLabelAfterComplete ? (
-                      <Text style={s.videoCaptionLabel}>VIBING ON</Text>
-                    ) : null}
+                    <Text style={s.videoCaptionLabel}>VIBING ON</Text>
                     <Text style={s.videoCaptionText} numberOfLines={2}>
                       {caption}
                     </Text>
                   </>
                 ) : (
                   <Text style={[s.videoCaptionText, { opacity: 0.7 }]}>
-                    {videoInfo.canPlay ? 'Tap to play' : 'Video ready'}
+                    Open in Vibe Studio
                   </Text>
                 )}
               </RNView>
-            </RNView>
+            </Pressable>
           ) : isVibeVideoFailed ? (
-            <RNView
+            <Pressable
+              onPress={openVibeStudio}
               ref={setSectionCardRef('video')}
               collapsable={false}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 registerSectionCardLayout('video', y, height);
               }}
+              style={({ pressed }) => [pressed && { opacity: 0.94 }]}
             >
               <Card variant="glass" style={s.videoEmptyCard}>
                 <Ionicons name="alert-circle-outline" size={48} color="#F59E0B" style={{ opacity: 0.85 }} />
@@ -1303,23 +1302,22 @@ export default function ProfileStudio() {
                   end={{ x: 1, y: 0 }}
                   style={s.videoEmptyCta}
                 >
-                  <Pressable
-                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-                    style={s.videoEmptyCtaInner}
-                  >
-                    <Text style={s.videoEmptyCtaText}>Record again</Text>
-                  </Pressable>
+                  <RNView style={s.videoEmptyCtaInner}>
+                    <Text style={s.videoEmptyCtaText}>Open Vibe Studio</Text>
+                  </RNView>
                 </LinearGradient>
               </Card>
-            </RNView>
+            </Pressable>
           ) : isVibeVideoError ? (
-            <RNView
+            <Pressable
+              onPress={openVibeStudio}
               ref={setSectionCardRef('video')}
               collapsable={false}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 registerSectionCardLayout('video', y, height);
               }}
+              style={({ pressed }) => [pressed && { opacity: 0.94 }]}
             >
               <Card variant="glass" style={s.videoEmptyCard}>
                 <Ionicons name="warning-outline" size={48} color="#F59E0B" style={{ opacity: 0.9 }} />
@@ -1333,23 +1331,22 @@ export default function ProfileStudio() {
                   end={{ x: 1, y: 0 }}
                   style={s.videoEmptyCta}
                 >
-                  <Pressable
-                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-                    style={s.videoEmptyCtaInner}
-                  >
-                    <Text style={s.videoEmptyCtaText}>Record now</Text>
-                  </Pressable>
+                  <RNView style={s.videoEmptyCtaInner}>
+                    <Text style={s.videoEmptyCtaText}>Open Vibe Studio</Text>
+                  </RNView>
                 </LinearGradient>
               </Card>
-            </RNView>
+            </Pressable>
           ) : (
-            <RNView
+            <Pressable
+              onPress={openVibeStudio}
               ref={setSectionCardRef('video')}
               collapsable={false}
               onLayout={(e) => {
                 const { y, height } = e.nativeEvent.layout;
                 registerSectionCardLayout('video', y, height);
               }}
+              style={({ pressed }) => [pressed && { opacity: 0.94 }]}
             >
               <Card variant="glass" style={s.videoEmptyCard}>
                 <Ionicons name="videocam-outline" size={48} color={theme.textSecondary} style={{ opacity: 0.3 }} />
@@ -1363,15 +1360,12 @@ export default function ProfileStudio() {
                   end={{ x: 1, y: 0 }}
                   style={s.videoEmptyCta}
                 >
-                  <Pressable
-                    onPress={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-                    style={s.videoEmptyCtaInner}
-                  >
-                    <Text style={s.videoEmptyCtaText}>Record now</Text>
-                  </Pressable>
+                  <RNView style={s.videoEmptyCtaInner}>
+                    <Text style={s.videoEmptyCtaText}>Open Vibe Studio</Text>
+                  </RNView>
                 </LinearGradient>
               </Card>
-            </RNView>
+            </Pressable>
           )}
         </RNView>
 
@@ -2364,42 +2358,6 @@ export default function ProfileStudio() {
         }}
       />
 
-      {/* ═══ Video Manage Bottom Sheet ═══ */}
-      <VibeVideoDrawer
-        visible={showVideoDrawer}
-        onClose={() => setShowVideoDrawer(false)}
-        videoInfo={videoInfo}
-        onRecordNew={() => (router as { push: (p: string) => void }).push('/vibe-video-record')}
-        onOpenFullscreen={() => setShowFullscreenVibe(true)}
-        onDelete={async () => {
-          try {
-            await deleteVibeVideo();
-            setShowFullscreenVibe(false);
-            setThumbnailError(false);
-            await qc.invalidateQueries({ queryKey: ['my-profile'] });
-          } catch (e) {
-            const msg =
-              e instanceof DeleteVibeVideoError ? e.message : 'Could not delete. Try again.';
-            show({
-              title: 'Couldn’t delete video',
-              message: msg,
-              variant: 'warning',
-              primaryAction: { label: 'OK', onPress: () => {} },
-            });
-            throw e;
-          }
-        }}
-      />
-
-      <FullscreenVibeVideoModal
-        visible={showFullscreenVibe && videoInfo.canPlay}
-        onClose={() => setShowFullscreenVibe(false)}
-        playbackUrl={videoInfo.playbackUrl}
-        bunnyVideoUid={videoInfo.uid}
-        vibeCaption={caption}
-        posterUrl={videoInfo.thumbnailUrl}
-        onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}
-      />
     </ScrollView>
 
     <AddPhotoSourcePopover
@@ -2707,6 +2665,11 @@ const s = StyleSheet.create({
     fontFamily: fonts.body,
     textAlign: 'center',
     paddingHorizontal: spacing.lg,
+  },
+  videoStudioHint: {
+    fontSize: 13,
+    fontFamily: fonts.bodySemiBold,
+    marginTop: 2,
   },
   videoErrorCard: {
     justifyContent: 'center',

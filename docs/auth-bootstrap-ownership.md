@@ -158,6 +158,6 @@ This addendum captures final post-incident hardening after missing-profile repai
   - This refinement does not create profiles during hydration and does not alter `profiles.id = auth.users.id` semantics.
 
 - Legacy/compat surfaces intentionally retained:
-  - Web `/vibe-studio` remains a minimal compatibility redirect to `/profile` for old deep links.
+  - Web `/vibe-studio` is now a dedicated Vibe Studio management route (recording still reuses shared `VibeStudioModal` plumbing).
   - Deprecated `signUp(...)` surfaces remain explicit fail-fast guardrails in web/native auth contexts.
 

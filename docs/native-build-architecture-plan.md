@@ -345,7 +345,7 @@ Mapping from current web routes (from `src/App.tsx`) to target native screen arc
 | `/premium`, `/subscription/success`, `/subscription/cancel` | Premium / subscription screens | Stripe on web; native uses RevenueCat, same entitlement outcome. |
 | `/credits`, `/credits/success` | Credits purchase / success | Web: Stripe; native: RevenueCat. |
 | `/event-payment/success` | Event payment success | Post-event payment. |
-| `/vibe-studio` | Vibe studio | Assumption: redirect or equivalent to profile/studio flow as on web. |
+| `/vibe-studio` | Vibe studio | Dedicated studio route on both web and native; native authoring remains `vibe-video-record`. |
 | `/match-celebration` | Match celebration modal/screen | Shown after match. |
 | `/how-it-works`, `/privacy`, `/terms`, `/delete-account`, `/community-guidelines` | Legal / info screens | Same content, native presentation. |
 | `/kaan`, `/kaan/dashboard` | Admin login, Admin dashboard | Admin-only; same gating as web. |

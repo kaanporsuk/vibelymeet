@@ -57,9 +57,9 @@ No invented hostnames in code.
 
 ## Fullscreen playback surfaces (native)
 
-**`FullscreenVibeVideoModal`** wraps **`VibeVideoPlayer`** (expo-video, shared poster + `player.status_error` diagnostics). `ProfileStudio` and the record preview use the same component.
+**`FullscreenVibeVideoModal`** wraps **`VibeVideoPlayer`** (expo-video, shared poster + `player.status_error` diagnostics). `Vibe Studio` and the record preview use the same component.
 
-- `app/(tabs)/profile/ProfileStudio.tsx` — current profile surface
+- `app/vibe-studio.tsx` — dedicated Vibe Studio management surface
 - `app/vibe-video-record.tsx` — post-capture preview
 
 On iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration.

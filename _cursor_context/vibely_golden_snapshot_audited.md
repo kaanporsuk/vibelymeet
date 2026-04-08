@@ -86,7 +86,7 @@ This audited snapshot intentionally excludes secret values. It records required 
 - `/ready/:id` → `ReadyGate` — Legacy standalone ready gate
 - `/admin/create-event` → `AdminCreateEvent` — Admin-only create event
 - `/match-celebration` → `MatchCelebration` — Celebration screen
-- `/vibe-studio` → `VibeStudio` — Redirect page to profile
+- `/vibe-studio` → `VibeStudio` — Dedicated vibe-video studio surface
 - `/vibe-feed` → `VibeFeed` — Mock-data video feed
 - `/schedule` → `Schedule` — Availability scheduling
 - `/credits` → `Credits` — Credits purchase
@@ -101,7 +101,7 @@ This audited snapshot intentionally excludes secret values. It records required 
 ### Route anomalies / corrections
 
 - `src/pages/VideoLobby.tsx` exists in the repo but is **not routed** in `src/App.tsx`.
-- `src/pages/VibeStudio.tsx` is not a real standalone studio page; it immediately redirects the user to `/profile`.
+- `src/pages/VibeStudio.tsx` is now a standalone studio management surface that still reuses `VibeStudioModal` for recording/upload authoring.
 - `src/pages/VibeFeed.tsx` is wired with mock sample media URLs and should be treated as non-production surface unless separately proven.
 - Admin path `/kaan` is a hardcoded route, not feature-flagged.
 

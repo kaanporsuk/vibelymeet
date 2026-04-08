@@ -233,7 +233,7 @@ Post-closure polish with no backend schema/data contract changes:
   - Native `schedule` reminder Join now uses its existing contextual join handler (active session deep-link first, chat fallback).
 
 - VibeStudio shim minimization:
-  - `src/pages/VibeStudio.tsx` remains an intentional compatibility redirect only (no extra side-effects), forwarding legacy `/vibe-studio` links to `/profile`.
+  - `src/pages/VibeStudio.tsx` was an intentional compatibility redirect at that audit point; current branch `feat/vibe-studio-foundation` promotes it to a dedicated studio surface.
 
 - Auth/bootstrap ownership unchanged:
   - Signup/bootstrap owners remain: web `src/pages/Auth.tsx`, native `apps/mobile/app/(auth)/sign-in.tsx`.

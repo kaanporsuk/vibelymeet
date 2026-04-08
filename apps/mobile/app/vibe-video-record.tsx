@@ -122,13 +122,13 @@ function ProcessingScreen({
         {elapsed}s
       </Text>
       <Text style={[styles.processingHint, { color: theme.textSecondary }]}>
-        You can return to your profile — we'll keep checking in the background.
+        You can return to Vibe Studio — we'll keep checking in the background.
       </Text>
       <Pressable
         style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
         onPress={onGoBack}
       >
-        <Text style={styles.btnLabel}>{ctaLabel ?? 'Back to profile'}</Text>
+        <Text style={styles.btnLabel}>{ctaLabel ?? 'Back to Vibe Studio'}</Text>
       </Pressable>
     </View>
   );
@@ -238,6 +238,10 @@ export default function VibeVideoRecordScreen() {
     await requestMicPermission();
   };
 
+  const returnToVibeStudio = useCallback(() => {
+    (router as { replace: (p: string) => void }).replace('/vibe-studio');
+  }, [router]);
+
   const returnToOnboarding = useCallback((videoId: string) => {
     router.replace({
       pathname: '/(onboarding)',
@@ -332,7 +336,7 @@ export default function VibeVideoRecordScreen() {
         });
         vibeVideoDiagVerbose('upload.poll.result', { expectedVideoId, result });
 
-        // Refetch (not just invalidate) so ProfileStudio gets fresh data before we navigate
+        // Refetch (not just invalidate) so Vibe Studio gets fresh data before we navigate
         await qc.refetchQueries({ queryKey: ['my-profile'] });
 
         if (!mountedRef.current || runId !== uploadRunIdRef.current) return;
@@ -349,9 +353,9 @@ export default function VibeVideoRecordScreen() {
           safeSetStage('idle');
           show({
             title: 'Your Vibe Video is live!',
-            message: 'It’s now visible on your profile.',
+            message: 'It’s now live in Vibe Studio.',
             variant: 'success',
-            primaryAction: { label: 'View profile', onPress: () => router.replace('/(tabs)/profile') },
+            primaryAction: { label: 'View Vibe Studio', onPress: returnToVibeStudio },
           });
           return;
         }
@@ -371,7 +375,7 @@ export default function VibeVideoRecordScreen() {
             returnToOnboarding(expectedVideoId);
             return;
           }
-          router.replace('/(tabs)/profile');
+          returnToVibeStudio();
           return;
         }
         if (result === 'aborted') {
@@ -381,7 +385,7 @@ export default function VibeVideoRecordScreen() {
         show({
           title: 'Still processing',
           message:
-            'Your video is taking longer than usual. It’ll show on your profile when ready — pull to refresh on Profile.',
+            'Your video is taking longer than usual. It’ll show in Vibe Studio when ready — pull to refresh there.',
           variant: 'info',
           primaryAction: {
             label: 'OK',
@@ -390,13 +394,13 @@ export default function VibeVideoRecordScreen() {
                 returnToOnboarding(expectedVideoId);
                 return;
               }
-              router.replace('/(tabs)/profile');
+              returnToVibeStudio();
             },
           },
         });
       })();
     },
-    [onboardingFlow, qc, returnToOnboarding, router, safeSetStage, show],
+    [onboardingFlow, qc, returnToOnboarding, returnToVibeStudio, safeSetStage, show],
   );
 
   const doUpload = async () => {
@@ -610,9 +614,9 @@ export default function VibeVideoRecordScreen() {
             }
             leftProcessingEarlyRef.current = true;
             qc.refetchQueries({ queryKey: ['my-profile'] });
-            router.replace('/(tabs)/profile');
+            returnToVibeStudio();
           }}
-          ctaLabel={onboardingFlow ? 'Continue onboarding' : 'Back to profile'}
+          ctaLabel={onboardingFlow ? 'Continue onboarding' : 'Back to Vibe Studio'}
         />
         {dialog}
       </>
