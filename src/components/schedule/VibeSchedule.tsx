@@ -51,9 +51,13 @@ export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
     }
   };
 
-  const handleCopyWeek = () => {
-    copyPreviousWeek();
-    toast.success("Previous week's schedule copied!");
+  const handleCopyWeek = async () => {
+    try {
+      await copyPreviousWeek();
+      toast.success("Previous week's schedule copied!");
+    } catch {
+      toast.error("Could not copy last week's availability.");
+    }
   };
 
   const handleToggle = (date: Date, block: TimeBlock) => {
@@ -106,7 +110,7 @@ export const VibeSchedule = ({ onClose }: VibeScheduleProps) => {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleCopyWeek}
+            onClick={() => void handleCopyWeek()}
             className="gap-2 border-primary/50 text-primary hover:bg-primary/10"
           >
             <Copy className="w-4 h-4" />

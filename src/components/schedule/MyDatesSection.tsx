@@ -1,111 +1,137 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { format, isAfter, isBefore, startOfDay } from "date-fns";
-import { Calendar, Clock, Video, MapPin, Check, X, Loader2 } from "lucide-react";
-import { DateProposal, getTimeBlockInfo } from "@/hooks/useSchedule";
-import { cn } from "@/lib/utils";
+import { Calendar, Clock, MapPin, Check, X, Loader2, MessageCircle, Ban } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import {
+  labelForDateType,
+  labelForPlaceMode,
+  labelForTimeChoice,
+} from "@/lib/dateSuggestionCopy";
+import { cn } from "@/lib/utils";
+import { formatProposedDateTimeSummary } from "../../../shared/dateSuggestions/formatProposedDateTimeSummary";
+import type { ScheduleHubItem } from "../../../shared/schedule/planningHub";
 
 interface MyDatesSectionProps {
-  proposals: DateProposal[];
-  onAccept?: (proposalId: string) => void;
-  onDecline?: (proposalId: string) => void;
+  pendingItems: ScheduleHubItem[];
+  upcomingItems: ScheduleHubItem[];
+  historyItems: ScheduleHubItem[];
+  isLoading?: boolean;
+  onAccept?: (item: ScheduleHubItem) => void;
+  onDecline?: (item: ScheduleHubItem) => void;
+  onCancel?: (item: ScheduleHubItem) => void;
+  onOpenChat?: (item: ScheduleHubItem) => void;
 }
 
-export const MyDatesSection = ({ proposals, onAccept, onDecline }: MyDatesSectionProps) => {
-  const today = startOfDay(new Date());
+const STATUS_LABEL: Record<string, string> = {
+  draft: "Draft",
+  proposed: "Waiting on reply",
+  viewed: "Seen",
+  countered: "Countered",
+  accepted: "Confirmed",
+  declined: "Declined",
+  not_now: "Not now",
+  expired: "Expired",
+  cancelled: "Cancelled",
+  completed: "Completed",
+};
 
-  const pendingProposals = proposals.filter(p => p.status === "pending");
-  const acceptedProposals = proposals.filter(p => p.status === "accepted" && isAfter(p.date, today));
-  const pastProposals = proposals.filter(p => 
-    p.status === "accepted" && isBefore(p.date, today) || 
-    p.status === "declined"
-  );
+function resolveWhenLabel(item: ScheduleHubItem): string {
+  if (item.startsAt) {
+    return formatProposedDateTimeSummary(item.startsAt.toISOString()) || labelForTimeChoice(item.timeChoiceKey);
+  }
+  return labelForTimeChoice(item.timeChoiceKey);
+}
 
-  const renderProposalCard = (proposal: DateProposal, showActions: boolean = false) => {
-    const blockInfo = getTimeBlockInfo(proposal.block);
-    const isPast = isBefore(proposal.date, today);
+function resolvePlaceLabel(item: ScheduleHubItem): string {
+  if (item.placeModeKey === "custom_venue" && item.venueText) return item.venueText;
+  return labelForPlaceMode(item.placeModeKey);
+}
+
+export const MyDatesSection = ({
+  pendingItems,
+  upcomingItems,
+  historyItems,
+  isLoading = false,
+  onAccept,
+  onDecline,
+  onCancel,
+  onOpenChat,
+}: MyDatesSectionProps) => {
+  const renderCard = (item: ScheduleHubItem) => {
+    const statusLabel = STATUS_LABEL[item.status] ?? item.status;
+    const whenLabel = resolveWhenLabel(item);
+    const placeLabel = resolvePlaceLabel(item);
+    const showResponseActions = item.canAccept || item.canDecline;
+    const showCancel = item.canCancel;
 
     return (
       <motion.div
-        key={proposal.id}
+        key={item.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className={cn(
-          "p-4 rounded-xl border",
-          proposal.status === "accepted" && !isPast && "bg-emerald-500/10 border-emerald-500/30",
-          proposal.status === "pending" && "bg-primary/10 border-primary/30",
-          proposal.status === "declined" && "bg-destructive/10 border-destructive/30",
-          isPast && "opacity-60"
+          "rounded-2xl border p-4",
+          item.bucket === "upcoming" && "border-emerald-500/30 bg-emerald-500/10",
+          item.bucket === "pending" && "border-primary/30 bg-primary/10",
+          item.bucket === "history" && "border-border/50 bg-muted/10"
         )}
       >
-        <div className="flex items-start gap-3">
-          {/* Mode Icon */}
-          <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
-            proposal.mode === "video" ? "bg-neon-cyan/20" : "bg-accent/20"
-          )}>
-            {proposal.mode === "video" ? (
-              <Video className="w-5 h-5 text-neon-cyan" />
-            ) : (
-              <MapPin className="w-5 h-5 text-accent" />
-            )}
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Calendar className="w-4 h-4 text-muted-foreground" />
-              {format(proposal.date, "EEEE, MMM d")}
+              <span className="truncate">{item.partnerName}</span>
+              <span className="text-muted-foreground">•</span>
+              <span className="truncate text-muted-foreground">{labelForDateType(item.dateTypeKey)}</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock className="w-3 h-3" />
-              {blockInfo.label} • {blockInfo.hours}
+              {whenLabel}
             </div>
-            
-            {proposal.message && (
-              <p className="text-xs text-muted-foreground mt-2 italic line-clamp-2">
-                "{proposal.message}"
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <MapPin className="w-3 h-3" />
+              {placeLabel}
+            </div>
+            {item.optionalMessage ? (
+              <p className="line-clamp-2 text-xs italic text-muted-foreground">
+                "{item.optionalMessage}"
               </p>
-            )}
-
-            {proposal.senderName && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {proposal.isIncoming ? `From ${proposal.senderName}` : `To ${proposal.senderName}`}
-              </p>
-            )}
+            ) : null}
           </div>
-
-          {/* Status / Actions */}
-          <div className="shrink-0">
-            {showActions && proposal.isIncoming && proposal.status === "pending" ? (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onAccept?.(proposal.id)}
-                  className="p-2 rounded-full bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => onDecline?.(proposal.id)}
-                  className="p-2 rounded-full bg-destructive/20 text-destructive hover:bg-destructive/30 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className={cn(
-                "px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1",
-                proposal.status === "pending" && "bg-muted text-muted-foreground",
-                proposal.status === "accepted" && "bg-emerald-500/20 text-emerald-400",
-                proposal.status === "declined" && "bg-destructive/20 text-destructive"
-              )}>
-                {proposal.status === "pending" && <Loader2 className="w-3 h-3 animate-spin" />}
-                {proposal.status === "accepted" && <Check className="w-3 h-3" />}
-                {proposal.status === "declined" && <X className="w-3 h-3" />}
-                {proposal.status.charAt(0).toUpperCase() + proposal.status.slice(1)}
-              </div>
+          <div
+            className={cn(
+              "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium",
+              item.bucket === "upcoming" && "bg-emerald-500/20 text-emerald-400",
+              item.bucket === "pending" && "bg-muted text-muted-foreground",
+              item.bucket === "history" && "bg-muted/50 text-muted-foreground",
             )}
+          >
+            {statusLabel}
           </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {showResponseActions ? (
+            <>
+              <Button size="sm" className="gap-1" onClick={() => onAccept?.(item)}>
+                <Check className="h-3.5 w-3.5" />
+                Accept
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => onDecline?.(item)}>
+                <X className="h-3.5 w-3.5" />
+                Decline
+              </Button>
+            </>
+          ) : null}
+          {showCancel ? (
+            <Button size="sm" variant="outline" className="gap-1" onClick={() => onCancel?.(item)}>
+              <Ban className="h-3.5 w-3.5" />
+              Cancel
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" className="gap-1" onClick={() => onOpenChat?.(item)}>
+            <MessageCircle className="h-3.5 w-3.5" />
+            Open chat
+          </Button>
         </div>
       </motion.div>
     );
@@ -129,43 +155,58 @@ export const MyDatesSection = ({ proposals, onAccept, onDecline }: MyDatesSectio
         <Tabs defaultValue="pending" className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-4">
             <TabsTrigger value="pending" className="text-xs">
-              Pending ({pendingProposals.length})
+              Pending ({pendingItems.length})
             </TabsTrigger>
             <TabsTrigger value="upcoming" className="text-xs">
-              Upcoming ({acceptedProposals.length})
+              Upcoming ({upcomingItems.length})
             </TabsTrigger>
             <TabsTrigger value="past" className="text-xs">
-              Past ({pastProposals.length})
+              History ({historyItems.length})
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="pending" className="space-y-3">
-            {pendingProposals.length > 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading plans...
+              </div>
+            ) : pendingItems.length > 0 ? (
               <AnimatePresence mode="popLayout">
-                {pendingProposals.map(p => renderProposalCard(p, true))}
+                {pendingItems.map((item) => renderCard(item))}
               </AnimatePresence>
             ) : (
-              <EmptyState message="No pending date proposals" />
+              <EmptyState message="No pending plans or proposals yet." />
             )}
           </TabsContent>
 
           <TabsContent value="upcoming" className="space-y-3">
-            {acceptedProposals.length > 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading plans...
+              </div>
+            ) : upcomingItems.length > 0 ? (
               <AnimatePresence mode="popLayout">
-                {acceptedProposals.map(p => renderProposalCard(p))}
+                {upcomingItems.map((item) => renderCard(item))}
               </AnimatePresence>
             ) : (
-              <EmptyState message="No upcoming dates" />
+              <EmptyState message="No upcoming plans yet." />
             )}
           </TabsContent>
 
           <TabsContent value="past" className="space-y-3">
-            {pastProposals.length > 0 ? (
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading plans...
+              </div>
+            ) : historyItems.length > 0 ? (
               <AnimatePresence mode="popLayout">
-                {pastProposals.map(p => renderProposalCard(p))}
+                {historyItems.map((item) => renderCard(item))}
               </AnimatePresence>
             ) : (
-              <EmptyState message="No past dates" />
+              <EmptyState message="No past plans yet." />
             )}
           </TabsContent>
         </Tabs>

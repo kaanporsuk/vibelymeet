@@ -1,5 +1,7 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format, startOfWeek, startOfDay } from "date-fns";
+import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
 export type TimeBlock = "morning" | "afternoon" | "evening" | "night";
@@ -44,44 +46,42 @@ const generateSlotKey = (date: Date, block: TimeBlock): string => {
   return `${format(date, "yyyy-MM-dd")}_${block}`;
 };
 
-export const useSchedule = () => {
-  const [mySchedule, setMySchedule] = useState<ScheduleData>({});
-  const [proposals, setProposals] = useState<DateProposal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [pendingSlots, setPendingSlots] = useState<Set<string>>(new Set());
+const SCHEDULE_QUERY_KEY = (userId: string) => ["user-schedule", userId] as const;
 
-  // Load schedule from database on mount
-  useEffect(() => {
-    const loadSchedule = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setIsLoading(false);
-        return;
-      }
+async function loadUserSchedule(userId: string): Promise<ScheduleData> {
+  const { data, error } = await supabase
+    .from("user_schedules")
+    .select("slot_key, slot_date, time_block, status")
+    .eq("user_id", userId);
 
-      const { data, error } = await supabase
-        .from("user_schedules")
-        .select("slot_key, slot_date, time_block, status")
-        .eq("user_id", user.id);
+  if (error) throw error;
 
-      if (!error && data) {
-        const schedule: ScheduleData = {};
-        data.forEach((row) => {
-          const date = new Date(`${row.slot_date}T00:00:00`);
-          schedule[row.slot_key] = {
-            date,
-            block: row.time_block as TimeBlock,
-            status: row.status as SlotStatus,
-          };
-        });
-        setMySchedule(schedule);
-      }
-      setIsLoading(false);
+  const schedule: ScheduleData = {};
+  (data ?? []).forEach((row) => {
+    const date = new Date(`${row.slot_date}T00:00:00`);
+    schedule[row.slot_key] = {
+      date,
+      block: row.time_block as TimeBlock,
+      status: row.status as SlotStatus,
     };
+  });
+  return schedule;
+}
 
-    loadSchedule();
-  }, []);
+export const useSchedule = () => {
+  const { user } = useUserProfile();
+  const userId = user?.id ?? null;
+  const queryClient = useQueryClient();
+  const [pendingSlots, setPendingSlots] = useState<Set<string>>(new Set());
+  const {
+    data: mySchedule = {},
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: SCHEDULE_QUERY_KEY(userId ?? "none"),
+    queryFn: () => loadUserSchedule(userId!),
+    enabled: !!userId,
+  });
 
   const dateRange = useMemo(() => {
     const today = startOfDay(new Date());
@@ -90,23 +90,18 @@ export const useSchedule = () => {
 
   const toggleSlot = useCallback(async (date: Date, block: TimeBlock) => {
     const key = generateSlotKey(date, block);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!userId) return;
+    const queryKey = SCHEDULE_QUERY_KEY(userId);
 
-    // Get current state for potential rollback
-    const previousSchedule = { ...mySchedule };
-    const currentSlot = mySchedule[key];
-    
+    const previousSchedule = queryClient.getQueryData<ScheduleData>(queryKey) ?? {};
+    const currentSlot = previousSchedule[key];
     if (currentSlot?.status === "event") return;
 
-    // Mark slot as pending
     setPendingSlots(prev => new Set(prev).add(key));
-    setIsSyncing(true);
 
     const isRemoving = currentSlot?.status === "open";
 
-    // Optimistic update
-    setMySchedule((prev) => {
+    queryClient.setQueryData<ScheduleData>(queryKey, (prev = {}) => {
       if (isRemoving) {
         const { [key]: _, ...rest } = prev;
         return rest;
@@ -119,36 +114,38 @@ export const useSchedule = () => {
         const { error } = await supabase
           .from("user_schedules")
           .delete()
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
           .eq("slot_key", key);
-        
+
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("user_schedules")
-          .upsert({
-            user_id: user.id,
-            slot_key: key,
-            slot_date: format(date, "yyyy-MM-dd"),
-            time_block: block,
-            status: "open",
-          });
-        
+          .upsert(
+            {
+              user_id: userId,
+              slot_key: key,
+              slot_date: format(date, "yyyy-MM-dd"),
+              time_block: block,
+              status: "open",
+            },
+            { onConflict: "user_id,slot_key" },
+          );
+
         if (error) throw error;
       }
     } catch (error) {
-      // Rollback on error
-      setMySchedule(previousSchedule);
+      queryClient.setQueryData(queryKey, previousSchedule);
       console.error("Failed to sync schedule:", error);
+      throw error;
     } finally {
       setPendingSlots(prev => {
         const next = new Set(prev);
         next.delete(key);
         return next;
       });
-      setIsSyncing(prev => pendingSlots.size > 1 ? prev : false);
     }
-  }, [mySchedule, pendingSlots.size]);
+  }, [queryClient, userId]);
 
   const getSlotStatus = useCallback(
     (date: Date, block: TimeBlock): TimeSlot | null => {
@@ -159,77 +156,51 @@ export const useSchedule = () => {
   );
 
   const copyPreviousWeek = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!userId) return;
+    const queryKey = SCHEDULE_QUERY_KEY(userId);
+    const previousSchedule = queryClient.getQueryData<ScheduleData>(queryKey) ?? {};
 
     const today = startOfDay(new Date());
     const currentWeekStart = startOfWeek(today, { weekStartsOn: 1 });
+    const nextSchedule = { ...previousSchedule };
     const newSlots: Array<{ user_id: string; slot_key: string; slot_date: string; time_block: string; status: string }> = [];
 
-    setMySchedule((prev) => {
-      const newSchedule = { ...prev };
-      for (let i = 0; i < 7; i++) {
-        const sourceDate = addDays(currentWeekStart, i);
-        const targetDate = addDays(currentWeekStart, i + 7);
+    for (let i = 0; i < 7; i++) {
+      const sourceDate = addDays(currentWeekStart, i);
+      const targetDate = addDays(currentWeekStart, i + 7);
 
-        (["morning", "afternoon", "evening", "night"] as TimeBlock[]).forEach((block) => {
-          const sourceKey = generateSlotKey(sourceDate, block);
-          const targetKey = generateSlotKey(targetDate, block);
-          const sourceSlot = prev[sourceKey];
+      (["morning", "afternoon", "evening", "night"] as TimeBlock[]).forEach((block) => {
+        const sourceKey = generateSlotKey(sourceDate, block);
+        const targetKey = generateSlotKey(targetDate, block);
+        const sourceSlot = previousSchedule[sourceKey];
 
-          if (sourceSlot?.status === "open") {
-            newSchedule[targetKey] = { date: targetDate, block, status: "open" };
-            newSlots.push({
-              user_id: user.id,
-              slot_key: targetKey,
-              slot_date: format(targetDate, "yyyy-MM-dd"),
-              time_block: block,
-              status: "open",
-            });
-          }
-        });
-      }
-      return newSchedule;
-    });
-
-    if (newSlots.length > 0) {
-      supabase.from("user_schedules").upsert(newSlots).then();
+        if (sourceSlot?.status === "open") {
+          nextSchedule[targetKey] = { date: targetDate, block, status: "open" };
+          newSlots.push({
+            user_id: userId,
+            slot_key: targetKey,
+            slot_date: format(targetDate, "yyyy-MM-dd"),
+            time_block: block,
+            status: "open",
+          });
+        }
+      });
     }
-  }, []);
 
-  const sendProposal = useCallback(
-    (
-      date: Date,
-      block: TimeBlock,
-      mode: "video" | "in-person",
-      message: string,
-      matchName?: string,
-      matchId?: string
-    ): DateProposal => {
-      const proposal: DateProposal = {
-        id: `proposal-${Date.now()}`,
-        date,
-        block,
-        mode,
-        message,
-        status: "pending",
-        sentAt: new Date(),
-        isIncoming: false,
-        senderName: matchName,
-        matchId,
-      };
+    queryClient.setQueryData(queryKey, nextSchedule);
 
-      setProposals((prev) => [...prev, proposal]);
-      return proposal;
-    },
-    []
-  );
-
-  const respondToProposal = useCallback((proposalId: string, accept: boolean) => {
-    setProposals((prev) =>
-      prev.map((p) => (p.id === proposalId ? { ...p, status: accept ? "accepted" : "declined" } : p))
-    );
-  }, []);
+    try {
+      if (newSlots.length > 0) {
+        const { error } = await supabase
+          .from("user_schedules")
+          .upsert(newSlots, { onConflict: "user_id,slot_key" });
+        if (error) throw error;
+      }
+    } catch (error) {
+      queryClient.setQueryData(queryKey, previousSchedule);
+      throw error;
+    }
+  }, [queryClient, userId]);
 
   const isSlotPending = useCallback((date: Date, block: TimeBlock): boolean => {
     const key = generateSlotKey(date, block);
@@ -242,13 +213,11 @@ export const useSchedule = () => {
     toggleSlot,
     getSlotStatus,
     copyPreviousWeek,
-    proposals,
-    sendProposal,
-    respondToProposal,
     getTimeBlockInfo,
     isLoading,
-    isSyncing,
+    isSyncing: pendingSlots.size > 0,
     isSlotPending,
+    refetch,
   };
 };
 

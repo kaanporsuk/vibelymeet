@@ -4,12 +4,12 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { differenceInSeconds } from 'date-fns';
-import type { DateProposal } from '@/lib/useDateProposals';
 
 export type DateReminder = {
   id: string;
   proposalId: string;
   matchId?: string;
+  partnerUserId?: string;
   matchName: string;
   matchAvatar?: string;
   date: Date;
@@ -23,6 +23,17 @@ export type DateReminder = {
   };
   urgency: 'none' | 'soon' | 'imminent' | 'now';
   formattedCountdown: string;
+};
+
+export type DateReminderSource = {
+  id: string;
+  matchId?: string;
+  partnerUserId?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  date: Date;
+  mode: 'video' | 'in-person';
+  status: 'accepted';
 };
 
 function calculateTimeUntil(date: Date): DateReminder['timeUntil'] {
@@ -50,7 +61,7 @@ function formatCountdown(t: DateReminder['timeUntil']): string {
   return `${t.seconds}s`;
 }
 
-export function useDateReminders(upcomingDates: DateProposal[]) {
+export function useDateReminders(upcomingDates: DateReminderSource[]) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const hasRelevant = upcomingDates.some(
@@ -70,6 +81,7 @@ export function useDateReminders(upcomingDates: DateProposal[]) {
           id: `reminder-${p.id}`,
           proposalId: p.id,
           matchId: p.matchId,
+          partnerUserId: p.partnerUserId,
           matchName: p.senderName ?? 'Your match',
           matchAvatar: p.senderAvatar,
           date: p.date,

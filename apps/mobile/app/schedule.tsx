@@ -1,18 +1,12 @@
 /**
  * Vibe Schedule — native parity with web src/pages/Schedule.tsx + src/components/schedule/VibeSchedule.tsx
  *
- * INSPECTION FINDINGS (Step 0):
- * - Route: web /schedule (src/pages/Schedule.tsx). Components: VibeSchedule, MyDatesSection, DateReminderCard.
- * - useSchedule (src/hooks/useSchedule.ts): Table user_schedules (user_id, slot_key, slot_date, time_block, status).
- *   slot_key = "YYYY-MM-dd_block"; time_block in ('morning','afternoon','evening','night'); status in ('open','busy') per DB.
- *   "event" (locked) is a client-side type only; DB does not store it — derived from event overlap (not yet wired on web).
- * - Toggle: if slot open → delete row; else → upsert { user_id, slot_key, slot_date, time_block, status: 'open' }.
- * - Roll Previous Week: client-side only — copy current week's open slots to next week, then supabase.from('user_schedules').upsert(newSlots). No RPC.
- * - useMutualAvailability: in same file; uses mySchedule + matchSchedule to compute mutual slots (golden/available). Not needed for this screen.
- * - Date proposals: web uses local state in useSchedule; native uses date_proposals table via useScheduleProposals (partitionScheduleProposals → pending, upcomingAccepted, past).
+ * Stream 2A keeps `user_schedules` as the availability source while aligning the
+ * planning hub to the active backend-backed `date_suggestions` / `date_plans` flow
+ * already used by chat surfaces. No new schema or recurrence logic is introduced here.
  */
-import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { format } from 'date-fns';
@@ -20,19 +14,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSchedule, SCHEDULE_QUERY_KEY, type ScheduleTimeBucket } from '@/lib/useSchedule';
 import { supabase } from '@/lib/supabase';
-import {
-  useScheduleProposals,
-  partitionScheduleProposals,
-  toDateProposalsForReminders,
-} from '@/lib/useScheduleProposals';
 import { useAuth } from '@/context/AuthContext';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { useScheduleHub } from '@/lib/useScheduleHub';
+import { dateSuggestionApply } from '@/lib/dateSuggestionApply';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
 import { spacing, layout } from '@/constants/theme';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
+import { labelForDateType, labelForPlaceMode, labelForTimeChoice } from '@/lib/dateSuggestionCopy';
+import { formatProposedDateTimeSummary } from '../../../shared/dateSuggestions/formatProposedDateTimeSummary';
+import type { ScheduleHubItem } from '../../../shared/schedule/planningHub';
 
 const BG = '#09090B';
 const CARD_BG = '#1C1C2E';
@@ -41,6 +35,32 @@ const PURPLE = '#8B5CF6';
 const MUTED = '#9CA3AF';
 const DIVIDER = 'rgba(255,255,255,0.08)';
 const SUCCESS_BG = '#16A34A';
+const CARD_BORDER = 'rgba(255,255,255,0.12)';
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Draft',
+  proposed: 'Waiting on reply',
+  viewed: 'Seen',
+  countered: 'Countered',
+  accepted: 'Confirmed',
+  declined: 'Declined',
+  not_now: 'Not now',
+  expired: 'Expired',
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+};
+
+function resolveWhenLabel(item: ScheduleHubItem): string {
+  if (item.startsAt) {
+    return formatProposedDateTimeSummary(item.startsAt.toISOString()) || labelForTimeChoice(item.timeChoiceKey);
+  }
+  return labelForTimeChoice(item.timeChoiceKey);
+}
+
+function resolvePlaceLabel(item: ScheduleHubItem): string {
+  if (item.placeModeKey === 'custom_venue' && item.venueText) return item.venueText;
+  return labelForPlaceMode(item.placeModeKey);
+}
 
 async function openChatFromMatch(matchId: string, userId: string) {
   const { data, error } = await supabase
@@ -73,32 +93,32 @@ export default function ScheduleScreen() {
   const {
     days,
     isLoading: scheduleLoading,
+    schedule,
     toggleSlot,
     rollPreviousWeek,
-    refetch: refetchSchedule,
     dateRange,
     shiftRange,
     getSlotState,
   } = useSchedule();
-
-  const { data: allProposals = [], isLoading: proposalsLoading } = useScheduleProposals(user?.id);
-  const { pending, upcomingAccepted, past } = partitionScheduleProposals(allProposals);
-  const reminderSource = toDateProposalsForReminders(upcomingAccepted);
-  const { imminentReminders, soonReminders } = useDateReminders(reminderSource);
+  const {
+    pendingItems,
+    upcomingItems,
+    historyItems,
+    reminderSources,
+    isLoading: plansLoading,
+    refetch: refetchScheduleHub,
+  } = useScheduleHub();
+  const { imminentReminders, soonReminders } = useDateReminders(reminderSources);
   const upcomingReminders = [...imminentReminders, ...soonReminders];
   const { isGranted: pushGranted } = usePushPermission();
   const { activeSession } = useActiveSession(user?.id);
-  const [refreshing, setRefreshing] = useState(false);
   const [banner, setBanner] = useState<'success' | 'error' | null>(null);
   const [rollLoading, setRollLoading] = useState(false);
-  const [datesTab, setDatesTab] = useState<'pending' | 'upcoming' | 'past'>('pending');
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await refetchSchedule();
-    await qc.invalidateQueries({ queryKey: ['date-proposals', user?.id] });
-    setRefreshing(false);
-  }, [refetchSchedule, qc, user?.id]);
+  const [datesTab, setDatesTab] = useState<'pending' | 'upcoming' | 'history'>('pending');
+  const availabilityCount = useMemo(
+    () => Object.values(schedule).filter((slot) => slot.status === 'open').length,
+    [schedule]
+  );
 
   const handleRollPreviousWeek = useCallback(async () => {
     setRollLoading(true);
@@ -136,11 +156,30 @@ export default function ScheduleScreen() {
         }
         return;
       }
+      if (reminder.partnerUserId) {
+        router.push(`/chat/${reminder.partnerUserId}` as const);
+        return;
+      }
       if (reminder.matchId && user?.id) {
         await openChatFromMatch(reminder.matchId, user.id);
       }
     },
     [activeSession, user?.id],
+  );
+
+  const runSuggestionAction = useCallback(
+    async (action: 'accept' | 'decline' | 'cancel', item: ScheduleHubItem) => {
+      try {
+        await dateSuggestionApply(action, { suggestion_id: item.suggestionId });
+        await refetchScheduleHub();
+        const title =
+          action === 'accept' ? 'Plan confirmed' : action === 'decline' ? 'Plan declined' : 'Proposal cancelled';
+        Alert.alert(title, action === 'accept' ? 'You can keep coordinating in chat.' : 'The hub has been updated.');
+      } catch {
+        Alert.alert('Couldn’t update plan', 'Please try again in a moment.');
+      }
+    },
+    [refetchScheduleHub]
   );
 
   if (scheduleLoading) {
@@ -209,6 +248,20 @@ export default function ScheduleScreen() {
             ))}
           </View>
         )}
+
+        <View style={styles.availabilityCard}>
+          <View style={styles.availabilityIconWrap}>
+            <Ionicons name="calendar-outline" size={20} color={TEAL} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.availabilityTitle}>Availability</Text>
+            <Text style={styles.availabilityBody}>
+              {availabilityCount > 0
+                ? `You have ${availabilityCount} open ${availabilityCount === 1 ? 'slot' : 'slots'} ready for planning.`
+                : "No availability set yet. Mark a few open blocks below so matches can build real plans from your schedule."}
+            </Text>
+          </View>
+        </View>
 
         {/* [B] VibeScheduleIntro */}
         <View style={styles.introBlock}>
@@ -293,11 +346,11 @@ export default function ScheduleScreen() {
         <View style={styles.myDatesSection}>
           <View style={styles.myDatesHeader}>
             <Ionicons name="calendar" size={20} color={PURPLE} />
-            <Text style={styles.myDatesTitle}>My Dates</Text>
+            <Text style={styles.myDatesTitle}>My Plans</Text>
           </View>
           <View style={styles.segmentedTrack}>
-            {(['pending', 'upcoming', 'past'] as const).map((tab) => {
-              const count = tab === 'pending' ? pending.length : tab === 'upcoming' ? upcomingAccepted.length : past.length;
+            {(['pending', 'upcoming', 'history'] as const).map((tab) => {
+              const count = tab === 'pending' ? pendingItems.length : tab === 'upcoming' ? upcomingItems.length : historyItems.length;
               const active = datesTab === tab;
               return (
                 <Pressable
@@ -306,52 +359,116 @@ export default function ScheduleScreen() {
                   style={[styles.segmentPill, active && styles.segmentPillActive]}
                 >
                   <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>
-                    {tab === 'pending' ? 'Pending' : tab === 'upcoming' ? 'Upcoming' : 'Past'} ({count})
+                    {tab === 'pending' ? 'Pending' : tab === 'upcoming' ? 'Upcoming' : 'History'} ({count})
                   </Text>
                 </Pressable>
               );
             })}
           </View>
           <View style={styles.myDatesContent}>
-            {datesTab === 'pending' && (pending.length > 0 ? (
-              pending.map((p) => (
-                <View key={p.id} style={styles.proposalCard}>
-                  <Text style={styles.proposalPartner}>{p.partnerName}</Text>
-                  <Text style={styles.proposalMeta}>
-                    {format(p.date, 'EEEE, MMM d')} · {p.timeBlockLabel}
-                  </Text>
+            {plansLoading ? (
+              <View style={styles.emptyTab}>
+                <ActivityIndicator size="small" color={TEAL} />
+                <Text style={styles.emptyTabText}>Loading plans...</Text>
+              </View>
+            ) : null}
+            {!plansLoading && datesTab === 'pending' && (pendingItems.length > 0 ? (
+              pendingItems.map((item) => (
+                <View key={item.id} style={styles.proposalCard}>
+                  <View style={styles.proposalHeaderRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.proposalPartner}>{item.partnerName}</Text>
+                      <Text style={styles.proposalTitle}>{labelForDateType(item.dateTypeKey)}</Text>
+                    </View>
+                    <View style={[styles.statusPill, styles.statusPillPending]}>
+                      <Text style={styles.statusPillText}>{STATUS_LABEL[item.status] ?? item.status}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.proposalMeta}>{resolveWhenLabel(item)}</Text>
+                  <Text style={styles.proposalMeta}>{resolvePlaceLabel(item)}</Text>
+                  {item.optionalMessage ? <Text style={styles.proposalNote}>"{item.optionalMessage}"</Text> : null}
+                  <View style={styles.proposalActions}>
+                    {item.canAccept ? (
+                      <Pressable style={[styles.actionBtn, styles.actionBtnPrimary]} onPress={() => void runSuggestionAction('accept', item)}>
+                        <Text style={styles.actionBtnPrimaryText}>Accept</Text>
+                      </Pressable>
+                    ) : null}
+                    {item.canDecline ? (
+                      <Pressable style={[styles.actionBtn, styles.actionBtnOutline]} onPress={() => void runSuggestionAction('decline', item)}>
+                        <Text style={styles.actionBtnOutlineText}>Decline</Text>
+                      </Pressable>
+                    ) : null}
+                    {item.canCancel ? (
+                      <Pressable style={[styles.actionBtn, styles.actionBtnOutline]} onPress={() => void runSuggestionAction('cancel', item)}>
+                        <Text style={styles.actionBtnOutlineText}>Cancel</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => router.push(`/chat/${item.partnerUserId}` as const)}>
+                      <Text style={styles.actionBtnGhostText}>Open chat</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))
             ) : (
               <View style={styles.emptyTab}>
                 <Ionicons name="calendar-outline" size={40} color={MUTED} />
-                <Text style={styles.emptyTabText}>No pending date proposals</Text>
+                <Text style={styles.emptyTabText}>No pending plans or proposals yet.</Text>
               </View>
             ))}
-            {datesTab === 'upcoming' && (upcomingAccepted.length > 0 ? (
-              upcomingAccepted.map((p) => (
-                <View key={p.id} style={styles.proposalCard}>
-                  <Text style={styles.proposalPartner}>{p.partnerName}</Text>
-                  <Text style={styles.proposalMeta}>{format(p.date, 'EEEE, MMM d')} · {p.timeBlockLabel}</Text>
+            {!plansLoading && datesTab === 'upcoming' && (upcomingItems.length > 0 ? (
+              upcomingItems.map((item) => (
+                <View key={item.id} style={styles.proposalCard}>
+                  <View style={styles.proposalHeaderRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.proposalPartner}>{item.partnerName}</Text>
+                      <Text style={styles.proposalTitle}>{labelForDateType(item.dateTypeKey)}</Text>
+                    </View>
+                    <View style={[styles.statusPill, styles.statusPillUpcoming]}>
+                      <Text style={styles.statusPillText}>{STATUS_LABEL[item.status] ?? item.status}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.proposalMeta}>{resolveWhenLabel(item)}</Text>
+                  <Text style={styles.proposalMeta}>{resolvePlaceLabel(item)}</Text>
+                  {item.optionalMessage ? <Text style={styles.proposalNote}>"{item.optionalMessage}"</Text> : null}
+                  <View style={styles.proposalActions}>
+                    <Pressable style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => router.push(`/chat/${item.partnerUserId}` as const)}>
+                      <Text style={styles.actionBtnGhostText}>Open chat</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))
             ) : (
               <View style={styles.emptyTab}>
                 <Ionicons name="calendar-outline" size={40} color={MUTED} />
-                <Text style={styles.emptyTabText}>No upcoming dates</Text>
+                <Text style={styles.emptyTabText}>No upcoming plans yet.</Text>
               </View>
             ))}
-            {datesTab === 'past' && (past.length > 0 ? (
-              past.map((p) => (
-                <View key={p.id} style={styles.proposalCard}>
-                  <Text style={styles.proposalPartner}>{p.partnerName}</Text>
-                  <Text style={styles.proposalMeta}>{format(p.date, 'MMM d, yyyy')} · {p.timeBlockLabel}</Text>
+            {!plansLoading && datesTab === 'history' && (historyItems.length > 0 ? (
+              historyItems.map((item) => (
+                <View key={item.id} style={styles.proposalCard}>
+                  <View style={styles.proposalHeaderRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.proposalPartner}>{item.partnerName}</Text>
+                      <Text style={styles.proposalTitle}>{labelForDateType(item.dateTypeKey)}</Text>
+                    </View>
+                    <View style={[styles.statusPill, styles.statusPillHistory]}>
+                      <Text style={styles.statusPillText}>{STATUS_LABEL[item.status] ?? item.status}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.proposalMeta}>{resolveWhenLabel(item)}</Text>
+                  <Text style={styles.proposalMeta}>{resolvePlaceLabel(item)}</Text>
+                  {item.optionalMessage ? <Text style={styles.proposalNote}>"{item.optionalMessage}"</Text> : null}
+                  <View style={styles.proposalActions}>
+                    <Pressable style={[styles.actionBtn, styles.actionBtnGhost]} onPress={() => router.push(`/chat/${item.partnerUserId}` as const)}>
+                      <Text style={styles.actionBtnGhostText}>Open chat</Text>
+                    </Pressable>
+                  </View>
                 </View>
               ))
             ) : (
               <View style={styles.emptyTab}>
                 <Ionicons name="calendar-outline" size={40} color={MUTED} />
-                <Text style={styles.emptyTabText}>No past dates</Text>
+                <Text style={styles.emptyTabText}>No past plans yet.</Text>
               </View>
             ))}
           </View>
@@ -416,6 +533,26 @@ const styles = StyleSheet.create({
 
   remindersSection: { marginBottom: spacing.xl, gap: spacing.sm },
   remindersTitle: { fontSize: 14, fontFamily: 'Inter_500Medium', color: MUTED },
+  availabilityCard: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    backgroundColor: CARD_BG,
+    marginBottom: spacing.lg,
+  },
+  availabilityIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  availabilityTitle: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#FFFFFF', marginBottom: 4 },
+  availabilityBody: { fontSize: 13, color: MUTED, lineHeight: 19 },
 
   introBlock: {
     flexDirection: 'row',
@@ -507,7 +644,33 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: spacing.lg,
     marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
   },
+  proposalHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
   proposalPartner: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: '#FFFFFF' },
+  proposalTitle: { fontSize: 13, color: MUTED, marginTop: 4 },
   proposalMeta: { fontSize: 13, color: MUTED, marginTop: 4 },
+  proposalNote: { fontSize: 13, color: '#D1D5DB', marginTop: 8, fontStyle: 'italic' },
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  statusPillPending: { backgroundColor: 'rgba(139, 92, 246, 0.18)' },
+  statusPillUpcoming: { backgroundColor: 'rgba(34, 197, 94, 0.18)' },
+  statusPillHistory: { backgroundColor: 'rgba(255,255,255,0.08)' },
+  statusPillText: { fontSize: 11, color: '#FFFFFF', fontFamily: 'Inter_600SemiBold' },
+  proposalActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: spacing.md },
+  actionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  actionBtnPrimary: { backgroundColor: PURPLE },
+  actionBtnPrimaryText: { color: '#FFFFFF', fontSize: 13, fontFamily: 'Inter_600SemiBold' },
+  actionBtnOutline: { borderWidth: 1, borderColor: DIVIDER, backgroundColor: 'transparent' },
+  actionBtnOutlineText: { color: '#FFFFFF', fontSize: 13, fontFamily: 'Inter_500Medium' },
+  actionBtnGhost: { backgroundColor: 'rgba(255,255,255,0.05)' },
+  actionBtnGhostText: { color: '#FFFFFF', fontSize: 13, fontFamily: 'Inter_500Medium' },
 });

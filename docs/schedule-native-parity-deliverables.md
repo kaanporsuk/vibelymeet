@@ -8,7 +8,7 @@
 - **`apps/mobile/components/schedule/VibeScheduleGrid.tsx`** — 2D grid (4 time buckets × N days), row labels fixed, day columns in one horizontal ScrollView.
 
 ### Modified
-- **`apps/mobile/app/schedule.tsx`** — Rebuilt as full Schedule screen: header bar, intro + Roll Previous Week, legend, range navigator, grid, privacy note, My Dates section (segmented tabs + empty states). Inspection comment block at top. Toast banners for roll success/error; unread bell badge.
+- **`apps/mobile/app/schedule.tsx`** — Full Schedule hub: header bar, availability summary, Roll Previous Week, legend, range navigator, grid, privacy note, backend-backed plans buckets (pending / upcoming / history), honest empty states, and reminder cards. Toast banners for roll success/error; unread bell badge.
 - **`apps/mobile/app/(tabs)/profile/index.tsx`** — Profile entry row: teal rounded icon chip, title "My Vibe Schedule", subtitle "Set when you're open for dates", chevron right; `onPress` → `router.push('/schedule')`. New styles: `scheduleIconChip`, `scheduleTextWrap`, `scheduleRowTitle`, `scheduleRowSub` (reused existing `scheduleRow`).
 
 ---
@@ -24,9 +24,9 @@
 | **status** | DB: `open` \| `busy`; UI type includes `event` (locked) | Same; locked from empty `lockedSlotKeys` for now | ✓ |
 | **Toggle** | Delete if open, else upsert `{ user_id, slot_key, slot_date, time_block, status: 'open' }` | Same | ✓ |
 | **Roll previous week** | Client-side: copy current week open → next week, then `upsert(newSlots)` | Same | ✓ |
-| **Date proposals** | Web: local state in useSchedule | Native: `date_proposals` via `useScheduleProposals` + `partitionScheduleProposals` | ✓ (source differs; API is backend) |
+| **Planning hub source** | `date_suggestions` + `date_plans` via `useScheduleHub` | Same | ✓ |
 
-**Divergence:** None. Native uses the same Supabase table and mutation shapes. Date proposals on web are local state; native uses the real `date_proposals` table.
+**Divergence:** None for Stream 2A. Both platforms now keep availability in `user_schedules` and read plan/proposal buckets from the active backend-backed `date_suggestions` / `date_plans` contract already used by chat.
 
 ---
 
@@ -62,7 +62,7 @@
 - [x] Per-cell SAVING spinner during mutation
 - [x] Roll Previous Week success → green banner; error → red toast
 - [x] Privacy note below grid
-- [x] My Dates section with segmented tabs (Pending / Upcoming / Past)
-- [x] All three empty states (No pending date proposals, No upcoming dates, No past dates)
+- [x] My Plans section with segmented tabs (Pending / Upcoming / History)
+- [x] All three empty states (No pending plans or proposals yet, No upcoming plans yet, No past plans yet)
 - [x] Horizontal scroll on grid
 - [x] No regressions on Profile (row replaced, navigation to `/schedule`)

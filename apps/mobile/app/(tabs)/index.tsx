@@ -41,8 +41,8 @@ import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl, getImageUrl } from '@/lib/imageUrl';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
-import { useDateProposals } from '@/lib/useDateProposals';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
+import { useScheduleHub } from '@/lib/useScheduleHub';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
 import { endVideoDate, updateParticipantStatus } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
@@ -144,8 +144,8 @@ export default function DashboardScreen() {
   );
   const { data: matches = [], isLoading: matchesLoading, error: matchesError, refetch: refetchMatches } = useMatches(user?.id);
   const { data: nextEventData, isLoading: nextEventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent(user?.id ?? null, canCityBrowse);
-  const { data: proposals = [] } = useDateProposals(user?.id);
-  const { nextReminder, imminentReminders } = useDateReminders(proposals);
+  const { reminderSources } = useScheduleHub();
+  const { nextReminder, imminentReminders } = useDateReminders(reminderSources);
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
   const dropReady = useDailyDropTabBadge(user?.id);
 
@@ -209,6 +209,10 @@ export default function DashboardScreen() {
         } else {
           router.push(`/date/${activeSession.sessionId}` as const);
         }
+        return;
+      }
+      if (reminder.partnerUserId) {
+        router.push(`/chat/${reminder.partnerUserId}` as const);
         return;
       }
       if (reminder.matchId && user?.id) {
@@ -372,7 +376,7 @@ export default function DashboardScreen() {
   }, [refetchNextEvent, refetchEvents, refetchMatches]);
 
   const newMatchCount = useMemo(() => matches.filter((m) => m.isNew).length, [matches]);
-  const hasUpcomingDate = proposals.length > 0;
+  const hasUpcomingDate = reminderSources.length > 0;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 320, useNativeDriver: true }).start();

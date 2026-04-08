@@ -3,7 +3,6 @@
  * Push reminders for real dates are server-owned (`date-reminder-cron` → `send-notification`, category `date_reminder`).
  */
 import { useState, useEffect } from 'react';
-import { DateProposal } from '@/hooks/useSchedule';
 import {
   differenceInSeconds,
   differenceInMinutes,
@@ -15,6 +14,8 @@ import {
 export interface DateReminder {
   id: string;
   proposalId: string;
+  matchId?: string;
+  partnerUserId?: string;
   matchName: string;
   matchAvatar?: string;
   date: Date;
@@ -28,6 +29,17 @@ export interface DateReminder {
   };
   urgency: 'none' | 'soon' | 'imminent' | 'now';
   formattedCountdown: string;
+}
+
+export interface DateReminderSource {
+  id: string;
+  matchId?: string;
+  partnerUserId?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  date: Date;
+  mode: 'video' | 'in-person';
+  status: 'accepted';
 }
 
 // Calculate countdown
@@ -60,7 +72,7 @@ function formatCountdown(timeUntil: DateReminder['timeUntil']): string {
   return `${seconds}s`;
 }
 
-export function useDateReminders(upcomingDates: DateProposal[]) {
+export function useDateReminders(upcomingDates: DateReminderSource[]) {
   const [reminders, setReminders] = useState<DateReminder[]>([]);
 
   useEffect(() => {
@@ -74,6 +86,8 @@ export function useDateReminders(upcomingDates: DateProposal[]) {
           return {
             id: `reminder-${proposal.id}`,
             proposalId: proposal.id,
+            matchId: proposal.matchId,
+            partnerUserId: proposal.partnerUserId,
             matchName: proposal.senderName || 'Your match',
             matchAvatar: proposal.senderAvatar,
             date: proposal.date,
