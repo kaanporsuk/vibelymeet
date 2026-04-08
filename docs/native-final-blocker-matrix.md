@@ -2,7 +2,7 @@
 
 Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use for go/no-go and prioritization.
 
-**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done. Rebuild rehearsal is now logged; remaining web-push risk is the lack of fresh interactive permission/subscription/click proof, not worker asset serving.
+**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done. Rebuild rehearsal is logged, the authenticated web recursion defect has been fixed, and remaining browser risk is now limited to smoke-account-specific media/schedule proof plus interactive push prompt/click proof.
 
 ---
 
@@ -116,7 +116,9 @@ Expected in dev builds only; not bugs and not present in production builds.
 | RevenueCat real-device (purchase/restore) | | |
 | OneSignal dashboard setup | | |
 | OneSignal real-device (push) | | |
-| OneSignal web (production service-worker + origin) | Partial | Worker asset is live on production and backend has historical web-send evidence, but fresh permission/subscription/click proof still needs an interactive browser session with smoke auth. |
+| OneSignal web (production service-worker + origin) | Partial | Worker asset is live on production and authenticated browser proof confirms a real subscribed session with matching `notification_preferences.onesignal_player_id`. Remaining gap is interactive prompt acceptance and delivered-notification click proof. |
+| Authenticated browser proof (Schedule / Referrals / Vibe Studio / invite landing) | Pass | `docs/browser-auth-runtime-proof-results.md` hard-proves authenticated `/schedule`, schedule save + rollback, authenticated `/settings/referrals`, canonical invite copy, browser `/invite?ref=` handoff into `/auth?ref=...`, and post-fix authenticated `/vibe-studio` render health. |
+| Authenticated smoke-account browser proof | Blocked | Historical smoke sessions still exist in local Chrome storage, but refresh replay for the newest `2cf4...` session returns `refresh_token_not_found`, so non-empty bucket / attribution / smoke-video proofs still need fresh auth material. |
 | EAS preview build | | |
 | EAS production build | | |
 | iOS device validation checklist | | |
