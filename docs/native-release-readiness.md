@@ -2,7 +2,7 @@
 
 Scope: App and provider/build closure prep. Reflects Sprints 1–6 and **Phase 7** (Android runtime validation, RevenueCat validation, OneSignal/Daily validation, first iOS build path, release-readiness go/no-go).
 
-**Phase 7 summary:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md` for the strict release-readiness matrix, go/no-go recommendation, and critical path. **Current verdict: No-Go for submission** until provider proof and first device validation are completed and OneSignal web production caveat + rebuild rehearsal are addressed.
+**Phase 7 summary:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md` for the strict release-readiness matrix, go/no-go recommendation, and critical path. **Current verdict: No-Go for submission** until provider proof and first device validation are completed. Rebuild rehearsal is logged, the recursive `event_registrations` RLS failure is fixed and deployed, and authenticated browser proof now covers Schedule, Referrals, OneSignal, Vibe Studio route health, fresh smoke schedule/reminder truth, fresh smoke referral attribution, and fresh smoke Vibe Studio ready/caption/create-delete flows. Remaining browser gaps are the narrower fresh binary upload -> processing -> ready / replace proof plus interactive push prompt/click proof.
 
 ---
 
@@ -68,6 +68,6 @@ See `docs/native-final-blocker-matrix.md` for the categorized list (blocker / no
 **Phase 7 (runtime/provider validation):**  
 - **Stage 1 (Android):** Auth race and Settings crash fixed; no device run in automation.  
 - **Stage 2 (RevenueCat):** Offerings refetch after logIn fixed; code path validated; real-device purchase/restore not yet proven.  
-- **Stage 3 (OneSignal/Daily):** Mobile code path validated; Daily unmount calls endVideoDate; real-device push and video not yet proven. **Web:** Production OneSignal service-worker and dashboard origin config remain an open hardening caveat.  
+- **Stage 3 (OneSignal/Daily):** Mobile code path validated; Daily unmount calls endVideoDate; real-device push and video not yet proven. **Web:** Production OneSignal worker serving plus an authenticated subscribed browser state are now hard-proven. Remaining gap is human-interactive prompt acceptance and delivered-notification click proof, which headless automation cannot complete.  
 - **Stage 4 (iOS):** Prebuild succeeded; run:ios compilation observed; first launch/runtime checklist to be filled after local run.  
-- **Stage 5:** Release-readiness matrix, go/no-go (No-Go), critical path, and next actions in `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Rebuild rehearsal should be re-run and logged before submission.
+- **Stage 5:** Release-readiness matrix, go/no-go (No-Go), and critical path remain in `docs/phase7-stage5-release-readiness-and-go-nogo.md`. See `docs/browser-auth-runtime-proof-results.md` and `docs/fresh-smoke-proof-bootstrap.md` for the latest browser/runtime proof: Schedule mutation plus fresh non-empty buckets/reminder truth, Referrals hub/landing plus fresh attribution set-once proof, OneSignal subscription state, and Vibe Studio open/read plus fresh ready/caption/create-delete flows are now proven. Remaining browser/runtime gaps are a fresh end-to-end binary upload -> processing -> ready / replace proof and interactive push prompt/click validation.

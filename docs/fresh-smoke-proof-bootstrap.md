@@ -1,0 +1,74 @@
+# Fresh Smoke Proof Bootstrap
+
+Date: 2026-04-08  
+Branch: `qa/fresh-smoke-proof-bootstrap`
+
+## 1. Goal
+
+Provide a repeatable repo-side bootstrap for the remaining smoke/data-dependent browser proofs without depending on stale Chrome auth artifacts.
+
+Primary entrypoint:
+
+- `npm run proof:smoke-bootstrap`
+
+Cleanup/reset only:
+
+- `node scripts/fresh-smoke-proof-bootstrap.mjs cleanup`
+
+## 2. What the bootstrap does
+
+`scripts/fresh-smoke-proof-bootstrap.mjs` performs the smallest effective end-to-end bootstrap for the documented smoke pair:
+
+- writes or refreshes an untracked local `.env.cursor.local`
+- resets fresh password hashes for:
+  - `2cf4a5af-acc7-4450-899d-0c7dc85139e2` / `kaanporsuk@gmail.com`
+  - `2a0995e1-8ec8-4a11-bdfe-0877c3383f5c` / `direklocal@gmail.com`
+- uses `supabase db query --linked` to:
+  - reset `profiles.referred_by`
+  - clean tagged smoke-proof rows for the smoke match
+  - remove recent null-revision leftovers from failed bootstrap attempts
+- signs in fresh with password grant against the linked Supabase project
+- seeds tagged schedule proof state through the real server-owned `date-suggestion-actions` path:
+  - one pending suggestion
+  - one accepted upcoming plan
+  - one accepted past plan
+- runs fresh-session Playwright proof against:
+  - `/schedule`
+  - `/dashboard`
+  - `/invite?ref=...` -> `/auth?ref=...` -> `/settings/referrals`
+  - `/vibe-studio`
+
+No schema migration or deploy is required for this bootstrap. It uses linked SQL execution plus existing runtime routes/functions.
+
+## 3. Proof dependency audit
+
+| Proof target | Required auth/session state | Required data state | Can Cursor bootstrap this now |
+|---|---|---|---|
+| Schedule non-empty pending/upcoming/history | Fresh authenticated `kaanporsuk@gmail.com` browser session | Tagged smoke suggestions/plans on match `06eab9bc-fabc-4580-9192-98b636f64a89` | Yes |
+| Schedule reminder-routing truth | Fresh authenticated `kaanporsuk@gmail.com` browser session | Accepted upcoming tagged plan starting within the next hour | Yes |
+| Referrals set-once attribution | Fresh authenticated `direklocal@gmail.com` target session plus `kaanporsuk@gmail.com` referrer id | `profiles.referred_by = null` before proof | Yes |
+| Referrals self-ref rejection | Fresh authenticated `kaanporsuk@gmail.com` browser session | No special data beyond clean local referral storage | Yes |
+| Vibe Studio ready render + caption save/revert | Fresh authenticated `kaanporsuk@gmail.com` browser session | Existing ready Vibe video on the primary smoke profile | Yes |
+| Vibe Studio create/upload entry + delete cleanup | Fresh authenticated `direklocal@gmail.com` browser session | Complete profile with no active video | Yes |
+| Vibe Studio binary upload -> processing -> ready / replace | Fresh authenticated browser session plus safe reversible media account | Real tus upload + webhook-ready completion + safe replace target | Not fully in this stream |
+| OneSignal prompt grant + delivered click | Interactive non-headless browser/device session | Real permission grant + delivered notification | No |
+
+## 4. What is now hard-proved by the bootstrap
+
+- Fresh smoke auth is reproducible without stale Chrome refresh tokens.
+- `/schedule` renders non-empty `Pending`, `Upcoming`, and `History` buckets for the smoke pair.
+- `/schedule` and `/dashboard` both render the upcoming-date reminder/countdown truth from the accepted smoke plan.
+- `/invite?ref=` stores the referrer id, `/auth?ref=` applies server-owned attribution after fresh auth, `/settings/referrals` shows the linked inviter, and repeat/self-ref attempts do not corrupt `referred_by`.
+- `/vibe-studio` renders the ready state for the primary smoke account, saves/reverts caption text, and safely proves create/upload-entry plus delete cleanup on the partner smoke account.
+
+## 5. Explicit exclusions
+
+This bootstrap does **not** fake closure for manual/provider/device work:
+
+- human-granted browser push prompt acceptance
+- delivered notification click/deep-link interaction
+- RevenueCat dashboard/store setup
+- OneSignal mobile dashboard setup
+- EAS/device validation
+
+It also does not currently prove a full fresh binary upload through `processing` / `ready` and safe `replace` on a dedicated reversible smoke media account.

@@ -2,7 +2,7 @@
 
 Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use for go/no-go and prioritization.
 
-**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done; OneSignal web production service-worker and rebuild rehearsal are accounted for as known risks.
+**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until provider proof and first device validation are done. Rebuild rehearsal is logged, the authenticated web recursion defect is fixed, fresh smoke browser proof now covers schedule/reminder truth, referrals attribution, and Vibe Studio state-management flows, and remaining browser risk is narrowed to fresh binary upload -> processing -> ready / replace proof plus interactive push prompt/click proof.
 
 ---
 
@@ -41,10 +41,10 @@ For items that are blocking and have a clear resolution path:
 - **Cause:** OneSignal project must have iOS and Android apps with APNs/FCM configured.
 - **Fix:** Follow `docs/native-external-setup-checklist.md` §3: Add iOS app (bundle ID, APNs), Android app (FCM). Set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets. App uses production APNs for EAS preview/production builds via `app.config.js`.
 
-### OneSignal web (production — open hardening caveat)
+### OneSignal web (production — remaining manual-only gap)
 
-- **Cause:** OneSignal v16 web push requires the service-worker script to be served **from the production domain root** and correct origin/service-worker configuration in the OneSignal dashboard. Without this, production web push can fail or be untested.
-- **Fix:** Ensure production site serves the OneSignal service-worker from root (no 404); in OneSignal dashboard configure the web app’s origin and service-worker settings for production. See `docs/native-external-setup-checklist.md` §3 (web note) and runbook. **Do not forget** this when moving to submission; it is part of the release-readiness picture.
+- **Cause:** Production web push serving and subscribed browser state are now proven, but headless automation cannot complete a human-granted browser permission outcome or click a delivered notification.
+- **Fix:** Keep the current worker/origin setup, then close the remaining gap with an interactive non-headless browser test for prompt acceptance and notification click/deep-link behavior. See `docs/native-external-setup-checklist.md` §3 (web note) and runbook.
 
 ### Bunny photo 404 (non-blocker for launch if accepted)
 
@@ -116,12 +116,15 @@ Expected in dev builds only; not bugs and not present in production builds.
 | RevenueCat real-device (purchase/restore) | | |
 | OneSignal dashboard setup | | |
 | OneSignal real-device (push) | | |
-| OneSignal web (production service-worker + origin) | | |
+| OneSignal web (production service-worker + origin) | Partial | Worker asset is live on production and authenticated browser proof confirms a real subscribed session with matching `notification_preferences.onesignal_player_id`. Remaining gap is interactive prompt acceptance and delivered-notification click proof. |
+| Authenticated browser proof (Schedule / Referrals / Vibe Studio / invite landing) | Pass | `docs/browser-auth-runtime-proof-results.md` hard-proves authenticated `/schedule`, schedule save + rollback, authenticated `/settings/referrals`, canonical invite copy, browser `/invite?ref=` handoff into `/auth?ref=...`, and post-fix authenticated `/vibe-studio` render health. |
+| Authenticated smoke-account browser bootstrap + proof | Pass | `npm run proof:smoke-bootstrap` now resets fresh smoke passwords via linked SQL, seeds tagged proof data, and hard-proves non-empty schedule buckets, reminder countdown routing on `/schedule` + `/dashboard`, referral set-once/self-ref/repeat immutability, Vibe Studio ready/caption save-revert, and create/upload-entry plus delete cleanup. |
+| Fresh Vibe video binary upload -> processing -> ready / replace | Blocked | Fresh smoke proof safely exercised create/upload entry and delete cleanup, but did not drive a real tus upload through webhook-ready completion or replace the already-ready primary smoke video. |
 | EAS preview build | | |
 | EAS production build | | |
 | iOS device validation checklist | | |
 | Android device validation checklist | | |
-| Rebuild rehearsal (post–Phase 7) | | |
+| Rebuild rehearsal (post–Phase 7) | Pass | Logged in `docs/rebuild-rehearsal-log.md`; `npm ci`, `npm run build`, and `./scripts/run_golden_path_smoke.sh` passed. Remaining gap is local `SUPABASE_DB_URL` for parity-helper replay, not rebuild failure. |
 
 Execution order and Kaan steps: `docs/native-sprint6-launch-closure-runbook.md`. Full release-readiness matrix and go/no-go: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
 
