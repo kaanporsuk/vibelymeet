@@ -61,9 +61,7 @@ import {
   getUtcDateKey,
   resolveMatchesSpotlight,
 } from "../../shared/matches/spotlightResolver";
-import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
-import { isWebShareAbortError } from "@/lib/webShare";
 
 const Matches = () => {
   const navigate = useNavigate();
@@ -550,25 +548,9 @@ const Matches = () => {
                       className="mx-4 mb-6"
                     >
                       <button
-                        onClick={async () => {
-                          const link = buildInviteLandingUrl(user?.id ?? null);
-                          try {
-                            await navigator.share({
-                              title: "Join me on Vibely!",
-                              text: "I'm using Vibely for video dates — come find your vibe! 💜",
-                              url: link,
-                            });
-                            trackEvent("invite_link_shared", { surface: "matches", channel: "system_share" });
-                          } catch (error) {
-                            if (isWebShareAbortError(error)) return;
-                            try {
-                              await navigator.clipboard.writeText(link);
-                              trackEvent("invite_link_copied", { surface: "matches", channel: "clipboard" });
-                              toast.success("Invite link copied!");
-                            } catch {
-                              toast.error("Could not copy link. Try again.");
-                            }
-                          }
+                        onClick={() => {
+                          trackEvent("invite_hub_entry_tapped", { surface: "matches", platform: "web" });
+                          navigate("/settings/referrals");
                         }}
                         className="w-full p-3 glass-card rounded-2xl border border-border/50 flex items-center gap-3 hover:bg-secondary/30 transition-colors"
                       >

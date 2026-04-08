@@ -45,6 +45,7 @@ import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
+import { captureNativeReferral } from '@/lib/referrals';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 // ─── Sentry (matches web src/main.tsx)
@@ -222,6 +223,8 @@ function AuthRedirectHandler() {
 
     const handleIncomingUrl = async (url: string | null | undefined) => {
       if (!url || cancelled || lastHandledUrlRef.current === url) return;
+
+      await captureNativeReferral(url);
 
       const result = await completeSessionFromAuthReturnUrl(supabase, url);
       if (cancelled || !result.handled) return;

@@ -14,6 +14,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { VibelyButton } from '@/components/ui';
 import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
+import { applyNativeReferralAttribution } from '@/lib/referrals';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
@@ -234,6 +235,17 @@ export default function SignInScreen() {
       const result = await settleProfileBootstrap();
       if (cancelled) return;
       if (result.status === 'ready') {
+        const referralResult = await applyNativeReferralAttribution(session.user.id);
+        if (
+          !cancelled &&
+          (referralResult.status === 'lookup-failed' || referralResult.status === 'update-failed')
+        ) {
+          console.warn('[referrals] native attribution failed', {
+            userId: session.user.id,
+            status: referralResult.status,
+            message: referralResult.message,
+          });
+        }
         setProfileBootstrapState('ready');
         return;
       }

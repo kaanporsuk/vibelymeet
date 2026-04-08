@@ -189,6 +189,11 @@
       "access": "protected"
     },
     {
+      "path": "/settings/referrals",
+      "page": "Referrals",
+      "access": "protected"
+    },
+    {
       "path": "/date/:id",
       "page": "VideoDate",
       "access": "protected"

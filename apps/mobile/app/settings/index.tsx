@@ -33,8 +33,6 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { openPremium } from '@/lib/premiumNavigation';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
-import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
-import { trackEvent } from '@/lib/analytics';
 
 function useCredits(userId: string | null | undefined) {
   return useQuery({
@@ -102,7 +100,6 @@ export default function SettingsScreen() {
   const { data: credits, isLoading: creditsLoading } = useCredits(user?.id);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
   const { isPaused, remainingLabel } = useAccountPauseStatus();
-  const [showInviteSheet, setShowInviteSheet] = useState(false);
 
   const handleManageSubscription = async () => {
     try {
@@ -200,10 +197,7 @@ export default function SettingsScreen() {
               icon={<Ionicons name="person-add-outline" size={20} color={theme.tint} />}
               title="Invite friends"
               subtitle="Share your link — events, video dates, real connections"
-              onPress={() => {
-                trackEvent('invite_sheet_opened', { surface: 'settings' });
-                setShowInviteSheet(true);
-              }}
+              onPress={() => router.push('/settings/referrals' as Href)}
             />
           </Card>
 
@@ -309,12 +303,6 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
-
-      <InviteFriendsSheet
-        visible={showInviteSheet}
-        onClose={() => setShowInviteSheet(false)}
-        analyticsSurface="settings"
-      />
     </View>
   );
 }

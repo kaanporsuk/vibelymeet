@@ -26,6 +26,7 @@ Scope: structural navigation contracts for auth, onboarding, tabs, lobby/chat/re
   - /ready/[id]
   - /date/[id]
   - /settings/*
+  - /settings/referrals
 
 ## Locked transition rules
 1. Auth success always returns through root gate (/) or replaces to /(tabs) only after session validity is confirmed.

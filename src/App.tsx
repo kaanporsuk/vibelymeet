@@ -44,6 +44,7 @@ import SubscriptionCancel from "./pages/SubscriptionCancel";
 import EventPaymentSuccess from "./pages/EventPaymentSuccess";
 import Credits from "./pages/Credits";
 import CreditsSuccess from "./pages/CreditsSuccess";
+import Referrals from "./pages/Referrals";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
@@ -135,6 +136,7 @@ const App = () => (
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreview /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                <Route path="/settings/referrals" element={<ProtectedRoute><Referrals /></ProtectedRoute>} />
                 <Route path="/settings/ticket/:id" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
                 <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
