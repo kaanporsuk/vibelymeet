@@ -14,7 +14,8 @@
     "vibely-games:typecheck": "npx tsc --noEmit -p shared/vibely-games/tsconfig.json",
     "vibely-games:selfcheck": "rm -rf shared/vibely-games/dist && npx tsc -p shared/vibely-games/tsconfig.build.json && node shared/vibely-games/dist/selfcheck.js",
     "audit:mobile-keyboard-overlays": "node scripts/audit-mobile-keyboard-overlays.mjs",
-    "proof:browser-auth": "node scripts/browser-auth-runtime-proof.mjs"
+    "proof:browser-auth": "node scripts/browser-auth-runtime-proof.mjs",
+    "proof:smoke-bootstrap": "node scripts/fresh-smoke-proof-bootstrap.mjs"
   },
   "dependencies": {
     "@daily-co/daily-js": "^0.87.0",
