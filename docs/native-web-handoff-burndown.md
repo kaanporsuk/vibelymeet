@@ -1,5 +1,7 @@
 # Native web handoff burn-down (Sprint 4)
 
+> **Historical scope reference.** This file still documents accepted web handoffs, but it is not an active launch-closure entrypoint or backlog. Start from `docs/active-doc-map.md` for current execution.
+
 Consumer-facing surfaces that still hand off to web, and justification. Intentional handoffs are documented; no vague "do this on web" without a clear link or reason.
 
 ---

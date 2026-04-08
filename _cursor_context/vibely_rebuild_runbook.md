@@ -1,5 +1,7 @@
 # VIBELY — REBUILD RUNBOOK
 
+> **Canonical for frozen web rebuild only.** This file is not the native launch-closure runbook. For current launch execution, use `docs/active-doc-map.md`.
+
 **Version:** post-hardening  
 **Date:** 2026-03-11  
 **Repository baseline:** `vibelymeet-pre-native-hardening-golden-2026-03-10.zip` (codebase now reflects auth hardening)  

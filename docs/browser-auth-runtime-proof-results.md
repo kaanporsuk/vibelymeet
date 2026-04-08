@@ -1,16 +1,17 @@
 # Browser Auth Runtime Proof Results
 
 Date: 2026-04-08  
-Branch: `qa/fresh-smoke-proof-bootstrap`
+Branch: `qa/fresh-vibe-upload-processing-proof`
 
 ## 1. Summary
 
-This branch replaces the stale-Chrome smoke dependency with a repeatable fresh smoke bootstrap path and closes most of the remaining smoke/data-dependent browser-proof gaps.
+This branch keeps the repeatable fresh smoke bootstrap path and closes the last remaining repo-side Vibe Studio browser-proof tail with a reversible real-binary upload and replace harness.
 
 - `Schedule` now has hard runtime proof for authenticated render, real save, controlled rollback, cleanup, non-empty `Pending / Upcoming / History` buckets, and reminder-routing truth on fresh smoke data.
 - `Referrals` now has hard runtime proof for the authenticated hub, canonical invite-link generation/copy, browser-side `/invite?ref=` handoff into `/auth?ref=...`, set-once attribution, self-ref rejection, and repeat-attempt immutability on fresh smoke auth.
 - `OneSignal` now has hard runtime proof for an authenticated production browser with a real worker, granted permission, live subscription ID, and DB-synced `notification_preferences`.
-- `Vibe Studio` now has hard runtime proof for authenticated open/read health, ready-state render, caption save/revert, and create/upload-entry plus delete cleanup on fresh smoke accounts.
+- `Vibe Studio` now has hard runtime proof for authenticated open/read health, ready-state render, caption save/revert, create/upload-entry, real binary tus upload through `processing -> ready`, safe replace with a new UID, and reversible cleanup on fresh smoke accounts.
+- `Public profile` now has hard runtime proof for authenticated `/user/:userId` render, including name/age, tagline, photo verification, ready Vibe Video caption, About Me, vibes, and lifestyle sections on fresh smoke data.
 
 The branch also proved an environment boundary precisely:
 
@@ -23,9 +24,11 @@ Primary harnesses used across the latest proof streams:
 
 - `npm run proof:browser-auth`
 - `npm run proof:smoke-bootstrap`
+- `npm run proof:vibe-upload-processing`
 - `node scripts/fresh-smoke-proof-bootstrap.mjs cleanup`
 - Backed by `scripts/browser-auth-runtime-proof.mjs`
 - Backed by `scripts/fresh-smoke-proof-bootstrap.mjs`
+- Backed by `scripts/fresh-vibe-upload-processing-proof.mjs`
 
 One-off supporting proof used during execution:
 
@@ -55,8 +58,9 @@ One-off supporting proof used during execution:
 | Referrals | Practical attribution (`referred_by` set-once / repeat-attempt immutability / self-ref rejection) | Hard pass | `npm run proof:smoke-bootstrap` reset `profiles.referred_by`, proved `/invite?ref=2cf4...` stored the ref in browser local storage, injected a fresh smoke auth session, then confirmed `/settings/referrals` rendered `You joined from Kaan's invite` with `Existing referred_by: 2cf4...`. Repeating `/auth?ref=2cf4...` left `referred_by` unchanged, and self-ref on the source smoke account left `referred_by = null` with the stored ref cleared. | The repeat-attempt immutability proof reused the same referrer id rather than introducing a third dedicated referrer account. |
 | Vibe Studio | Authenticated open/read path | Hard pass | After deploying `20260408173000_event_registrations_rls_recursion_fix.sql`, `npm run proof:browser-auth` loaded `/vibe-studio` with `VIBE STUDIO`, `Show your energy before the first chat.`, `No video yet`, and `Create your Vibe Video`. The proof harness recorded `events: []` for the route, and a focused authenticated route check showed `/dashboard`, `/vibe-studio`, and `/settings/referrals` rendering without recursive Supabase 500s. | This closes the prior authenticated runtime blocker. |
 | Vibe Studio | Ready render + caption save/revert | Hard pass | Fresh smoke proof opened `/vibe-studio` on `2cf4...` and rendered `Ready`, `Your Vibe Video is live`, and the existing caption `Yeyyyy !! 🤩`. The browser then saved caption `[fresh-smoke-proof-bootstrap] caption` and restored the original caption, with DB reads confirming both transitions. | — |
-| Vibe Studio | Create/upload entry + delete cleanup | Hard pass | Fresh smoke proof opened `/vibe-studio` on `2a09...`, confirmed the `No video yet` state, called `create-video-upload`, reloaded to the `Uploading` state with `bunny_video_status='uploading'`, then called `delete-vibe-video` and returned to `No video yet` with `bunny_video_uid = null` and `bunnyRemoteDeleteOk = true`. | This proves entry-state creation and cleanup, not a completed binary upload/webhook-ready cycle. |
-| Vibe Studio | Fresh binary upload -> processing -> ready / replace | Narrow remaining blocker | The bootstrap proof did not upload a real binary through tus to webhook-ready completion, and did not replace the already-ready primary smoke video. | Needs either a third dedicated smoke media account or a safe reversible binary-upload proof path. |
+| Vibe Studio | Create/upload entry + delete cleanup | Hard pass | Fresh smoke bootstrap opened `/vibe-studio` on `2a09...`, confirmed the `No video yet` state, called `create-video-upload`, reloaded to the `Uploading` state with `bunny_video_status='uploading'`, then called `delete-vibe-video` and returned to `No video yet` with `bunny_video_uid = null` and `bunnyRemoteDeleteOk = true`. | This remains the fast bootstrap proof for entry-state creation and cleanup. |
+| Vibe Studio | Fresh binary upload -> processing -> ready / replace | Hard pass | `npm run proof:vibe-upload-processing` kept the primary ready smoke account untouched, cleaned the reversible partner account back to `none`, generated two real `video/webm` assets in headless Chromium, and uploaded them through Bunny tus. Fresh upload: `d4ccdc68...` / session `7286d536...` moved from profile `uploading` + session `created` into observed profile/session `processing` at `18:22:45Z`, then profile/session `ready` at `18:27:21Z`, and `/vibe-studio` rendered `Ready` / `Your Vibe Video is live`. Replace: starting from ready uid `d4ccdc68...`, `create-video-upload` issued new uid `efb092da...`, the prior session was marked `abandoned`, the new session `0f3d9cea...` observed `processing` at `18:27:37Z` and `ready` at `18:31:15Z`, and the route again rendered the ready state. Cleanup then deleted `efb092da...`, restored partner profile state to `bunny_video_uid = null`, `bunny_video_status = 'none'`, and marked session `0f3d9cea...` as `deleted`. | This closes the last repo-side Vibe Studio browser-proof gap without mutating the existing primary ready control account. |
+| Public profile | Authenticated `/user/:userId` render | Hard pass | Fresh smoke proof opened `/user/2cf4...` from authenticated partner session `2a09...` and rendered `Kaan, 39`, tagline `Founder of Vibely!`, `Photo verified`, `VIBING ON` with caption `Yeyyyy !! 🤩`, `About Me`, vibe tag `Night Owl`, and `Lifestyle`. Harness booleans all returned true (`notFoundVisible=false`, `showsName=true`, `showsAge=true`, `showsTagline=true`, `showsAboutMe=true`, `showsFirstVibe=true`, `showsPhotoVerified=true`, `showsVibeVideo=true`). | — |
 | OneSignal | Authenticated worker registration | Hard pass | Real authenticated browser had service worker scope `https://www.vibelymeet.com/` with active script `OneSignalSDKWorker.js?...`. | — |
 | OneSignal | Existing permission state | Hard pass | `Notification.permission === "granted"` in the real copied Chrome session. | — |
 | OneSignal | Subscription identity path | Hard pass | Browser `PushSubscription.id` was `6a43beeb-c125-4473-9f47-9eb63f26629f`; DB `notification_preferences.onesignal_player_id` for the same authenticated user matched that exact id and `onesignal_subscribed = true`. | — |
@@ -114,7 +118,7 @@ Post-fix runtime evidence:
 - Post-deploy proof rerun shows `/vibe-studio` loading the studio UI instead of the failure shell.
 - Post-deploy route checks for `/dashboard`, `/vibe-studio`, and `/settings/referrals` only surfaced aborted third-party telemetry noise, not recursive Supabase 500s.
 
-## 5. Exact fix/bootstrap applied and next branch
+## 5. Exact fix/bootstrap applied
 
 For the recursive runtime defect:
 
@@ -129,13 +133,12 @@ For the fresh smoke bootstrap closure:
 - Package entry added: `npm run proof:smoke-bootstrap`
 - Cloud impact: no migration or deploy was required; proof used linked SQL execution plus authenticated runtime routes
 
-For the remaining narrow browser/runtime gap after that:
+For the Vibe Studio binary upload / replace closure:
 
-- Recommended branch (only if needed): `qa/fresh-vibe-upload-processing-proof`
-- Scope:
-  - use a safe dedicated smoke media account or reversible upload path
-  - exercise actual tus upload -> webhook processing -> ready
-  - prove replace flow without sacrificing the existing ready smoke video
+- Branch used: `qa/fresh-vibe-upload-processing-proof`
+- Script added: `scripts/fresh-vibe-upload-processing-proof.mjs`
+- Package entry added: `npm run proof:vibe-upload-processing`
+- Cloud impact: no migration or deploy was required; proof used the existing `create-video-upload`, Bunny tus upload, `video-webhook`, and `delete-vibe-video` path against the linked production-style project
 
 ## 6. Current readiness judgment
 
@@ -149,10 +152,11 @@ What is now solid:
 - fresh smoke schedule bucket + reminder proof now exists
 - fresh smoke referral attribution proof now exists
 - fresh smoke Vibe Studio ready/caption/create/delete proof now exists
+- fresh smoke Vibe Studio real binary upload -> processing -> ready / replace / cleanup proof now exists
+- fresh smoke public-profile route proof now exists
 - authenticated OneSignal worker/subscription/browser-state proof exists
 
 What still blocks a confident go-call:
 
 - no interactive human-accepted push prompt / click-through proof
-- no fresh end-to-end binary upload -> processing -> ready / replace proof on a safe dedicated smoke media account
 - existing provider/device blockers from prior readiness docs still remain

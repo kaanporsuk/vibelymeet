@@ -1,5 +1,7 @@
 # Native v1 RC Operator Runbook
 
+> **Historical / supplemental.** This is not the active launch-closure entrypoint. Start from `docs/active-doc-map.md` and use this file only as an extra runtime-validation workflow when needed.
+
 Date: 2026-04-04
 Purpose: Execute runtime validation in the highest-signal order and produce actionable findings for Cursor follow-up.
 

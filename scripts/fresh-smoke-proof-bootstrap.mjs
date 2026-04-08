@@ -181,6 +181,22 @@ function buildAuthHeaders(session, config, extra = {}) {
   };
 }
 
+function flattenVibeLabels(vibeRows) {
+  const rows = Array.isArray(vibeRows) ? vibeRows : [];
+  return rows.flatMap((row) => {
+    const vibeTags = row?.vibe_tags;
+    if (!vibeTags) return [];
+    if (Array.isArray(vibeTags)) {
+      return vibeTags
+        .map((tag) => (typeof tag?.label === "string" ? tag.label.trim() : ""))
+        .filter(Boolean);
+    }
+    return typeof vibeTags?.label === "string" && vibeTags.label.trim()
+      ? [vibeTags.label.trim()]
+      : [];
+  });
+}
+
 async function fetchJson(url, init) {
   const response = await fetch(url, init);
   const json = await response.json().catch(() => null);
@@ -601,6 +617,42 @@ async function getOwnProfile(session, config) {
   );
 }
 
+async function fetchPublicProfileSnapshot(session, config, profileId) {
+  const profile = await selectSingle(
+    session,
+    config,
+    "profiles",
+    "id,name,age,tagline,about_me,location,relationship_intent,looking_for,photo_verified,bunny_video_uid,bunny_video_status,vibe_caption",
+    `id=eq.${encodeURIComponent(profileId)}`,
+  );
+
+  if (!profile?.id) {
+    throw new Error(`Could not load public-profile snapshot for ${profileId}`);
+  }
+
+  const { response, json } = await fetchJson(
+    `${config.supabaseUrl}/rest/v1/profile_vibes?select=vibe_tags(label)&profile_id=eq.${encodeURIComponent(profileId)}`,
+    {
+      headers: buildAuthHeaders(session, config, {
+        Accept: "application/json",
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not load profile vibes for ${profileId}: ${
+        json?.message || json?.error || JSON.stringify(json)
+      }`,
+    );
+  }
+
+  return {
+    ...profile,
+    vibes: flattenVibeLabels(json),
+  };
+}
+
 async function captureReferralProof(sourceSession, targetSession, config) {
   const selfContext = await createFreshContext();
   await injectSessionIntoContext(selfContext.context, sourceSession);
@@ -725,14 +777,17 @@ async function captureVibeReadyAndCaptionProof(primarySession, config) {
       await dismissMaybeLaterPrompt(page);
 
       const initialText = await page.locator("body").innerText();
-      const textarea = page.locator("textarea").first();
+      const textarea = page.getByPlaceholder("What are you vibing on right now?");
+      const saveCaptionButton = page.getByRole("button", { name: /Save caption/i });
       await textarea.fill(tempCaption);
-      await page.getByRole("button", { name: /Save caption/i }).click();
+      await page.waitForTimeout(300);
+      await saveCaptionButton.click();
       await page.waitForTimeout(2_500);
       const afterSave = await getOwnProfile(primarySession, config);
 
       await textarea.fill(originalCaption);
-      await page.getByRole("button", { name: /Save caption/i }).click();
+      await page.waitForTimeout(300);
+      await saveCaptionButton.click();
       await page.waitForTimeout(2_500);
       const restored = await getOwnProfile(primarySession, config);
 
@@ -851,6 +906,86 @@ async function captureVibeCreateDeleteProof(partnerSession, config) {
   }
 }
 
+async function capturePublicProfileProof(viewerSession, targetProfileId, config) {
+  const expected = await fetchPublicProfileSnapshot(viewerSession, config, targetProfileId);
+  const { context } = await createFreshContext();
+  await injectSessionIntoContext(context, viewerSession);
+  const page = await context.newPage();
+  const screenshot = path.join(ARTIFACT_DIR, "smoke-public-profile.png");
+
+  try {
+    const { result, events } = await collectEvents(page, async () => {
+      await page.goto(`${DEFAULT_ORIGIN}/user/${targetProfileId}`, {
+        waitUntil: "load",
+        timeout: 120_000,
+      });
+      await page.waitForTimeout(6_000);
+      await dismissMaybeLaterPrompt(page);
+
+      const bodyText = await page.locator("body").innerText();
+      const aboutSnippet =
+        typeof expected.about_me === "string" && expected.about_me.trim().length > 0
+          ? expected.about_me.trim().slice(0, 32)
+          : null;
+      const tagline =
+        typeof expected.tagline === "string" && expected.tagline.trim().length > 0
+          ? expected.tagline.trim()
+          : null;
+      const firstVibe = expected.vibes[0] ?? null;
+      const hasReadyVideo =
+        typeof expected.bunny_video_uid === "string" &&
+        expected.bunny_video_uid.length > 0 &&
+        expected.bunny_video_status === "ready";
+      const vibeCaption =
+        typeof expected.vibe_caption === "string" && expected.vibe_caption.trim().length > 0
+          ? expected.vibe_caption.trim()
+          : null;
+
+      await page.screenshot({ path: screenshot, fullPage: true });
+
+      return {
+        url: page.url(),
+        viewerUserId: viewerSession.user?.id ?? null,
+        targetUserId: targetProfileId,
+        expected: {
+          name: expected.name ?? null,
+          age: expected.age ?? null,
+          tagline,
+          aboutSnippet,
+          firstVibe,
+          photoVerified: expected.photo_verified === true,
+          hasReadyVideo,
+          vibeCaption,
+        },
+        notFoundVisible:
+          bodyText.includes("Profile not found") ||
+          bodyText.includes("This profile is unavailable right now."),
+        showsName:
+          typeof expected.name === "string" && expected.name.trim().length > 0
+            ? bodyText.includes(expected.name.trim())
+            : null,
+        showsAge:
+          typeof expected.age === "number" ? bodyText.includes(String(expected.age)) : null,
+        showsTagline: tagline ? bodyText.includes(tagline) : null,
+        showsAboutMe: aboutSnippet
+          ? bodyText.includes("About Me") && bodyText.includes(aboutSnippet)
+          : null,
+        showsFirstVibe: firstVibe ? bodyText.includes(firstVibe) : null,
+        showsPhotoVerified:
+          expected.photo_verified === true ? bodyText.includes("Photo verified") : null,
+        showsVibeVideo:
+          hasReadyVideo ? bodyText.includes("Vibing on") || (vibeCaption ? bodyText.includes(vibeCaption) : false) : null,
+        textSample: bodyText.slice(0, 700),
+        screenshot,
+      };
+    });
+
+    return { ...result, events };
+  } finally {
+    await context.close();
+  }
+}
+
 async function buildAuditNote(matchId) {
   return {
     targets: [
@@ -877,6 +1012,12 @@ async function buildAuditNote(matchId) {
         proofTarget: "Vibe Studio create/upload entry + delete cleanup",
         requiredAuthState: `${PARTNER.email} fresh authenticated web session`,
         requiredDataState: "Complete profile with no active video",
+        canCursorBootstrapNow: "yes",
+      },
+      {
+        proofTarget: "Public profile route render",
+        requiredAuthState: `${PARTNER.email} fresh authenticated web session viewing ${PRIMARY.email}`,
+        requiredDataState: "Existing public profile data on the primary smoke account",
         canCursorBootstrapNow: "yes",
       },
       {
@@ -935,6 +1076,7 @@ async function main() {
   const referrals = await captureReferralProof(primarySession, partnerSession, config);
   const vibeReady = await captureVibeReadyAndCaptionProof(primarySession, config);
   const vibeCreateDelete = await captureVibeCreateDeleteProof(partnerSession, config);
+  const publicProfile = await capturePublicProfileProof(partnerSession, PRIMARY.id, config);
 
   console.log(
     JSON.stringify(
@@ -953,6 +1095,7 @@ async function main() {
         referrals,
         vibeReady,
         vibeCreateDelete,
+        publicProfile,
       },
       null,
       2,

@@ -1,5 +1,7 @@
 # VIBELY — AUDITED GOLDEN STATE TECHNICAL SNAPSHOT
 
+> **Archived duplicate copy.** Use `_cursor_context/vibely_golden_snapshot_audited.md` as the canonical audited snapshot. This `(1)` file is retained only for history and should not be referenced in active docs.
+
 **Audit date:** 2026-03-10  
 **Audit basis:** frozen ZIP `vibelymeet-pre-native-hardening-golden-2026-03-10.zip` + Claude snapshot + direct repo inspection  
 **Supabase project ID:** `schdyxcunwcvddlcshwd` (from `supabase/config.toml`)  

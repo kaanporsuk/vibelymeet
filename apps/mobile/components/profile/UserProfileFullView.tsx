@@ -82,11 +82,12 @@ export function UserProfileFullView({
   const tagline = profile.tagline?.trim();
   const location = profile.location?.trim();
   const vibeInfo = resolveVibeVideoState(profile);
-  const hasVibeVideoReady = vibeInfo.state === 'ready';
+  const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
+  const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
   const vibeProcessing = vibeInfo.state === 'uploading' || vibeInfo.state === 'processing';
   const vibeFailedOrError = vibeInfo.state === 'failed' || vibeInfo.state === 'error';
   const thumbnailUrl = vibeInfo.thumbnailUrl;
-  const caption = profile.vibe_caption?.trim() ?? '';
+  const caption = vibeInfo.caption ?? '';
 
   const aboutMeRaw = profile.about_me?.trim() ?? '';
   const showAboutMe = aboutMeRaw.length > ABOUT_ME_MIN_CHARS;
@@ -291,7 +292,19 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
-          {hasVibeVideoReady ? (
+          {isOwnProfile && vibeReadyAwaitingPlayback ? (
+            <RNView style={s.section}>
+              <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
+                <Ionicons name="sync" size={32} color="#FBBF24" />
+                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Preview still syncing</Text>
+                <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
+                  Your Vibe Video is ready on the backend, but this device is still waiting on a playable preview URL.
+                </Text>
+              </RNView>
+            </RNView>
+          ) : null}
+
+          {hasPlayableVibeVideo ? (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, { borderColor: theme.glassBorder }]}>
                 {thumbnailUrl ? (

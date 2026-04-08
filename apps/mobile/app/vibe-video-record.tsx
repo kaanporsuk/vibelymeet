@@ -55,6 +55,7 @@ const SUPABASE_PROJECT_REF = (() => {
   }
 })();
 
+// Local recorder/upload stages only. Profile playback/readiness must still come from resolveVibeVideoState().
 type Stage = 'idle' | 'recording' | 'preview' | 'uploading' | 'processing';
 
 function isAbortError(e: unknown): boolean {
@@ -109,7 +110,7 @@ function ProcessingScreen({
         ? 'Almost there…'
         : elapsed < 60
           ? 'Taking a bit longer than usual…'
-          : 'Still working on it. You can go back and we\u2019ll notify you.';
+          : 'Still working on it. You can leave this screen and check Vibe Studio again shortly.';
 
   return (
     <View style={[styles.centered, { backgroundColor: theme.background, paddingHorizontal: 28 }]}>
@@ -122,7 +123,7 @@ function ProcessingScreen({
         {elapsed}s
       </Text>
       <Text style={[styles.processingHint, { color: theme.textSecondary }]}>
-        You can return to Vibe Studio — we'll keep checking in the background.
+        Processing continues on the backend even if you leave this screen.
       </Text>
       <Pressable
         style={[styles.btn, { backgroundColor: theme.tint, marginTop: 28 }]}
@@ -371,11 +372,23 @@ export default function VibeVideoRecordScreen() {
         }
         if (result === 'superseded') {
           vibeVideoDiagVerbose('upload.poll_superseded_navigate', { expectedVideoId });
-          if (onboardingFlow) {
-            returnToOnboarding(expectedVideoId);
-            return;
-          }
-          returnToVibeStudio();
+          show({
+            title: 'Newer video found',
+            message: onboardingFlow
+              ? 'A newer Vibe Video replaced this upload. We kept the latest one for onboarding.'
+              : 'A newer Vibe Video replaced this upload. We kept the latest one on your profile.',
+            variant: 'info',
+            primaryAction: {
+              label: onboardingFlow ? 'Continue' : 'Open Vibe Studio',
+              onPress: () => {
+                if (onboardingFlow) {
+                  returnToOnboarding(expectedVideoId);
+                  return;
+                }
+                returnToVibeStudio();
+              },
+            },
+          });
           return;
         }
         if (result === 'aborted') {
@@ -385,7 +398,7 @@ export default function VibeVideoRecordScreen() {
         show({
           title: 'Still processing',
           message:
-            'Your video is taking longer than usual. It’ll show in Vibe Studio when ready — pull to refresh there.',
+            'Your video is taking longer than usual. The backend may still be processing it, so leave this screen and check again shortly.',
           variant: 'info',
           primaryAction: {
             label: 'OK',
@@ -487,6 +500,12 @@ export default function VibeVideoRecordScreen() {
           projectRef: SUPABASE_PROJECT_REF,
           videoId: creds.videoId,
           message: captionError instanceof Error ? captionError.message : 'unknown',
+        });
+        show({
+          title: 'Video upload continues',
+          message: 'Your Vibe Video is still processing, but the caption did not save. You can update it later in Vibe Studio.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
 

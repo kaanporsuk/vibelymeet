@@ -16,6 +16,7 @@
     "audit:mobile-keyboard-overlays": "node scripts/audit-mobile-keyboard-overlays.mjs",
     "proof:browser-auth": "node scripts/browser-auth-runtime-proof.mjs",
     "proof:smoke-bootstrap": "node scripts/fresh-smoke-proof-bootstrap.mjs",
+    "proof:vibe-upload-processing": "node scripts/fresh-vibe-upload-processing-proof.mjs",
     "launch:preflight": "node scripts/native-launch-preflight.mjs"
   },
   "dependencies": {

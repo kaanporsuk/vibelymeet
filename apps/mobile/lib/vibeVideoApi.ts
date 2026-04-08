@@ -26,8 +26,6 @@ function getProjectRefFromSupabaseUrl(url: string): string | null {
 
 export type VibeVideoUploadSource = 'camera' | 'library' | 'drawer' | 'unknown';
 
-export type VibeVideoStatus = 'none' | 'uploading' | 'processing' | 'ready' | 'failed';
-
 export type CreateVideoUploadCredentials = {
   videoId: string;
   libraryId: number;

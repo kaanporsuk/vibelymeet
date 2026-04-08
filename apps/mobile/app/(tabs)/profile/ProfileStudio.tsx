@@ -905,7 +905,8 @@ export default function ProfileStudio() {
   const mainPhoto = profile?.photos?.[0] ?? profile?.avatar_url ?? null;
   const displayName = profile?.name ?? 'Your name';
   const age = profile?.age;
-  const hasVibeVideo = videoInfo.state === 'ready';
+  const hasPlayableVibeVideo = videoInfo.state === 'ready' && videoInfo.canPlay;
+  const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
   const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'uploading';
   const isVibeVideoFailed = videoInfo.state === 'failed';
   const isVibeVideoError = videoInfo.state === 'error';
@@ -1213,7 +1214,30 @@ export default function ProfileStudio() {
               </Text>
               <Text style={[s.videoStudioHint, { color: theme.tint }]}>Open Vibe Studio</Text>
             </Pressable>
-          ) : hasVibeVideo ? (
+          ) : readyAwaitingPlaybackUrl ? (
+            <Pressable
+              onPress={openVibeStudio}
+              ref={setSectionCardRef('video')}
+              collapsable={false}
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                registerSectionCardLayout('video', y, height);
+              }}
+              style={({ pressed }) => [
+                s.videoCard,
+                s.videoProcessingCard,
+                { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder },
+                pressed && { opacity: 0.92 },
+              ]}
+            >
+              <Ionicons name="sync" size={36} color="#FBBF24" />
+              <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Preview still syncing</Text>
+              <Text style={[s.videoProcessingSubtitle, { color: theme.textSecondary }]}>
+                The backend marked this Vibe Video ready, but this device is still waiting on a playable preview URL.
+              </Text>
+              <Text style={[s.videoStudioHint, { color: theme.tint }]}>Open Vibe Studio</Text>
+            </Pressable>
+          ) : hasPlayableVibeVideo ? (
             <Pressable
               onPress={openVibeStudio}
               ref={setSectionCardRef('video')}

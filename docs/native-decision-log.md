@@ -1,5 +1,7 @@
 # Native decision log
 
+> **Historical architecture/parity log.** Keep for Sprint 0 decision provenance, but do not use it as the active launch-closure guide. For the current execution path, use `docs/active-doc-map.md`.
+
 Decisions made for the native architecture and Sprint 0. **Rejected options** are listed explicitly so the same debate is not reopened without a formal change to this log.
 
 ---

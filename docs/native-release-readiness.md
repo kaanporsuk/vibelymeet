@@ -5,6 +5,7 @@ Scope: App and provider/build closure prep. Reflects Sprints 1–6 and **Phase 7
 **Phase 7 summary:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md` for the strict release-readiness matrix, go/no-go recommendation, and critical path. **Current verdict: No-Go for submission** until provider proof and first real device validation are completed — **not** because repo or web proof is missing for core flows. Rebuild rehearsal is logged, the recursive `event_registrations` RLS failure is fixed and deployed. Authenticated browser proof covers Schedule, Referrals, OneSignal worker + subscription + `notification_preferences` sync, and Vibe Studio (open/read, caption, create/upload entry, delete cleanup on smoke accounts). Remaining **browser** gaps are mainly **interactive** push prompt acceptance and delivered-notification tap (manual). A **full** web tus → processing → ready → replace proof may be tracked separately in proof harness docs; it is **not** on the native launch-critical path.
 
 **Operator entrypoint:** `npm run launch:preflight` → `docs/kaan-launch-closure-execution-sheet.md` → `docs/native-launch-closure-master-runbook.md`.
+**Active doc map:** `docs/active-doc-map.md`
 
 ---
 

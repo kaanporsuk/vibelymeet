@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View, TextInput, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
@@ -13,24 +13,53 @@ import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
 
+function firstRouteParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' && value[0].trim() ? value[0].trim() : null;
+  }
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export default function ResetPasswordScreen() {
+  const params = useLocalSearchParams<{ authError?: string | string[] }>();
   const { session } = useAuth();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const authLinkError = firstRouteParam(params.authError);
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
 
   const hasSession = !!session?.user?.id;
 
   const redirectTo = getNativePasswordResetRedirectUrl();
 
+  useEffect(() => {
+    if (!authLinkError) return;
+    setError(authLinkError);
+    setMessage(
+      hasSession
+        ? 'We had trouble finishing that recovery link, but your recovery session is active. You can still set a new password below.'
+        : 'We could not complete that reset link on this device. Request a fresh reset email below.',
+    );
+  }, [authLinkError, hasSession]);
+
+  useEffect(() => {
+    if (!passwordUpdated) return;
+    const timer = setTimeout(() => {
+      router.replace('/');
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [passwordUpdated]);
+
   const handleRequestReset = async () => {
     if (!email.trim()) return;
+    setPasswordUpdated(false);
     setLoading(true);
     setError(null);
     setMessage(null);
@@ -53,6 +82,7 @@ export default function ResetPasswordScreen() {
       setError('Passwords do not match.');
       return;
     }
+    setPasswordUpdated(false);
     setLoading(true);
     setError(null);
     setMessage(null);
@@ -62,7 +92,8 @@ export default function ResetPasswordScreen() {
       setLoading(false);
       return;
     }
-    setMessage('Password updated successfully.');
+    setPasswordUpdated(true);
+    setMessage('Password updated successfully. Redirecting to Vibely...');
     setLoading(false);
   };
 
@@ -114,6 +145,14 @@ export default function ResetPasswordScreen() {
 
       {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
       {message ? <Text style={[styles.success, { color: theme.tint }]}>{message}</Text> : null}
+      {hasSession && passwordUpdated ? (
+        <VibelyButton
+          label="Continue now"
+          onPress={() => router.replace('/')}
+          variant="secondary"
+          style={{ marginTop: 16 }}
+        />
+      ) : null}
 
       <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
         By continuing, you agree to our{' '}

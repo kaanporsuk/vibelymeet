@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { Redirect, router, useLocalSearchParams, type Href } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
@@ -77,27 +77,6 @@ export default function OnboardingV2Screen() {
   const updateField = useCallback(<K extends keyof OnboardingData>(field: K, value: OnboardingData[K]) => {
     setData((prev) => ({ ...prev, [field]: value }));
   }, []);
-
-  useEffect(() => {
-    if (loading || entryStateLoading) return;
-    if (!session?.user?.id) {
-      router.replace('/(auth)/sign-in');
-      return;
-    }
-    if (entryState?.state === 'complete') {
-      router.replace('/(tabs)');
-      return;
-    }
-    if (
-      !entryState
-      || entryState.state === 'missing_profile'
-      || entryState.state === 'suspected_fragmented_identity'
-      || entryState.state === 'account_suspended'
-      || entryState.state === 'hard_error'
-    ) {
-      router.replace(ENTRY_RECOVERY_HREF);
-    }
-  }, [entryState, entryStateLoading, loading, session?.user?.id]);
 
   // Load draft: server is source of truth, local cache is fast fallback
   useEffect(() => {
@@ -485,12 +464,28 @@ export default function OnboardingV2Screen() {
       </Pressable>
     ) : null;
 
-  if (loading || entryStateLoading || !session?.user?.id || entryState?.state !== 'incomplete') {
+  if (loading || entryStateLoading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator />
       </View>
     );
+  }
+
+  if (!session?.user?.id) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
+
+  if (!entryState) {
+    return <Redirect href={ENTRY_RECOVERY_HREF} />;
+  }
+
+  if (entryState.state === 'complete') {
+    return <Redirect href="/(tabs)" />;
+  }
+
+  if (entryState.state !== 'incomplete') {
+    return <Redirect href={ENTRY_RECOVERY_HREF} />;
   }
 
   return (

@@ -112,11 +112,6 @@ export function resolveVibeVideoStreamHostnameSync(): StreamHostnameResolution {
   };
 }
 
-/** @deprecated Use resolveVibeVideoStreamHostnameSync().hostname — kept for incremental refactors */
-export function getEffectiveStreamCdnHostnameSync(): string {
-  return resolveVibeVideoStreamHostnameSync().hostname;
-}
-
 /** In-memory cache update (e.g. after reading AsyncStorage). */
 export function setCachedStreamCdnHostname(hostname: string | null | undefined): void {
   if (hostname && String(hostname).trim()) {

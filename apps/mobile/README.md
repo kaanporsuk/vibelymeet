@@ -63,12 +63,15 @@ cd apps/mobile && npm start
 - **External setup:** RevenueCat dashboard (project, apps, products, offerings, webhook URL + auth header). Supabase: deploy `revenuecat-webhook` and set `REVENUECAT_WEBHOOK_AUTHORIZATION` secret.
 - **Store submission:** Not part of Sprint 6; app is ready for dev/preview builds and entitlement flow. App Store / Play Store submission and dashboard configuration are separate steps.
 
-**Launch-readiness docs (repo root):**
+**Launch-closure docs (repo root):**
 
-- `docs/native-launch-readiness.md` — completion status, what’s in repo, external setup, device testing, TestFlight/Production validation.
+- `docs/active-doc-map.md` — current doc entrypoint map: where to start, where evidence is recorded, and which docs are canonical vs historical.
+- `docs/kaan-launch-closure-execution-sheet.md` — one-page operator sequence.
+- `docs/native-launch-closure-master-runbook.md` — canonical launch-closure narrative, criteria, and escalation.
+- `docs/native-final-blocker-matrix.md` — single active launch backlog and evidence log.
 - `docs/native-external-setup-checklist.md` — Supabase migrations/functions/secrets, RevenueCat, OneSignal, Daily, Expo/EAS, App Store Connect, Play Console, env vars.
 - `docs/native-manual-test-matrix.md` — manual test matrix for all domains and cross-platform (web ↔ iOS/Android).
-- `docs/native-deployment-validation-sequence.md` — ordered merge, backend rollout, external dashboards, dev-build validation, release gates.
+- `docs/phase7-stage5-release-readiness-and-go-nogo.md` — strict release-readiness matrix and go/no-go.
 
 ## Checks
 

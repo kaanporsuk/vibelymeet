@@ -24,9 +24,10 @@ Monorepo keeps API and behavior contracts visible and reduces drift between clie
 
 ---
 
-## 3. Web as source of truth for native parity
+## 3. Native parity reference and launch-closure truth
 
-- **Product and design source of truth:** Web. Native work targets **parity** with web behavior and UX for v1 user flows, not an independent redesign.
+- **Historical parity reference:** Web remains the design-reference baseline for older native parity audits and mapping docs.
+- **Current execution truth:** For launch closure, treat `docs/active-doc-map.md` as the canonical doc entrypoint and treat the shared backend/runtime state as the operational source of truth.
 - **Safety net:** Legacy web routes remain; web and native share the same backend.
 
 (Locked in [native-decision-log.md](./native-decision-log.md).)

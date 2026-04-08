@@ -14,12 +14,12 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import * as Linking from 'expo-linking';
-import { Stack, router, usePathname } from 'expo-router';
+import { Redirect, Stack, router, usePathname, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
-import { LogBox, View } from 'react-native';
+import { ActivityIndicator, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useBadgeCount } from '@/lib/useBadgeCount';
@@ -45,7 +45,7 @@ import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
 import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
-import { captureNativeReferral } from '@/lib/referrals';
+import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 // ─── Sentry (matches web src/main.tsx)
@@ -215,7 +215,7 @@ function EventsRealtimeUpdater() {
   return null;
 }
 
-function AuthRedirectHandler() {
+function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () => void }) {
   const lastHandledUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -224,7 +224,10 @@ function AuthRedirectHandler() {
     const handleIncomingUrl = async (url: string | null | undefined) => {
       if (!url || cancelled || lastHandledUrlRef.current === url) return;
 
-      await captureNativeReferral(url);
+      const referralId = await captureNativeReferral(url);
+      if (referralId) {
+        onReferralCaptured();
+      }
 
       const result = await completeSessionFromAuthReturnUrl(supabase, url);
       if (cancelled || !result.handled) return;
@@ -242,13 +245,26 @@ function AuthRedirectHandler() {
       }
 
       if (result.recovery) {
-        router.replace('/(auth)/reset-password');
+        router.replace(
+          result.error
+            ? {
+                pathname: '/(auth)/reset-password',
+                params: { authError: result.error.message },
+              }
+            : '/(auth)/reset-password',
+        );
         return;
       }
 
-      if (!result.error) {
-        router.replace('/');
+      if (result.error) {
+        router.replace({
+          pathname: '/(auth)/sign-in',
+          params: { authError: result.error.message },
+        });
+        return;
       }
+
+      router.replace('/');
     };
 
     void Linking.getInitialURL().then((url) => handleIncomingUrl(url));
@@ -260,15 +276,111 @@ function AuthRedirectHandler() {
       cancelled = true;
       subscription.remove();
     };
-  }, []);
+  }, [onReferralCaptured]);
 
   return null;
+}
+
+const PROTECTED_ROOT_SEGMENTS = new Set([
+  '(tabs)',
+  'event',
+  'chat',
+  'daily-drop',
+  'ready',
+  'date',
+  'settings',
+  'premium',
+  'vibe-studio',
+  'vibe-video-record',
+  'user',
+  'schedule',
+  'subscription-success',
+  'subscription-cancel',
+  'credits-success',
+  'event-payment-success',
+  'how-it-works',
+  'delete-account',
+]);
+
+function ReferralAttributionSync({ syncTick }: { syncTick: number }) {
+  const { session, entryState } = useAuth();
+  const lastAttemptKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const userId = session?.user?.id ?? null;
+    const entryStateKey =
+      entryState?.state === 'complete' || entryState?.state === 'incomplete'
+        ? entryState.state
+        : null;
+
+    if (!userId || !entryStateKey) {
+      return;
+    }
+
+    const attemptKey = `${userId}:${entryStateKey}:${syncTick}`;
+    if (lastAttemptKeyRef.current === attemptKey) return;
+    lastAttemptKeyRef.current = attemptKey;
+
+    let cancelled = false;
+    void applyNativeReferralAttribution(userId).then((result) => {
+      if (cancelled || result.status !== 'rpc-failed') return;
+      console.warn('[referrals] native attribution failed', {
+        userId,
+        status: result.status,
+        message: result.message,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id, entryState?.state, syncTick]);
+
+  return null;
+}
+
+function EntryStateRouteGate({ children }: { children: ReactNode }) {
+  const segments = useSegments();
+  const { session, loading, entryState, entryStateLoading } = useAuth();
+  const rootSegment = segments[0] ?? null;
+  const isProtectedRoute = rootSegment != null && PROTECTED_ROOT_SEGMENTS.has(rootSegment);
+
+  if (!isProtectedRoute) {
+    return <>{children}</>;
+  }
+
+  if (loading || entryStateLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  if (!session) {
+    return <Redirect href="/(auth)/sign-in" />;
+  }
+
+  if (!entryState) {
+    return <Redirect href="/entry-recovery" />;
+  }
+
+  if (entryState.state === 'incomplete') {
+    return <Redirect href="/(onboarding)" />;
+  }
+
+  if (entryState.state !== 'complete') {
+    return <Redirect href="/entry-recovery" />;
+  }
+
+  return <>{children}</>;
 }
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   useCurrentRouteTracker();
   const [, setCdnHostInitTick] = useState(0);
+  const [referralSyncTick, setReferralSyncTick] = useState(0);
 
   useEffect(() => {
     initRevenueCat();
@@ -325,12 +437,14 @@ function RootLayoutNav() {
       </Stack>
     </ThemeProvider>
   );
+  const gatedStack = <EntryStateRouteGate>{stack}</EntryStateRouteGate>;
 
   const navContent = (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ChatOutboxProvider>
-        <AuthRedirectHandler />
+        <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
+        <ReferralAttributionSync syncTick={referralSyncTick} />
         <PushRegistration />
         <NotificationRouteTracker />
         <NotificationDeepLinkHandler />
@@ -346,10 +460,10 @@ function RootLayoutNav() {
             {POSTHOG_ENABLED ? (
               <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
                 <PostHogScreenTracker />
-                {stack}
+                {gatedStack}
               </PostHogProvider>
             ) : (
-              stack
+              gatedStack
             )}
           </View>
           <OfflineBanner />

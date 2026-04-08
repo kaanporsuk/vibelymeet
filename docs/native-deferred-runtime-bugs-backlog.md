@@ -1,5 +1,7 @@
 # Native deferred runtime bugs backlog
 
+> **Historical deferred backlog.** This file is not the active launch backlog. Use `docs/native-final-blocker-matrix.md` for current blocker ownership/status and `docs/active-doc-map.md` for the active doc chain.
+
 Runtime and media issues explicitly deferred from Sprint R2 (native v1 feature-completeness). To be addressed in a later **hardening pass**. Do not block feature-completeness work on these.
 
 ---

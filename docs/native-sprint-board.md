@@ -1,5 +1,7 @@
 # Native sprint board (UI-1 through UI-6)
 
+> **Historical implementation backlog.** The active launch-closure backlog is now `docs/native-final-blocker-matrix.md`; use `docs/active-doc-map.md` for the current execution path. This file remains as parity-era planning history only.
+
 Implementation sprint order for native UI parity. Do not start UI parity implementation until Sprint 0 (architecture lock) is merged. Web is the product/design source of truth.
 
 ---
