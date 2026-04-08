@@ -2,6 +2,8 @@
 
 Exact checklist for external provider and store setup required before TestFlight / Play internal testing and production. Use placeholders for secret values; do not commit real secrets.
 
+**Operator path (order):** Run `npm run launch:preflight` from repo root, then follow **`docs/kaan-launch-closure-execution-sheet.md`** (one-page checklist). Use this file as the deep reference for each provider. Canonical narrative and pass/fail criteria: **`docs/native-launch-closure-master-runbook.md`**.
+
 ---
 
 ## 1. Supabase

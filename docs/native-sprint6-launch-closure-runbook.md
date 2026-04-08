@@ -2,8 +2,10 @@
 
 Operator runbook for executing launch closure with dashboards and real devices. Do phases in order. For each phase: Cursor can do repo/docs; Kaan does dashboard/device/store actions.
 
+**Start here:** **`docs/kaan-launch-closure-execution-sheet.md`** (compressed order). **Stage 0:** `npm run launch:preflight` + `npm run typecheck` (repo must be green before dashboard work). **Pass/fail table:** **`docs/native-final-blocker-matrix.md`** § Sprint 6 test results. **Canonical criteria / escalation:** **`docs/native-launch-closure-master-runbook.md`**.
+
 **Branch:** `feat/native-sprint6-launch-closure-execution`  
-**Base:** `feat/native-sprint5-provider-build-and-launch-closure`
+**Base:** `main` (launch-closure execution stream; historical base was `feat/native-sprint5-provider-build-and-launch-closure`)
 
 ---
 
