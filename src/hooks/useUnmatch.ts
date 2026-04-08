@@ -25,17 +25,6 @@ export const useUnmatch = () => {
         throw messagesError;
       }
 
-      // Delete date proposals for this match
-      const { error: proposalsError } = await supabase
-        .from("date_proposals")
-        .delete()
-        .eq("match_id", matchId);
-
-      if (proposalsError) {
-        console.error("Error deleting proposals:", proposalsError);
-        // Non-critical, continue
-      }
-
       // Delete the match
       const { error: matchError } = await supabase
         .from("matches")
@@ -89,12 +78,6 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
         console.error("Error deleting messages:", messagesError);
         throw messagesError;
       }
-
-      // Delete date proposals
-      await supabase
-        .from("date_proposals")
-        .delete()
-        .eq("match_id", matchId);
 
       // Delete the match
       const { error: matchError } = await supabase
