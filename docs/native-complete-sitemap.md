@@ -59,6 +59,7 @@
 | `credits` | `settings/credits.tsx` |
 | `account` | `settings/account.tsx` |
 | `privacy` | `settings/privacy.tsx` |
+| `referrals` | `settings/referrals.tsx` |
 
 **Deep linking:** Scheme `mobile` (`app.json` → `"scheme": "mobile"`). URLs like `mobile://chat/...` depend on Expo Router linking; universal links not enumerated in `app.json` snippet — verify `associatedDomains` in EAS if used.
 
@@ -216,7 +217,15 @@
 
 ### Settings root
 - **Route:** `/settings` (from stack push, e.g. profile gear — **entry:** `router.push` not in tab bar)
-- **Rows:** Premium, Credits, Notifications, Account, Privacy, Support & Feedback (`/settings/support` stack), legal **web** links, Sign out Alert
+- **Rows:** Premium, Credits, Notifications, Account, Privacy, Invite Friends (`/settings/referrals`), Support & Feedback (`/settings/support` stack), legal **web** links, Sign out Alert
+
+---
+
+### Referrals hub
+- **Route:** `/settings/referrals`
+- **File:** `app/settings/referrals.tsx`
+- **Entry points:** Settings "Invite friends", Matches empty-state CTA, Profile tab "Bring Friends to Vibely".
+- **Behavior:** Shows canonical invite link (`https://vibelymeet.com/invite?ref=<uuid>`), supports share-sheet + copy, displays current `profiles.referred_by` status when available, and keeps advanced event invite sharing on event detail surfaces.
 
 ---
 

@@ -52,7 +52,6 @@ import { DropsTabContent } from '@/components/matches/DropsTabContent';
 import { ArchivedMatchesSection } from '@/components/matches/ArchivedMatchesSection';
 import { WhoLikedYouGate } from '@/components/premium/WhoLikedYouGate';
 import { useEntitlements } from '@/hooks/useEntitlements';
-import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { useVibelyDialog } from '@/components/VibelyDialog';
@@ -232,7 +231,6 @@ export default function MatchesListScreen() {
   const scrollCloseNonceSV = useSharedValue(0);
   const [activeSwipeMatchId, setActiveSwipeMatchId] = useState<string | null>(null);
   const [unmatchSheetMatch, setUnmatchSheetMatch] = useState<MatchListItem | null>(null);
-  const [showInviteSheet, setShowInviteSheet] = useState(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const handleUnmatch = useCallback(
@@ -357,8 +355,8 @@ export default function MatchesListScreen() {
   }, [unmatchSheetMatch, initiateUnmatch]);
 
   const handleInviteFriends = useCallback(() => {
-    setShowInviteSheet(true);
-  }, []);
+    router.push('/settings/referrals' as Href);
+  }, [router]);
 
   const handleMatchPress = useCallback(
     (item: (typeof matches)[0]) => {
@@ -522,7 +520,7 @@ export default function MatchesListScreen() {
           />
           {emptySpotlight}
           <Pressable
-            onPress={() => setShowInviteSheet(true)}
+            onPress={() => router.push('/settings/referrals' as Href)}
             style={({ pressed }) => [styles.emptyInviteCta, pressed && { opacity: 0.85 }]}
           >
             <Ionicons name="people-outline" size={18} color={theme.tint} />
@@ -539,11 +537,6 @@ export default function MatchesListScreen() {
             </VibelyText>
           </Pressable>
         </ScrollView>
-        <InviteFriendsSheet
-          visible={showInviteSheet}
-          onClose={() => setShowInviteSheet(false)}
-          analyticsSurface="matches"
-        />
       </ScreenContainer>
     );
   }
@@ -956,11 +949,6 @@ export default function MatchesListScreen() {
         }}
       />
 
-      <InviteFriendsSheet
-        visible={showInviteSheet}
-        onClose={() => setShowInviteSheet(false)}
-        analyticsSurface="matches"
-      />
       <KeyboardAwareBottomSheetModal
         visible={showSortSheet}
         onRequestClose={() => setShowSortSheet(false)}

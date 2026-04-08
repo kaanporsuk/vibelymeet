@@ -43,10 +43,9 @@ import {
 } from '@/lib/eventsApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { trackEvent } from '@/lib/analytics';
+import { buildEventShareUrl, buildInviteLandingUrl } from '../../../../shared/inviteLinks';
 
 const SHEET_HEIGHT = Dimensions.get('window').height * 0.85;
-
-const WEB_ORIGIN = 'https://vibelymeet.com';
 
 /** General invite — distinct from event copy */
 const GENERAL_INVITE_DEFAULT_MSG =
@@ -79,24 +78,6 @@ const CHANNELS = [
   { key: 'copy', icon: 'copy-outline' as const, label: 'Copy', color: '#8B5CF6' },
   { key: 'more', icon: 'share-outline' as const, label: 'More', color: '#6B7280' },
 ];
-
-function isUuidLike(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
-}
-
-function buildInviteUrl(userId: string) {
-  const ref = userId.trim();
-  if (!isUuidLike(ref)) return `${WEB_ORIGIN}/invite`;
-  return `${WEB_ORIGIN}/invite?ref=${encodeURIComponent(ref)}`;
-}
-
-function buildEventInviteUrl(eventId: string, userId: string) {
-  const id = eventId.trim();
-  const path = id ? `/events/${encodeURIComponent(id)}` : '/events';
-  const ref = userId.trim();
-  if (!isUuidLike(ref)) return `${WEB_ORIGIN}${path}`;
-  return `${WEB_ORIGIN}${path}?ref=${encodeURIComponent(ref)}`;
-}
 
 function formatEventWhen(iso: string) {
   try {
@@ -191,8 +172,8 @@ export function InviteFriendsSheet({
 
   const shareUrl = useMemo(() => {
     if (!userId) return '';
-    if (activeEvent) return buildEventInviteUrl(activeEvent.id, userId);
-    return buildInviteUrl(userId);
+    if (activeEvent) return buildEventShareUrl(activeEvent.id, userId);
+    return buildInviteLandingUrl(userId);
   }, [userId, activeEvent]);
 
   const fullShareBody = useMemo(() => {

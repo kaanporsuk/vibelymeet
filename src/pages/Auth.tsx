@@ -24,6 +24,7 @@ import {
   mapAuthConflictError,
   parseOAuthCallbackErrorDescription,
 } from "@shared/authConflictMessages";
+import { applyBrowserReferralAttribution, captureBrowserReferral } from "@/lib/referrals";
 
 type AuthView =
   | "welcome"
@@ -75,10 +76,7 @@ const Auth = () => {
   // Track auth page view + preserve referral
   useEffect(() => {
     trackEvent("auth_page_viewed", { platform: "web" });
-    const ref = searchParams.get("ref");
-    if (ref) {
-      localStorage.setItem("vibely_referrer_id", ref);
-    }
+    captureBrowserReferral(searchParams);
   }, [searchParams]);
 
   // OAuth return: surface provider errors; confirm session after success redirect
@@ -168,6 +166,17 @@ const Auth = () => {
       const ensured = await ensureProfileReady(sessionUser, "web_auth_post_login");
       if (cancelled) return;
       if (ensured.status === "ready") {
+        const referralResult = await applyBrowserReferralAttribution(sessionUser.id);
+        if (
+          !cancelled &&
+          (referralResult.status === "lookup-failed" || referralResult.status === "update-failed")
+        ) {
+          console.warn("[referrals] attribution failed", {
+            userId: sessionUser.id,
+            status: referralResult.status,
+            message: referralResult.message,
+          });
+        }
         setProfileBootstrapState("ready");
         return;
       }
@@ -386,7 +395,6 @@ const Auth = () => {
       if (!data.user) {
         throw new Error("We could not create your account. Please try again.");
       }
-      localStorage.removeItem("vibely_referrer_id");
       trackEvent("auth_email_signup", { platform: "web" });
       setPassword("");
       if (data.session?.user) {

@@ -13,7 +13,7 @@ import {
   ActivityIndicator,
   type NativeMethods,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -58,7 +58,6 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { EmailVerificationFlow } from '@/components/verification/EmailVerificationFlow';
 import { PhotoVerificationFlow } from '@/components/verification/PhotoVerificationFlow';
 import { useSchedule } from '@/lib/useSchedule';
-import { InviteFriendsSheet } from '@/components/invite/InviteFriendsSheet';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { VibePickerSheet } from '@/components/profile/VibePickerSheet';
 import { getEmojiForVibeLabel } from '@/lib/vibeTagTaxonomy';
@@ -161,7 +160,6 @@ export default function ProfileStudio() {
   }>({ open: false, anchor: null });
   const photoEmptySlotRefs = useRef<(RNView | null)[]>([]);
   const heroCameraFabRef = useRef<RNView | null>(null);
-  const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [showVibePicker, setShowVibePicker] = useState(false);
 
   // Prompt editing state
@@ -2079,7 +2077,7 @@ export default function ProfileStudio() {
         {/* ═══ Section 13: Bring Friends ═══ */}
         <RNView style={{ marginTop: spacing.xl }}>
           <Pressable
-            onPress={() => setShowInviteSheet(true)}
+            onPress={() => router.push('/settings/referrals' as Href)}
             style={({ pressed }) => [s.inviteCard, pressed && { opacity: 0.92 }]}
           >
             <LinearGradient
@@ -2115,12 +2113,6 @@ export default function ProfileStudio() {
       </RNView>
 
       {/* ═══ Modals & Sheets ═══ */}
-
-      <InviteFriendsSheet
-        visible={showInviteSheet}
-        onClose={() => setShowInviteSheet(false)}
-        analyticsSurface="profile_studio"
-      />
 
       {vibeScoreProfile ? (
         <VibeScoreDrawer

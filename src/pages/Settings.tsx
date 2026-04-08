@@ -50,10 +50,7 @@ import {
   showSettingsMemberElevated,
 } from "@shared/settingsMembershipDisplay";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
-import { toast } from "sonner";
-import { isWebShareAbortError } from "@/lib/webShare";
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -96,27 +93,6 @@ const Settings = () => {
 
   const handleDeleteAccount = async (reason: string | null) => {
     await deleteAccount(reason);
-  };
-
-  const handleInviteFriends = async () => {
-    const link = buildInviteLandingUrl(user?.id ?? null);
-    try {
-      await navigator.share({
-        title: "Join me on Vibely!",
-        text: "I'm using Vibely for video dates — come find your vibe! 💜",
-        url: link,
-      });
-      trackEvent("invite_link_shared", { surface: "settings", channel: "system_share" });
-    } catch (error) {
-      if (isWebShareAbortError(error)) return;
-      try {
-        await navigator.clipboard.writeText(link);
-        trackEvent("invite_link_copied", { surface: "settings", channel: "clipboard" });
-        toast.success("Invite link copied!");
-      } catch {
-        toast.error("Could not copy link. Try again.");
-      }
-    }
   };
 
   return (
@@ -183,7 +159,10 @@ const Settings = () => {
         >
           <button
             type="button"
-            onClick={() => void handleInviteFriends()}
+            onClick={() => {
+              trackEvent("invite_hub_entry_tapped", { surface: "settings", platform: "web" });
+              navigate("/settings/referrals");
+            }}
             className="w-full flex items-center justify-between group"
           >
             <div className="flex items-center gap-3">

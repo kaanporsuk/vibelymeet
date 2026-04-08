@@ -78,9 +78,7 @@ import {
 } from "@/services/profileService";
 import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
-import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { trackEvent } from "@/lib/analytics";
-import { isWebShareAbortError } from "@/lib/webShare";
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -753,23 +751,6 @@ const ProfileStudio = () => {
     goToVibeStudio();
   };
 
-  const handleInviteFriends = async () => {
-    const link = buildInviteLandingUrl(profile.id);
-    try {
-      await navigator.share({ title: "Join me on Vibely!", text: "I'm using Vibely for video dates — come find your vibe! 💜", url: link });
-      trackEvent("invite_link_shared", { surface: "profile_studio", channel: "system_share" });
-    } catch (error) {
-      if (isWebShareAbortError(error)) return;
-      try {
-        await navigator.clipboard.writeText(link);
-        trackEvent("invite_link_copied", { surface: "profile_studio", channel: "clipboard" });
-        toast.success("Invite link copied!");
-      } catch {
-        toast.error("Could not copy link. Try again.");
-      }
-    }
-  };
-
   const formatDateForInput = (date: Date | null): string => {
     if (!date) return "";
     return date.toISOString().split("T")[0];
@@ -1412,7 +1393,13 @@ const ProfileStudio = () => {
         {/* ═══ Section 13: Invite Friends ═══ */}
         <div className="mb-6">
           <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 p-4">
-            <button onClick={handleInviteFriends} className="w-full flex items-center gap-3 text-left">
+            <button
+              onClick={() => {
+                trackEvent("invite_hub_entry_tapped", { surface: "profile_studio", platform: "web" });
+                navigate("/settings/referrals");
+              }}
+              className="w-full flex items-center gap-3 text-left"
+            >
               <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center text-lg">💌</div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-white">Invite Friends</p>

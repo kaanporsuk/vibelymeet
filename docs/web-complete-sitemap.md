@@ -23,6 +23,7 @@
 | `/chat/:id` | `Chat` | Protected | Full viewport chat | Same |
 | `/profile` | `Profile` | Protected | BottomNav | Same |
 | `/settings` | `Settings` | Protected | BottomNav | Same |
+| `/settings/referrals` | `Referrals` | Protected | BottomNav | Same |
 | `/date/:id` | `VideoDate` | Protected | Full-screen video | Same |
 | `/ready/:id` | `ReadyRedirect` → redirects | Protected | — | Same |
 | `/admin/create-event` | `AdminCreateEvent` | Protected + **admin** | Admin form | Same |
@@ -115,6 +116,23 @@
 **Forms:** Many fields; final submit → `createProfile` + `user_credits` upsert.
 
 **Analytics:** `onboarding_completed` { has_photo, has_bio, has_vibes, vibe_count }.
+
+---
+
+### Screen: Referrals
+- **Route:** `/settings/referrals`
+- **File:** `src/pages/Referrals.tsx`
+
+**Entry points:** Settings, Matches invite banner, Profile Studio invite card.
+
+**States:**
+| State | Renders |
+|-------|---------|
+| Loading status | Referral status card shows loading copy |
+| No inviter linked | Share + copy CTA, "No invite linked yet" guidance |
+| Existing inviter linked | Share + copy CTA, existing `referred_by` visibility |
+
+**Behavior:** Uses canonical `https://vibelymeet.com/invite?ref=` links, preserves existing `/invite` redirect flow, and surfaces current `profiles.referred_by` status.
 
 ---
 
