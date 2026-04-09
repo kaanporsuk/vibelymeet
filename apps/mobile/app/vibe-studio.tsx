@@ -132,7 +132,7 @@ export default function VibeStudioScreen() {
             ? `Uploading… ${ctrl.uploadProgress}%`
             : 'Your upload is still in flight',
           description:
-            'You can leave this screen — the upload continues in the background.',
+            'You can keep using Vibely while this uploads.',
           badgeBg: 'rgba(34, 211, 238, 0.14)',
           badgeText: theme.neonCyan,
           icon: 'cloud-upload-outline',

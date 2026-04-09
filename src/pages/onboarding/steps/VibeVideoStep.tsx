@@ -15,6 +15,9 @@ const MAX_DURATION_S = 20;
 export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showRecorder, setShowRecorder] = useState(false);
+  // Tracks whether heroVideoStart() was called during the current modal session.
+  // Reset on every open; set only via onUploadStarted — never from global controller state.
+  const uploadStartedThisSession = useRef(false);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,7 +83,10 @@ export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
 
         <div className="w-full space-y-3">
           <Button
-            onClick={() => setShowRecorder(true)}
+            onClick={() => {
+              uploadStartedThisSession.current = false;
+              setShowRecorder(true);
+            }}
             className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
           >
             <span className="flex items-center gap-2">
@@ -107,11 +113,15 @@ export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
 
       <VibeStudioModal
         open={showRecorder}
+        onUploadStarted={() => {
+          uploadStartedThisSession.current = true;
+        }}
         onOpenChange={(open) => {
           setShowRecorder(open);
-          // If the modal closes after a confirm, heroVideoStart was already called
-          // inside VibeStudioModal. Advance onboarding.
-          if (!open) onNext();
+          // Advance only if heroVideoStart() was confirmed during this exact modal
+          // session — not based on global controller state, which can be non-idle
+          // from a prior attempt unrelated to this open cycle.
+          if (!open && uploadStartedThisSession.current) onNext();
         }}
       />
     </>

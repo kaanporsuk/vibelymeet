@@ -13,6 +13,12 @@ import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
 interface VibeStudioModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Called immediately after heroVideoStart() is invoked for this modal session.
+   * Use this to advance onboarding or other session-local flows.
+   * Fires before the modal closes so callers can set local state synchronously.
+   */
+  onUploadStarted?: () => void;
   /** @deprecated Upload is now handled by the hero video controller; this prop is ignored */
   onSave?: (videoUrl: string, caption?: string) => void;
   existingVideoUrl?: string;
@@ -33,6 +39,7 @@ const MAX_CLIP_DURATION = 20;
 export const VibeStudioModal = ({
   open,
   onOpenChange,
+  onUploadStarted,
   existingCaption = "",
 }: VibeStudioModalProps) => {
   // Stages: idle → recording → preview (local)
@@ -328,6 +335,10 @@ export const VibeStudioModal = ({
     stopCameraTracks();
     heroVideoStart(file, vibeCaption.trim() || undefined);
 
+    // Signal this specific modal session confirmed a new upload before closing.
+    // Callers (e.g. onboarding) use this — not global controller state — to advance.
+    onUploadStarted?.();
+
     // Close modal immediately — user returns to You page while upload runs in background
     onOpenChange(false);
     setStage("idle");
@@ -341,7 +352,7 @@ export const VibeStudioModal = ({
     void import("@/lib/analytics").then(({ trackEvent }) => {
       trackEvent('vibe_video_confirmed');
     });
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, onOpenChange, stopCameraTracks]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, onOpenChange, onUploadStarted, stopCameraTracks]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);

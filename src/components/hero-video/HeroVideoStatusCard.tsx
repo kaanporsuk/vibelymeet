@@ -172,7 +172,7 @@ export function HeroVideoStatusCard({
         )}
 
         <p className="text-xs text-gray-500 mt-3 leading-relaxed">
-          You can navigate freely — the upload continues in the background.
+          You can keep using Vibely while this uploads.
         </p>
       </div>
     );
@@ -187,12 +187,12 @@ export function HeroVideoStatusCard({
           <div>
             <p className="text-sm font-semibold text-white">Processing your Vibe Video</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Preparing for playback. You can leave this page.
+              Preparing for playback.
             </p>
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-2 leading-relaxed">
-          You can leave this page — processing continues on our servers.
+          Once uploaded, processing continues on our servers.
         </p>
       </div>
     );
