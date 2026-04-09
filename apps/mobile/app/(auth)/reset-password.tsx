@@ -6,10 +6,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
-import { useAuth } from '@/context/AuthContext';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
 import { VibelyButton } from '@/components/ui';
 import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
+import {
+  isPasswordRecoveryStatus,
+  type PasswordRecoveryStatus,
+} from '@shared/authRedirect';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
 
@@ -21,12 +24,18 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
 }
 
 export default function ResetPasswordScreen() {
-  const params = useLocalSearchParams<{ authError?: string | string[] }>();
-  const { session } = useAuth();
+  const params = useLocalSearchParams<{
+    authError?: string | string[];
+    recovery?: PasswordRecoveryStatus | string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const authLinkError = firstRouteParam(params.authError);
+  const recoveryParam = firstRouteParam(params.recovery);
+  const recoveryStatus = isPasswordRecoveryStatus(recoveryParam)
+    ? recoveryParam
+    : 'none';
   const [email, setEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -35,19 +44,26 @@ export default function ResetPasswordScreen() {
   const [error, setError] = useState<string | null>(null);
   const [passwordUpdated, setPasswordUpdated] = useState(false);
 
-  const hasSession = !!session?.user?.id;
+  const recoveryReady = recoveryStatus === 'ready';
 
   const redirectTo = getNativePasswordResetRedirectUrl();
 
   useEffect(() => {
-    if (!authLinkError) return;
-    setError(authLinkError);
-    setMessage(
-      hasSession
-        ? 'We had trouble finishing that recovery link, but your recovery session is active. You can still set a new password below.'
-        : 'We could not complete that reset link on this device. Request a fresh reset email below.',
-    );
-  }, [authLinkError, hasSession]);
+    if (recoveryStatus === 'invalid') {
+      setError(authLinkError ?? 'That recovery link is invalid or expired.');
+      setMessage('Request a fresh reset email below.');
+      return;
+    }
+
+    if (authLinkError) {
+      setError(authLinkError);
+      setMessage('Request a fresh reset email below.');
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+  }, [authLinkError, recoveryStatus]);
 
   useEffect(() => {
     if (!passwordUpdated) return;
@@ -100,9 +116,13 @@ export default function ResetPasswordScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 24 }]}>
       <Text style={[styles.title, { color: theme.text }]}>Reset password</Text>
-      {!hasSession ? (
+      {!recoveryReady ? (
         <>
-          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>Enter your account email and we will send a reset link.</Text>
+          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+            {recoveryStatus === 'invalid'
+              ? 'This recovery link can no longer be used. Request a fresh reset email.'
+              : 'Enter your account email and we will send a reset link.'}
+          </Text>
           <TextInput
             value={email}
             onChangeText={setEmail}
@@ -116,7 +136,9 @@ export default function ResetPasswordScreen() {
         </>
       ) : (
         <>
-          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>Set your new password.</Text>
+          <Text style={[styles.placeholder, { color: theme.textSecondary }]}>
+            Set your new password. Your current password is not required in recovery mode.
+          </Text>
           <TextInput
             value={newPassword}
             onChangeText={setNewPassword}
@@ -145,7 +167,7 @@ export default function ResetPasswordScreen() {
 
       {error ? <Text style={[styles.error, { color: theme.danger }]}>{error}</Text> : null}
       {message ? <Text style={[styles.success, { color: theme.tint }]}>{message}</Text> : null}
-      {hasSession && passwordUpdated ? (
+      {recoveryReady && passwordUpdated ? (
         <VibelyButton
           label="Continue now"
           onPress={() => router.replace('/')}

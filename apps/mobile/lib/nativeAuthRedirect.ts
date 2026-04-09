@@ -1,22 +1,23 @@
 import * as Linking from 'expo-linking';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  hasPasswordRecoveryIntent,
+  normalizeAuthRedirectPath,
+  parseSupabaseAuthReturnUrl,
+  type PasswordRecoveryStatus,
+} from '@shared/authRedirect';
 
 const GOOGLE_OAUTH_CALLBACK_PATH = 'auth/callback';
-const RESET_PASSWORD_PATH = 'reset-password';
 const ROOT_PATH = '/';
-
-function normalizePath(path: string | null | undefined): string {
-  return String(path ?? '')
-    .replace(/^\/+/, '')
-    .replace(/^--\//, '')
-    .replace(/\/+$/, '');
-}
 
 function getPathVariants(url: string, parsed: URL): string[] {
   const linked = Linking.parse(url);
   return Array.from(
     new Set(
-      [normalizePath(parsed.pathname), normalizePath(linked.path)].filter(
+      [
+        normalizeAuthRedirectPath(parsed.pathname),
+        normalizeAuthRedirectPath(linked.path),
+      ].filter(
         (value): value is string => Boolean(value),
       ),
     ),
@@ -28,7 +29,7 @@ export function getNativeGoogleOAuthRedirectUrl(): string {
 }
 
 export function getNativePasswordResetRedirectUrl(): string {
-  return Linking.createURL(RESET_PASSWORD_PATH);
+  return Linking.createURL('reset-password');
 }
 
 export function getNativeEmailSignUpRedirectUrl(): string {
@@ -39,13 +40,10 @@ function isGoogleOAuthCallbackUrl(url: string, parsed: URL): boolean {
   return getPathVariants(url, parsed).some((path) => path === GOOGLE_OAUTH_CALLBACK_PATH);
 }
 
-function isPasswordResetUrl(url: string, parsed: URL): boolean {
-  return getPathVariants(url, parsed).some((path) => path.endsWith(RESET_PASSWORD_PATH));
-}
-
 export type NativeAuthRedirectResult = {
   handled: boolean;
   recovery: boolean;
+  recoveryStatus: PasswordRecoveryStatus;
   error: Error | null;
 };
 
@@ -57,54 +55,69 @@ export async function completeSessionFromAuthReturnUrl(
   try {
     parsed = new URL(url);
   } catch {
-    return { handled: false, recovery: false, error: null };
+    return {
+      handled: false,
+      recovery: false,
+      recoveryStatus: 'none',
+      error: null,
+    };
   }
 
-  const searchParams = parsed.searchParams;
-  const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ''));
-
-  const code = searchParams.get('code') ?? hashParams.get('code');
-  const accessToken =
-    hashParams.get('access_token') ?? searchParams.get('access_token');
-  const refreshToken =
-    hashParams.get('refresh_token') ?? searchParams.get('refresh_token');
-  const authError =
-    hashParams.get('error_description') ??
-    searchParams.get('error_description') ??
-    hashParams.get('error') ??
-    searchParams.get('error');
-  const type = hashParams.get('type') ?? searchParams.get('type');
-  const hasAuthPayload = Boolean(
-    authError || code || (accessToken && refreshToken),
-  );
+  const authReturn = parseSupabaseAuthReturnUrl(url);
+  const pathVariants = getPathVariants(url, parsed);
   const googleCallback = isGoogleOAuthCallbackUrl(url, parsed);
-  const recovery = type === 'recovery' || isPasswordResetUrl(url, parsed);
+  const recovery = hasPasswordRecoveryIntent(authReturn.type, pathVariants);
 
-  if (!hasAuthPayload && !googleCallback) {
-    return { handled: false, recovery: false, error: null };
+  if (!authReturn.hasAuthPayload && !googleCallback) {
+    return {
+      handled: false,
+      recovery: false,
+      recoveryStatus: 'none',
+      error: null,
+    };
   }
 
-  if (authError) {
-    return { handled: true, recovery, error: new Error(authError) };
-  }
-
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (authReturn.authError) {
     return {
       handled: true,
       recovery,
+      recoveryStatus: recovery ? 'invalid' : 'none',
+      error: new Error(authReturn.authError),
+    };
+  }
+
+  if (authReturn.code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(authReturn.code);
+    return {
+      handled: true,
+      recovery,
+      recoveryStatus: recovery ? (error ? 'invalid' : 'ready') : 'none',
       error: error ? new Error(error.message) : null,
     };
   }
 
-  if (accessToken && refreshToken) {
-    const { error } = await supabase.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
+  if (authReturn.tokenHash && recovery) {
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: authReturn.tokenHash,
+      type: 'recovery',
     });
     return {
       handled: true,
       recovery,
+      recoveryStatus: error ? 'invalid' : 'ready',
+      error: error ? new Error(error.message) : null,
+    };
+  }
+
+  if (authReturn.accessToken && authReturn.refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: authReturn.accessToken,
+      refresh_token: authReturn.refreshToken,
+    });
+    return {
+      handled: true,
+      recovery,
+      recoveryStatus: recovery ? (error ? 'invalid' : 'ready') : 'none',
       error: error ? new Error(error.message) : null,
     };
   }
@@ -113,5 +126,10 @@ export async function completeSessionFromAuthReturnUrl(
     ? 'Google sign-in did not return a session. Please try again.'
     : 'Auth redirect did not return a session. Please try again.';
 
-  return { handled: true, recovery, error: new Error(fallbackMessage) };
+  return {
+    handled: true,
+    recovery,
+    recoveryStatus: recovery ? 'invalid' : 'none',
+    error: new Error(fallbackMessage),
+  };
 }

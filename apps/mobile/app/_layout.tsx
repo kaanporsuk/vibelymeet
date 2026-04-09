@@ -243,6 +243,7 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
 
       rcBreadcrumb(RC_CATEGORY.authRedirectUrl, 'auth_return_url', {
         recovery: result.recovery,
+        recovery_status: result.recoveryStatus,
         has_error: Boolean(result.error),
         error_snippet: result.error ? String(result.error.message).slice(0, 120) : null,
       });
@@ -256,9 +257,15 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
           result.error
             ? {
                 pathname: '/(auth)/reset-password',
-                params: { authError: result.error.message },
+                params: {
+                  authError: result.error.message,
+                  recovery: result.recoveryStatus,
+                },
               }
-            : '/(auth)/reset-password',
+            : {
+                pathname: '/(auth)/reset-password',
+                params: { recovery: result.recoveryStatus },
+              },
         );
         return;
       }

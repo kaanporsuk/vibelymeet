@@ -1,60 +1,146 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Check, Loader2, Sparkles, Lock, Mail, ArrowLeft } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Check,
+  Loader2,
+  Lock,
+  Mail,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
+import {
+  clearWebPasswordRecoveryState,
+  isBrowserRecoveryReturnUrl,
+  markWebPasswordRecoveryInvalid,
+  markWebPasswordRecoverySuccess,
+  readWebPasswordRecoveryState,
+  subscribeWebPasswordRecoveryState,
+  type WebPasswordRecoveryState,
+} from "@/lib/webPasswordRecovery";
 
 type ResetMode = "request" | "update" | "success";
+type SuccessKind = "request" | "update";
 
 const ResetPassword = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  
-  // If we have access_token in hash, we're in update mode
+  const location = useLocation();
+  const successKindRef = useRef<SuccessKind | null>(null);
+
   const [mode, setMode] = useState<ResetMode>("request");
+  const [successKind, setSuccessKind] = useState<SuccessKind | null>(null);
+  const [recoveryState, setRecoveryState] = useState<WebPasswordRecoveryState>(
+    () => readWebPasswordRecoveryState(),
+  );
+  const [hasActiveSession, setHasActiveSession] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
 
-  useEffect(() => {
-    // Only enter update mode when Supabase fires the PASSWORD_RECOVERY event,
-    // not for any authenticated user who happens to visit this URL.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setMode("update");
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  const currentUrlShowsRecoveryReturn = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return isBrowserRecoveryReturnUrl(window.location.href);
+  }, [location.pathname, location.search, location.hash]);
 
-  const handleRequestReset = async () => {
-    if (!email) {
-      setError("Please enter your email");
+  const syncRecoveryState = useCallback(async () => {
+    const nextRecoveryState = readWebPasswordRecoveryState();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    setRecoveryState(nextRecoveryState);
+    setHasActiveSession(!!session?.user);
+
+    if (nextRecoveryState.status === "success") {
+      successKindRef.current = "update";
+      setSuccessKind("update");
+      setMode("success");
       return;
     }
-    
+
+    if (successKindRef.current) return;
+
+    if (
+      nextRecoveryState.status === "ready"
+      && !session?.user
+      && !currentUrlShowsRecoveryReturn
+    ) {
+      markWebPasswordRecoveryInvalid(
+        "We couldn't keep that recovery session active. Request a fresh reset email to continue.",
+      );
+      return;
+    }
+
+    if (nextRecoveryState.status === "ready" && session?.user) {
+      setMode("update");
+      return;
+    }
+
+    setMode("request");
+  }, [currentUrlShowsRecoveryReturn]);
+
+  useEffect(() => {
+    void syncRecoveryState();
+
+    const unsubscribeRecoveryState = subscribeWebPasswordRecoveryState((nextState) => {
+      setRecoveryState(nextState);
+      void syncRecoveryState();
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (
+        event === "PASSWORD_RECOVERY"
+        || event === "SIGNED_IN"
+        || event === "TOKEN_REFRESHED"
+        || event === "USER_UPDATED"
+      ) {
+        void syncRecoveryState();
+      }
+    });
+
+    return () => {
+      unsubscribeRecoveryState();
+      subscription.unsubscribe();
+    };
+  }, [syncRecoveryState]);
+
+  const handleRequestReset = async () => {
+    if (!email.trim()) {
+      setFormError("Please enter your email");
+      return;
+    }
+
     setIsLoading(true);
-    setError("");
-    
+    setFormError("");
+
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: `${window.location.origin}/reset-password`,
       });
-      
+
       if (error) {
-        setError(error.message);
-      } else {
-        toast.success("Password reset email sent! Check your inbox.");
-        setMode("success");
+        setFormError(error.message);
+        return;
       }
+
+      successKindRef.current = "request";
+      setSuccessKind("request");
+      setMode("success");
+      clearWebPasswordRecoveryState();
+      setRecoveryState(readWebPasswordRecoveryState());
+      toast.success("Password reset email sent. Check your inbox.");
     } catch {
-      setError("Failed to send reset email. Please try again.");
+      setFormError("Failed to send reset email. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -62,34 +148,45 @@ const ResetPassword = () => {
 
   const handleUpdatePassword = async () => {
     if (!password || !confirmPassword) {
-      setError("Please fill in all fields");
+      setFormError("Please fill in all fields");
       return;
     }
-    
+
     if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+      setFormError("Password must be at least 6 characters");
       return;
     }
-    
+
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setFormError("Passwords do not match");
       return;
     }
-    
+
     setIsLoading(true);
-    setError("");
-    
+    setFormError("");
+
     try {
       const { error } = await supabase.auth.updateUser({ password });
-      
+
       if (error) {
-        setError(error.message);
-      } else {
-        toast.success("Password updated successfully!");
-        navigate("/auth");
+        setFormError(error.message);
+        return;
       }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      successKindRef.current = "update";
+      setSuccessKind("update");
+      setMode("success");
+      markWebPasswordRecoverySuccess(session?.user?.id ?? recoveryState.userId);
+      setRecoveryState(readWebPasswordRecoveryState());
+      setPassword("");
+      setConfirmPassword("");
+      toast.success("Password updated successfully.");
     } catch {
-      setError("Failed to update password. Please try again.");
+      setFormError("Failed to update password. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -98,15 +195,67 @@ const ResetPassword = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === "request") {
-      handleRequestReset();
-    } else if (mode === "update") {
-      handleUpdatePassword();
+      void handleRequestReset();
+      return;
+    }
+    if (mode === "update") {
+      void handleUpdatePassword();
     }
   };
 
+  const handleReturnToSignIn = async () => {
+    clearWebPasswordRecoveryState();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.user) {
+        await supabase.auth.signOut();
+      }
+    } catch {
+      // Best effort: fall through to sign-in regardless.
+    }
+    navigate("/auth", { replace: true });
+  };
+
+  const handleContinueToApp = () => {
+    clearWebPasswordRecoveryState();
+    navigate("/", { replace: true });
+  };
+
+  const showRecoveryLoader =
+    !successKind
+    && (
+      currentUrlShowsRecoveryReturn
+      || (recoveryState.status === "ready" && mode !== "update")
+    );
+
+  const title = showRecoveryLoader
+    ? "Preparing Reset Link"
+    : mode === "update"
+      ? "Set New Password"
+      : mode === "success"
+        ? successKind === "update"
+          ? "Password Updated"
+          : "Check Your Email"
+        : recoveryState.status === "invalid"
+          ? "Reset Link Expired"
+          : "Reset Password";
+
+  const description = showRecoveryLoader
+    ? "We're securing your recovery session so you can set a new password without signing in first."
+    : mode === "update"
+      ? "Choose a new password for your account. Your current password is not required in recovery mode."
+      : mode === "success"
+        ? successKind === "update"
+          ? "Your password has been updated. You can continue into Vibely or return to sign in."
+          : "We sent a reset link to your email. Open it on this device to finish resetting your password."
+        : recoveryState.status === "invalid"
+          ? "That password reset link is invalid, expired, or already used. Request a fresh reset email below."
+          : "Enter your email and we'll send you a secure password reset link.";
+
   return (
     <div className="min-h-screen bg-background relative overflow-hidden flex items-center justify-center">
-      {/* Aurora Background */}
       <div className="absolute inset-0">
         <motion.div
           className="absolute inset-0 opacity-40"
@@ -120,15 +269,13 @@ const ResetPassword = () => {
         />
       </div>
 
-      {/* Content */}
       <div className="relative z-10 w-full max-w-md px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-8"
         >
-          {/* Logo */}
-          <motion.div 
+          <motion.div
             className="text-center space-y-3"
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -137,21 +284,39 @@ const ResetPassword = () => {
             <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-primary to-accent flex items-center justify-center neon-glow-violet">
               <Sparkles className="w-10 h-10 text-primary-foreground" />
             </div>
-            <h1 className="text-3xl font-display font-bold gradient-text">
-              {mode === "request" ? "Reset Password" : mode === "update" ? "New Password" : "Email Sent!"}
-            </h1>
-            <p className="text-muted-foreground">
-              {mode === "request" 
-                ? "Enter your email and we'll send you a reset link." 
-                : mode === "update"
-                ? "Enter your new password below."
-                : "Check your inbox for the reset link."}
-            </p>
+            <h1 className="text-3xl font-display font-bold gradient-text">{title}</h1>
+            <p className="text-muted-foreground">{description}</p>
           </motion.div>
 
-          {mode === "request" && (
+          {showRecoveryLoader && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="glass-card p-8 text-center space-y-4"
+            >
+              <div className="w-14 h-14 mx-auto rounded-full bg-primary/15 flex items-center justify-center">
+                <Loader2 className="w-7 h-7 animate-spin text-primary" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Finishing your recovery link and preparing the secure password form...
+              </p>
+            </motion.div>
+          )}
+
+          {!showRecoveryLoader && mode === "request" && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="glass-card p-6 space-y-4">
+                {recoveryState.status === "invalid" && recoveryState.error && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive flex items-start gap-3"
+                  >
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <p>{recoveryState.error}</p>
+                  </motion.div>
+                )}
+
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-sm font-medium text-foreground flex items-center gap-2">
                     <Mail className="w-4 h-4 text-muted-foreground" />
@@ -161,19 +326,22 @@ const ResetPassword = () => {
                     id="email"
                     type="email"
                     value={email}
-                    onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setFormError("");
+                    }}
                     placeholder="you@example.com"
                     className="h-12 bg-secondary/50 border-border focus:border-primary focus:ring-primary/20"
                   />
                 </div>
 
-                {error && (
+                {formError && (
                   <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="text-sm text-destructive text-center"
                   >
-                    {error}
+                    {formError}
                   </motion.p>
                 )}
               </div>
@@ -197,6 +365,10 @@ const ResetPassword = () => {
           {mode === "update" && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="glass-card p-6 space-y-4">
+                <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm text-foreground">
+                  Recovery mode is active. Set a new password below without entering your current password.
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="password" className="text-sm font-medium text-foreground flex items-center gap-2">
                     <Lock className="w-4 h-4 text-muted-foreground" />
@@ -206,7 +378,10 @@ const ResetPassword = () => {
                     id="password"
                     type="password"
                     value={password}
-                    onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setFormError("");
+                    }}
                     placeholder="••••••••"
                     className="h-12 bg-secondary/50 border-border focus:border-primary focus:ring-primary/20"
                   />
@@ -221,19 +396,22 @@ const ResetPassword = () => {
                     id="confirmPassword"
                     type="password"
                     value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      setFormError("");
+                    }}
                     placeholder="••••••••"
                     className="h-12 bg-secondary/50 border-border focus:border-primary focus:ring-primary/20"
                   />
                 </div>
 
-                {error && (
+                {formError && (
                   <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="text-sm text-destructive text-center"
                   >
-                    {error}
+                    {formError}
                   </motion.p>
                 )}
               </div>
@@ -254,9 +432,9 @@ const ResetPassword = () => {
             </form>
           )}
 
-          {mode === "success" && (
+          {mode === "success" && successKind === "request" && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               className="glass-card p-8 text-center space-y-4"
             >
@@ -264,23 +442,87 @@ const ResetPassword = () => {
                 <Check className="w-8 h-8 text-white" />
               </div>
               <p className="text-muted-foreground">
-                We've sent a password reset link to <strong className="text-foreground">{email}</strong>.
-                Check your inbox and follow the link to reset your password.
+                We&apos;ve sent a password reset link to{" "}
+                <strong className="text-foreground">{email}</strong>.
+                Open it on this device to continue.
               </p>
             </motion.div>
           )}
 
-          {/* Back to Sign In */}
-          <div className="text-center">
-            <button
-              type="button"
-              className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1 mx-auto"
-              onClick={() => navigate("/auth")}
+          {mode === "success" && successKind === "update" && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="glass-card p-8 text-center space-y-4"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Sign In
-            </button>
-          </div>
+              <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                <Check className="w-8 h-8 text-white" />
+              </div>
+              <p className="text-muted-foreground">
+                Your password is updated and your account is ready to continue.
+              </p>
+              <div className="space-y-3">
+                <Button
+                  type="button"
+                  variant="gradient"
+                  size="lg"
+                  className="w-full h-12"
+                  onClick={handleContinueToApp}
+                >
+                  Continue to Vibely
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="w-full h-12"
+                  onClick={() => {
+                    void handleReturnToSignIn();
+                  }}
+                >
+                  Back to Sign In
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {!showRecoveryLoader && mode !== "success" && (
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1 mx-auto"
+                onClick={() => {
+                  if (hasActiveSession) {
+                    navigate("/", { replace: true });
+                    return;
+                  }
+                  navigate("/auth", { replace: true });
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {hasActiveSession ? "Continue to Vibely" : "Back to Sign In"}
+              </button>
+            </div>
+          )}
+
+          {!showRecoveryLoader && mode === "success" && successKind === "request" && (
+            <div className="text-center">
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1 mx-auto"
+                onClick={() => {
+                  if (hasActiveSession) {
+                    navigate("/", { replace: true });
+                    return;
+                  }
+                  navigate("/auth", { replace: true });
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {hasActiveSession ? "Continue to Vibely" : "Back to Sign In"}
+              </button>
+            </div>
+          )}
         </motion.div>
       </div>
     </div>
