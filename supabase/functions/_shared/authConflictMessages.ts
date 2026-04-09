@@ -10,6 +10,13 @@ export const AUTH_COPY = {
   appleSignInWithApple: 'This Apple account is already registered. Sign in with Apple.',
   crossProvider:
     'This account is already registered with another sign-in method. Use the method you used before.',
+  // Identity linking conflicts
+  identityAlreadyLinkedElsewhere:
+    'This sign-in method is already connected to a different Vibely account. Sign in with that account to use it.',
+  emailAlreadyLinkedElsewhere:
+    'This email address is already registered on a different account. Sign in with that account instead.',
+  phoneAlreadyLinkedElsewhere:
+    'This phone number is already registered on a different account. Sign in with that number instead.',
 } as const;
 
 export type AuthConflictContext =
@@ -132,6 +139,28 @@ export function mapAuthConflictError(err: unknown, context: AuthConflictContext)
   }
 
   return { message: null, suggestEmailSignIn: false };
+}
+
+/**
+ * Map a Supabase error from an identity-linking call to a clear user-facing message.
+ * Never auto-merges accounts — always surfaces cross-account conflicts explicitly.
+ */
+export function mapIdentityLinkingError(
+  err: unknown,
+  method: 'google' | 'apple' | 'email' | 'phone',
+): string {
+  const { msg, code } = normalize(err);
+  if (!msg && !code) return `Failed to link ${method}. Please try again.`;
+
+  if (isCrossProviderOrIdentityConflict(msg, code)) {
+    return AUTH_COPY.identityAlreadyLinkedElsewhere;
+  }
+  if (isUserAlreadyExists(msg, code)) {
+    if (method === 'email') return AUTH_COPY.emailAlreadyLinkedElsewhere;
+    if (method === 'phone') return AUTH_COPY.phoneAlreadyLinkedElsewhere;
+    return AUTH_COPY.identityAlreadyLinkedElsewhere;
+  }
+  return msg || `Failed to link ${method}. Please try again.`;
 }
 
 /** Parse OAuth error from redirect URL (query or hash). */

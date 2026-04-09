@@ -752,14 +752,6 @@ export default function AccountSettingsScreen() {
                 subtitle="Add an extra layer of security"
                 right={<SoonBadge theme={theme} />}
               />
-              <Hairline theme={theme} />
-              <DisabledAccountRow
-                theme={theme}
-                icon="key-outline"
-                title="Login methods"
-                subtitle="Google, Apple, email"
-                right={<SoonBadge theme={theme} />}
-              />
             </CardShell>
 
             <SectionTitle theme={theme} text="VERIFICATION & TRUST" />
