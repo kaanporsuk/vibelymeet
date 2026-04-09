@@ -45,15 +45,7 @@ export type Database = {
           status?: string | null
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "account_deletion_requests_user_id_auth_users_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "auth.users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       admin_activity_logs: {
         Row: {
@@ -759,6 +751,60 @@ export type Database = {
           },
         ]
       }
+      draft_media_sessions: {
+        Row: {
+          caption: string | null
+          context: string
+          created_at: string
+          error_detail: string | null
+          expires_at: string
+          id: string
+          media_type: string
+          provider: string
+          provider_id: string | null
+          provider_meta: Json
+          published_at: string | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          caption?: string | null
+          context?: string
+          created_at?: string
+          error_detail?: string | null
+          expires_at?: string
+          id?: string
+          media_type: string
+          provider?: string
+          provider_id?: string | null
+          provider_meta?: Json
+          published_at?: string | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          caption?: string | null
+          context?: string
+          created_at?: string
+          error_detail?: string | null
+          expires_at?: string
+          id?: string
+          media_type?: string
+          provider?: string
+          provider_id?: string | null
+          provider_meta?: Json
+          published_at?: string | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_drip_log: {
         Row: {
           email_key: string
@@ -817,6 +863,108 @@ export type Database = {
           verified_at?: string | null
         }
         Relationships: []
+      }
+      event_payment_exceptions: {
+        Row: {
+          checkout_session_id: string | null
+          created_at: string
+          created_by: string | null
+          event_id: string
+          event_status_snapshot: string | null
+          exception_status: string
+          exception_type: string
+          external_refund_reference: string | null
+          id: string
+          notes: string | null
+          profile_id: string
+          refund_handled_externally: boolean
+          registration_admission_snapshot: string | null
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          settlement_outcome_snapshot: string | null
+          support_ticket_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          checkout_session_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id: string
+          event_status_snapshot?: string | null
+          exception_status?: string
+          exception_type: string
+          external_refund_reference?: string | null
+          id?: string
+          notes?: string | null
+          profile_id: string
+          refund_handled_externally?: boolean
+          registration_admission_snapshot?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          settlement_outcome_snapshot?: string | null
+          support_ticket_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          checkout_session_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_id?: string
+          event_status_snapshot?: string | null
+          exception_status?: string
+          exception_type?: string
+          external_refund_reference?: string | null
+          id?: string
+          notes?: string | null
+          profile_id?: string
+          refund_handled_externally?: boolean
+          registration_admission_snapshot?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          settlement_outcome_snapshot?: string | null
+          support_ticket_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_payment_exceptions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_payment_exceptions_support_ticket_id_fkey"
+            columns: ["support_ticket_id"]
+            isOneToOne: false
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       event_registrations: {
         Row: {
@@ -1038,94 +1186,6 @@ export type Database = {
             columns: ["sender_id"]
             isOneToOne: false
             referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      event_payment_exceptions: {
-        Row: {
-          checkout_session_id: string | null
-          created_at: string
-          created_by: string | null
-          event_id: string
-          event_status_snapshot: string | null
-          exception_status: string
-          exception_type: string
-          external_refund_reference: string | null
-          id: string
-          notes: string | null
-          profile_id: string
-          refund_handled_externally: boolean
-          registration_admission_snapshot: string | null
-          resolution: string | null
-          resolved_at: string | null
-          resolved_by: string | null
-          settlement_outcome_snapshot: string | null
-          support_ticket_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          checkout_session_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          event_id: string
-          event_status_snapshot?: string | null
-          exception_status?: string
-          exception_type: string
-          external_refund_reference?: string | null
-          id?: string
-          notes?: string | null
-          profile_id: string
-          refund_handled_externally?: boolean
-          registration_admission_snapshot?: string | null
-          resolution?: string | null
-          resolved_at?: string | null
-          resolved_by?: string | null
-          settlement_outcome_snapshot?: string | null
-          support_ticket_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          checkout_session_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          event_id?: string
-          event_status_snapshot?: string | null
-          exception_status?: string
-          exception_type?: string
-          external_refund_reference?: string | null
-          id?: string
-          notes?: string | null
-          profile_id?: string
-          refund_handled_externally?: boolean
-          registration_admission_snapshot?: string | null
-          resolution?: string | null
-          resolved_at?: string | null
-          resolved_by?: string | null
-          settlement_outcome_snapshot?: string | null
-          support_ticket_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_payment_exceptions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_payment_exceptions_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_payment_exceptions_support_ticket_id_fkey"
-            columns: ["support_ticket_id"]
-            isOneToOne: false
-            referencedRelation: "support_tickets"
             referencedColumns: ["id"]
           },
         ]
@@ -1705,6 +1765,45 @@ export type Database = {
         }
         Relationships: []
       }
+      onboarding_drafts: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          current_stage: string
+          current_step: number
+          expires_at: string
+          last_client_platform: string | null
+          onboarding_data: Json
+          schema_version: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          current_stage?: string
+          current_step?: number
+          expires_at?: string
+          last_client_platform?: string | null
+          onboarding_data?: Json
+          schema_version?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          current_stage?: string
+          current_step?: number
+          expires_at?: string
+          last_client_platform?: string | null
+          onboarding_data?: Json
+          schema_version?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       photo_verifications: {
         Row: {
           client_confidence_score: number | null
@@ -1830,7 +1929,7 @@ export type Database = {
           account_paused: boolean
           account_paused_until: string | null
           activity_status_visibility: string | null
-          age: number | null
+          age: number
           avatar_url: string | null
           bio: string | null
           birth_date: string | null
@@ -1862,7 +1961,6 @@ export type Database = {
           lifestyle: Json | null
           location: string | null
           location_data: Json | null
-          /** @deprecated Use relationship_intent instead */
           looking_for: string | null
           name: string
           onboarding_complete: boolean
@@ -1877,11 +1975,11 @@ export type Database = {
           photo_verified: boolean | null
           photo_verified_at: string | null
           photos: string[] | null
+          preferred_age_max: number | null
+          preferred_age_min: number | null
           premium_granted_at: string | null
           premium_granted_by: string | null
           premium_until: string | null
-          preferred_age_max: number | null
-          preferred_age_min: number | null
           prompts: Json | null
           proof_selfie_url: string | null
           referred_by: string | null
@@ -1937,7 +2035,6 @@ export type Database = {
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
-          /** @deprecated Use relationship_intent instead */
           looking_for?: string | null
           name: string
           onboarding_complete?: boolean
@@ -1952,11 +2049,11 @@ export type Database = {
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
+          preferred_age_max?: number | null
+          preferred_age_min?: number | null
           premium_granted_at?: string | null
           premium_granted_by?: string | null
           premium_until?: string | null
-          preferred_age_max?: number | null
-          preferred_age_min?: number | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
@@ -2012,7 +2109,6 @@ export type Database = {
           lifestyle?: Json | null
           location?: string | null
           location_data?: Json | null
-          /** @deprecated Use relationship_intent instead */
           looking_for?: string | null
           name?: string
           onboarding_complete?: boolean
@@ -2027,11 +2123,11 @@ export type Database = {
           photo_verified?: boolean | null
           photo_verified_at?: string | null
           photos?: string[] | null
+          preferred_age_max?: number | null
+          preferred_age_min?: number | null
           premium_granted_at?: string | null
           premium_granted_by?: string | null
           premium_until?: string | null
-          preferred_age_max?: number | null
-          preferred_age_min?: number | null
           prompts?: Json | null
           proof_selfie_url?: string | null
           referred_by?: string | null
@@ -2623,15 +2719,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "user_credits_user_id_auth_users_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "auth.users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       user_reports: {
         Row: {
@@ -2878,6 +2966,7 @@ export type Database = {
           participant_2_id: string
           participant_2_liked: boolean | null
           phase: string
+          queued_expires_at: string | null
           ready_gate_expires_at: string | null
           ready_gate_status: string
           ready_participant_1_at: string | null
@@ -2907,6 +2996,7 @@ export type Database = {
           participant_2_id: string
           participant_2_liked?: boolean | null
           phase?: string
+          queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
@@ -2936,6 +3026,7 @@ export type Database = {
           participant_2_id?: string
           participant_2_liked?: boolean | null
           phase?: string
+          queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
           ready_participant_1_at?: string | null
@@ -3128,6 +3219,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
       admin_create_event_payment_exception: {
         Args: {
           p_checkout_session_id?: string
@@ -3140,10 +3232,13 @@ export type Database = {
         }
         Returns: Json
       }
-      admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
       admin_delete_event: { Args: { p_event_id: string }; Returns: Json }
       admin_get_event_confirmed_gender_counts: {
         Args: { p_event_id: string }
+        Returns: Json
+      }
+      admin_remove_event_registration: {
+        Args: { p_event_id: string; p_profile_id: string }
         Returns: Json
       }
       admin_transition_event_payment_exception: {
@@ -3159,15 +3254,20 @@ export type Database = {
         }
         Returns: Json
       }
-      admin_remove_event_registration: {
-        Args: { p_event_id: string; p_profile_id: string }
+      apply_referral_attribution: {
+        Args: { p_referrer_id: string }
         Returns: Json
       }
       calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
+      calculate_vibe_score_from_row: {
+        Args: { p: Database["public"]["Tables"]["profiles"]["Row"] }
+        Returns: Json
+      }
       can_view_profile_photo: {
         Args: { photo_owner_id: string }
         Returns: boolean
       }
+      cancel_event_registration: { Args: { p_event_id: string }; Returns: Json }
       check_gender_compatibility: {
         Args: {
           _target_gender: string
@@ -3180,14 +3280,21 @@ export type Database = {
         Args: { p_session_id: string }
         Returns: Json
       }
-      submit_post_date_verdict: {
-        Args: { p_liked: boolean; p_session_id: string }
-        Returns: Json
-      }
       check_premium_status: { Args: { p_user_id: string }; Returns: boolean }
-      cancel_event_registration: { Args: { p_event_id: string }; Returns: Json }
       clear_expired_pauses: { Args: never; Returns: number }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      create_media_session: {
+        Args: {
+          p_caption?: string
+          p_context?: string
+          p_media_type: string
+          p_provider_id: string
+          p_provider_meta?: Json
+          p_storage_path?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       daily_drop_transition: {
         Args: { p_action: string; p_drop_id: string; p_text?: string }
         Returns: Json
@@ -3205,8 +3312,33 @@ export type Database = {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
       }
-      drain_match_queue: {
-        Args: { p_event_id: string }
+      detect_ghost_bootstrap_accounts: {
+        Args: { days_old_threshold?: number; min_activity_threshold?: number }
+        Returns: {
+          account_age_hours: number
+          created_at: string
+          days_since_creation: number
+          email_masked: string
+          identity_collision_hints: string[]
+          is_bootstrap_fresh: boolean
+          last_seen_at: string
+          onboarding_complete: boolean
+          phone_masked: string
+          profile_activity_score: number
+          profile_id: string
+          review_confidence: string
+          total_event_regs: number
+          total_matches: number
+          total_messages: number
+          total_video_sessions: number
+        }[]
+      }
+      drain_match_queue: { Args: { p_event_id: string }; Returns: Json }
+      expire_stale_match_calls: { Args: never; Returns: number }
+      expire_stale_video_sessions: { Args: never; Returns: number }
+      expire_video_date_reconnect_graces: { Args: never; Returns: number }
+      finalize_onboarding: {
+        Args: { p_final_data?: Json; p_user_id: string }
         Returns: Json
       }
       find_mystery_match: {
@@ -3220,6 +3352,10 @@ export type Database = {
       generate_recurring_events: {
         Args: { p_count?: number; p_parent_id: string }
         Returns: number
+      }
+      get_active_media_session: {
+        Args: { p_media_type: string; p_user_id: string }
+        Returns: Json
       }
       get_daily_drop_candidates: {
         Args: { p_limit?: number; p_user_id: string }
@@ -3248,6 +3384,10 @@ export type Database = {
           vibe_video_status: string
         }[]
       }
+      get_event_attendee_preview: {
+        Args: { p_event_id: string; p_viewer_id: string }
+        Returns: Json
+      }
       get_event_deck: {
         Args: { p_event_id: string; p_limit?: number; p_user_id: string }
         Returns: {
@@ -3274,10 +3414,7 @@ export type Database = {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
       }
-      get_event_attendee_preview: {
-        Args: { p_event_id: string; p_viewer_id: string }
-        Returns: Json
-      }
+      get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
       get_other_city_events: {
         Args: { p_user_id: string; p_user_lat?: number; p_user_lng?: number }
         Returns: {
@@ -3295,6 +3432,7 @@ export type Database = {
           verified_email: string
         }[]
       }
+      get_photo_sessions: { Args: { p_user_id: string }; Returns: Json }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }
         Returns: Json
@@ -3378,10 +3516,7 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
-      leave_matching_queue: {
-        Args: { p_event_id: string }
-        Returns: Json
-      }
+      leave_matching_queue: { Args: { p_event_id: string }; Returns: Json }
       mark_lobby_foreground: {
         Args: { p_event_id: string }
         Returns: undefined
@@ -3390,17 +3525,66 @@ export type Database = {
         Args: { p_match_id: string }
         Returns: undefined
       }
+      mark_photo_deleted: {
+        Args: { p_storage_path: string; p_user_id: string }
+        Returns: Json
+      }
       mark_support_reply_read: {
         Args: { p_reply_id: string }
         Returns: undefined
+      }
+      match_call_transition: {
+        Args: { p_action: string; p_call_id: string }
+        Returns: Json
+      }
+      normalize_relationship_intent: {
+        Args: { p_intent: string }
+        Returns: string
+      }
+      promote_waitlist_for_event: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      promote_waitlist_for_event_worker: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      publish_media_session: {
+        Args: { p_caption?: string; p_session_id: string }
+        Returns: Json
+      }
+      publish_photo_set: {
+        Args: { p_context?: string; p_photos: string[]; p_user_id: string }
+        Returns: Json
       }
       ready_gate_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
-      promote_waitlist_for_event: { Args: { p_event_id: string }; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      replenish_monthly_credits: { Args: never; Returns: Json }
+      reset_tier_config_override: {
+        Args: { p_capability_key: string; p_tier_id: string }
+        Returns: undefined
+      }
+      resolve_entry_state: { Args: never; Returns: Json }
+      save_onboarding_draft: {
+        Args: {
+          p_data: Json
+          p_platform?: string
+          p_schema_version?: number
+          p_stage: string
+          p_step: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      send_event_reminders: { Args: never; Returns: undefined }
+      set_tier_config_override: {
+        Args: { p_capability_key: string; p_tier_id: string; p_value: Json }
+        Returns: undefined
+      }
       settle_event_ticket_checkout: {
         Args: {
           p_checkout_session_id: string
@@ -3409,15 +3593,17 @@ export type Database = {
         }
         Returns: Json
       }
-      replenish_monthly_credits: { Args: never; Returns: Json }
-      reset_tier_config_override: {
-        Args: { p_capability_key: string; p_tier_id: string }
-        Returns: undefined
+      submit_post_date_verdict: {
+        Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
       }
-      send_event_reminders: { Args: never; Returns: undefined }
-      set_tier_config_override: {
-        Args: { p_capability_key: string; p_tier_id: string; p_value: Json }
-        Returns: undefined
+      update_media_session_status: {
+        Args: {
+          p_error_detail?: string
+          p_new_status: string
+          p_provider_id: string
+        }
+        Returns: Json
       }
       update_onboarding_stage: {
         Args: { p_stage: string; p_user_id: string }
@@ -3430,6 +3616,10 @@ export type Database = {
       video_date_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
+      }
+      viewer_shares_event_with_profile: {
+        Args: { p_other_profile_id: string }
+        Returns: boolean
       }
     }
     Enums: {
