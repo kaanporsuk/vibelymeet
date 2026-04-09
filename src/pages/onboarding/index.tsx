@@ -384,11 +384,6 @@ const Onboarding = () => {
           <VibeVideoStep
             onNext={goNext}
             onSkip={goNext}
-            onVideoUploaded={(uid) => {
-              updateField("vibeVideoRecorded", true);
-              updateField("bunnyVideoUid", uid);
-            }}
-            userId={session?.user?.id ?? ""}
           />
         );
       }
@@ -414,11 +409,6 @@ const Onboarding = () => {
         <VibeVideoStep
           onNext={goNext}
           onSkip={goNext}
-          onVideoUploaded={(uid) => {
-            updateField("vibeVideoRecorded", true);
-            updateField("bunnyVideoUid", uid);
-          }}
-          userId={session?.user?.id ?? ""}
         />
       );
     }

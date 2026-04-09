@@ -20,7 +20,6 @@ import {
   Loader2,
   Mail,
   Phone,
-  Play,
   Plus,
   CheckCircle2,
   MessageCircle,
@@ -42,7 +41,8 @@ import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector } from "@/components/HeightSelector";
 import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
-import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
+
+import { HeroVideoStatusCard } from "@/components/hero-video/HeroVideoStatusCard";
 import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
 import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScoreIncompleteActions";
 import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
@@ -251,7 +251,7 @@ const ProfileStudio = () => {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
-  const [thumbnailError, setThumbnailError] = useState(false);
+
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -373,27 +373,6 @@ const ProfileStudio = () => {
     };
     loadProfile();
   }, [profileRefreshKey]);
-
-  const vibeVideoInfo = useMemo(
-    () =>
-      resolveWebVibeVideoState({
-        bunnyVideoUid: profile.bunnyVideoUid,
-        bunnyVideoStatus: profile.bunnyVideoStatus,
-        vibeCaption: profile.vibeCaption,
-      }),
-    [profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.vibeCaption],
-  );
-  const hasVibeVideo = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.playbackUrl;
-  const isVibeVideoProcessing =
-    vibeVideoInfo.state === "processing" || vibeVideoInfo.state === "uploading";
-  const isVibeVideoFailed = vibeVideoInfo.state === "failed";
-  const isVibeVideoDataError = vibeVideoInfo.state === "error";
-  const readyAwaitingPlaybackUrl = vibeVideoInfo.state === "ready" && !vibeVideoInfo.playbackUrl;
-  const thumbnailUrl = vibeVideoInfo.thumbnailUrl;
-
-  useEffect(() => {
-    setThumbnailError(false);
-  }, [thumbnailUrl]);
 
   // ── Derived data ──────────────────────────────────────────────
 
@@ -964,7 +943,7 @@ const ProfileStudio = () => {
               <Video className="h-[18px] w-[18px] text-primary" />
               <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
             </div>
-            {vibeVideoInfo.uid ? (
+            {profile.bunnyVideoUid ? (
               <button
                 type="button"
                 onClick={goToVibeStudio}
@@ -975,89 +954,15 @@ const ProfileStudio = () => {
             ) : null}
           </div>
 
-          {isVibeVideoProcessing ? (
-            <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10">
-              <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
-              <p className="text-base font-display font-semibold text-white">Processing your Vibe Video…</p>
-              <p className="text-sm text-gray-400 text-center px-6">Usually 15–30 seconds while we get it ready to play</p>
-            </div>
-          ) : isVibeVideoFailed ? (
-            <div className="rounded-2xl bg-white/5 backdrop-blur border border-red-500/20 flex flex-col items-center justify-center gap-3 py-10">
-              <Video className="w-12 h-12 text-red-400/50" />
-              <p className="text-base font-display font-semibold text-white">Couldn&apos;t finish processing</p>
-              <p className="text-sm text-gray-400 text-center px-6">Try recording again — your clip didn&apos;t make it through</p>
-              <button
-                onClick={goToVibeStudio}
-                className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
-              >
-                Record again
-              </button>
-            </div>
-          ) : isVibeVideoDataError ? (
-            <div className="rounded-2xl bg-white/5 backdrop-blur border border-amber-500/20 flex flex-col items-center justify-center gap-3 py-10 px-6">
-              <Video className="w-12 h-12 text-amber-400/70" />
-              <p className="text-base font-display font-semibold text-white text-center">Video status looks inconsistent</p>
-              <p className="text-sm text-gray-400 text-center">Open Manage to refresh or re-upload if this persists.</p>
-              <button
-                type="button"
-                onClick={goToVibeStudio}
-                className="mt-2 px-6 py-2.5 rounded-xl bg-white/10 text-white font-semibold text-sm"
-              >
-                Open Studio
-              </button>
-            </div>
-          ) : readyAwaitingPlaybackUrl ? (
-            <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10 px-6">
-              <Loader2 className="w-10 h-10 text-violet-400 animate-spin" />
-              <p className="text-base font-display font-semibold text-white text-center">Ready on our side</p>
-              <p className="text-sm text-gray-400 text-center">Preview link isn&apos;t loading — check connection or try again shortly.</p>
-            </div>
-          ) : hasVibeVideo ? (
-            <div className="relative w-full rounded-2xl overflow-hidden bg-secondary" style={{ aspectRatio: "16/9" }}>
-              {thumbnailUrl && !thumbnailError ? (
-                <img src={thumbnailUrl} alt="Vibe Video" className="w-full h-full object-cover" onError={() => setThumbnailError(true)} />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-[#1C1A2E] to-[#0D0B1A]" />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-
-              {/* Live badge */}
-              <div className="pointer-events-none absolute top-3 left-3 flex items-center gap-1.5">
-                <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                <span className="text-[9px] font-semibold tracking-widest text-green-500">READY</span>
-              </div>
-
-              {/* Play button */}
-              <button
-                onClick={() => setShowVibePlayer(true)}
-                className="absolute inset-0 flex items-center justify-center"
-              >
-                <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.3)" }}>
-                  <Play className="w-7 h-7 text-white ml-1" />
-                </div>
-              </button>
-
-              {/* Caption */}
-              {profile.vibeCaption && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 pointer-events-none">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest bg-gradient-to-r from-violet-500 to-pink-500 bg-clip-text text-transparent mb-0.5">Vibing on</p>
-                  <p className="text-white text-sm font-bold">{profile.vibeCaption}</p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-2xl bg-white/5 backdrop-blur border border-white/10 flex flex-col items-center justify-center gap-3 py-10">
-              <Video className="w-12 h-12 text-gray-500/30" />
-              <p className="text-base font-display font-semibold text-white">Record your Vibe Video</p>
-              <p className="text-sm text-gray-400 text-center px-6">Profiles with video get 3x more quality conversations</p>
-              <button
-                onClick={goToVibeStudio}
-                className="mt-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-pink-500 text-white font-bold text-sm"
-              >
-                Record now
-              </button>
-            </div>
-          )}
+          <HeroVideoStatusCard
+            profile={{
+              bunnyVideoUid: profile.bunnyVideoUid,
+              bunnyVideoStatus: profile.bunnyVideoStatus,
+              vibeCaption: profile.vibeCaption,
+            }}
+            onOpenRecorder={goToVibeStudio}
+            onOpenPlayer={() => setShowVibePlayer(true)}
+          />
         </div>
 
         {/* ═══ Section 5: Photos Module ═══ */}
