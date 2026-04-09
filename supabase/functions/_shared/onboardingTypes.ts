@@ -151,7 +151,7 @@ export function readLocalDraftCache(
     if (Array.isArray(d.photos)) data.photos = d.photos.filter((p: unknown) => typeof p === "string");
     if (typeof d.aboutMe === "string") data.aboutMe = d.aboutMe;
     if (typeof d.location === "string") data.location = d.location;
-    if (d.locationData && typeof d.locationData.lat === "number" && typeof d.locationData.lng === "number") {
+    if (isValidLocationData(d.locationData)) {
       data.locationData = { lat: d.locationData.lat, lng: d.locationData.lng };
     }
     if (typeof d.country === "string") data.country = d.country;
@@ -180,6 +180,33 @@ export function calculateAge(iso: string): number {
   const m = today.getMonth() - birth.getMonth();
   if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
   return age;
+}
+
+export type ConfirmedOnboardingLocation = Pick<
+  OnboardingData,
+  "location" | "locationData" | "country"
+>;
+
+export function isValidLocationData(value: unknown): value is Exclude<LocationData, null> {
+  if (!value || typeof value !== "object") return false;
+
+  const lat = (value as { lat?: unknown }).lat;
+  const lng = (value as { lng?: unknown }).lng;
+
+  return (
+    typeof lat === "number"
+    && Number.isFinite(lat)
+    && lat >= -90
+    && lat <= 90
+    && typeof lng === "number"
+    && Number.isFinite(lng)
+    && lng >= -180
+    && lng <= 180
+  );
+}
+
+export function hasConfirmedOnboardingLocation(data: ConfirmedOnboardingLocation): boolean {
+  return !!data.location.trim() && !!data.country.trim() && isValidLocationData(data.locationData);
 }
 
 export function validateOnboardingData(data: OnboardingData): OnboardingValidationResult {
@@ -221,8 +248,8 @@ export function validateOnboardingData(data: OnboardingData): OnboardingValidati
     errors.push("Relationship intent is required");
   }
 
-  if (!data.location?.trim()) {
-    errors.push("Location is required");
+  if (!hasConfirmedOnboardingLocation(data)) {
+    errors.push("Confirmed location is required");
   }
 
   if (!data.communityAgreed) {

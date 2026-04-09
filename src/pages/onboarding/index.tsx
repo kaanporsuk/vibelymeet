@@ -15,6 +15,7 @@ import {
   DEFAULT_ONBOARDING_DATA,
   ONBOARDING_STORAGE_KEY,
   ONBOARDING_LEGACY_STORAGE_KEYS,
+  hasConfirmedOnboardingLocation,
   writeLocalDraftCache,
   readLocalDraftCache,
 } from "@shared/onboardingTypes";
@@ -41,6 +42,8 @@ import { CommunityStep } from "./steps/CommunityStep";
 import { EmailCollectionStep } from "./steps/EmailCollectionStep";
 import { VibeVideoStep } from "./steps/VibeVideoStep";
 import { CelebrationStep } from "./steps/CelebrationStep";
+
+const LOCATION_STEP_INDEX = 9;
 
 const Onboarding = () => {
   const navigate = useNavigate();
@@ -99,7 +102,11 @@ const Onboarding = () => {
     });
 
     const applyDraft = (step: number, d: OnboardingData) => {
-      setCurrentStep(step);
+      const nextStep =
+        step > LOCATION_STEP_INDEX && !hasConfirmedOnboardingLocation(d)
+          ? LOCATION_STEP_INDEX
+          : step;
+      setCurrentStep(nextStep);
       setData(d);
     };
 
@@ -216,6 +223,12 @@ const Onboarding = () => {
     setData((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const updateLocation = useCallback((
+    payload: Pick<OnboardingData, "location" | "locationData" | "country">
+  ) => {
+    setData((prev) => ({ ...prev, ...payload }));
+  }, []);
+
   const goNext = useCallback(() => {
     if (currentStep >= totalSteps - 1) return;
     const next = currentStep + 1;
@@ -241,6 +254,11 @@ const Onboarding = () => {
 
   const completeOnboarding = useCallback(async () => {
     if (!session?.user?.id || submitOnceRef.current) return;
+    if (!hasConfirmedOnboardingLocation(data)) {
+      toast.error("Confirm your city before finishing onboarding.");
+      setCurrentStep(LOCATION_STEP_INDEX);
+      return;
+    }
     submitOnceRef.current = true;
     setSubmitting(true);
     setCompletionError(null);
@@ -372,11 +390,9 @@ const Onboarding = () => {
           return (
             <LocationStep
               location={data.location}
-              onLocationChange={(payload) => {
-                updateField("location", payload.location);
-                updateField("locationData", payload.locationData);
-                updateField("country", payload.country);
-              }}
+              locationData={data.locationData}
+              country={data.country}
+              onLocationChange={updateLocation}
               onNext={goNext}
             />
           );

@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Loader2, MapPin, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { hasConfirmedOnboardingLocation, isValidLocationData } from "@shared/onboardingTypes";
 
 interface LocationPayload {
   location: string;
@@ -10,52 +11,136 @@ interface LocationPayload {
   country: string;
 }
 
+interface SearchResult extends LocationPayload {
+  city: string;
+  detail: string;
+}
+
 interface LocationStepProps {
   location: string;
+  locationData: { lat: number; lng: number } | null;
+  country: string;
   onLocationChange: (payload: LocationPayload) => void;
   onNext: () => void;
 }
 
 type FeedbackTone = "info" | "error";
 type FeedbackState = { tone: FeedbackTone; text: string } | null;
+type SearchState = "idle" | "loading" | "results" | "empty" | "error";
 
 const MIN_SEARCH_CHARS = 2;
+const EMPTY_LOCATION_PAYLOAD: LocationPayload = {
+  location: "",
+  locationData: null,
+  country: "",
+};
 
-export const LocationStep = ({ location, onLocationChange, onNext }: LocationStepProps) => {
+type ForwardGeocodeResult = {
+  formatted?: string;
+  display_name?: string;
+  city?: string;
+  country?: string;
+  region?: string;
+  lat?: number;
+  lng?: number;
+};
+
+function buildSearchResult(raw: ForwardGeocodeResult): SearchResult | null {
+  const city = typeof raw.city === "string" ? raw.city.trim() : "";
+  const country = typeof raw.country === "string" ? raw.country.trim() : "";
+  const region = typeof raw.region === "string" ? raw.region.trim() : "";
+  const location = [raw.formatted, raw.display_name]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim()
+    ?? (city && country ? `${city}, ${country}` : "");
+  const lat = typeof raw.lat === "number" ? raw.lat : Number.NaN;
+  const lng = typeof raw.lng === "number" ? raw.lng : Number.NaN;
+
+  if (!city || !country || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return {
+    city,
+    country,
+    detail: [region, country].filter(Boolean).join(", "),
+    location,
+    locationData: { lat, lng },
+  };
+}
+
+function buildConfirmedLocationLabel(location: string, country: string): string {
+  const trimmedLocation = location.trim();
+  const trimmedCountry = country.trim();
+
+  if (!trimmedLocation) return trimmedCountry;
+  if (!trimmedCountry) return trimmedLocation;
+
+  return trimmedLocation.toLowerCase().includes(trimmedCountry.toLowerCase())
+    ? trimmedLocation
+    : `${trimmedLocation}, ${trimmedCountry}`;
+}
+
+export const LocationStep = ({
+  location,
+  locationData,
+  country,
+  onLocationChange,
+  onNext,
+}: LocationStepProps) => {
   const [detecting, setDetecting] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(location);
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<LocationPayload[]>([]);
+  const [searchState, setSearchState] = useState<SearchState>("idle");
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
 
-  const continueHint = useMemo(() => {
-    if (location) {
-      return "You can continue now, or change this city first.";
+  const confirmedLocation = useMemo(() => {
+    if (
+      !hasConfirmedOnboardingLocation({ location, locationData, country })
+      || !isValidLocationData(locationData)
+    ) {
+      return null;
     }
-    if (showSearch) {
-      return "Search for your city and tap a result to continue.";
-    }
-    return "Enable location or search for your city to continue.";
-  }, [location, showSearch]);
 
-  const openManualSearch = (nextFeedback?: FeedbackState) => {
-    setShowSearch(true);
-    setResults([]);
-    setFeedback(nextFeedback ?? null);
-  };
+    return {
+      label: buildConfirmedLocationLabel(location, country),
+      country: country.trim(),
+      locationData,
+    };
+  }, [country, location, locationData]);
+
+  useEffect(() => {
+    if (confirmedLocation && !searchQuery.trim()) {
+      setSearchQuery(confirmedLocation.label);
+    }
+  }, [confirmedLocation, searchQuery]);
+
+  const continueHint = useMemo(() => {
+    if (confirmedLocation) {
+      return "Location confirmed. You can continue, or edit the text to pick a different city.";
+    }
+    if (searchState === "loading") {
+      return "Searching for city matches...";
+    }
+    if (searchQuery.trim()) {
+      return "Choose one result below to confirm your city.";
+    }
+    return "Use current location or search for your city, then confirm one result to continue.";
+  }, [confirmedLocation, searchQuery, searchState]);
 
   const applyLocation = (payload: LocationPayload) => {
     onLocationChange(payload);
-    setShowSearch(false);
-    setSearchQuery("");
+    setSearchQuery(buildConfirmedLocationLabel(payload.location, payload.country));
     setResults([]);
+    setSearchState("idle");
     setFeedback(null);
   };
 
   const autoDetect = async () => {
     if (!navigator.geolocation) {
-      openManualSearch({
+      setSearchState("error");
+      setFeedback({
         tone: "error",
         text: "Location is not available in this browser. Search for your city instead.",
       });
@@ -63,6 +148,8 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     }
 
     setDetecting(true);
+    setSearchState("idle");
+    setResults([]);
     setFeedback(null);
     try {
       const position = await new Promise<GeolocationPosition>((resolve, reject) =>
@@ -78,7 +165,8 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
       });
       if (error) throw error;
       if (data?.error || !data?.city || !data?.country) {
-        openManualSearch({
+        setSearchState("error");
+        setFeedback({
           tone: "error",
           text: "We couldn't match your current location to a city. Search manually instead.",
         });
@@ -96,14 +184,16 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     } catch (error) {
       const geoError = error as GeolocationPositionError | undefined;
       if (geoError?.code === 1) {
-        openManualSearch({
+        setSearchState("error");
+        setFeedback({
           tone: "error",
           text: "Location permission was denied. Search for your city instead, or enable access and try again.",
         });
         return;
       }
 
-      openManualSearch({
+      setSearchState("error");
+      setFeedback({
         tone: "error",
         text: "We couldn't determine your city right now. Search for your city instead, or try again.",
       });
@@ -116,6 +206,7 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     const query = searchQuery.trim();
     if (query.length < MIN_SEARCH_CHARS) {
       setResults([]);
+      setSearchState("error");
       setFeedback({
         tone: "error",
         text: `Enter at least ${MIN_SEARCH_CHARS} characters to search.`,
@@ -124,6 +215,7 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     }
 
     setSearching(true);
+    setSearchState("loading");
     setFeedback(null);
     try {
       const { data, error } = await supabase.functions.invoke("forward-geocode", {
@@ -132,21 +224,20 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
       if (error) throw error;
 
       const items = Array.isArray(data) ? data : data?.results ?? [];
-      const nextResults = items.slice(0, 5).map((r: any) => ({
-        location: r.formatted || `${r.city}, ${r.country}`,
-        locationData: r.lat != null && r.lng != null ? { lat: Number(r.lat), lng: Number(r.lng) } : null,
-        country: r.country || "",
-      }));
+      const nextResults = items
+        .slice(0, 5)
+        .map((result: ForwardGeocodeResult) => buildSearchResult(result))
+        .filter((result): result is SearchResult => result !== null);
 
       setResults(nextResults);
       if (nextResults.length === 0) {
-        setFeedback({
-          tone: "info",
-          text: "No cities matched that search. Try a nearby city or include the country.",
-        });
+        setSearchState("empty");
+      } else {
+        setSearchState("results");
       }
     } catch {
       setResults([]);
+      setSearchState("error");
       setFeedback({
         tone: "error",
         text: "We couldn't search right now. Check your connection and try again.",
@@ -154,6 +245,26 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
     } finally {
       setSearching(false);
     }
+  };
+
+  const handleSearchQueryChange = (nextValue: string) => {
+    const changedConfirmedLocation =
+      !!confirmedLocation && nextValue.trim() !== confirmedLocation.label.trim();
+
+    setSearchQuery(nextValue);
+    setResults([]);
+    setSearchState("idle");
+
+    if (changedConfirmedLocation) {
+      onLocationChange(EMPTY_LOCATION_PAYLOAD);
+      setFeedback({
+        tone: "info",
+        text: "Location changed. Choose a new result to confirm it before you continue.",
+      });
+      return;
+    }
+
+    setFeedback(null);
   };
 
   return (
@@ -167,80 +278,83 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
         </p>
       </div>
 
-      {location ? (
-        <>
-          <div className="flex items-center gap-3 p-4 rounded-xl glass-card">
-            <MapPin className="w-5 h-5 text-primary flex-shrink-0" />
-            <span className="text-foreground font-medium">{location}</span>
-            <Check className="w-5 h-5 text-green-400 ml-auto flex-shrink-0" />
+      {confirmedLocation ? (
+        <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <Check className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-400" />
+            <div className="flex-1">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-green-300">
+                Confirmed location
+              </p>
+              <p className="mt-1 text-sm font-semibold text-foreground">
+                {confirmedLocation.label}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Coordinates confirmed for nearby matches and event discovery.
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                openManualSearch({
-                  tone: "info",
-                  text: "Search for a different city and tap a result to replace this one.",
-                })
-              }
-              className="flex-1"
-            >
-              Search manually
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={autoDetect}
-              disabled={detecting || searching}
-              className="flex-1"
-            >
-              {detecting ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Detecting...
-                </span>
-              ) : (
-                "Use current location again"
-              )}
-            </Button>
-          </div>
-        </>
+        </div>
       ) : (
-        <>
-          {!showSearch ? (
-            <>
-              <Button
-                type="button"
-                onClick={autoDetect}
-                disabled={detecting}
-                className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
-              >
-                {detecting ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin" /> Detecting...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4" /> Enable location
-                  </span>
-                )}
-              </Button>
-              <button
-                type="button"
-                onClick={() =>
-                  openManualSearch({
-                    tone: "info",
-                    text: "Search for your city and tap a result to continue.",
-                  })
-                }
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors text-center"
-              >
-                Search for your city instead
-              </button>
-            </>
-          ) : null}
-        </>
+        <div className="rounded-xl border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+          No location confirmed yet. Search for a city and choose one result, or use your current location.
+        </div>
       )}
+
+      <Button
+        type="button"
+        onClick={autoDetect}
+        disabled={detecting || searching}
+        className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
+      >
+        {detecting ? (
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Detecting...
+          </span>
+        ) : (
+          <span className="flex items-center gap-2">
+            <MapPin className="h-4 w-4" /> {confirmedLocation ? "Use current location again" : "Use current location"}
+          </span>
+        )}
+      </Button>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <label
+            htmlFor="onboarding-location-search"
+            className="text-sm font-medium text-foreground"
+          >
+            Search for your city
+          </label>
+          <span className="text-xs text-muted-foreground">Pick one result to confirm it</span>
+        </div>
+        <div className="flex gap-2">
+          <Input
+            id="onboarding-location-search"
+            autoFocus
+            placeholder="Search city or country"
+            value={searchQuery}
+            onChange={(e) => {
+              handleSearchQueryChange(e.target.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleSearch();
+              }
+            }}
+            className="flex-1 border-secondary bg-secondary/50"
+          />
+          <Button
+            type="button"
+            onClick={() => void handleSearch()}
+            disabled={searching || detecting}
+            variant="secondary"
+          >
+            {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
 
       {feedback ? (
         <div
@@ -262,63 +376,46 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
         </div>
       ) : null}
 
-      {showSearch ? (
-        <>
-          <div className="flex gap-2">
-            <Input
-              autoFocus
-              placeholder="Search city"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setResults([]);
-                setFeedback(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleSearch();
-                }
-              }}
-              className="bg-secondary/50 border-secondary flex-1"
-            />
-            <Button
-              type="button"
-              onClick={() => void handleSearch()}
-              disabled={searching}
-              variant="secondary"
-            >
-              {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            </Button>
-          </div>
+      {searchState === "loading" ? (
+        <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <p>Searching for matching cities...</p>
+        </div>
+      ) : null}
 
-          <button
-            type="button"
-            onClick={autoDetect}
-            disabled={detecting || searching}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors text-left disabled:opacity-60"
-          >
-            {detecting ? "Trying your current location..." : "Try current location again"}
-          </button>
+      {searchState === "empty" ? (
+        <div className="rounded-xl border border-border/70 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
+          No cities matched that search. Try a nearby city or include the country.
+        </div>
+      ) : null}
 
-          {results.length > 0 ? (
-            <div className="space-y-1">
-              {results.map((result, index) => (
-                <button
-                  key={`${result.location}-${index}`}
-                  type="button"
-                  onClick={() => applyLocation(result)}
-                  className="w-full text-left p-3 rounded-lg hover:bg-secondary/50 transition-colors text-sm text-foreground"
-                >
-                  <span className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-                    <span>{result.location}</span>
+      {results.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Select a result to confirm
+          </p>
+          <div className="space-y-2">
+            {results.map((result, index) => (
+              <button
+                key={`${result.location}-${index}`}
+                type="button"
+                onClick={() => applyLocation(result)}
+                className="w-full rounded-xl border border-border/70 bg-secondary/20 p-4 text-left transition-colors hover:border-primary/40 hover:bg-secondary/40"
+              >
+                <span className="flex items-start gap-3">
+                  <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+                  <span className="flex-1">
+                    <span className="block text-sm font-medium text-foreground">{result.city}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {result.detail || result.country}
+                    </span>
                   </span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </>
+                  <span className="text-xs font-medium text-primary">Tap to confirm</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       <p className="text-xs text-muted-foreground text-center">
@@ -327,7 +424,7 @@ export const LocationStep = ({ location, onLocationChange, onNext }: LocationSte
 
       <Button
         onClick={onNext}
-        disabled={!location}
+        disabled={!confirmedLocation}
         className="w-full bg-gradient-to-r from-primary to-pink-500 hover:opacity-90 text-white font-semibold py-6"
       >
         Continue
