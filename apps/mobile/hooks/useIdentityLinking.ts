@@ -24,8 +24,8 @@
  *
  * APPLE: Native token path is implemented.
  *   expo-apple-authentication.signAsync() produces an identityToken that is passed
- *   directly to linkIdentity({ provider: 'apple', token }). This is the same token
- *   used by the existing Apple sign-in flow. No browser required.
+ *   directly to linkIdentity({ provider: 'apple', token, nonce }). This is the same
+ *   token and request nonce used by the existing Apple sign-in flow. No browser required.
  *
  * GOOGLE: Browser OAuth path is used. This is a deliberate first-release choice:
  *   • Native Google ID tokens require @react-native-google-signin, which is not in
@@ -60,6 +60,7 @@ import {
   completeSessionFromAuthReturnUrl,
   getNativeGoogleOAuthRedirectUrl,
 } from '@/lib/nativeAuthRedirect';
+import { createAppleAuthNonce } from '@/lib/appleAuth';
 import { mapIdentityLinkingError } from '@shared/authConflictMessages';
 
 // ---------- types ----------
@@ -176,8 +177,8 @@ export function useIdentityLinking() {
   // ─── Apple native token linking ───────────────────────────────────────────
   //
   // Uses expo-apple-authentication to obtain an OIDC identity token, then passes
-  // it directly to linkIdentity({ provider: 'apple', token }). This is the same
-  // token the existing Apple sign-in uses. No browser required.
+  // it directly to linkIdentity({ provider: 'apple', token, nonce }). This is
+  // the same native token exchange the sign-in flow uses. No browser required.
 
   const linkAppleNative = useCallback(async (): Promise<void> => {
     if (Platform.OS !== 'ios') {
@@ -189,11 +190,13 @@ export function useIdentityLinking() {
       throw new Error('Apple Sign In is not available on this device or iOS build.');
     }
 
+    const nonce = createAppleAuthNonce();
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
+      nonce,
     });
 
     if (!credential.identityToken) {
@@ -203,6 +206,7 @@ export function useIdentityLinking() {
     const { error } = await supabase.auth.linkIdentity({
       provider: 'apple',
       token: credential.identityToken,
+      nonce,
     });
 
     if (error) throw new Error(mapIdentityLinkingError(error, 'apple'));

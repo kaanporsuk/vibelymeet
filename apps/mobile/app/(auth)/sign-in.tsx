@@ -17,6 +17,7 @@ import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
+import { buildAppleNameMetadataPatch, createAppleAuthNonce } from '@/lib/appleAuth';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
@@ -495,6 +496,7 @@ export default function SignInScreen() {
 
   const handleAppleSignIn = async () => {
     setError(null);
+    setLoading(true);
     trackEvent('auth_method_selected', { method: 'apple', platform: 'native' });
     trackEvent('auth_social_started', { provider: 'apple' });
     try {
@@ -506,12 +508,30 @@ export default function SignInScreen() {
         setError('Apple Sign In is not available on this iOS build.');
         return;
       }
+      const nonce = createAppleAuthNonce();
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+        nonce,
       });
       if (!credential.identityToken) throw new Error('Missing Apple token');
-      const { error: e } = await supabase.auth.signInWithIdToken({ provider: 'apple', token: credential.identityToken });
+      const { data, error: e } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce,
+      });
       if (e) throw e;
+      const nameMetadataPatch = buildAppleNameMetadataPatch({
+        existingMetadata: data.user?.user_metadata,
+        fullName: credential.fullName,
+      });
+      if (nameMetadataPatch) {
+        const { error: updateError } = await supabase.auth.updateUser({ data: nameMetadataPatch });
+        if (updateError) {
+          console.warn('[auth] failed to persist Apple full name metadata', {
+            message: updateError.message,
+          });
+        }
+      }
       trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
     } catch (e: any) {
@@ -522,6 +542,8 @@ export default function SignInScreen() {
       } else {
         setError(String(e?.message || 'Apple Sign In failed. Try another method.'));
       }
+    } finally {
+      setLoading(false);
     }
   };
 
