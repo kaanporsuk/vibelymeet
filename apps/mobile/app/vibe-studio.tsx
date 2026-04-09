@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -17,13 +17,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import Colors from '@/constants/Colors';
-import { fonts, radius, spacing } from '@/constants/theme';
+import { fonts } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
 
 const CAPTION_MAX = 50;
 
@@ -62,6 +63,9 @@ export default function VibeStudioScreen() {
   const [isSavingCaption, setIsSavingCaption] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Subscribe to the module-level upload controller so live progress is shown here.
+  const ctrl = useNativeHeroVideoUpload();
+
   useFocusEffect(
     useCallback(() => {
       void refetch();
@@ -76,9 +80,26 @@ export default function VibeStudioScreen() {
     setThumbnailError(false);
   }, [profile?.bunny_video_uid, profile?.bunny_video_status]);
 
+  // When the controller reaches a terminal state, reload profile so the page
+  // reflects the latest backend truth without a manual refresh tap.
+  const prevCtrlPhaseRef = useRef<string>('idle');
+  useEffect(() => {
+    const prev = prevCtrlPhaseRef.current;
+    prevCtrlPhaseRef.current = ctrl.phase;
+    if ((ctrl.phase === 'ready' || ctrl.phase === 'failed') && prev !== ctrl.phase) {
+      void refetch();
+    }
+  }, [ctrl.phase, refetch]);
+
   const videoInfo = useMemo(() => resolveVibeVideoState(profile ?? null), [profile]);
   const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
   const captionChanged = captionDraft !== (profile?.vibe_caption ?? '');
+
+  // Effective display phase: controller overrides profile when active or terminal.
+  const controllerIsActive = ctrl.phase === 'uploading' || ctrl.phase === 'processing';
+  const controllerIsTerminal = ctrl.phase === 'ready' || ctrl.phase === 'failed';
+  const effectivePhase =
+    controllerIsActive || controllerIsTerminal ? ctrl.phase : videoInfo.state;
 
   const tone: StatusTone = useMemo(() => {
     if (readyAwaitingPlaybackUrl) {
@@ -93,7 +114,7 @@ export default function VibeStudioScreen() {
       };
     }
 
-    switch (videoInfo.state) {
+    switch (effectivePhase) {
       case 'ready':
         return {
           label: 'Ready',
@@ -107,9 +128,11 @@ export default function VibeStudioScreen() {
       case 'uploading':
         return {
           label: 'Uploading',
-          title: 'Your upload is still in flight',
+          title: ctrl.phase === 'uploading' && ctrl.uploadProgress > 0
+            ? `Uploading… ${ctrl.uploadProgress}%`
+            : 'Your upload is still in flight',
           description:
-            'This is an in-progress video state, not “no video.” Stay here or come back in a moment while the upload finishes.',
+            'You can leave this screen — the upload continues in the background.',
           badgeBg: 'rgba(34, 211, 238, 0.14)',
           badgeText: theme.neonCyan,
           icon: 'cloud-upload-outline',
@@ -117,9 +140,9 @@ export default function VibeStudioScreen() {
       case 'processing':
         return {
           label: 'Processing',
-          title: 'We’re preparing your Vibe Video',
+          title: "We're preparing your Vibe Video",
           description:
-            'The clip is already on file and moving toward playback. This usually takes 15–30 seconds.',
+            'The clip is on file and moving toward playback. You can leave this screen — processing continues on our servers.',
           badgeBg: theme.tintSoft,
           badgeText: theme.tint,
           icon: 'refresh-circle',
@@ -127,9 +150,13 @@ export default function VibeStudioScreen() {
       case 'failed':
         return {
           label: 'Needs attention',
-          title: 'Processing didn’t finish',
+          title: ctrl.phase === 'failed' && ctrl.errorMessage
+            ? 'Upload or processing failed'
+            : "Processing didn't finish",
           description:
-            'The last upload never reached a playable state. Replace it here with a new take when you’re ready.',
+            ctrl.phase === 'failed' && ctrl.errorMessage
+              ? ctrl.errorMessage
+              : 'The last upload never reached a playable state. Replace it with a new take.',
           badgeBg: theme.dangerSoft,
           badgeText: theme.danger,
           icon: 'alert-circle',
@@ -155,7 +182,7 @@ export default function VibeStudioScreen() {
           icon: 'videocam',
         };
     }
-  }, [readyAwaitingPlaybackUrl, theme.danger, theme.dangerSoft, theme.neonCyan, theme.success, theme.successSoft, theme.tint, theme.tintSoft, videoInfo.state]);
+  }, [readyAwaitingPlaybackUrl, ctrl.phase, ctrl.uploadProgress, ctrl.errorMessage, effectivePhase, theme.danger, theme.dangerSoft, theme.neonCyan, theme.success, theme.successSoft, theme.tint, theme.tintSoft]);
 
   const openRecorder = () => {
     router.push('/vibe-video-record');
@@ -181,7 +208,7 @@ export default function VibeStudioScreen() {
       });
     } catch (error) {
       show({
-        title: 'Couldn’t save caption',
+        title: "Couldn't save caption",
         message: error instanceof Error ? error.message : 'Please try again.',
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
@@ -222,7 +249,7 @@ export default function VibeStudioScreen() {
               const message =
                 error instanceof DeleteVibeVideoError ? error.message : 'Could not delete. Try again.';
               show({
-                title: 'Couldn’t delete video',
+                title: "Couldn't delete video",
                 message,
                 variant: 'warning',
                 primaryAction: { label: 'OK', onPress: () => {} },
@@ -255,10 +282,10 @@ export default function VibeStudioScreen() {
         <View style={[styles.centered, { backgroundColor: theme.background, paddingHorizontal: 24 }]}>
           <Ionicons name="warning-outline" size={44} color="#FBBF24" />
           <Text style={[styles.emptyTitle, { color: theme.text, marginTop: 18 }]}>
-            Couldn’t open Vibe Studio
+            Couldn't open Vibe Studio
           </Text>
           <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-            We couldn’t load your profile details right now. Try again or head back to Profile Studio.
+            We couldn't load your profile details right now. Try again or head back to Profile Studio.
           </Text>
           <Pressable onPress={() => void refetch()} style={[styles.primaryBtn, { backgroundColor: theme.tint }]}>
             <Text style={styles.primaryBtnText}>Try again</Text>
@@ -272,7 +299,7 @@ export default function VibeStudioScreen() {
     );
   }
 
-  const showPreviewCard = videoInfo.state === 'ready' && videoInfo.canPlay;
+  const showPreviewCard = effectivePhase === 'ready' && videoInfo.canPlay;
   const statusIconColor = tone.badgeText;
 
   return (
@@ -372,7 +399,7 @@ export default function VibeStudioScreen() {
                 </Pressable>
               ) : (
                 <View style={[styles.emptyState, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
-                  {videoInfo.state === 'none' ? (
+                  {effectivePhase === 'none' ? (
                     <>
                       <Ionicons name="videocam-outline" size={52} color={theme.textSecondary} style={{ opacity: 0.5 }} />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>Start with a simple hello</Text>
@@ -380,24 +407,33 @@ export default function VibeStudioScreen() {
                         Good light, one sentence about your vibe, and a clear smile is enough for a strong first version.
                       </Text>
                     </>
-                  ) : videoInfo.state === 'failed' || videoInfo.state === 'error' ? (
+                  ) : effectivePhase === 'failed' || effectivePhase === 'error' ? (
                     <>
                       <Ionicons name="alert-circle-outline" size={52} color="#FBBF24" />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>This clip needs a fresh take</Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        Your caption stays intact, and you can replace the video below without changing any backend ownership.
+                        Your caption stays intact, and you can replace the video without changing any backend ownership.
+                      </Text>
+                    </>
+                  ) : effectivePhase === 'uploading' ? (
+                    <>
+                      <ActivityIndicator size="large" color={theme.neonCyan} />
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>Uploading your Vibe Video…</Text>
+                      {ctrl.phase === 'uploading' && ctrl.uploadProgress > 0 && (
+                        <View style={styles.progressBarTrack}>
+                          <View style={[styles.progressBarFill, { width: `${ctrl.uploadProgress}%` as `${number}%` }]} />
+                        </View>
+                      )}
+                      <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
+                        You can leave this screen — the upload continues in the background.
                       </Text>
                     </>
                   ) : (
                     <>
                       <ActivityIndicator size="large" color={theme.tint} />
-                      <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                        {videoInfo.state === 'uploading' ? 'Uploading your Vibe Video…' : 'Processing your Vibe Video…'}
-                      </Text>
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>Processing your Vibe Video…</Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        {videoInfo.state === 'uploading'
-                          ? 'This still counts as a video in progress while the upload completes.'
-                          : 'Playback is not ready yet, but the clip is on file and moving through the pipeline now.'}
+                        The clip is on file and moving through the pipeline. You can leave this screen.
                       </Text>
                     </>
                   )}
@@ -419,7 +455,7 @@ export default function VibeStudioScreen() {
                   <Pressable onPress={openRecorder} style={styles.primaryActionPressable}>
                     <Ionicons name="videocam" size={18} color="#fff" />
                     <Text style={styles.primaryActionText}>
-                      {videoInfo.state === 'none' ? 'Create video' : 'Replace video'}
+                      {effectivePhase === 'none' ? 'Create video' : 'Replace video'}
                     </Text>
                   </Pressable>
                 </LinearGradient>
@@ -876,5 +912,19 @@ const styles = StyleSheet.create({
   secondaryLinkText: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
+  },
+  progressBarTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: '#22D3EE',
   },
 });

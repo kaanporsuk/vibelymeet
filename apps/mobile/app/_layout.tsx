@@ -84,6 +84,13 @@ if (__DEV__) {
 
 const queryClient = new QueryClient();
 
+// Wire the module-level native hero upload controller to the query client so it
+// can invalidate ['my-profile'] after upload/processing completes — even when no
+// screen is mounted.
+import('@/lib/nativeHeroVideoUploadController').then(({ nativeHeroVideoSetQueryClient }) => {
+  nativeHeroVideoSetQueryClient(queryClient);
+});
+
 export {
   ErrorBoundary,
 } from 'expo-router';

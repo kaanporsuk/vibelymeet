@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
   Loader2,
-  Play,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -18,10 +17,12 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
+import { HeroVideoStatusCard } from "@/components/hero-video/HeroVideoStatusCard";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
+import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 
 const CAPTION_MAX = 50;
 
@@ -35,10 +36,10 @@ type StatusTone = {
 
 const VibeStudio = () => {
   const navigate = useNavigate();
+  const ctrl = useHeroVideoUpload();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [thumbnailError, setThumbnailError] = useState(false);
   const [showComposer, setShowComposer] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
   const [captionDraft, setCaptionDraft] = useState("");
@@ -67,6 +68,20 @@ const VibeStudio = () => {
     setCaptionDraft(profile?.vibeCaption ?? "");
   }, [profile?.vibeCaption]);
 
+  // When the controller reaches a terminal state (ready/failed), reload the profile
+  // so the You page reflects the latest backend truth without requiring a manual refresh.
+  const prevPhaseRef = useRef<string>("idle");
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = ctrl.phase;
+    if (
+      (ctrl.phase === "ready" || ctrl.phase === "failed") &&
+      prev !== ctrl.phase
+    ) {
+      setRefreshKey((k) => k + 1);
+    }
+  }, [ctrl.phase]);
+
   const videoInfo = useMemo(
     () =>
       resolveWebVibeVideoState({
@@ -76,10 +91,6 @@ const VibeStudio = () => {
       }),
     [profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.vibeCaption],
   );
-
-  useEffect(() => {
-    setThumbnailError(false);
-  }, [videoInfo.thumbnailUrl, videoInfo.uid]);
 
   const readyAwaitingPlaybackUrl = videoInfo.state === "ready" && !videoInfo.playbackUrl;
   const captionChanged = captionDraft !== (profile?.vibeCaption ?? "");
@@ -118,7 +129,7 @@ const VibeStudio = () => {
           iconClassName: "text-violet-300",
           label: "Processing",
           title: "We’re preparing your Vibe Video",
-          description: "The clip is on file and being readied for playback now. This usually takes 15–30 seconds.",
+          description: "The clip is on file and being readied for playback. You can leave this page — processing continues on our servers.",
         };
       case "failed":
         return {
@@ -205,13 +216,6 @@ const VibeStudio = () => {
     } finally {
       setIsDeleting(false);
     }
-  };
-
-  const handleComposerSave = async (_uid: string, caption?: string) => {
-    const nextCaption = (caption ?? "").slice(0, CAPTION_MAX);
-    await updateMyProfile({ vibeCaption: nextCaption });
-    setCaptionDraft(nextCaption);
-    refreshProfile();
   };
 
   if (isLoading) {
@@ -301,93 +305,25 @@ const VibeStudio = () => {
           </div>
 
           <div className="mt-5">
-            {hasPreview ? (
-              <button
-                type="button"
-                onClick={() => setShowPlayer(true)}
-                className="group relative w-full overflow-hidden rounded-[24px] border border-white/10 bg-secondary text-left"
-                style={{ aspectRatio: "16/9" }}
-              >
-                {videoInfo.thumbnailUrl && !thumbnailError ? (
-                  <img
-                    src={videoInfo.thumbnailUrl}
-                    alt="Current Vibe Video"
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                    onError={() => setThumbnailError(true)}
-                  />
-                ) : (
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#1C1A2E] to-[#0D0B1A]" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
-                <div className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-black/35 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-300 backdrop-blur">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  Ready
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/20 bg-white/10 backdrop-blur">
-                    <Play className="ml-1 h-7 w-7 text-white" />
-                  </div>
-                </div>
-                <div className="absolute inset-x-0 bottom-0 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-violet-200/90">Fullscreen preview</p>
-                  <p className="mt-1 text-sm font-semibold text-white">
-                    {videoInfo.caption ?? "Open your live video and preview it exactly as others see it."}
-                  </p>
-                </div>
-              </button>
-            ) : (
-              <div className="rounded-[24px] border border-white/10 bg-black/20 px-5 py-10 text-center">
-                {videoInfo.state === "none" ? (
-                  <>
-                    <Video className="mx-auto h-12 w-12 text-violet-300/60" />
-                    <p className="mt-4 text-lg font-display font-semibold text-white">Start with a simple hello</p>
-                    <p className="mt-2 text-sm leading-6 text-gray-400">
-                      Good light, one sentence about your vibe, and a clear smile is enough for a strong first version.
-                    </p>
-                  </>
-                ) : videoInfo.state === "failed" || videoInfo.state === "error" ? (
-                  <>
-                    <AlertCircle className="mx-auto h-12 w-12 text-amber-300/90" />
-                    <p className="mt-4 text-lg font-display font-semibold text-white">This clip needs a fresh take</p>
-                    <p className="mt-2 text-sm leading-6 text-gray-400">
-                      Your caption is preserved, and you can replace the video below without touching the shared media pipeline.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <Loader2 className="mx-auto h-12 w-12 animate-spin text-violet-300" />
-                    <p className="mt-4 text-lg font-display font-semibold text-white">
-                      {videoInfo.state === "uploading" ? "Uploading your Vibe Video…" : "Processing your Vibe Video…"}
-                    </p>
-                    <p className="mt-2 text-sm leading-6 text-gray-400">
-                      {videoInfo.state === "uploading"
-                        ? "This still counts as having a video in progress. We’ll keep the state honest until playback is truly ready."
-                        : "Playback is not ready yet, but the clip is on file and moving through the pipeline now."}
-                    </p>
-                  </>
-                )}
-              </div>
-            )}
+            <HeroVideoStatusCard
+              profile={{
+                bunnyVideoUid: profile.bunnyVideoUid,
+                bunnyVideoStatus: profile.bunnyVideoStatus,
+                vibeCaption: profile.vibeCaption,
+              }}
+              onOpenRecorder={() => setShowComposer(true)}
+              onOpenPlayer={() => setShowPlayer(true)}
+            />
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            {hasPreview ? (
-              <Button variant="outline" className="flex-1" onClick={() => setShowPlayer(true)}>
-                <Play className="h-4 w-4" />
-                Fullscreen preview
-              </Button>
-            ) : null}
-            <Button variant="gradient" className="flex-1" onClick={() => setShowComposer(true)}>
-              <Video className="h-4 w-4" />
-              {videoInfo.state === "none" ? "Create video" : "Replace video"}
-            </Button>
-            {videoInfo.canDelete ? (
-              <Button variant="destructive" className="flex-1" onClick={handleDelete} disabled={isDeleting}>
+          {videoInfo.canDelete && (
+            <div className="mt-3">
+              <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={isDeleting}>
                 {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {videoInfo.state === "uploading" || videoInfo.state === "processing" ? "Cancel & delete" : "Delete"}
+                {videoInfo.state === "uploading" || videoInfo.state === "processing" ? "Cancel & delete" : "Delete video"}
               </Button>
-            ) : null}
-          </div>
+            </div>
+          )}
         </section>
 
         <section className="rounded-[28px] border border-white/10 bg-white/5 p-5 backdrop-blur">
@@ -442,8 +378,6 @@ const VibeStudio = () => {
       <VibeStudioModal
         open={showComposer}
         onOpenChange={setShowComposer}
-        onSave={handleComposerSave}
-        existingVideoUrl={videoInfo.playbackUrl ?? undefined}
         existingCaption={profile.vibeCaption}
       />
 
