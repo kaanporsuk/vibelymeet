@@ -4,6 +4,7 @@ import { initOneSignal } from "./lib/onesignal";
 import { isOneSignalWebOriginAllowed } from "./lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "./lib/onesignalWebDiagnostics";
 import posthog from 'posthog-js';
+import "./lib/webAuthReturnBootstrap";
 import App from "./App.tsx";
 import "./index.css";
 

@@ -54,6 +54,7 @@ import NotificationContainer from "./components/notifications/NotificationContai
 import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
+import { WebPasswordRecoveryHandler } from "./components/WebPasswordRecoveryHandler";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
@@ -112,6 +113,7 @@ const App = () => (
             }}
           >
             <BrowserRouter>
+              <WebPasswordRecoveryHandler />
               <PostHogPageTracker />
               <WebOnBreakBanner />
               <WebPendingDeletionBanner />

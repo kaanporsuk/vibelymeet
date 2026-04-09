@@ -38,6 +38,7 @@
     "supabase/functions/_shared/identity.ts",
     "supabase/functions/_shared/eventProfileAdapters.ts",
     "supabase/functions/_shared/authConflictMessages.ts",
+    "supabase/functions/_shared/authRedirect.ts",
     "supabase/functions/_shared/entryState.ts",
     "supabase/functions/_shared/onboardingTypes.ts",
     "supabase/functions/_shared/onboardingCompletion.ts",
