@@ -50,6 +50,9 @@ interface PhotoManageDrawerProps {
 const MAX_PHOTOS = 6;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/** Blob URLs keyed by slot index, shown while the upload is in-flight */
+type PendingPreviews = Map<number, string>;
+
 function getCoachingMessage(count: number): string {
   if (count === 0) return "Add your first photo to get started";
   if (count < 3) return "Add at least 3 photos — profiles with 4+ get 2x more vibes";
@@ -65,6 +68,8 @@ interface SortableTileProps {
   index: number;
   isMain: boolean;
   uploading: boolean;
+  /** Blob URL shown as thumbnail while upload is in-flight (before CDN path is ready) */
+  previewUrl?: string;
   onMakeMain: (i: number) => void;
   onExpand: (i: number) => void;
   onDelete: (i: number) => void;
@@ -79,6 +84,7 @@ function SortableTile({
   index,
   isMain,
   uploading,
+  previewUrl,
   onMakeMain,
   onExpand,
   onDelete,
@@ -101,7 +107,11 @@ function SortableTile({
     opacity: isDragging ? 0.35 : 1,
   };
 
-  if (!url) {
+  // Blob preview visible while uploading; committed CDN url takes over once done
+  const displayUrl = url ?? previewUrl ?? null;
+  const isPreviewOnly = !url && !!previewUrl;
+
+  if (!displayUrl) {
     return (
       <button
         ref={setNodeRef}
@@ -129,7 +139,7 @@ function SortableTile({
   if (isOverlay) {
     return (
       <div className="relative rounded-xl overflow-hidden shadow-2xl ring-2 ring-violet-500/50 w-full h-full">
-        <img src={thumbnailUrl(url)} alt="" className="w-full h-full object-cover" draggable={false} />
+        <img src={url ? thumbnailUrl(url) : previewUrl} alt="" className="w-full h-full object-cover" draggable={false} />
         <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-violet-500/80 text-white text-xs font-bold flex items-center justify-center">
           {index + 1}
         </div>
@@ -151,13 +161,24 @@ function SortableTile({
     <div
       ref={setNodeRef}
       style={style}
-      className="group relative rounded-xl overflow-hidden w-full h-full cursor-grab active:cursor-grabbing"
+      className={cn(
+        "group relative rounded-xl overflow-hidden w-full h-full",
+        isPreviewOnly ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+      )}
       {...attributes}
-      {...listeners}
+      {...(isPreviewOnly ? {} : listeners)}
     >
-      <img src={thumbnailUrl(url)} alt="" className="w-full h-full object-cover" draggable={false} />
+      <img src={url ? thumbnailUrl(url) : displayUrl} alt="" className="w-full h-full object-cover" draggable={false} />
 
-      {/* Hover overlay */}
+      {/* Upload-in-progress overlay — shown on top of blob preview */}
+      {uploading && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+          <Loader2 className="w-7 h-7 text-white animate-spin" />
+        </div>
+      )}
+
+      {/* Hover overlay — only shown for committed photos */}
+      {!isPreviewOnly && (
       <div
         className={cn(
           "absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-200 p-2 opacity-0 group-hover:opacity-100",
@@ -300,14 +321,17 @@ function SortableTile({
           </>
         )}
       </div>
+      )} {/* end !isPreviewOnly */}
 
       {/* Always-visible position badge (subtle, shown when NOT hovering) */}
-      <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white text-xs font-bold flex items-center justify-center group-hover:opacity-0 transition-opacity">
-        {index + 1}
-      </div>
+      {!isPreviewOnly && (
+        <div className="absolute top-2 left-2 w-6 h-6 rounded-full bg-black/60 text-white text-xs font-bold flex items-center justify-center group-hover:opacity-0 transition-opacity">
+          {index + 1}
+        </div>
+      )}
 
       {/* Always-visible main badge */}
-      {isMain && (
+      {isMain && !isPreviewOnly && (
         <div className="absolute top-2 left-10 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/90 group-hover:opacity-0 transition-opacity">
           <span>👑</span> Main
         </div>
@@ -464,8 +488,20 @@ export default function PhotoManageDrawer({
   const [localPhotos, setLocalPhotos] = useState<string[]>(photos);
   const [saving, setSaving] = useState(false);
   const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(new Set());
+  const [pendingPreviews, setPendingPreviews] = useState<PendingPreviews>(new Map());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Track blob URLs for cleanup
+  const blobUrlsRef = useRef<string[]>([]);
+  useEffect(() => {
+    return () => { blobUrlsRef.current.forEach(URL.revokeObjectURL); };
+  }, []);
+
+  const revokePreview = useCallback((url: string) => {
+    URL.revokeObjectURL(url);
+    blobUrlsRef.current = blobUrlsRef.current.filter((u) => u !== url);
+  }, []);
 
   const [confirmRemoveIndex, setConfirmRemoveIndex] = useState<number | null>(null);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -484,6 +520,12 @@ export default function PhotoManageDrawer({
       setConfirmRemoveIndex(null);
       setShowDiscardConfirm(false);
       setFullscreenIndex(null);
+      // Revoke any lingering previews from a previous open session
+      setPendingPreviews((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url));
+        return new Map();
+      });
+      setUploadingSlots(new Set());
     }
   }, [isOpen, photos]);
 
@@ -540,32 +582,88 @@ export default function PhotoManageDrawer({
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Not authenticated"); return; }
 
-    for (const file of files) {
-      if (file.size > MAX_FILE_SIZE) { toast.error(`${file.name} exceeds 10MB limit`); continue; }
-      if (!file.type.startsWith("image/")) { toast.error(`${file.name} is not an image`); continue; }
+    const validFiles = files.filter((file) => {
+      if (file.size > MAX_FILE_SIZE) { toast.error(`${file.name} exceeds 10MB limit`); return false; }
+      if (!file.type.startsWith("image/")) { toast.error(`${file.name} is not an image`); return false; }
+      return true;
+    });
 
-      const slotIndex = replaceIndex ?? localPhotos.length;
-      if (replaceIndex === undefined && localPhotos.length >= MAX_PHOTOS) { toast.error("Maximum 6 photos"); break; }
+    if (validFiles.length === 0) return;
 
-      setUploadingSlots((prev) => new Set(prev).add(slotIndex));
+    // ── Replace single photo ─────────────────────────────────────
+    if (replaceIndex !== undefined) {
+      const file = validFiles[0];
+      const preview = URL.createObjectURL(file);
+      blobUrlsRef.current.push(preview);
+      setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
+      setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
-        const oldPath = replaceIndex !== undefined ? localPhotos[replaceIndex] : undefined;
+        const oldPath = localPhotos[replaceIndex];
         const path = await uploadImageToBunny(file, session.access_token, oldPath);
-        setLocalPhotos((prev) => {
-          if (replaceIndex !== undefined) {
-            const next = [...prev];
-            next[replaceIndex] = path;
-            return next;
-          }
-          return [...prev, path];
-        });
+        setLocalPhotos((prev) => { const next = [...prev]; next[replaceIndex] = path; return next; });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Upload failed");
       } finally {
-        setUploadingSlots((prev) => { const next = new Set(prev); next.delete(slotIndex); return next; });
+        setPendingPreviews((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
+        setUploadingSlots((prev) => { const next = new Set(prev); next.delete(replaceIndex); return next; });
+        revokePreview(preview);
       }
+      return;
     }
-  }, [localPhotos]);
+
+    // ── Add new photos in parallel ───────────────────────────────
+    const startIndex = localPhotos.length;
+    const available = MAX_PHOTOS - startIndex;
+    if (available <= 0) { toast.error("Maximum 6 photos reached"); return; }
+
+    const toUpload = validFiles.slice(0, available);
+
+    // Create blob previews and reserve slot indices upfront
+    const previews = toUpload.map((file) => {
+      const url = URL.createObjectURL(file);
+      blobUrlsRef.current.push(url);
+      return url;
+    });
+    const slotIndices = toUpload.map((_, i) => startIndex + i);
+
+    setPendingPreviews((prev) => {
+      const next = new Map(prev);
+      slotIndices.forEach((slot, i) => next.set(slot, previews[i]));
+      return next;
+    });
+    setUploadingSlots((prev) => new Set([...prev, ...slotIndices]));
+
+    // Upload all in parallel; order is preserved via index
+    const pathOrNull = new Array<string | null>(toUpload.length).fill(null);
+
+    await Promise.allSettled(
+      toUpload.map(async (file, i) => {
+        try {
+          const path = await uploadImageToBunny(file, session.access_token, undefined);
+          pathOrNull[i] = path;
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : `${file.name} failed to upload`);
+        }
+      })
+    );
+
+    // Commit successful paths and clear spinners/previews
+    const newPaths = pathOrNull.filter((p): p is string => p !== null);
+    if (newPaths.length > 0) {
+      setLocalPhotos((prev) => [...prev, ...newPaths]);
+    }
+    setPendingPreviews((prev) => {
+      const next = new Map(prev);
+      slotIndices.forEach((slot) => next.delete(slot));
+      return next;
+    });
+    setUploadingSlots((prev) => {
+      const next = new Set(prev);
+      slotIndices.forEach((slot) => next.delete(slot));
+      return next;
+    });
+    previews.forEach(revokePreview);
+  }, [localPhotos, revokePreview]);
 
   const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -754,6 +852,7 @@ export default function PhotoManageDrawer({
                         index={0}
                         isMain={!!localPhotos[0]}
                         uploading={uploadingSlots.has(0)}
+                        previewUrl={pendingPreviews.get(0)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
@@ -768,6 +867,7 @@ export default function PhotoManageDrawer({
                         index={1}
                         isMain={false}
                         uploading={uploadingSlots.has(1)}
+                        previewUrl={pendingPreviews.get(1)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
@@ -780,6 +880,7 @@ export default function PhotoManageDrawer({
                         index={2}
                         isMain={false}
                         uploading={uploadingSlots.has(2)}
+                        previewUrl={pendingPreviews.get(2)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
@@ -799,6 +900,7 @@ export default function PhotoManageDrawer({
                         index={i}
                         isMain={false}
                         uploading={uploadingSlots.has(i)}
+                        previewUrl={pendingPreviews.get(i)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
