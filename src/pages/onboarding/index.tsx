@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { pickOnboardingNamePrefill } from "@/lib/onboardingNameHydration";
 import { trackEvent } from "@/lib/analytics";
 import { toast } from "sonner";
 import {
@@ -22,6 +23,7 @@ import {
   saveOnboardingDraft,
   executeOnboardingCompletion,
 } from "@shared/onboardingCompletion";
+import { getAuthProvider } from "@shared/entryState";
 
 import { OnboardingLayout } from "./OnboardingLayout";
 import { ValuePropStep } from "./steps/ValuePropStep";
@@ -49,6 +51,7 @@ const Onboarding = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [hasUsableStoredName, setHasUsableStoredName] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -62,10 +65,15 @@ const Onboarding = () => {
   const completedRef = useRef(completed);
 
   const needsEmailCollection = !session?.user?.email;
+  const authProvider = getAuthProvider(session?.user);
   const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
   const stepNames = needsEmailCollection
     ? ONBOARDING_STEP_NAMES
     : ONBOARDING_STEP_NAMES.filter((n) => n !== "email_collection");
+  const nameHelperText =
+    draftLoaded && authProvider === "apple" && !hasUsableStoredName
+      ? "Apple doesn't share your name in the web sign-in flow. Enter your first name to continue."
+      : null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
@@ -81,6 +89,10 @@ const Onboarding = () => {
   useEffect(() => {
     if (!session?.user?.id || draftLoaded) return;
     const userId = session.user.id;
+    const authUserMetadata = session.user.user_metadata;
+    let authoritativeDraftName: string | null = null;
+
+    setHasUsableStoredName(false);
 
     ONBOARDING_LEGACY_STORAGE_KEYS.forEach((k) => {
       try { localStorage.removeItem(k); } catch { /* noop */ }
@@ -95,11 +107,12 @@ const Onboarding = () => {
     const localRaw = localStorage.getItem(ONBOARDING_STORAGE_KEY);
     const localDraft = readLocalDraftCache(localRaw, userId);
     if (localDraft) {
+      authoritativeDraftName = localDraft.data.name;
       applyDraft(localDraft.step, localDraft.data);
     }
 
-    // Server draft then profile photo hydration — sequential so an empty draft cannot race
-    // ahead and wipe photos already merged from `profiles`.
+    // Server draft then profile hydration — sequential so an empty draft cannot race
+    // ahead and wipe values already merged from `profiles`.
     void (async () => {
       const result = await loadOnboardingDraft(supabase as any, userId);
       if (result.draft) {
@@ -110,21 +123,45 @@ const Onboarding = () => {
             ? sd.onboarding_data
             : {}),
         };
+        authoritativeDraftName = serverData.name;
         applyDraft(sd.current_step, serverData);
       }
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("photos")
+        .select("name, photos")
         .eq("id", userId)
         .maybeSingle();
-      const existing = (profile?.photos as string[] | null) ?? [];
-      if (existing.length > 0) {
-        setData((prev) => (prev.photos.length > 0 ? prev : { ...prev, photos: existing }));
-      }
+      const existingProfileName = typeof profile?.name === "string" ? profile.name : null;
+      const existingPhotos = (profile?.photos as string[] | null) ?? [];
+      const storedNamePrefill = pickOnboardingNamePrefill({
+        currentName: authoritativeDraftName,
+        profileName: existingProfileName,
+        userMetadata: authUserMetadata,
+      });
+      setHasUsableStoredName(!!storedNamePrefill);
+      setData((prev) => {
+        const nextName = pickOnboardingNamePrefill({
+          currentName: prev.name,
+          profileName: existingProfileName,
+          userMetadata: authUserMetadata,
+        });
+        const shouldHydrateName = typeof nextName === "string" && nextName !== prev.name;
+        const shouldHydratePhotos = existingPhotos.length > 0 && prev.photos.length === 0;
+
+        if (!shouldHydrateName && !shouldHydratePhotos) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          name: shouldHydrateName ? nextName : prev.name,
+          photos: shouldHydratePhotos ? existingPhotos : prev.photos,
+        };
+      });
       setDraftLoaded(true);
     })();
-  }, [session?.user?.id, draftLoaded]);
+  }, [session?.user?.id, session?.user?.user_metadata, draftLoaded]);
 
   // Write local cache on every change (non-authoritative, for fast resume on same device)
   useEffect(() => {
@@ -265,6 +302,7 @@ const Onboarding = () => {
             <NameStep
               value={data.name}
               onChange={(v) => updateField("name", v)}
+              helperText={nameHelperText}
               onNext={goNext}
             />
           );

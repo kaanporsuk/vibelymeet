@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 interface NameStepProps {
   value: string;
   onChange: (v: string) => void;
+  helperText?: string | null;
   onNext: () => void;
 }
 
-export const NameStep = ({ value, onChange, onNext }: NameStepProps) => {
+export const NameStep = ({ value, onChange, helperText, onNext }: NameStepProps) => {
   const valid = value.trim().length > 0;
 
   return (
@@ -19,6 +20,11 @@ export const NameStep = ({ value, onChange, onNext }: NameStepProps) => {
         <p className="text-muted-foreground mt-2">
           This is how you'll appear on Vibely.
         </p>
+        {helperText ? (
+          <p className="text-muted-foreground mt-2">
+            {helperText}
+          </p>
+        ) : null}
       </div>
 
       <Input
