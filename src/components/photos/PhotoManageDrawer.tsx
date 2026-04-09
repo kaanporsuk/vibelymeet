@@ -30,6 +30,8 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
+  AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -53,6 +55,17 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 /** Blob URLs keyed by slot index, shown while the upload is in-flight */
 type PendingPreviews = Map<number, string>;
 
+/** Persisted per-slot failure so the user can retry or discard without re-picking */
+type FailedUpload = {
+  file: File;
+  preview: string;
+  error: string;
+  /** When the failure happened during a Replace, this holds the old CDN path */
+  replaceOldPath?: string;
+};
+
+type FailedSlots = Map<number, FailedUpload>;
+
 function getCoachingMessage(count: number): string {
   if (count === 0) return "Add your first photo to get started";
   if (count < 3) return "Add at least 3 photos — profiles with 4+ get 2x more vibes";
@@ -70,10 +83,14 @@ interface SortableTileProps {
   uploading: boolean;
   /** Blob URL shown as thumbnail while upload is in-flight (before CDN path is ready) */
   previewUrl?: string;
+  /** Persistent failure state for this slot — shows retry/remove overlay */
+  failed?: FailedUpload;
   onMakeMain: (i: number) => void;
   onExpand: (i: number) => void;
   onDelete: (i: number) => void;
   onReplace: (i: number) => void;
+  onRetrySlot: (i: number) => void;
+  onRemoveFailedSlot: (i: number) => void;
   onEmptyClick: () => void;
   isOverlay?: boolean;
 }
@@ -85,10 +102,13 @@ function SortableTile({
   isMain,
   uploading,
   previewUrl,
+  failed,
   onMakeMain,
   onExpand,
   onDelete,
   onReplace,
+  onRetrySlot,
+  onRemoveFailedSlot,
   onEmptyClick,
   isOverlay,
 }: SortableTileProps) {
@@ -107,9 +127,9 @@ function SortableTile({
     opacity: isDragging ? 0.35 : 1,
   };
 
-  // Blob preview visible while uploading; committed CDN url takes over once done
-  const displayUrl = url ?? previewUrl ?? null;
-  const isPreviewOnly = !url && !!previewUrl;
+  // Blob preview visible while uploading or failed; committed CDN url takes over once done
+  const displayUrl = url ?? previewUrl ?? failed?.preview ?? null;
+  const isPreviewOnly = !url && !!(previewUrl || failed);
 
   if (!displayUrl) {
     return (
@@ -174,6 +194,32 @@ function SortableTile({
       {uploading && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
           <Loader2 className="w-7 h-7 text-white animate-spin" />
+        </div>
+      )}
+
+      {/* Failed overlay — persistent until retry or remove */}
+      {failed && !uploading && (
+        <div className="absolute inset-0 bg-black/65 flex flex-col items-center justify-center gap-1.5 p-2">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <p className="text-[10px] text-white/80 text-center leading-tight line-clamp-2">
+            {failed.error}
+          </p>
+          <div className="flex gap-2 mt-0.5">
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRetrySlot(index); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/20 hover:bg-white/30 transition-colors text-[10px] text-white"
+            >
+              <RotateCcw className="w-3 h-3" /> Retry
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRemoveFailedSlot(index); }}
+              className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/40 hover:bg-red-500/60 transition-colors text-[10px] text-white"
+            >
+              <X className="w-3 h-3" /> Remove
+            </button>
+          </div>
         </div>
       )}
 
@@ -489,6 +535,7 @@ export default function PhotoManageDrawer({
   const [saving, setSaving] = useState(false);
   const [uploadingSlots, setUploadingSlots] = useState<Set<number>>(new Set());
   const [pendingPreviews, setPendingPreviews] = useState<PendingPreviews>(new Map());
+  const [failedSlots, setFailedSlots] = useState<FailedSlots>(new Map());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -523,6 +570,10 @@ export default function PhotoManageDrawer({
       // Revoke any lingering previews from a previous open session
       setPendingPreviews((prev) => {
         prev.forEach((url) => URL.revokeObjectURL(url));
+        return new Map();
+      });
+      setFailedSlots((prev) => {
+        prev.forEach((f) => URL.revokeObjectURL(f.preview));
         return new Map();
       });
       setUploadingSlots(new Set());
@@ -595,28 +646,51 @@ export default function PhotoManageDrawer({
       const file = validFiles[0];
       const preview = URL.createObjectURL(file);
       blobUrlsRef.current.push(preview);
+      // Clear any prior failure on this slot
+      setFailedSlots((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
       setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
       setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
         const oldPath = localPhotos[replaceIndex];
         const path = await uploadImageToBunny(file, session.access_token, oldPath);
         setLocalPhotos((prev) => { const next = [...prev]; next[replaceIndex] = path; return next; });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Upload failed");
-      } finally {
+        // Success — clean up preview
         setPendingPreviews((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
-        setUploadingSlots((prev) => { const next = new Set(prev); next.delete(replaceIndex); return next; });
         revokePreview(preview);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        // Persist failure — keep preview blob alive for the failed overlay
+        setPendingPreviews((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
+        setFailedSlots((prev) => new Map(prev).set(replaceIndex, {
+          file,
+          preview,
+          error: msg,
+          replaceOldPath: localPhotos[replaceIndex],
+        }));
+      } finally {
+        setUploadingSlots((prev) => { const next = new Set(prev); next.delete(replaceIndex); return next; });
       }
       return;
     }
 
     // ── Add new photos in parallel ───────────────────────────────
     const startIndex = localPhotos.length;
-    const available = MAX_PHOTOS - startIndex;
+    // Account for slots already occupied by pending failures
+    const failedOccupying = [...failedSlots.keys()].filter((s) => s >= startIndex).length;
+    const available = MAX_PHOTOS - startIndex - failedOccupying;
     if (available <= 0) { toast.error("Maximum 6 photos reached"); return; }
 
     const toUpload = validFiles.slice(0, available);
+
+    // Assign slot indices, skipping any slots already held by failed items
+    const occupiedByFailed = new Set(failedSlots.keys());
+    const slotIndices: number[] = [];
+    let candidate = startIndex;
+    for (let i = 0; i < toUpload.length; i++) {
+      while (occupiedByFailed.has(candidate)) candidate++;
+      slotIndices.push(candidate);
+      candidate++;
+    }
 
     // Create blob previews and reserve slot indices upfront
     const previews = toUpload.map((file) => {
@@ -624,7 +698,6 @@ export default function PhotoManageDrawer({
       blobUrlsRef.current.push(url);
       return url;
     });
-    const slotIndices = toUpload.map((_, i) => startIndex + i);
 
     setPendingPreviews((prev) => {
       const next = new Map(prev);
@@ -633,37 +706,54 @@ export default function PhotoManageDrawer({
     });
     setUploadingSlots((prev) => new Set([...prev, ...slotIndices]));
 
-    // Upload all in parallel; order is preserved via index
-    const pathOrNull = new Array<string | null>(toUpload.length).fill(null);
-
-    await Promise.allSettled(
-      toUpload.map(async (file, i) => {
+    // Upload all in parallel; track success/failure per slot
+    type SlotResult = { slot: number; path: string | null; file: File; preview: string; error?: string };
+    const results: SlotResult[] = await Promise.all(
+      toUpload.map(async (file, i): Promise<SlotResult> => {
+        const slot = slotIndices[i];
         try {
           const path = await uploadImageToBunny(file, session.access_token, undefined);
-          pathOrNull[i] = path;
+          return { slot, path, file, preview: previews[i] };
         } catch (err) {
-          toast.error(err instanceof Error ? err.message : `${file.name} failed to upload`);
+          const msg = err instanceof Error ? err.message : `${file.name} failed to upload`;
+          return { slot, path: null, file, preview: previews[i], error: msg };
         }
       })
     );
 
-    // Commit successful paths and clear spinners/previews
-    const newPaths = pathOrNull.filter((p): p is string => p !== null);
+    // Commit successful paths
+    const newPaths = results.filter((r) => r.path !== null).map((r) => r.path!);
     if (newPaths.length > 0) {
       setLocalPhotos((prev) => [...prev, ...newPaths]);
     }
-    setPendingPreviews((prev) => {
-      const next = new Map(prev);
-      slotIndices.forEach((slot) => next.delete(slot));
-      return next;
-    });
+
+    // Clear spinners + pending previews for all slots
     setUploadingSlots((prev) => {
       const next = new Set(prev);
       slotIndices.forEach((slot) => next.delete(slot));
       return next;
     });
-    previews.forEach(revokePreview);
-  }, [localPhotos, revokePreview]);
+    setPendingPreviews((prev) => {
+      const next = new Map(prev);
+      slotIndices.forEach((slot) => next.delete(slot));
+      return next;
+    });
+
+    // Persist failures, revoke successful previews
+    const newFailures = new Map<number, FailedUpload>();
+    for (const r of results) {
+      if (r.path !== null) {
+        // Success — revoke blob
+        revokePreview(r.preview);
+      } else {
+        // Failure — keep blob alive for retry overlay
+        newFailures.set(r.slot, { file: r.file, preview: r.preview, error: r.error! });
+      }
+    }
+    if (newFailures.size > 0) {
+      setFailedSlots((prev) => new Map([...prev, ...newFailures]));
+    }
+  }, [localPhotos, failedSlots, revokePreview]);
 
   const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -679,6 +769,51 @@ export default function PhotoManageDrawer({
     e.target.value = "";
     replaceIndexRef.current = null;
   }, [uploadFiles]);
+
+  // ── Retry / remove failed slots ──────────────────────────────
+
+  const retrySlot = useCallback(async (slot: number) => {
+    const failed = failedSlots.get(slot);
+    if (!failed) return;
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { toast.error("Not authenticated"); return; }
+
+    // Move from failed → uploading (keep the same preview blob)
+    setFailedSlots((prev) => { const next = new Map(prev); next.delete(slot); return next; });
+    setPendingPreviews((prev) => new Map(prev).set(slot, failed.preview));
+    setUploadingSlots((prev) => new Set(prev).add(slot));
+
+    try {
+      const path = await uploadImageToBunny(
+        failed.file,
+        session.access_token,
+        failed.replaceOldPath ?? undefined,
+      );
+
+      if (failed.replaceOldPath !== undefined) {
+        // Was a Replace — overwrite the existing slot in localPhotos
+        setLocalPhotos((prev) => { const next = [...prev]; next[slot] = path; return next; });
+      } else {
+        // Was a new-add — append
+        setLocalPhotos((prev) => [...prev, path]);
+      }
+      revokePreview(failed.preview);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
+      setFailedSlots((prev) => new Map(prev).set(slot, { ...failed, error: msg }));
+    } finally {
+      setPendingPreviews((prev) => { const next = new Map(prev); next.delete(slot); return next; });
+      setUploadingSlots((prev) => { const next = new Set(prev); next.delete(slot); return next; });
+    }
+  }, [failedSlots, revokePreview]);
+
+  const removeFailedSlot = useCallback((slot: number) => {
+    const failed = failedSlots.get(slot);
+    if (!failed) return;
+    revokePreview(failed.preview);
+    setFailedSlots((prev) => { const next = new Map(prev); next.delete(slot); return next; });
+  }, [failedSlots, revokePreview]);
 
   // ── Tile actions ─────────────────────────────────────────────
 
@@ -853,10 +988,13 @@ export default function PhotoManageDrawer({
                         isMain={!!localPhotos[0]}
                         uploading={uploadingSlots.has(0)}
                         previewUrl={pendingPreviews.get(0)}
+                        failed={failedSlots.get(0)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
                         onReplace={handleReplace}
+                        onRetrySlot={retrySlot}
+                        onRemoveFailedSlot={removeFailedSlot}
                         onEmptyClick={openFilePicker}
                       />
                     </div>
@@ -868,10 +1006,13 @@ export default function PhotoManageDrawer({
                         isMain={false}
                         uploading={uploadingSlots.has(1)}
                         previewUrl={pendingPreviews.get(1)}
+                        failed={failedSlots.get(1)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
                         onReplace={handleReplace}
+                        onRetrySlot={retrySlot}
+                        onRemoveFailedSlot={removeFailedSlot}
                         onEmptyClick={openFilePicker}
                       />
                       <SortableTile
@@ -881,10 +1022,13 @@ export default function PhotoManageDrawer({
                         isMain={false}
                         uploading={uploadingSlots.has(2)}
                         previewUrl={pendingPreviews.get(2)}
+                        failed={failedSlots.get(2)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
                         onReplace={handleReplace}
+                        onRetrySlot={retrySlot}
+                        onRemoveFailedSlot={removeFailedSlot}
                         onEmptyClick={openFilePicker}
                       />
                     </div>
@@ -901,10 +1045,13 @@ export default function PhotoManageDrawer({
                         isMain={false}
                         uploading={uploadingSlots.has(i)}
                         previewUrl={pendingPreviews.get(i)}
+                        failed={failedSlots.get(i)}
                         onMakeMain={handleMakeMain}
                         onExpand={setFullscreenIndex}
                         onDelete={handleDelete}
                         onReplace={handleReplace}
+                        onRetrySlot={retrySlot}
+                        onRemoveFailedSlot={removeFailedSlot}
                         onEmptyClick={openFilePicker}
                       />
                     ))}
@@ -924,6 +1071,8 @@ export default function PhotoManageDrawer({
                         onExpand={() => {}}
                         onDelete={() => {}}
                         onReplace={() => {}}
+                        onRetrySlot={() => {}}
+                        onRemoveFailedSlot={() => {}}
                         onEmptyClick={() => {}}
                         isOverlay
                       />
@@ -942,15 +1091,23 @@ export default function PhotoManageDrawer({
             <div className="flex-shrink-0 p-5 border-t border-white/[0.06]">
               <button
                 onClick={() => void handleSave()}
-                disabled={saving}
+                disabled={saving || failedSlots.size > 0 || uploadingSlots.size > 0}
                 className={cn(
                   "w-full py-4 rounded-xl font-bold text-base transition-all",
-                  hasChanges
+                  hasChanges && failedSlots.size === 0 && uploadingSlots.size === 0
                     ? "bg-gradient-to-r from-violet-500 to-pink-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
                     : "bg-violet-500/30 text-white/50 cursor-default"
                 )}
               >
-                {saving ? "Saving…" : hasChanges ? "Save Changes" : "Done"}
+                {saving
+                  ? "Saving…"
+                  : uploadingSlots.size > 0
+                    ? "Uploading…"
+                    : failedSlots.size > 0
+                      ? `${failedSlots.size} failed — retry or remove`
+                      : hasChanges
+                        ? "Save Changes"
+                        : "Done"}
               </button>
               <button
                 onClick={handleCloseAttempt}
