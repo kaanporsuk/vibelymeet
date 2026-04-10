@@ -1,15 +1,10 @@
 import { useEffect } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
-import {
-  initOneSignal,
-  syncPushWithBackendIfPermissionGranted,
-  logoutOneSignal,
-  bindOneSignalExternalUser,
-  setOneSignalTags,
-} from '@/lib/onesignal';
-import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
+import { initOneSignal, logoutOneSignal, bindOneSignalExternalUser, setOneSignalTags } from '@/lib/onesignal';
+import { syncNativePushDeliveryOnForeground } from '@/lib/nativePushForegroundSync';
 
 /**
  * Initializes OneSignal. On login, only syncs player ID to the backend if the user
@@ -41,9 +36,7 @@ export function PushRegistration() {
         subscriptionTier: tierId,
       });
     }
-    syncPushWithBackendIfPermissionGranted(user.id)
-      .then(() => syncNativePushSuppressionWithBackend(user.id))
-      .catch(() => {});
+    syncNativePushDeliveryOnForeground(user.id).catch(() => {});
   }, [
     user?.id,
     onboardingComplete,
@@ -52,6 +45,16 @@ export function PushRegistration() {
     isPremium,
     tierId,
   ]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const onChange = (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      syncNativePushDeliveryOnForeground(user.id).catch(() => {});
+    };
+    const sub = AppState.addEventListener('change', onChange);
+    return () => sub.remove();
+  }, [user?.id]);
 
   return null;
 }

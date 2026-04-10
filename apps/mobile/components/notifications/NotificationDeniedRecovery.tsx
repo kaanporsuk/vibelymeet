@@ -1,9 +1,19 @@
 /**
  * Vibely Neon Noir recovery UI when system push permission is off (not the OS sheet).
- * Used from NotificationPermissionFlow (denied) and notification settings.
+ * Used from home push prompt, onboarding, and notification settings.
  */
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, Animated, Platform, useWindowDimensions } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  Animated,
+  Platform,
+  useWindowDimensions,
+  Modal,
+} from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '@/constants/Colors';
@@ -206,5 +216,46 @@ const styles = StyleSheet.create({
   secondaryLabel: {
     fontSize: 15,
     fontWeight: '600',
+  },
+});
+
+type NotificationDeniedRecoveryModalProps = {
+  visible: boolean;
+  onClose: () => void;
+  onOpenSettings: () => void;
+};
+
+/** Full-screen overlay using the same Neon Noir surface as inline recovery (home / onboarding). */
+export function NotificationDeniedRecoveryModal({
+  visible,
+  onClose,
+  onOpenSettings,
+}: NotificationDeniedRecoveryModalProps) {
+  const { width } = useWindowDimensions();
+  const cardWidth = Math.min(width - 40, 400);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={recoveryModalStyles.root}>
+        <BlurView intensity={Platform.OS === 'ios' ? 88 : 72} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={recoveryModalStyles.dim} pointerEvents="none" />
+        <View style={{ width: cardWidth, alignSelf: 'center' }}>
+          <NotificationDeniedRecoverySurface onOpenSettings={onOpenSettings} onDismiss={onClose} />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const recoveryModalStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  dim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.52)',
   },
 });

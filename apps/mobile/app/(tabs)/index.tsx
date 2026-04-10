@@ -133,6 +133,7 @@ export default function DashboardScreen() {
   } = useDeletionRecovery(user?.id);
   const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
+  const pushGrantedBaselineRef = useRef<boolean | null>(null);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
   const [showPhoneVerify, setShowPhoneVerify] = useState(false);
@@ -331,6 +332,21 @@ export default function DashboardScreen() {
     }, 1500);
     return () => clearTimeout(timer);
   }, [user?.id, onboardingComplete]);
+
+  /** usePushPermission refreshes on foreground; react to grant transitions for modal + prefs (no separate AppState listener). */
+  useEffect(() => {
+    if (pushGrantedBaselineRef.current === null) {
+      pushGrantedBaselineRef.current = pushGranted;
+      if (pushGranted) setShowPushPermissionPrompt(false);
+      return;
+    }
+    const prev = pushGrantedBaselineRef.current;
+    pushGrantedBaselineRef.current = pushGranted;
+    if (!prev && pushGranted) {
+      void qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+    }
+    if (pushGranted) setShowPushPermissionPrompt(false);
+  }, [pushGranted, qc]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -767,7 +783,6 @@ export default function DashboardScreen() {
             onClose={() => setShowPushPermissionPrompt(false)}
             userId={user?.id}
             onCompleted={() => {
-              qc.invalidateQueries({ queryKey: ['notification-preferences'] });
               void refreshPushPermission();
             }}
           />
