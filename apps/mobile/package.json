@@ -3,11 +3,12 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "guard:no-expo-crypto": "node scripts/check-no-expo-crypto.mjs",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run guard:no-expo-crypto && tsc --noEmit",
     "rc-smoke": "bash scripts/rc-smoke-check.sh"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "@daily-co/react-native-webrtc": "124.0.6-daily.1",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/space-grotesk": "^0.4.1",
+    "@noble/hashes": "^2.0.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.6.0",
     "@react-native-community/netinfo": "11.5.2",
