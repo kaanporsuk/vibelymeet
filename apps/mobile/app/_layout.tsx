@@ -19,7 +19,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as WebBrowser from 'expo-web-browser';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { DeactivatedAccountReactivationPrompt } from '@/components/DeactivatedAccountReactivationPrompt';
-import { ActivityIndicator, LogBox, View } from 'react-native';
+import { ActivityIndicator, AppState, type AppStateStatus, LogBox, View } from 'react-native';
 import { useGlobalMessagesInboxInvalidation } from '@/lib/chatApi';
 import { useRealtimeEvents } from '@/lib/useRealtimeEvents';
 import { useBadgeCount } from '@/lib/useBadgeCount';
@@ -295,6 +295,28 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
   return null;
 }
 
+function SupabaseAutoRefreshAppStateBridge() {
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        void supabase.auth.startAutoRefresh();
+        return;
+      }
+      void supabase.auth.stopAutoRefresh();
+    };
+
+    handleAppStateChange(AppState.currentState);
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+      void supabase.auth.stopAutoRefresh();
+    };
+  }, []);
+
+  return null;
+}
+
 const PROTECTED_ROOT_SEGMENTS = new Set([
   '(tabs)',
   'event',
@@ -457,6 +479,7 @@ function RootLayoutNav() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ChatOutboxProvider>
+        <SupabaseAutoRefreshAppStateBridge />
         <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
         <ReferralAttributionSync syncTick={referralSyncTick} />
         <PushRegistration />

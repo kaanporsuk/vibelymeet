@@ -34,6 +34,27 @@ type AuthContextValue = AuthState & {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+const INVALID_REFRESH_TOKEN_PATTERNS = [
+  /invalid refresh token/i,
+  /refresh token not found/i,
+  /refresh_token_not_found/i,
+  /refresh token already used/i,
+  /refresh_token_already_used/i,
+];
+
+function isInvalidRefreshTokenError(error: unknown): boolean {
+  if (!error) return false;
+  const maybeError = error as { message?: string; code?: string; name?: string };
+  const fingerprint = [maybeError.name, maybeError.code, maybeError.message].filter(Boolean).join(' ');
+  return INVALID_REFRESH_TOKEN_PATTERNS.some((pattern) => pattern.test(fingerprint));
+}
+
+function isNoSessionError(error: unknown): boolean {
+  if (!error) return false;
+  const maybeError = error as { message?: string; code?: string; name?: string };
+  const fingerprint = [maybeError.name, maybeError.code, maybeError.message].filter(Boolean).join(' ');
+  return /session missing|no session/i.test(fingerprint);
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -74,9 +95,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [currentAuthProvider, currentUserId]);
 
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data: { session: s } }) => {
+    let isMounted = true;
+
+    const clearAuthState = () => {
+      authUserIdRef.current = null;
+      setSession(null);
+      setUser(null);
+      setEntryState(null);
+      setEntryStateLoading(false);
+    };
+
+    const bootstrapAuth = async () => {
+      try {
+        const {
+          data: { session: s },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) {
+          if (isInvalidRefreshTokenError(error)) {
+            const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
+            if (
+              localSignOutError &&
+              !isInvalidRefreshTokenError(localSignOutError) &&
+              !isNoSessionError(localSignOutError) &&
+              __DEV__
+            ) {
+              console.warn('[auth] local sign-out during stale session recovery failed:', localSignOutError.message);
+            }
+          } else if (__DEV__) {
+            console.warn('[auth] getSession failed during bootstrap:', error.message);
+          }
+
+          if (!isMounted) return;
+          clearAuthState();
+          setLoading(false);
+          return;
+        }
+
+        if (!isMounted) return;
         const nextUserId = s?.user?.id ?? null;
         authUserIdRef.current = nextUserId;
         setEntryStateLoading(!!nextUserId);
@@ -87,14 +144,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setEntryStateLoading(false);
         }
         setLoading(false);
-      })
-      .catch(() => {
-        setSession(null);
-        setUser(null);
-        setEntryState(null);
-        setEntryStateLoading(false);
+      } catch (error) {
+        if (isInvalidRefreshTokenError(error)) {
+          const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
+          if (
+            localSignOutError &&
+            !isInvalidRefreshTokenError(localSignOutError) &&
+            !isNoSessionError(localSignOutError) &&
+            __DEV__
+          ) {
+            console.warn('[auth] local sign-out during stale session recovery failed:', localSignOutError.message);
+          }
+        }
+        if (!isMounted) return;
+        clearAuthState();
         setLoading(false);
-      });
+      }
+    };
+
+    void bootstrapAuth();
 
     const {
       data: { subscription },
@@ -119,8 +187,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [refreshEntryState]);
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
