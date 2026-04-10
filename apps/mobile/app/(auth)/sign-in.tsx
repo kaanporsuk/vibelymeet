@@ -18,7 +18,7 @@ import { startNativeGoogleOAuth } from '@/lib/nativeGoogleOAuth';
 import { ensureProfileReady } from '@/lib/profileBootstrap';
 import { getNativeEmailSignUpRedirectUrl } from '@/lib/nativeAuthRedirect';
 import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNormalize';
-import { buildAppleNameMetadataPatch, createAppleAuthNonce } from '@/lib/appleAuth';
+import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
@@ -547,16 +547,18 @@ export default function SignInScreen() {
         setError('Apple Sign In is not available on this iOS build.');
         return;
       }
-      const nonce = createAppleAuthNonce();
+      const { rawNonce, hashedNonce } = await createAppleAuthNoncePair();
+      logAppleNonceDebug('Prepared native Apple sign-in nonce pair', { rawNonce, hashedNonce });
       const credential = await AppleAuthentication.signInAsync({
         requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
-        nonce,
+        nonce: hashedNonce,
       });
       if (!credential.identityToken) throw new Error('Missing Apple token');
+      logAppleNonceDebug('Submitting native Apple sign-in nonce pair to Supabase', { rawNonce, hashedNonce });
       const { data, error: e } = await supabase.auth.signInWithIdToken({
         provider: 'apple',
         token: credential.identityToken,
-        nonce,
+        nonce: rawNonce,
       });
       if (e) throw e;
       const nameMetadataPatch = buildAppleNameMetadataPatch({

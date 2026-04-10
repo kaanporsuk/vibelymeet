@@ -24,8 +24,9 @@
  *
  * APPLE: Native token path is implemented.
  *   expo-apple-authentication.signAsync() produces an identityToken that is passed
- *   directly to linkIdentity({ provider: 'apple', token, nonce }). This is the same
- *   token and request nonce used by the existing Apple sign-in flow. No browser required.
+ *   directly to linkIdentity({ provider: 'apple', token, nonce }). The Apple request
+ *   uses a SHA-256 hashed nonce while Supabase receives the corresponding raw nonce.
+ *   No browser required.
  *
  * GOOGLE: Browser OAuth path is used. This is a deliberate first-release choice:
  *   • Native Google ID tokens require @react-native-google-signin, which is not in
@@ -60,7 +61,7 @@ import {
   completeSessionFromAuthReturnUrl,
   getNativeGoogleOAuthRedirectUrl,
 } from '@/lib/nativeAuthRedirect';
-import { createAppleAuthNonce } from '@/lib/appleAuth';
+import { createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
 import { mapIdentityLinkingError } from '@shared/authConflictMessages';
 
 // ---------- types ----------
@@ -177,8 +178,8 @@ export function useIdentityLinking() {
   // ─── Apple native token linking ───────────────────────────────────────────
   //
   // Uses expo-apple-authentication to obtain an OIDC identity token, then passes
-  // it directly to linkIdentity({ provider: 'apple', token, nonce }). This is
-  // the same native token exchange the sign-in flow uses. No browser required.
+  // it directly to linkIdentity({ provider: 'apple', token, nonce }). Apple receives
+  // the hashed nonce; Supabase receives the matching raw nonce. No browser required.
 
   const linkAppleNative = useCallback(async (): Promise<void> => {
     if (Platform.OS !== 'ios') {
@@ -190,23 +191,25 @@ export function useIdentityLinking() {
       throw new Error('Apple Sign In is not available on this device or iOS build.');
     }
 
-    const nonce = createAppleAuthNonce();
+    const { rawNonce, hashedNonce } = await createAppleAuthNoncePair();
+    logAppleNonceDebug('Prepared Apple identity-linking nonce pair', { rawNonce, hashedNonce });
     const credential = await AppleAuthentication.signInAsync({
       requestedScopes: [
         AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
         AppleAuthentication.AppleAuthenticationScope.EMAIL,
       ],
-      nonce,
+      nonce: hashedNonce,
     });
 
     if (!credential.identityToken) {
       throw new Error('Apple did not return an identity token. Please try again.');
     }
 
+    logAppleNonceDebug('Submitting Apple identity-linking nonce pair to Supabase', { rawNonce, hashedNonce });
     const { error } = await supabase.auth.linkIdentity({
       provider: 'apple',
       token: credential.identityToken,
-      nonce,
+      nonce: rawNonce,
     });
 
     if (error) throw new Error(mapIdentityLinkingError(error, 'apple'));

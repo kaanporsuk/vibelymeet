@@ -1,3 +1,7 @@
+// Must stay before every other import so `globalThis.crypto.getRandomValues` exists
+// before auth helpers run and Apple nonce generation never falls back to a missing native module.
+import 'react-native-get-random-values';
+
 import {
   Inter_400Regular,
   Inter_500Medium,
