@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import { Redirect, router, useLocalSearchParams, type Href } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '@/lib/supabase';
@@ -47,6 +48,8 @@ import {
 } from '@shared/onboardingTypes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
+const PHOTOS_STEP_INDEX = 7;
+
 export default function OnboardingV2Screen() {
   const params = useLocalSearchParams<{
     onboardingVideoUid?: string | string[];
@@ -56,6 +59,7 @@ export default function OnboardingV2Screen() {
   const { session, loading, entryState, entryStateLoading, refreshEntryState } = useAuth();
   const logout = useNativeLogout();
   const { show, dialog } = useVibelyDialog();
+  const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [currentStep, setCurrentStep] = useState(0);
@@ -66,6 +70,7 @@ export default function OnboardingV2Screen() {
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [vibeScore, setVibeScore] = useState(0);
   const [vibeScoreLabel, setVibeScoreLabel] = useState('Rising');
+  const [photoStepBusy, setPhotoStepBusy] = useState(false);
   /** Non-blocking: server draft save failed; local cache still updated. */
   const [draftCloudSaveHint, setDraftCloudSaveHint] = useState<string | null>(null);
   const submitOnceRef = useRef(false);
@@ -174,6 +179,18 @@ export default function OnboardingV2Screen() {
     trackEvent('onboarding_step_viewed', { step: currentStep, step_name: stepName, platform: 'native' });
   }, [currentStep, stepNames]);
 
+  const isBlockingPhotoStepExit = currentStep === PHOTOS_STEP_INDEX && photoStepBusy;
+
+  const showPhotoStepBusyDialog = useCallback(() => {
+    show({
+      title: 'Finish photo uploads first',
+      message:
+        'Stay on this step until your photo uploads finish. If any photo failed, retry it or remove it before leaving so your staged changes are not lost.',
+      variant: 'warning',
+      primaryAction: { label: 'OK', onPress: () => {} },
+    });
+  }, [show]);
+
   const goNext = useCallback(() => {
     if (currentStep >= totalSteps - 1) return;
     const next = currentStep + 1;
@@ -205,11 +222,26 @@ export default function OnboardingV2Screen() {
   }, [params.onboardingVideoUid, params.onboardingVideoRecorded, params.onboardingVideoToken, updateField, needsEmailCollection, currentStep, goNext]);
 
   const goBack = useCallback(() => {
+    if (isBlockingPhotoStepExit) {
+      showPhotoStepBusyDialog();
+      return;
+    }
+
     if (currentStep > 0 && !submitting) {
       trackEvent('onboarding_step_skipped', { step: currentStep, step_name: stepNames[currentStep], platform: 'native' });
       setCurrentStep((s) => s - 1);
     }
-  }, [currentStep, submitting, stepNames]);
+  }, [currentStep, isBlockingPhotoStepExit, showPhotoStepBusyDialog, submitting, stepNames]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (!isBlockingPhotoStepExit) return;
+      event.preventDefault();
+      showPhotoStepBusyDialog();
+    });
+
+    return unsubscribe;
+  }, [isBlockingPhotoStepExit, navigation, showPhotoStepBusyDialog]);
 
   const retryCloudDraftSync = useCallback(async () => {
     if (!session?.user?.id || !draftLoaded || completed) return;
@@ -373,7 +405,14 @@ export default function OnboardingV2Screen() {
       case 6:
         return <BasicsStep heightCm={data.heightCm} job={data.job} onHeightChange={(v) => updateField('heightCm', Number.isFinite(v as number) ? (v as number) : null)} onJobChange={(v) => updateField('job', v)} onNext={goNext} />;
       case 7:
-        return <PhotosStep photos={data.photos} onChange={(v) => updateField('photos', v)} onNext={goNext} />;
+        return (
+          <PhotosStep
+            photos={data.photos}
+            onChange={(v) => updateField('photos', v)}
+            onNext={goNext}
+            onBusyStateChange={setPhotoStepBusy}
+          />
+        );
       case 8:
         return <AboutMeStep value={data.aboutMe} onChange={(v) => updateField('aboutMe', v)} onNext={goNext} />;
       case 9:
