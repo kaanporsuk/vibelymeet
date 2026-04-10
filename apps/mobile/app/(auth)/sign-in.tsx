@@ -5,6 +5,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Localization from 'expo-localization';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
+import * as Sentry from '@sentry/react-native';
 import { Text } from '@/components/Themed';
 import { useAuth } from '@/context/AuthContext';
 import { useNativeLogout } from '@/hooks/useNativeLogout';
@@ -45,6 +46,28 @@ function logPhoneOtpDebug(label: string, e164: string, payload: Record<string, u
   const safe =
     e164.length <= 8 ? `${e164.slice(0, 3)}…` : `${e164.slice(0, 4)}…${e164.slice(-2)} (${e164.replace(/\D/g, '').length} digits)`;
   console.warn(`[sign-in] ${label}`, { normalizedPhone: safe, ...payload });
+}
+
+function addAppleAuthDiagnostic(
+  message: string,
+  data?: Record<string, string | number | boolean | null | undefined>,
+  level: 'info' | 'warning' = 'info',
+) {
+  try {
+    Sentry.addBreadcrumb({
+      category: 'auth.apple',
+      message,
+      level,
+      data: data && Object.keys(data).length > 0 ? (data as Record<string, unknown>) : undefined,
+    });
+  } catch {
+    /* Diagnostics must never break auth flows. */
+  }
+
+  if (__DEV__) {
+    const log = level === 'warning' ? console.warn : console.info;
+    log('[auth][apple]', message, data ?? {});
+  }
 }
 
 type AuthView =
@@ -141,7 +164,7 @@ export default function SignInScreen() {
   const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('');
   const [emailResendCooldown, setEmailResendCooldown] = useState(0);
   const [emailResendMessage, setEmailResendMessage] = useState<string | null>(null);
-  const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
+  const [appleSignInAvailable, setAppleSignInAvailable] = useState<boolean | null>(null);
   const [profileBootstrapState, setProfileBootstrapState] = useState<'idle' | 'ensuring' | 'ready' | 'failed'>('idle');
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
   const handledAuthLinkErrorRef = useRef<string | null>(null);
@@ -218,13 +241,15 @@ export default function SignInScreen() {
     (async () => {
       try {
         if (Platform.OS !== 'ios') {
-          if (!cancelled) setAppleSignInAvailable(false);
+          if (!cancelled) setAppleSignInAvailable(null);
           return;
         }
         const available = await AppleAuthentication.isAvailableAsync();
+        addAppleAuthDiagnostic('Availability checked', { source: 'auth_screen', available });
         if (!cancelled) setAppleSignInAvailable(available);
       } catch {
-        if (!cancelled) setAppleSignInAvailable(false);
+        addAppleAuthDiagnostic('Availability check failed', { source: 'auth_screen' }, 'warning');
+        if (!cancelled) setAppleSignInAvailable(null);
       }
     })();
     return () => {
@@ -504,7 +529,21 @@ export default function SignInScreen() {
         setError('Apple Sign In is only available on iOS');
         return;
       }
-      if (!appleSignInAvailable) {
+
+      let available = appleSignInAvailable === true;
+      if (!available) {
+        try {
+          available = await AppleAuthentication.isAvailableAsync();
+          addAppleAuthDiagnostic('Availability checked', { source: 'apple_tap', available });
+          setAppleSignInAvailable(available);
+        } catch {
+          addAppleAuthDiagnostic('Availability check failed', { source: 'apple_tap' }, 'warning');
+          available = false;
+        }
+      }
+
+      if (!available) {
+        addAppleAuthDiagnostic('Tap blocked because availability is false', { source: 'apple_tap' }, 'warning');
         setError('Apple Sign In is not available on this iOS build.');
         return;
       }
@@ -547,6 +586,11 @@ export default function SignInScreen() {
     }
   };
 
+  const renderAppleAuthCta = () => {
+    if (Platform.OS !== 'ios') return null;
+    return <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />;
+  };
+
   return (
     <KeyboardAvoidingView style={[styles.root, { backgroundColor: theme.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -578,9 +622,7 @@ export default function SignInScreen() {
             <VibelyButton label="Continue" onPress={handlePhoneSubmit} variant="gradient" disabled={!phoneValid || loading} />
             <Text style={[styles.or, { color: theme.textSecondary }]}>or</Text>
             <VibelyButton label="Continue with Google" onPress={handleGoogleSignIn} variant="secondary" disabled={loading} />
-            {Platform.OS === 'ios' && appleSignInAvailable ? (
-              <VibelyButton label="Continue with Apple" onPress={handleAppleSignIn} variant="secondary" disabled={loading} />
-            ) : null}
+            {renderAppleAuthCta()}
             <Pressable onPress={() => { setView('email_signin'); setError(null); }}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Use email instead</Text></Pressable>
             <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
               By continuing, you agree to our{' '}
@@ -626,6 +668,7 @@ export default function SignInScreen() {
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Email" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Sign in" onPress={handleEmailSignIn} variant="gradient" disabled={loading} />
+            {renderAppleAuthCta()}
             <Pressable onPress={() => router.push('/(auth)/reset-password')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Forgot password?</Text></Pressable>
             <Pressable onPress={() => setView('email_signup')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Don't have an account? Create one</Text></Pressable>
           </View>
@@ -639,6 +682,7 @@ export default function SignInScreen() {
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" placeholder="Email" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="Password" placeholderTextColor={theme.textSecondary} style={[styles.input, { borderColor: theme.border, color: theme.text }]} />
             <VibelyButton label="Create account" onPress={handleEmailSignUp} variant="gradient" disabled={loading} />
+            {renderAppleAuthCta()}
             <Text style={[styles.legalNotice, { color: theme.textSecondary }]}>
               By creating an account, you agree to our{' '}
               <Text
