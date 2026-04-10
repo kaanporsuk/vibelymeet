@@ -4,6 +4,8 @@
  * backend can deliver to this device (web uses onesignal_player_id).
  */
 import { OneSignal } from 'react-native-onesignal';
+import * as Notifications from 'expo-notifications';
+import { PermissionStatus } from 'expo-modules-core';
 import { supabase } from '@/lib/supabase';
 
 const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
@@ -68,14 +70,14 @@ export async function syncPushSubscriptionToBackend(userId: string): Promise<boo
 }
 
 /**
- * Request permission and register this device's push subscription ID with the backend.
- * Use from settings / permission flows where the user may still need the OS prompt.
+ * Register this device's push subscription with the backend when OS permission is already granted.
+ * Does not prompt — use usePushPermission.requestPermission or requestPushPermissionsAfterPrompt first.
  */
 export async function registerPushWithBackend(userId: string): Promise<boolean> {
   if (!APP_ID) return false;
   try {
-    const granted = await OneSignal.Notifications.requestPermission(false);
-    if (!granted) return false;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== PermissionStatus.GRANTED) return false;
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] registerPushWithBackend error:', e);
@@ -90,8 +92,8 @@ export async function registerPushWithBackend(userId: string): Promise<boolean> 
 export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<boolean> {
   if (!APP_ID) return false;
   try {
-    const granted = await OneSignal.Notifications.getPermissionAsync();
-    if (!granted) return false;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== PermissionStatus.GRANTED) return false;
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] syncPushWithBackendIfPermissionGranted error:', e);

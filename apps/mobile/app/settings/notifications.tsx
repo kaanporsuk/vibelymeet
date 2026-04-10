@@ -13,8 +13,6 @@ import {
   Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
-import { PermissionStatus } from 'expo-modules-core';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,7 +23,7 @@ import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
-import { registerPushWithBackend } from '@/lib/onesignal';
+import { syncPushSubscriptionToBackend } from '@/lib/onesignal';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
 import {
@@ -241,9 +239,13 @@ export default function NotificationsSettingsScreen() {
   const { user } = useAuth();
   const { show, dialog } = useVibelyDialog();
   const { prefs, updatePref, isLoading } = useNotificationPreferences(user?.id);
-  const { isGranted: oneSignalGranted, requestPermission, refresh, openSettings } = usePushPermission();
-
-  const [expoPerm, setExpoPerm] = useState<PermissionStatus | null>(null);
+  const {
+    isGranted: pushOsGranted,
+    isDenied: osDeniedFromHook,
+    requestPermission,
+    refresh,
+    openSettings,
+  } = usePushPermission();
   const [pauseModalVisible, setPauseModalVisible] = useState(false);
   const [pauseKind, setPauseKind] = useState<PauseKind | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
@@ -253,12 +255,12 @@ export default function NotificationsSettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void Notifications.getPermissionsAsync().then(({ status }) => setExpoPerm(status));
-    }, [])
+      void refresh();
+    }, [refresh])
   );
 
   const isPaused = Boolean(prefs.paused_until && new Date(prefs.paused_until) > new Date());
-  const osDenied = expoPerm === PermissionStatus.DENIED;
+  const osDenied = osDeniedFromHook;
 
   useEffect(() => {
     if (!user?.id) {
@@ -317,11 +319,15 @@ export default function NotificationsSettingsScreen() {
   }, [isPaused, activePauseKind, remainingShort]);
 
   const handleEnablePush = async () => {
-    const granted = await requestPermission();
-    if (granted && user?.id) await registerPushWithBackend(user.id);
+    const result = await requestPermission();
+    if (result.osDenied) {
+      await refresh();
+      return;
+    }
+    if (result.granted && user?.id) {
+      await syncPushSubscriptionToBackend(user.id);
+    }
     await refresh();
-    const { status } = await Notifications.getPermissionsAsync();
-    setExpoPerm(status);
   };
 
   const handleSelectPauseDuration = useCallback(
@@ -523,7 +529,7 @@ export default function NotificationsSettingsScreen() {
         contentContainerStyle={[styles.scrollInner, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {!osDenied && !oneSignalGranted ? (
+        {!osDenied && !pushOsGranted ? (
           <View
             style={[
               styles.alertBanner,

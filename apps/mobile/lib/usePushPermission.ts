@@ -1,11 +1,10 @@
 /**
- * Push permission state for native — OneSignal-based. Used by NotificationPermissionFlow and Settings.
- * Does not replace OneSignal; exposes permission status and request + open settings.
+ * Push permission for native: expo-notifications is canonical for OS state;
+ * OneSignal requestPermission is only used when OS status is undetermined (real system sheet).
  */
 import { useState, useEffect, useCallback } from 'react';
-import { Linking, Platform } from 'react-native';
-
-type PermissionStatus = 'default' | 'granted' | 'denied' | 'unknown';
+import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
+import { getOsPushPermissionState, type OsPushPermissionState } from '@/lib/osPushPermission';
 
 let OneSignal: any = null;
 try {
@@ -15,44 +14,59 @@ try {
   OneSignal = null;
 }
 
+export type RequestPushPermissionResult = {
+  granted: boolean;
+  /** System already denied push — never call OneSignal.requestPermission; show branded recovery. */
+  osDenied: boolean;
+};
+
 export function usePushPermission() {
-  const [status, setStatus] = useState<PermissionStatus>('unknown');
+  const [osStatus, setOsStatus] = useState<OsPushPermissionState | 'unknown'>('unknown');
 
   const refresh = useCallback(async () => {
-    if (!OneSignal?.Notifications) {
-      setStatus('unknown');
-      return;
-    }
     try {
-      const permission = await OneSignal.Notifications.getPermissionAsync();
-      if (permission === true) {
-        setStatus('granted');
-      } else if (permission === false) {
-        // OneSignal returns false for both "not prompted" and "denied"
-        // For now treat as 'denied' — a more granular check would require
-        // native iOS permission API (Notifications.getPermissionsAsync from expo-notifications)
-        setStatus('denied');
-      } else {
-        setStatus('default');
-      }
+      const next = await getOsPushPermissionState();
+      setOsStatus(next);
     } catch {
-      setStatus('unknown');
+      setOsStatus('unknown');
     }
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
 
-  const requestPermission = useCallback(async (): Promise<boolean> => {
-    if (!OneSignal?.Notifications) return false;
+  useEffect(() => {
+    const onChange = (next: AppStateStatus) => {
+      if (next === 'active') {
+        void refresh();
+      }
+    };
+    const sub = AppState.addEventListener('change', onChange);
+    return () => sub.remove();
+  }, [refresh]);
+
+  const requestPermission = useCallback(async (): Promise<RequestPushPermissionResult> => {
+    const before = await getOsPushPermissionState();
+    if (before === 'denied') {
+      await refresh();
+      return { granted: false, osDenied: true };
+    }
+    if (before === 'granted') {
+      await refresh();
+      return { granted: true, osDenied: false };
+    }
+    if (!OneSignal?.Notifications) {
+      await refresh();
+      return { granted: false, osDenied: false };
+    }
     try {
       const granted = await OneSignal.Notifications.requestPermission(false);
       await refresh();
-      return granted;
+      return { granted, osDenied: false };
     } catch {
       await refresh();
-      return false;
+      return { granted: false, osDenied: false };
     }
   }, [refresh]);
 
@@ -64,12 +78,22 @@ export function usePushPermission() {
     }
   }, []);
 
+  const isGranted = osStatus === 'granted';
+  const isDenied = osStatus === 'denied';
+  const canRequestOsPermission = osStatus === 'undetermined';
+  /** @deprecated use canRequestOsPermission — undetermined means OS has not been asked yet */
+  const isDefault = osStatus === 'undetermined';
+  const isUnknown = osStatus === 'unknown';
+
   return {
-    status,
-    isGranted: status === 'granted',
-    isDenied: status === 'denied',
-    isDefault: status === 'default',
-    isUnknown: status === 'unknown',
+    osStatus,
+    status: osStatus === 'unknown' ? 'unknown' : osStatus,
+    isGranted,
+    isDenied,
+    /** True when the OS will show the real permission sheet if we call OneSignal.requestPermission */
+    canRequestOsPermission,
+    isDefault,
+    isUnknown,
     requestPermission,
     openSettings,
     refresh,

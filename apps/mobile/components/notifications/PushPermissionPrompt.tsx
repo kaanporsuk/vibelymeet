@@ -16,9 +16,18 @@ import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
-import { requestPushPermissionsAfterPrompt, VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
+import {
+  requestPushPermissionsAfterPrompt,
+  syncBackendAfterPushGrant,
+  VIBELY_PUSH_PERMISSION_ASKED_KEY,
+} from '@/lib/requestPushPermissions';
+import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
+import { usePushPermission } from '@/lib/usePushPermission';
 
 const DISMISS_BEFORE_OS_PERMISSION_MS = 200;
+
+type Phase = 'preprompt' | 'deniedRecovery';
 
 type Props = {
   visible: boolean;
@@ -34,10 +43,41 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   const cardWidth = Math.min(width - 40, 380);
   const pulse = useRef(new Animated.Value(0.55)).current;
   const [enableBusy, setEnableBusy] = useState(false);
+  const [phase, setPhase] = useState<Phase>('preprompt');
+  const { refresh, openSettings, isGranted } = usePushPermission();
+  const grantedBaselineRef = useRef<boolean | null>(null);
 
   useEffect(() => {
-    if (!visible) setEnableBusy(false);
+    if (!visible) {
+      setEnableBusy(false);
+      setPhase('preprompt');
+      grantedBaselineRef.current = null;
+    }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    void refresh();
+  }, [visible, refresh]);
+
+  /** After returning from OS Settings (or split-screen), reconcile to granted without a reload. */
+  useEffect(() => {
+    if (!visible || !userId) return;
+    if (grantedBaselineRef.current === null) {
+      grantedBaselineRef.current = isGranted;
+      return;
+    }
+    const prev = grantedBaselineRef.current;
+    grantedBaselineRef.current = isGranted;
+    if (prev || !isGranted) return;
+    void (async () => {
+      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+      await syncBackendAfterPushGrant(userId);
+      setPhase('preprompt');
+      onClose();
+      onCompleted?.();
+    })();
+  }, [visible, userId, isGranted, onClose, onCompleted]);
 
   useEffect(() => {
     if (!visible) return;
@@ -67,6 +107,19 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
         onCompleted?.();
         return;
       }
+      await refresh();
+      const os = await getOsPushPermissionState();
+      if (os === 'denied') {
+        setPhase('deniedRecovery');
+        return;
+      }
+      if (os === 'granted') {
+        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+        await syncBackendAfterPushGrant(userId);
+        onClose();
+        onCompleted?.();
+        return;
+      }
       onClose();
       await new Promise<void>((resolve) => setTimeout(resolve, DISMISS_BEFORE_OS_PERMISSION_MS));
       await requestPushPermissionsAfterPrompt(userId);
@@ -83,43 +136,58 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       <View style={styles.root}>
         <BlurView intensity={Platform.OS === 'ios' ? 88 : 72} tint="dark" style={StyleSheet.absoluteFill} />
         <View style={styles.dim} pointerEvents="none" />
-        <View style={[styles.card, { width: cardWidth, borderColor: cardBorder, backgroundColor: theme.glassSurface }]}>
-          <View style={styles.iconWrap}>
-            <Animated.View
-              style={[
-                styles.glow,
-                {
-                  opacity: pulse,
-                  shadowColor: theme.tint,
-                  backgroundColor: withAlpha(theme.tint, 0.22),
-                },
-              ]}
+        {phase === 'deniedRecovery' ? (
+          <View style={{ width: Math.min(width - 40, 400), alignSelf: 'center' }}>
+            <NotificationDeniedRecoverySurface
+              onOpenSettings={() => {
+                void AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+                openSettings();
+                onClose();
+                onCompleted?.();
+              }}
+              onDismiss={handleNotNow}
+              compact
             />
-            <Ionicons name="notifications" size={34} color={theme.tint} />
           </View>
-          <Text style={[styles.title, { color: theme.text }]}>Never miss a vibe</Text>
-          <Text style={[styles.body, { color: theme.mutedForeground }]}>
-            Get notified when someone matches with you, messages you, or when your event and date activity needs your
-            attention. You stay in control in Settings.
-          </Text>
-          <Pressable
-            onPress={() => void handleEnable()}
-            disabled={enableBusy}
-            style={({ pressed }) => [styles.primaryWrap, pressed && { opacity: 0.92 }]}
-          >
-            <LinearGradient
-              colors={[theme.tint, theme.accent]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.primaryBtn}
+        ) : (
+          <View style={[styles.card, { width: cardWidth, borderColor: cardBorder, backgroundColor: theme.glassSurface }]}>
+            <View style={styles.iconWrap}>
+              <Animated.View
+                style={[
+                  styles.glow,
+                  {
+                    opacity: pulse,
+                    shadowColor: theme.tint,
+                    backgroundColor: withAlpha(theme.tint, 0.22),
+                  },
+                ]}
+              />
+              <Ionicons name="notifications" size={34} color={theme.tint} />
+            </View>
+            <Text style={[styles.title, { color: theme.text }]}>Never miss a vibe</Text>
+            <Text style={[styles.body, { color: theme.mutedForeground }]}>
+              Get notified when someone matches with you, messages you, or when your event and date activity needs your
+              attention. You stay in control in Settings.
+            </Text>
+            <Pressable
+              onPress={() => void handleEnable()}
+              disabled={enableBusy}
+              style={({ pressed }) => [styles.primaryWrap, pressed && { opacity: 0.92 }]}
             >
-              <Text style={styles.primaryBtnText}>Turn On Notifications</Text>
-            </LinearGradient>
-          </Pressable>
-          <Pressable onPress={handleNotNow} hitSlop={12} style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.65 }]}>
-            <Text style={[styles.secondaryText, { color: theme.mutedForeground }]}>Not now</Text>
-          </Pressable>
-        </View>
+              <LinearGradient
+                colors={[theme.tint, theme.accent]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.primaryBtn}
+              >
+                <Text style={styles.primaryBtnText}>Turn On Notifications</Text>
+              </LinearGradient>
+            </Pressable>
+            <Pressable onPress={handleNotNow} hitSlop={12} style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.65 }]}>
+              <Text style={[styles.secondaryText, { color: theme.mutedForeground }]}>Not now</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </Modal>
   );
