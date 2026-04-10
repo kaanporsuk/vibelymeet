@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as ImagePicker from 'expo-image-picker';
 
 import Colors from '@/constants/Colors';
 import { spacing, radius, fonts, shadows, layout } from '@/constants/theme';
@@ -35,15 +34,14 @@ import {
   fetchProfileLiveCounts,
   updateMyProfile,
   formatBirthdayUsWithZodiac,
-  type ProfileRow,
 } from '@/lib/profileApi';
 import { avatarUrl, getImageUrl, deckCardUrl } from '@/lib/imageUrl';
 import { supabase } from '@/lib/supabase';
-import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
+import { isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
+import { type PhotoBatchLaunchAction } from '@/lib/photoBatchController';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 
-import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
 import PhotoManageDrawer from '@/components/photos/PhotoManageDrawer';
@@ -149,10 +147,10 @@ export default function ProfileStudio() {
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
 
   // Photo upload state
-  const [photoUploading, setPhotoUploading] = useState(false);
   const [thumbnailError, setThumbnailError] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState<number | null>(null);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
+  const [photoDrawerLaunchAction, setPhotoDrawerLaunchAction] = useState<PhotoBatchLaunchAction | null>(null);
   const [showVibeScoreDrawer, setShowVibeScoreDrawer] = useState(false);
   const [photoSourceMenu, setPhotoSourceMenu] = useState<{
     open: boolean;
@@ -208,18 +206,6 @@ export default function ProfileStudio() {
   }, [profile]);
 
   const { show, dialog } = useVibelyDialog();
-
-  /** Revert optimistic photo rows when publish fails or throws after `setQueryData`. */
-  const rollbackMyProfilePhotoOptimistic = React.useCallback(
-    (prev: ProfileRow | undefined) => {
-      if (prev !== undefined) {
-        qc.setQueryData(['my-profile'], prev);
-      } else {
-        void qc.invalidateQueries({ queryKey: ['my-profile'] });
-      }
-    },
-    [qc],
-  );
 
   const refreshPhotoVerificationState = React.useCallback(async () => {
     if (!user?.id) return;
@@ -286,7 +272,7 @@ export default function ProfileStudio() {
       resolvedState: videoInfo.state,
       playbackUrl: videoInfo.playbackUrl,
     });
-  }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.state, profile]);
+  }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.playbackUrl, videoInfo.state, profile]);
 
   const registerSectionLayout = (key: string, y: number, height: number) => {
     sectionOffsets.current[key] = y;
@@ -360,7 +346,7 @@ export default function ProfileStudio() {
         scrollToSection('prompts');
         break;
       case 'photos':
-        setShowPhotoDrawer(true);
+        openPhotoDrawerEditor();
         break;
       case 'vibe_video':
         openVibeStudio();
@@ -447,219 +433,17 @@ export default function ProfileStudio() {
     }
   };
 
-  const handleAddPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      show({
-        title: 'Photos need access',
-        message: 'Allow your photo library to add a profile photo.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-    const currentCount = profile?.photos?.length ?? 0;
-    if (currentCount >= MAX_PHOTOS) {
-      show({
-        title: 'Gallery full',
-        message: `You can have up to ${MAX_PHOTOS} photos. Remove one in Manage to add another.`,
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    setPhotoUploading(true);
-    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
-    let optimisticApplied = false;
-    try {
-      const asset = result.assets[0];
-      const path = await uploadProfilePhoto({
-        uri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        fileName: asset.fileName ?? undefined,
-      });
-      const currentPhotos = profile?.photos ?? [];
-      // Append: new photos always go to the end; use PhotoManageDrawer to reorder/promote.
-      const newPhotos = [...currentPhotos, path];
-      const primaryUrl = newPhotos[0] ?? null;
-      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
-        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
-      );
-      optimisticApplied = true;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
-        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
-      });
-      if (pubErr) throw pubErr;
-      const pr = pubData as Record<string, unknown> | null;
-      if (pr && pr.success !== true) {
-        throw new Error(String(pr.error ?? 'Photo save failed'));
-      }
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    } catch (e) {
-      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
-      show({
-        title: 'Upload failed',
-        message: e instanceof Error ? e.message : 'Upload failed',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } finally {
-      setPhotoUploading(false);
-    }
-  };
+  const openPhotoDrawerEditor = useCallback(() => {
+    setPhotoSourceMenu({ open: false, anchor: null });
+    setPhotoDrawerLaunchAction(null);
+    setShowPhotoDrawer(true);
+  }, []);
 
-  const handleTakePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      show({
-        title: 'Camera access',
-        message: 'Allow camera access to take a profile photo.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-    const currentCount = profile?.photos?.length ?? 0;
-    if (currentCount >= MAX_PHOTOS) {
-      show({
-        title: 'Gallery full',
-        message: `You can have up to ${MAX_PHOTOS} photos.`,
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    setPhotoUploading(true);
-    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
-    let optimisticApplied = false;
-    try {
-      const asset = result.assets[0];
-      const path = await uploadProfilePhoto({
-        uri: asset.uri,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-        fileName: asset.fileName ?? undefined,
-      });
-      const currentPhotos = profile?.photos ?? [];
-      const newPhotos = [...currentPhotos, path];
-      const primaryUrl = newPhotos[0] ?? null;
-      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
-        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
-      );
-      optimisticApplied = true;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
-        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
-      });
-      if (pubErr) throw pubErr;
-      const pr = pubData as Record<string, unknown> | null;
-      if (pr && pr.success !== true) {
-        throw new Error(String(pr.error ?? 'Photo save failed'));
-      }
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    } catch (e) {
-      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
-      show({
-        title: 'Upload failed',
-        message: e instanceof Error ? e.message : 'Upload failed',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } finally {
-      setPhotoUploading(false);
-    }
-  };
-
-  const handleChooseFile = async () => {
-    const result = await getDocumentAsyncSafe({
-      type: ['image/jpeg', 'image/png', 'image/webp'],
-      copyToCacheDirectory: true,
-    });
-    if (result === null) {
-      show({
-        title: 'Choose File unavailable',
-        message: 'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-    const a = result.assets[0];
-    const mime = a.mimeType ?? 'image/jpeg';
-    if (!mime.startsWith('image/')) {
-      show({
-        title: 'Not an image',
-        message: 'Please choose a JPEG, PNG, or WebP file.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    const currentCount = profile?.photos?.length ?? 0;
-    if (currentCount >= MAX_PHOTOS) {
-      show({
-        title: 'Gallery full',
-        message: `You can have up to ${MAX_PHOTOS} photos.`,
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    setPhotoUploading(true);
-    const prevSnapshot = qc.getQueryData<ProfileRow>(['my-profile']);
-    let optimisticApplied = false;
-    try {
-      const path = await uploadProfilePhoto({
-        uri: a.uri,
-        mimeType: mime,
-        fileName: a.name,
-      });
-      const currentPhotos = profile?.photos ?? [];
-      const newPhotos = [...currentPhotos, path];
-      const primaryUrl = newPhotos[0] ?? null;
-      qc.setQueryData(['my-profile'], (old: ProfileRow | undefined) =>
-        old ? { ...old, photos: newPhotos, avatar_url: primaryUrl } : old,
-      );
-      optimisticApplied = true;
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const { data: pubData, error: pubErr } = await supabase.rpc('publish_photo_set', {
-        p_user_id: user.id, p_photos: newPhotos, p_context: 'profile_studio',
-      });
-      if (pubErr) throw pubErr;
-      const pr = pubData as Record<string, unknown> | null;
-      if (pr && pr.success !== true) {
-        throw new Error(String(pr.error ?? 'Photo save failed'));
-      }
-      await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    } catch (e) {
-      if (optimisticApplied) rollbackMyProfilePhotoOptimistic(prevSnapshot);
-      show({
-        title: 'Upload failed',
-        message: e instanceof Error ? e.message : 'Upload failed',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } finally {
-      setPhotoUploading(false);
-    }
-  };
+  const openPhotoDrawerWithAction = useCallback((kind: PhotoBatchLaunchAction['kind']) => {
+    setPhotoSourceMenu({ open: false, anchor: null });
+    setPhotoDrawerLaunchAction({ id: Date.now() + Math.random(), kind });
+    setShowPhotoDrawer(true);
+  }, []);
 
   // ── Prompt handlers ────────────────────────────────────────────
 
@@ -1016,6 +800,10 @@ export default function ProfileStudio() {
           <RNView ref={heroCameraFabRef} collapsable={false} style={[s.heroFab, s.heroFabRight]}>
             <Pressable
               onPress={() => {
+                if (profilePhotos.length >= MAX_PHOTOS) {
+                  openPhotoDrawerEditor();
+                  return;
+                }
                 heroCameraFabRef.current?.measureInWindow((x, y, width, height) => {
                   setPhotoSourceMenu({ open: true, anchor: { x, y, width, height } });
                 });
@@ -1409,7 +1197,7 @@ export default function ProfileStudio() {
               </RNView>
             </RNView>
             <Pressable
-              onPress={() => setShowPhotoDrawer(true)}
+              onPress={openPhotoDrawerEditor}
               style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
             >
               <Text style={[s.sectionLinkText, { color: theme.tint }]}>Manage</Text>
@@ -2162,8 +1950,12 @@ export default function ProfileStudio() {
       {/* Photo management drawer */}
       <PhotoManageDrawer
         visible={showPhotoDrawer}
-        onClose={() => setShowPhotoDrawer(false)}
+        onClose={() => {
+          setShowPhotoDrawer(false);
+          setPhotoDrawerLaunchAction(null);
+        }}
         photos={profilePhotos}
+        launchAction={photoDrawerLaunchAction}
         onPhotosChanged={() => {
           void qc.invalidateQueries({ queryKey: ['my-profile'] }).catch((e) => {
             if (__DEV__) console.warn('[ProfileStudio] invalidate my-profile after photos failed:', e);
@@ -2381,9 +2173,9 @@ export default function ProfileStudio() {
       anchor={photoSourceMenu.anchor}
       safeInsets={insets}
       onDismiss={() => setPhotoSourceMenu({ open: false, anchor: null })}
-      onPhotoLibrary={() => void handleAddPhoto()}
-      onTakePhoto={() => void handleTakePhoto()}
-      onChooseFile={() => void handleChooseFile()}
+      onPhotoLibrary={() => openPhotoDrawerWithAction('add-many-library')}
+      onTakePhoto={() => openPhotoDrawerWithAction('take-one-photo')}
+      onChooseFile={() => openPhotoDrawerWithAction('add-many-document')}
       chooseFileSupported={chooseFileSupported}
       useRootModal
     />

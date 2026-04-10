@@ -1,85 +1,216 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
-import { uploadProfilePhoto } from '@/lib/uploadImage';
 import { getImageUrl } from '@/lib/imageUrl';
+import {
+  getPhotoDraftDisplayUri,
+  photoReadyPathsEqual,
+  type PhotoDraftItem,
+  usePhotoBatchController,
+} from '@/lib/photoBatchController';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
-export default function PhotosStep({ photos, onChange, onNext }: { photos: string[]; onChange: (v: string[]) => void; onNext: () => void; }) {
+const MAX_PHOTOS = 6;
+
+function onboardingPhotoUri(item: PhotoDraftItem | null | undefined) {
+  const uri = getPhotoDraftDisplayUri(item);
+  if (!uri) return null;
+  if (item?.previewUri) return uri;
+  return getImageUrl(uri);
+}
+
+export default function PhotosStep({
+  photos,
+  onChange,
+  onNext,
+  onBusyStateChange,
+}: {
+  photos: string[];
+  onChange: (v: string[]) => void;
+  onNext: () => void;
+  onBusyStateChange?: (busy: boolean) => void;
+}) {
   const theme = Colors[useColorScheme()];
   const { show, dialog } = useVibelyDialog();
-  const [uploading, setUploading] = useState<number | null>(null);
-  const photoCount = photos.length;
-  const canContinue = photoCount >= 2;
-  const ctaLabel = canContinue ? 'Continue' : photoCount === 1 ? 'Add 1 more to continue' : 'Add 2 to continue';
+  const {
+    items,
+    readyPaths,
+    isUploading,
+    hasFailures,
+    isExitUnsafe,
+    addManyFromLibrary,
+    removeAtIndex,
+    retryItem,
+    dismissFailedItem,
+  } = usePhotoBatchController({
+    initialPhotos: photos,
+    context: 'onboarding',
+    show,
+    maxPhotos: MAX_PHOTOS,
+  });
+  const syncedReadyPathsRef = useRef(photos);
+
+  useEffect(() => {
+    if (photoReadyPathsEqual(syncedReadyPathsRef.current, readyPaths)) return;
+    syncedReadyPathsRef.current = readyPaths;
+    onChange(readyPaths);
+  }, [onChange, readyPaths]);
+
+  useEffect(() => {
+    onBusyStateChange?.(isExitUnsafe);
+  }, [isExitUnsafe, onBusyStateChange]);
+
+  useEffect(() => {
+    return () => {
+      onBusyStateChange?.(false);
+    };
+  }, [onBusyStateChange]);
+
+  const photoCount = readyPaths.length;
+  const canContinue = photoCount >= 2 && !isUploading && !hasFailures;
+  const ctaLabel = isUploading
+    ? 'Uploading…'
+    : hasFailures
+      ? 'Resolve failed uploads'
+      : canContinue
+        ? 'Continue'
+        : photoCount === 1
+          ? 'Add 1 more to continue'
+          : 'Add 2 to continue';
 
   const helperText = useMemo(() => {
+    if (isUploading) return 'Uploading your selected photos…';
+    if (hasFailures) return 'Retry or remove failed uploads before continuing.';
     if (photoCount === 0) return 'Tip: Your first photo should clearly show your face.';
     if (photoCount === 1) return 'Great start. Add one more to continue.';
     if (photoCount === 2) return "You're good to go. Add more to boost your profile.";
     return 'Looking strong. More variety helps even more.';
-  }, [photoCount]);
+  }, [hasFailures, isUploading, photoCount]);
 
-  const addPhoto = async () => {
-    if (photos.length >= 6) return;
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (perm.status !== 'granted') {
-        show({
-          title: 'Photo library access',
-          message:
-            perm.canAskAgain === false
-              ? 'Photos access is turned off. Enable it in Settings to add pictures, or try again after allowing access.'
-              : 'We need access to your photos to upload profile pictures.',
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-    } catch {
-      show({
-        title: 'Permission error',
-        message: 'Could not request photo access. Try again.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
+  const totalDisplayed = items.length;
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    setUploading(photos.length);
-    try {
-      const path = await uploadProfilePhoto(
-        {
-          uri: result.assets[0].uri,
-          mimeType: result.assets[0].mimeType ?? 'image/jpeg',
-          fileName: `onboarding_${Date.now()}.jpg`,
-        },
-        null,
-        'onboarding',
-      );
-      onChange([...photos, path]);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Upload failed.';
-      show({
-        title: "Couldn't upload photo",
-        message: msg || 'Check your connection and try again.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } finally {
-      setUploading(null);
-    }
+  const renderSlot = (index: number, isMain: boolean) => {
+    const item = items[index] ?? null;
+    const uri = onboardingPhotoUri(item);
+    const isRequired = index < 2;
+
+    return (
+      <Pressable
+        key={index}
+        onPress={!item ? () => void addManyFromLibrary() : undefined}
+        style={[
+          isMain ? styles.mainSlot : styles.supportSlot,
+          {
+            borderColor: isMain || isRequired ? theme.tint : theme.border,
+            backgroundColor: uri ? 'transparent' : theme.surfaceSubtle,
+          },
+        ]}
+      >
+        {uri ? <Image source={{ uri }} style={styles.image} /> : null}
+
+        {isMain ? (
+          <View
+            style={[
+              styles.mainBadge,
+              { borderColor: theme.tint, backgroundColor: 'rgba(16,17,24,0.72)' },
+            ]}
+          >
+            <Text style={{ color: theme.text, fontSize: 11, fontWeight: '700' }}>Main photo</Text>
+          </View>
+        ) : null}
+
+        {item?.status === 'ready' ? (
+          <Pressable
+            onPress={() => removeAtIndex(index)}
+            style={[styles.removeBtn, { backgroundColor: 'rgba(0,0,0,0.64)' }]}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={14} color="#fff" />
+          </Pressable>
+        ) : null}
+
+        {item?.status === 'uploading' ? (
+          <View style={styles.statusOverlay}>
+            <ActivityIndicator color={theme.tint} />
+            <Text style={[styles.statusText, { color: theme.text }]}>Uploading…</Text>
+          </View>
+        ) : null}
+
+        {item?.status === 'failed' ? (
+          <View style={styles.statusOverlay}>
+            <Ionicons name="alert-circle-outline" size={18} color="#fff" />
+            <Text style={[styles.statusText, { color: theme.text }]}>
+              {item.error ?? 'Upload failed'}
+            </Text>
+            <View style={styles.statusActions}>
+              <Pressable
+                onPress={() => void retryItem(item.id)}
+                style={[styles.statusActionBtn, { backgroundColor: theme.tint }]}
+              >
+                <Text style={styles.statusActionText}>Retry</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => dismissFailedItem(item.id)}
+                style={[styles.statusActionBtn, { backgroundColor: 'rgba(255,255,255,0.18)' }]}
+              >
+                <Text style={styles.statusActionText}>Remove</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {!item && isMain ? (
+          <View style={styles.uploadCenter}>
+            <View
+              style={[
+                styles.uploadIconWrap,
+                { borderColor: theme.tint, backgroundColor: 'rgba(139,92,246,0.14)' },
+              ]}
+            >
+              <Ionicons name="images-outline" size={22} color={theme.tint} />
+              <View style={[styles.plusDot, { backgroundColor: theme.tint }]}>
+                <Ionicons name="add" size={11} color="#fff" />
+              </View>
+            </View>
+            <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Tap to add photos</Text>
+          </View>
+        ) : null}
+
+        {!item && !isMain ? (
+          <View style={styles.supportEmpty}>
+            <View
+              style={[
+                styles.supportIconWrap,
+                { borderColor: isRequired ? theme.tint : theme.border },
+              ]}
+            >
+              <Ionicons
+                name="image-outline"
+                size={18}
+                color={isRequired ? theme.tint : theme.textSecondary}
+              />
+              <View
+                style={[
+                  styles.supportPlusDot,
+                  { backgroundColor: isRequired ? theme.tint : theme.textSecondary },
+                ]}
+              >
+                <Ionicons name="add" size={9} color="#fff" />
+              </View>
+            </View>
+            {isRequired ? (
+              <Text style={{ color: theme.textSecondary, fontSize: 10, fontWeight: '600' }}>
+                Required
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </Pressable>
+    );
   };
 
   return (
@@ -87,76 +218,12 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
       <Text style={[styles.h1, { color: theme.text }]}>Add your photos</Text>
       <Text style={[styles.sub, { color: theme.textSecondary }]}>Profiles with 3+ photos get more matches.</Text>
 
-      <Pressable
-        onPress={() => (photos[0] ? onChange(photos.filter((_, i) => i !== 0)) : addPhoto())}
-        style={[
-          styles.mainSlot,
-          {
-            borderColor: photos[0] ? theme.tint : theme.tint,
-            backgroundColor: photos[0] ? 'transparent' : theme.surfaceSubtle,
-          },
-        ]}
-      >
-        {photos[0] ? <Image source={{ uri: getImageUrl(photos[0]) }} style={styles.image} /> : null}
-        <View style={[styles.mainBadge, { borderColor: theme.tint, backgroundColor: 'rgba(16,17,24,0.72)' }]}>
-          <Text style={{ color: theme.text, fontSize: 11, fontWeight: '700' }}>Main photo</Text>
-        </View>
-        {!photos[0] ? (
-          <View style={styles.uploadCenter}>
-            {uploading === 0 ? (
-              <ActivityIndicator color={theme.tint} />
-            ) : (
-              <>
-                <View style={[styles.uploadIconWrap, { borderColor: theme.tint, backgroundColor: 'rgba(139,92,246,0.14)' }]}>
-                  <Ionicons name="camera-outline" size={22} color={theme.tint} />
-                  <View style={[styles.plusDot, { backgroundColor: theme.tint }]}>
-                    <Ionicons name="add" size={11} color="#fff" />
-                  </View>
-                </View>
-                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Tap to upload</Text>
-              </>
-            )}
-          </View>
-        ) : null}
-      </Pressable>
+      {renderSlot(0, true)}
 
       <View style={styles.supportGrid}>
         {Array.from({ length: 5 }).map((_, i) => {
           const idx = i + 1;
-          const photo = photos[idx];
-          const isRequired = idx === 1;
-          const activeBorder = isRequired ? theme.tint : theme.border;
-          return (
-            <Pressable
-              key={idx}
-              onPress={() => (photo ? onChange(photos.filter((_, j) => j !== idx)) : addPhoto())}
-              style={[
-                styles.supportSlot,
-                {
-                  borderColor: activeBorder,
-                  backgroundColor: photo ? 'transparent' : theme.surfaceSubtle,
-                },
-              ]}
-            >
-              {photo ? (
-                <Image source={{ uri: getImageUrl(photo) }} style={styles.image} />
-              ) : uploading === idx ? (
-                <ActivityIndicator color={theme.tint} />
-              ) : (
-                <View style={styles.supportEmpty}>
-                  <View style={[styles.supportIconWrap, { borderColor: isRequired ? theme.tint : theme.border }]}>
-                    <Ionicons name="image-outline" size={18} color={isRequired ? theme.tint : theme.textSecondary} />
-                    <View style={[styles.supportPlusDot, { backgroundColor: isRequired ? theme.tint : theme.textSecondary }]}>
-                      <Ionicons name="add" size={9} color="#fff" />
-                    </View>
-                  </View>
-                  {isRequired ? (
-                    <Text style={{ color: theme.textSecondary, fontSize: 10, fontWeight: '600' }}>Required</Text>
-                  ) : null}
-                </View>
-              )}
-            </Pressable>
-          );
+          return renderSlot(idx, false);
         })}
       </View>
 
@@ -164,6 +231,12 @@ export default function PhotosStep({ photos, onChange, onNext }: { photos: strin
         <Ionicons name="sparkles-outline" size={14} color={theme.textSecondary} />
         <Text style={[styles.tip, { color: theme.textSecondary }]}>{helperText}</Text>
       </View>
+
+      <Text style={[styles.multiSelectHint, { color: theme.textSecondary }]}>
+        {totalDisplayed < MAX_PHOTOS
+          ? 'Select multiple photos at once and they will fill the next open slots in order.'
+          : 'Your gallery is full. Remove a photo to add another.'}
+      </Text>
 
       <VibelyButton
         label={ctaLabel}
@@ -228,6 +301,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  removeBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4,6,16,0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    gap: 8,
+  },
+  statusText: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  statusActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  statusActionBtn: {
+    minHeight: 30,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusActionText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   supportEmpty: { alignItems: 'center', justifyContent: 'center', gap: 6 },
   supportIconWrap: {
     width: 34,
@@ -259,6 +373,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tip: { fontSize: 12, flex: 1 },
+  multiSelectHint: { fontSize: 11, textAlign: 'center', marginTop: -2 },
   cta: { marginTop: 2 },
   ctaDisabled: { opacity: 0.82 },
 });

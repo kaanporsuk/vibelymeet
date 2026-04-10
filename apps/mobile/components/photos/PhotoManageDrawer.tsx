@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   View as RNView,
   Text,
@@ -29,13 +30,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
 
 import { AddPhotoSourcePopover, type AddPhotoAnchor } from '@/components/photos/AddPhotoSourcePopover';
 import { fonts, radius } from '@/constants/theme';
-import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { getImageUrl } from '@/lib/imageUrl';
-import { uploadProfilePhoto } from '@/lib/uploadImage';
+import {
+  getPhotoDraftDisplayUri,
+  type PhotoBatchLaunchAction,
+  type PhotoDraftItem,
+  usePhotoBatchController,
+} from '@/lib/photoBatchController';
 import { supabase } from '@/lib/supabase';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
@@ -100,6 +104,7 @@ interface PhotoManageDrawerProps {
   onClose: () => void;
   photos: string[];
   onPhotosChanged: () => void;
+  launchAction?: PhotoBatchLaunchAction | null;
   /** Reuse fullscreen viewer without showing the manage sheet. */
   fullscreenOnly?: boolean;
   /** Initial photo index when opening fullscreenOnly mode. */
@@ -112,6 +117,20 @@ function thumbUrl(path: string) {
 
 function fullUrl(path: string) {
   return getImageUrl(path, { width: 1200, height: 1200 });
+}
+
+function itemThumbUri(item: PhotoDraftItem | null | undefined) {
+  const localUri = getPhotoDraftDisplayUri(item);
+  if (!localUri) return null;
+  if (item?.previewUri) return localUri;
+  return thumbUrl(localUri);
+}
+
+function itemFullUri(item: PhotoDraftItem | null | undefined) {
+  const localUri = getPhotoDraftDisplayUri(item);
+  if (!localUri) return null;
+  if (item?.previewUri) return localUri;
+  return fullUrl(localUri);
 }
 
 /** Web `FullscreenViewer` image: max-w-[90vw] max-h-[85vh], scale-[2] when zoomed */
@@ -481,15 +500,39 @@ export default function PhotoManageDrawer({
   onClose,
   photos,
   onPhotosChanged,
+  launchAction = null,
   fullscreenOnly = false,
   initialFullscreenIndex = null,
 }: PhotoManageDrawerProps) {
   const insets = useSafeAreaInsets();
   const { show, dialog } = useVibelyDialog();
-  const chooseFileSupported = useMemo(() => isDocumentPickerAvailable(), []);
-
-  const [localPhotos, setLocalPhotos] = useState<string[]>(photos);
-  const [uploading, setUploading] = useState(false);
+  const {
+    items: draftItems,
+    readyPaths,
+    filledCount,
+    remainingSlots,
+    chooseFileSupported,
+    isUploading,
+    hasFailures,
+    hasChanges,
+    canSave,
+    resetDraft,
+    addManyFromLibrary,
+    addManyFromDocument,
+    replaceOneFromLibrary,
+    replaceOneFromDocument,
+    takeOnePhoto,
+    moveItem,
+    makeMain,
+    removeAtIndex,
+    retryItem,
+    dismissFailedItem,
+  } = usePhotoBatchController({
+    initialPhotos: photos,
+    context: 'profile_studio',
+    show,
+    maxPhotos: MAX_PHOTOS,
+  });
   const [saving, setSaving] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -500,7 +543,7 @@ export default function PhotoManageDrawer({
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
   /** When true, horizontal pager is off so pan/zoom own the gesture (web: zoom doesn't steal swipe at 1x). */
   const [fullscreenPagerLocked, setFullscreenPagerLocked] = useState(false);
-  const fullscreenListRef = useRef<FlatList<string> | null>(null);
+  const fullscreenListRef = useRef<FlatList<PhotoDraftItem> | null>(null);
   /** Horizontal thumbnail strip under main image — scroll to keep selection visible */
   const fullscreenStripRef = useRef<ScrollView | null>(null);
   /** Active page registers tap-equivalent zoom toggle for the top-right zoom control */
@@ -537,14 +580,13 @@ export default function PhotoManageDrawer({
     [sheetMaxHeight, sheetBottomPad],
   );
 
-  const initialRef = useRef<string[]>(photos);
-  const localPhotosRef = useRef(localPhotos);
-  localPhotosRef.current = localPhotos;
+  const draftItemsRef = useRef(draftItems);
+  draftItemsRef.current = draftItems;
+  const handledLaunchActionRef = useRef<number | null>(null);
 
   React.useEffect(() => {
     if (visible) {
-      setLocalPhotos(photos);
-      initialRef.current = photos;
+      resetDraft(photos);
       setSelectedIndex(0);
       setActiveTileIndex(null);
       const startFullscreenIndex =
@@ -561,7 +603,7 @@ export default function PhotoManageDrawer({
       previewDropIndexRef.current = null;
       setAddSourcePicker({ open: false, anchor: null });
     }
-  }, [visible, photos, fullscreenOnly, initialFullscreenIndex]);
+  }, [visible, photos, fullscreenOnly, initialFullscreenIndex, resetDraft]);
 
   React.useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -569,150 +611,57 @@ export default function PhotoManageDrawer({
     }
   }, []);
 
-  const filledCount = localPhotos.length;
-
   /** Order shown in grid + filmstrip while dragging (live reorder preview). */
-  const displayPhotos = useMemo(() => {
+  const displayItems = useMemo(() => {
     if (
       draggingIndex === null ||
       previewDropIndex === null ||
       previewDropIndex === draggingIndex
     ) {
-      return localPhotos;
+      return draftItems;
     }
-    const n = localPhotos.length;
-    if (n < 2) return localPhotos;
-    return arrayMove(localPhotos, draggingIndex, previewDropIndex);
-  }, [localPhotos, draggingIndex, previewDropIndex]);
+    const n = draftItems.length;
+    if (n < 2) return draftItems;
+    return arrayMove(draftItems, draggingIndex, previewDropIndex);
+  }, [draftItems, draggingIndex, previewDropIndex]);
   const coaching = useMemo(() => getCoachingMessage(filledCount), [filledCount]);
 
-  const hasChanges = useMemo(() => {
-    if (localPhotos.length !== initialRef.current.length) return true;
-    return localPhotos.some((p, i) => p !== initialRef.current[i]);
-  }, [localPhotos]);
+  React.useEffect(() => {
+    if (selectedIndex >= filledCount) {
+      setSelectedIndex(Math.max(0, filledCount - 1));
+    }
+    if (fullscreenIndex !== null && fullscreenIndex >= filledCount) {
+      setFullscreenIndex(filledCount > 0 ? filledCount - 1 : null);
+    }
+    if (activeTileIndex !== null && !displayItems[activeTileIndex]) {
+      setActiveTileIndex(null);
+    }
+  }, [activeTileIndex, displayItems, filledCount, fullscreenIndex, selectedIndex]);
 
   // ── Photo picker ─────────────────────────────────────────────
+  React.useEffect(() => {
+    if (!visible || fullscreenOnly || !launchAction) return;
+    if (handledLaunchActionRef.current === launchAction.id) return;
 
-  const pickFromLibrary = useCallback(async (replaceIndex?: number) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      show({
-        title: 'Photos need access',
-        message: 'Allow access to your photos to add or replace shots.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
+    handledLaunchActionRef.current = launchAction.id;
+
+    if (launchAction.kind === 'add-many-library') {
+      void addManyFromLibrary();
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-    await uploadAndInsert(result.assets[0], replaceIndex);
-  }, [localPhotos, show]);
-
-  const takePhoto = useCallback(async (replaceIndex?: number) => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      show({
-        title: 'Camera access',
-        message: 'Allow camera access to take a new photo.',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
+    if (launchAction.kind === 'add-many-document') {
+      void addManyFromDocument();
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-    if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-    await uploadAndInsert(result.assets[0], replaceIndex);
-  }, [localPhotos, show]);
-
-  const uploadAndInsert = useCallback(async (
-    asset: { uri: string; mimeType?: string | null; fileName?: string | null },
-    replaceIndex?: number,
-  ) => {
-    if (replaceIndex === undefined && filledCount >= MAX_PHOTOS) {
-      show({
-        title: 'Gallery full',
-        message: `You can have up to ${MAX_PHOTOS} photos. Remove one to add another.`,
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
-    setUploading(true);
-    try {
-      const oldPath = replaceIndex !== undefined ? localPhotos[replaceIndex] : undefined;
-      const path = await uploadProfilePhoto(
-        {
-          uri: asset.uri,
-          mimeType: asset.mimeType ?? 'image/jpeg',
-          fileName: asset.fileName == null ? undefined : asset.fileName,
-        },
-        oldPath,
-      );
-      setLocalPhotos(prev => {
-        if (replaceIndex !== undefined) {
-          const next = [...prev];
-          next[replaceIndex] = path;
-          return next;
-        }
-        return [...prev, path];
-      });
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {
-      show({
-        title: 'Upload failed',
-        message: e instanceof Error ? e.message : 'Upload failed',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-    } finally {
-      setUploading(false);
-    }
-  }, [localPhotos, filledCount, show]);
-
-  const pickFromDocument = useCallback(
-    async (replaceIndex?: number) => {
-      const result = await getDocumentAsyncSafe({
-        type: ['image/jpeg', 'image/png', 'image/webp'],
-        copyToCacheDirectory: true,
-      });
-      if (result === null) {
-        show({
-          title: 'Choose File unavailable',
-          message: 'Rebuild the dev client after adding document picker, or use Photo Library or Take Photo.',
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-      if (result.canceled || !result.assets?.[0]?.uri?.trim()) return;
-      const a = result.assets[0];
-      const mime = a.mimeType ?? 'image/jpeg';
-      if (!mime.startsWith('image/')) {
-        show({
-          title: 'Not an image',
-          message: 'Please choose a JPEG, PNG, or WebP file.',
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-      await uploadAndInsert(
-        { uri: a.uri, mimeType: mime, fileName: a.name },
-        replaceIndex,
-      );
-    },
-    [uploadAndInsert, show],
-  );
+    void takeOnePhoto();
+  }, [
+    visible,
+    fullscreenOnly,
+    launchAction,
+    addManyFromLibrary,
+    addManyFromDocument,
+    takeOnePhoto,
+  ]);
 
   const openAddSourcePicker = useCallback((replaceIndex: number | undefined, anchor: AddPhotoAnchor | null) => {
     addPickerReplaceRef.current = replaceIndex;
@@ -726,16 +675,26 @@ export default function PhotoManageDrawer({
   }, []);
 
   const commitAddPhotoLibrary = useCallback(() => {
-    void pickFromLibrary(addPickerReplaceRef.current);
-  }, [pickFromLibrary]);
+    const replaceIndex = addPickerReplaceRef.current;
+    if (replaceIndex === undefined) {
+      void addManyFromLibrary();
+      return;
+    }
+    void replaceOneFromLibrary(replaceIndex);
+  }, [addManyFromLibrary, replaceOneFromLibrary]);
 
   const commitAddTakePhoto = useCallback(() => {
-    void takePhoto(addPickerReplaceRef.current);
-  }, [takePhoto]);
+    void takeOnePhoto(addPickerReplaceRef.current);
+  }, [takeOnePhoto]);
 
   const commitAddChooseFile = useCallback(() => {
-    void pickFromDocument(addPickerReplaceRef.current);
-  }, [pickFromDocument]);
+    const replaceIndex = addPickerReplaceRef.current;
+    if (replaceIndex === undefined) {
+      void addManyFromDocument();
+      return;
+    }
+    void replaceOneFromDocument(replaceIndex);
+  }, [addManyFromDocument, replaceOneFromDocument]);
 
   React.useEffect(() => {
     if (!addSourcePicker.open) return;
@@ -749,16 +708,11 @@ export default function PhotoManageDrawer({
   // ── Tile actions ─────────────────────────────────────────────
 
   const handleMakeMain = useCallback((index: number) => {
-    setLocalPhotos(prev => {
-      const next = [...prev];
-      const [item] = next.splice(index, 1);
-      next.unshift(item);
-      return next;
-    });
+    makeMain(index);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setActiveTileIndex(null);
     setSelectedIndex(0);
-  }, []);
+  }, [makeMain]);
 
   const handleRemove = useCallback(
     (index: number) => {
@@ -769,7 +723,7 @@ export default function PhotoManageDrawer({
         primaryAction: {
           label: 'Remove',
           onPress: () => {
-            setLocalPhotos((prev) => prev.filter((_, i) => i !== index));
+            removeAtIndex(index);
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setActiveTileIndex(null);
             setSelectedIndex(0);
@@ -778,7 +732,7 @@ export default function PhotoManageDrawer({
         secondaryAction: { label: 'Keep', onPress: () => {} },
       });
     },
-    [show],
+    [removeAtIndex, show],
   );
 
   const handleReplace = useCallback((index: number) => {
@@ -799,6 +753,7 @@ export default function PhotoManageDrawer({
 
   const handleSave = useCallback(async () => {
     if (!hasChanges) { onClose(); return; }
+    if (!canSave) return;
     setSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -806,7 +761,7 @@ export default function PhotoManageDrawer({
 
       const { data, error } = await supabase.rpc('publish_photo_set', {
         p_user_id: user.id,
-        p_photos: localPhotos,
+        p_photos: readyPaths,
         p_context: 'profile_studio',
       });
       if (error) throw error;
@@ -827,7 +782,7 @@ export default function PhotoManageDrawer({
     } finally {
       setSaving(false);
     }
-  }, [hasChanges, localPhotos, onClose, onPhotosChanged, show]);
+  }, [canSave, hasChanges, onClose, onPhotosChanged, readyPaths, show]);
 
   const confirmDiscard = useCallback(() => {
     setActiveTileIndex(null);
@@ -847,17 +802,23 @@ export default function PhotoManageDrawer({
   // ── Render grid tile (inline actions on selected tile — web SortableTile hover overlay) ──
 
   const onFilledTilePress = useCallback((slotIndex: number) => {
+    const item = draftItemsRef.current[slotIndex];
+    if (!item) return;
+    setSelectedIndex(slotIndex);
+    if (item.status !== 'ready') {
+      setActiveTileIndex(null);
+      return;
+    }
     if (activeTileIndex === slotIndex) {
       setActiveTileIndex(null);
     } else {
       setActiveTileIndex(slotIndex);
-      setSelectedIndex(slotIndex);
     }
   }, [activeTileIndex]);
 
   const beginDrag = useCallback((slotIndex: number) => {
     setActiveTileIndex(null);
-    if (!localPhotosRef.current[slotIndex]) return;
+    if (!draftItemsRef.current[slotIndex]) return;
 
     const apply = (L: SlotRect) => {
       slotLayoutsRef.current[slotIndex] = L;
@@ -889,7 +850,7 @@ export default function PhotoManageDrawer({
 
     const from = draggingIndexRef.current;
     if (from === null) return;
-    const n = localPhotosRef.current.length;
+    const n = draftItemsRef.current.length;
     if (n < 2) return;
 
     const ax = Number.isFinite(absX) ? absX : lastDragAbsRef.current.x;
@@ -909,7 +870,7 @@ export default function PhotoManageDrawer({
   }, []);
 
   const endDrag = useCallback((absoluteX: number, absoluteY: number, fromIndex: number) => {
-    const n = localPhotosRef.current.length;
+    const n = draftItemsRef.current.length;
     const targetIndex = previewDropIndexRef.current;
 
     dragStartRectRef.current = null;
@@ -922,10 +883,10 @@ export default function PhotoManageDrawer({
     if (n < 2 || targetIndex === null || targetIndex === fromIndex) return;
 
     /** Commit same order as live preview (ref updated every pan frame from resolveDropTargetIndex) */
-    setLocalPhotos(prev => arrayMove(prev, fromIndex, targetIndex));
+    moveItem(fromIndex, targetIndex);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedIndex(targetIndex);
-  }, []);
+  }, [moveItem]);
 
   const onDragFinalize = useCallback(() => {
     setDraggingIndex((prev) => {
@@ -971,9 +932,12 @@ export default function PhotoManageDrawer({
   );
 
   const renderTile = (slotIndex: number) => {
-    const url = displayPhotos[slotIndex] ?? null;
-    const isMain = slotIndex === 0 && url !== null;
-    const overlayOpen = activeTileIndex === slotIndex;
+    const item = displayItems[slotIndex] ?? null;
+    const previewUri = itemThumbUri(item);
+    const isMain = slotIndex === 0 && item !== null;
+    const overlayOpen = activeTileIndex === slotIndex && item?.status === 'ready';
+    const isUploadingTile = item?.status === 'uploading';
+    const isFailedTile = item?.status === 'failed';
 
     const isDragDestinationPlaceholder =
       draggingIndex !== null &&
@@ -987,7 +951,7 @@ export default function PhotoManageDrawer({
       previewDropIndex === draggingIndex &&
       slotIndex === draggingIndex;
 
-    if (!url) {
+    if (!item) {
       return (
         <RNView
           key={`empty-${slotIndex}`}
@@ -1007,7 +971,9 @@ export default function PhotoManageDrawer({
             style={[st.gridTile, st.emptyTile, { flex: 1 }]}
           >
             <Ionicons name="add" size={28} color="rgba(255,255,255,0.3)" />
-            <Text style={st.emptyTileLabel}>Add</Text>
+            <Text style={st.emptyTileLabel}>
+              {remainingSlots > 1 ? `Add up to ${remainingSlots}` : 'Add'}
+            </Text>
           </Pressable>
         </RNView>
       );
@@ -1040,7 +1006,11 @@ export default function PhotoManageDrawer({
             {isDragDestinationPlaceholder ? (
               <RNView style={[StyleSheet.absoluteFill, st.dragDropPlaceholder]} />
             ) : (
-              <Image source={{ uri: thumbUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              previewUri ? (
+                <Image source={{ uri: previewUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+              ) : (
+                <RNView style={[StyleSheet.absoluteFill, st.dragDropPlaceholder]} />
+              )
             )}
 
             {!overlayOpen && (
@@ -1056,6 +1026,44 @@ export default function PhotoManageDrawer({
                 )}
               </>
             )}
+
+            {isUploadingTile ? (
+              <RNView style={st.statusOverlay}>
+                <ActivityIndicator color="#fff" />
+                <Text style={st.statusOverlayText}>Uploading…</Text>
+              </RNView>
+            ) : null}
+
+            {isFailedTile ? (
+              <RNView style={st.statusOverlay}>
+                <Ionicons name="alert-circle-outline" size={18} color="#fff" />
+                <Text numberOfLines={2} style={st.statusOverlayText}>
+                  {item.error ?? 'Upload failed'}
+                </Text>
+                <RNView style={st.statusOverlayActions}>
+                  <Pressable
+                    onPress={() => void retryItem(item.id)}
+                    style={({ pressed }) => [
+                      st.statusActionBtn,
+                      pressed && st.statusActionBtnPressed,
+                    ]}
+                  >
+                    <Text style={st.statusActionText}>Retry</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => dismissFailedItem(item.id)}
+                    style={({ pressed }) => [
+                      st.statusActionBtn,
+                      pressed && st.statusActionBtnPressed,
+                    ]}
+                  >
+                    <Text style={st.statusActionText}>
+                      {item.replaceOldPath ? 'Keep current' : 'Remove'}
+                    </Text>
+                  </Pressable>
+                </RNView>
+              </RNView>
+            ) : null}
 
             {overlayOpen && (() => {
               /** Row 1: slots 0–2 (large + stacked pair). Row 2: slots 3–5 (three equal). */
@@ -1157,11 +1165,11 @@ export default function PhotoManageDrawer({
 
   // ── Fullscreen viewer (web runtime parity: swipe + arrows + tap zoom; pager off when zoomed)
 
-  /** Same order as grid/filmstrip — `displayPhotos` ≡ web `localPhotos` including drag-preview order */
-  const fullscreenPhotos = fullscreenOnly ? localPhotos : displayPhotos;
+  /** Same order as grid/filmstrip — includes staged local previews while editing. */
+  const fullscreenItems = fullscreenOnly ? draftItems : displayItems;
   const fullscreenStripMetrics = useMemo(
-    () => resolveFullscreenStripMetrics(fullscreenPhotos.length, SCREEN_W),
-    [fullscreenPhotos.length],
+    () => resolveFullscreenStripMetrics(fullscreenItems.length, SCREEN_W),
+    [fullscreenItems.length],
   );
 
   const closeFullscreen = useCallback(() => {
@@ -1196,9 +1204,9 @@ export default function PhotoManageDrawer({
 
   const renderFullscreen = () => {
     if (fullscreenIndex === null) return null;
-    const photos = fullscreenPhotos;
-    const total = photos.length;
-    if (total === 0 || fullscreenIndex < 0 || fullscreenIndex >= total || !photos[fullscreenIndex]) {
+    const items = fullscreenItems;
+    const total = items.length;
+    if (total === 0 || fullscreenIndex < 0 || fullscreenIndex >= total || !itemFullUri(items[fullscreenIndex])) {
       return null;
     }
     const idx = fullscreenIndex;
@@ -1276,12 +1284,12 @@ export default function PhotoManageDrawer({
                 <FlatList
                   ref={fullscreenListRef}
                   style={st.fsPager}
-                  data={photos}
+                  data={items}
                   horizontal
                   pagingEnabled
                   scrollEnabled={!fullscreenPagerLocked}
                   showsHorizontalScrollIndicator={false}
-                  keyExtractor={(uri, i) => `fs-page-${i}-${uri}`}
+                  keyExtractor={(item, i) => `fs-page-${i}-${item.id}`}
                   initialScrollIndex={idx}
                   initialNumToRender={Math.min(total, 8)}
                   maxToRenderPerBatch={8}
@@ -1306,18 +1314,22 @@ export default function PhotoManageDrawer({
                       });
                     });
                   }}
-                  renderItem={({ item, index: pageIndex }) => (
-                    <FullscreenPhotoPage
-                      uri={fullUrl(item)}
-                      pageWidth={SCREEN_W}
-                      pageHeight={mainStageHeight}
-                      imageMaxW={imageMaxW}
-                      imageMaxH={imageMaxH}
-                      isActive={pageIndex === fullscreenIndex}
-                      onZoomPagerLockChange={setFullscreenPagerLocked}
-                      zoomToggleRef={fsZoomToggleRef}
-                    />
-                  )}
+                  renderItem={({ item, index: pageIndex }) => {
+                    const uri = itemFullUri(item);
+                    if (!uri) return <RNView style={{ width: SCREEN_W, height: mainStageHeight }} />;
+                    return (
+                      <FullscreenPhotoPage
+                        uri={uri}
+                        pageWidth={SCREEN_W}
+                        pageHeight={mainStageHeight}
+                        imageMaxW={imageMaxW}
+                        imageMaxH={imageMaxH}
+                        isActive={pageIndex === fullscreenIndex}
+                        onZoomPagerLockChange={setFullscreenPagerLocked}
+                        zoomToggleRef={fsZoomToggleRef}
+                      />
+                    );
+                  }}
                 />
 
                 <RNView pointerEvents="box-none" style={st.fsArrowLayer}>
@@ -1354,28 +1366,32 @@ export default function PhotoManageDrawer({
                   contentContainerStyle={stripContentStyle}
                   keyboardShouldPersistTaps="handled"
                 >
-                  {photos.map((p, i) => (
-                    <Pressable
-                      key={`fs-strip-${i}-${p}`}
-                      onPress={() => navigateFullscreen(i)}
-                      accessibilityLabel={`Photo ${i + 1}`}
-                      style={[
-                        st.fsStripThumb,
-                        {
-                          width: fullscreenStripMetrics.thumb,
-                          height: fullscreenStripMetrics.thumb,
-                        },
-                        i === idx && st.fsStripThumbActive,
-                      ]}
-                    >
-                      <Image source={{ uri: thumbUrl(p) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                      {i === 0 ? (
-                        <RNView style={st.fsStripMainDot}>
-                          <Text style={{ fontSize: 8 }}>👑</Text>
-                        </RNView>
-                      ) : null}
-                    </Pressable>
-                  ))}
+                  {items.map((item, i) => {
+                    const uri = itemThumbUri(item);
+                    if (!uri) return null;
+                    return (
+                      <Pressable
+                        key={`fs-strip-${i}-${item.id}`}
+                        onPress={() => navigateFullscreen(i)}
+                        accessibilityLabel={`Photo ${i + 1}`}
+                        style={[
+                          st.fsStripThumb,
+                          {
+                            width: fullscreenStripMetrics.thumb,
+                            height: fullscreenStripMetrics.thumb,
+                          },
+                          i === idx && st.fsStripThumbActive,
+                        ]}
+                      >
+                        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                        {i === 0 ? (
+                          <RNView style={st.fsStripMainDot}>
+                            <Text style={{ fontSize: 8 }}>👑</Text>
+                          </RNView>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </RNView>
             </RNView>
@@ -1454,27 +1470,41 @@ export default function PhotoManageDrawer({
                   if (activeTileIndex !== null) setActiveTileIndex(null);
                 }}
               >
-                {displayPhotos.map((photo, index) => (
-                  <Pressable
-                    key={`fs-${index}-${photo}`}
-                    onPress={() => {
-                      setSelectedIndex(index);
-                      setActiveTileIndex(index);
-                    }}
-                    style={[
-                      st.filmstripThumb,
-                      selectedIndex === index && st.filmstripThumbActive,
-                      selectedIndex !== index && { opacity: 0.55 },
-                    ]}
-                  >
-                    <Image source={{ uri: thumbUrl(photo) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                    {index === 0 && (
-                      <RNView style={st.filmstripMainDot}>
-                        <Text style={{ fontSize: 8 }}>👑</Text>
-                      </RNView>
-                    )}
-                  </Pressable>
-                ))}
+                {displayItems.map((item, index) => {
+                  const uri = itemThumbUri(item);
+                  if (!uri) return null;
+                  return (
+                    <Pressable
+                      key={`fs-${index}-${item.id}`}
+                      onPress={() => {
+                        setSelectedIndex(index);
+                        setActiveTileIndex(item.status === 'ready' ? index : null);
+                      }}
+                      style={[
+                        st.filmstripThumb,
+                        selectedIndex === index && st.filmstripThumbActive,
+                        selectedIndex !== index && { opacity: 0.55 },
+                      ]}
+                    >
+                      <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                      {index === 0 && (
+                        <RNView style={st.filmstripMainDot}>
+                          <Text style={{ fontSize: 8 }}>👑</Text>
+                        </RNView>
+                      )}
+                      {item.status === 'uploading' ? (
+                        <RNView style={st.filmstripStatusDot}>
+                          <ActivityIndicator size="small" color="#fff" />
+                        </RNView>
+                      ) : null}
+                      {item.status === 'failed' ? (
+                        <RNView style={st.filmstripStatusDot}>
+                          <Ionicons name="alert-circle" size={14} color="#fff" />
+                        </RNView>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
                 {Array.from({ length: Math.max(0, MAX_PHOTOS - filledCount) }).map((_, i) => (
                   <RNView
                     key={`fs-empty-${i}`}
@@ -1522,15 +1552,23 @@ export default function PhotoManageDrawer({
                   colors={['#8B5CF6', '#E84393']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={[st.saveGradient, { opacity: hasChanges ? 1 : 0.5 }]}
+                  style={[st.saveGradient, { opacity: hasChanges && canSave ? 1 : 0.5 }]}
                 >
                   <Pressable
                     onPress={() => void handleSave()}
-                    disabled={saving}
+                    disabled={saving || !canSave}
                     style={st.saveInner}
                   >
                     <Text style={st.saveText}>
-                      {saving ? 'Saving…' : hasChanges ? 'Save Changes' : 'Done'}
+                      {saving
+                        ? 'Saving…'
+                        : isUploading
+                          ? 'Uploading…'
+                          : hasFailures
+                            ? 'Resolve failed uploads'
+                            : hasChanges
+                              ? 'Save Changes'
+                              : 'Done'}
                     </Text>
                   </Pressable>
                 </LinearGradient>
@@ -1543,7 +1581,7 @@ export default function PhotoManageDrawer({
           </RNView>
         </KeyboardAvoidingView>
 
-      {draggingIndex !== null && dragPreviewRect && localPhotos[draggingIndex] ? (
+      {draggingIndex !== null && dragPreviewRect && draftItems[draggingIndex] ? (
         <RNView pointerEvents="none" style={st.dragFloatLayer}>
           <RNView
             style={[
@@ -1556,11 +1594,13 @@ export default function PhotoManageDrawer({
               },
             ]}
           >
-            <Image
-              source={{ uri: thumbUrl(localPhotos[draggingIndex]) }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="cover"
-            />
+            {itemThumbUri(draftItems[draggingIndex]) ? (
+              <Image
+                source={{ uri: itemThumbUri(draftItems[draggingIndex])! }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            ) : null}
           </RNView>
         </RNView>
       ) : null}
@@ -1686,6 +1726,18 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  filmstripStatusDot: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 2,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   filmstripEmpty: {
     width: 56,
     height: 56,
@@ -1727,6 +1779,44 @@ const st = StyleSheet.create({
     padding: 8,
     flexDirection: 'column',
     justifyContent: 'space-between',
+  },
+  statusOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4, 6, 16, 0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    gap: 8,
+  },
+  statusOverlayText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.bodySemiBold,
+    color: 'rgba(255,255,255,0.96)',
+    textAlign: 'center',
+  },
+  statusOverlayActions: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  statusActionBtn: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusActionBtnPressed: {
+    backgroundColor: 'rgba(255,255,255,0.24)',
+  },
+  statusActionText: {
+    fontSize: 11,
+    fontFamily: fonts.bodySemiBold,
+    color: '#fff',
   },
   /** Bottom row (slots 3–5): split columns; middle section flexes between badge and Main */
   tileOverlayBottomVariant: {
