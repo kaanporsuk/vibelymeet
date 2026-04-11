@@ -300,7 +300,14 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
 }
 
 function SupabaseAutoRefreshAppStateBridge() {
+  const { loading } = useAuth();
+
   useEffect(() => {
+    if (loading) {
+      void supabase.auth.stopAutoRefresh();
+      return;
+    }
+
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         void supabase.auth.startAutoRefresh();
@@ -316,7 +323,7 @@ function SupabaseAutoRefreshAppStateBridge() {
       subscription.remove();
       void supabase.auth.stopAutoRefresh();
     };
-  }, []);
+  }, [loading]);
 
   return null;
 }

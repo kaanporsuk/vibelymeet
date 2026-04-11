@@ -14,13 +14,26 @@ if (!supabaseUrl || !supabaseKey) {
   );
 }
 
+export const SUPABASE_PROJECT_REF = (() => {
+  try {
+    return new URL(supabaseUrl).hostname.split('.')[0]?.trim() || null;
+  } catch {
+    return null;
+  }
+})();
+
+export const SUPABASE_AUTH_STORAGE_KEY = SUPABASE_PROJECT_REF
+  ? `sb-${SUPABASE_PROJECT_REF}-auth-token`
+  : null;
+
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     storage: AsyncStorage,
     lock: processLock,
-    autoRefreshToken: true,
+    autoRefreshToken: false,
     persistSession: true,
     detectSessionInUrl: false,
     flowType: 'pkce',
+    ...(SUPABASE_AUTH_STORAGE_KEY ? { storageKey: SUPABASE_AUTH_STORAGE_KEY } : {}),
   },
 });

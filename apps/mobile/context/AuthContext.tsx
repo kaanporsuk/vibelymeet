@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import * as Sentry from '@sentry/react-native';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { clearNativeSupabaseAuthStorage } from '@/lib/authStorage';
 import { resetAnalytics, trackEvent } from '@/lib/analytics';
 import { logoutOneSignal } from '@/lib/onesignal';
 import { clearLocalPauseKeys } from '@/lib/notificationPause';
@@ -66,6 +67,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const currentAuthProvider = getAuthProvider(session?.user);
   const authUserIdRef = useRef<string | null>(null);
 
+  const clearAuthState = useCallback(() => {
+    authUserIdRef.current = null;
+    setSession(null);
+    setUser(null);
+    setEntryState(null);
+    setEntryStateLoading(false);
+  }, []);
+
+  const clearNativeAuthSession = useCallback(
+    async (reason: 'bootstrap' | 'sign-out', error: unknown) => {
+      let localSignOutError: unknown = null;
+      try {
+        const result = await supabase.auth.signOut({ scope: 'local' });
+        localSignOutError = result.error;
+      } catch (signOutError) {
+        localSignOutError = signOutError;
+      }
+
+      const storageCleanup = await clearNativeSupabaseAuthStorage();
+
+      if (
+        localSignOutError &&
+        !isInvalidRefreshTokenError(localSignOutError) &&
+        !isNoSessionError(localSignOutError) &&
+        __DEV__
+      ) {
+        const message =
+          localSignOutError instanceof Error ? localSignOutError.message : String(localSignOutError);
+        console.warn(`[auth] local ${reason} cleanup sign-out failed:`, message);
+      }
+
+      if (__DEV__ && storageCleanup.failedKeys.length > 0) {
+        console.warn(`[auth] local ${reason} cleanup storage purge incomplete:`, storageCleanup.failedKeys);
+      }
+
+      if (__DEV__ && !isInvalidRefreshTokenError(error) && !isNoSessionError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[auth] local ${reason} cleanup triggered by unexpected error:`, message);
+      }
+    },
+    [],
+  );
+
   const refreshEntryState = useCallback(async () => {
     if (!currentUserId) {
       setEntryState(null);
@@ -97,14 +141,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    const clearAuthState = () => {
-      authUserIdRef.current = null;
-      setSession(null);
-      setUser(null);
-      setEntryState(null);
-      setEntryStateLoading(false);
-    };
-
     const bootstrapAuth = async () => {
       try {
         const {
@@ -114,15 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           if (isInvalidRefreshTokenError(error)) {
-            const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
-            if (
-              localSignOutError &&
-              !isInvalidRefreshTokenError(localSignOutError) &&
-              !isNoSessionError(localSignOutError) &&
-              __DEV__
-            ) {
-              console.warn('[auth] local sign-out during stale session recovery failed:', localSignOutError.message);
-            }
+            await clearNativeAuthSession('bootstrap', error);
           } else if (__DEV__) {
             console.warn('[auth] getSession failed during bootstrap:', error.message);
           }
@@ -146,15 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       } catch (error) {
         if (isInvalidRefreshTokenError(error)) {
-          const { error: localSignOutError } = await supabase.auth.signOut({ scope: 'local' });
-          if (
-            localSignOutError &&
-            !isInvalidRefreshTokenError(localSignOutError) &&
-            !isNoSessionError(localSignOutError) &&
-            __DEV__
-          ) {
-            console.warn('[auth] local sign-out during stale session recovery failed:', localSignOutError.message);
-          }
+          await clearNativeAuthSession('bootstrap', error);
         }
         if (!isMounted) return;
         clearAuthState();
@@ -191,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [clearAuthState, clearNativeAuthSession]);
 
   useEffect(() => {
     authUserIdRef.current = currentUserId;
@@ -227,7 +247,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     resetAnalytics();
-    const { data: { session: current } } = await supabase.auth.getSession();
+    const {
+      data: { session: current },
+      error: sessionError,
+    } = await supabase.auth.getSession();
     const uid = current?.user?.id;
     void clearLocalPauseKeys();
     logoutOneSignal();
@@ -244,10 +267,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
     }
     void clearRevenueCatUser();
-    await supabase.auth.signOut();
-    setEntryState(null);
-    setEntryStateLoading(false);
-  }, []);
+
+    if (sessionError && isInvalidRefreshTokenError(sessionError)) {
+      await clearNativeAuthSession('sign-out', sessionError);
+      clearAuthState();
+      return;
+    }
+
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      if (isInvalidRefreshTokenError(signOutError) || isNoSessionError(signOutError)) {
+        await clearNativeAuthSession('sign-out', signOutError);
+        clearAuthState();
+        return;
+      }
+      throw signOutError;
+    }
+
+    const storageCleanup = await clearNativeSupabaseAuthStorage();
+    if (__DEV__ && storageCleanup.failedKeys.length > 0) {
+      console.warn('[signOut] auth storage purge incomplete:', storageCleanup.failedKeys);
+    }
+
+    clearAuthState();
+  }, [clearAuthState, clearNativeAuthSession]);
 
   const refreshOnboarding = useCallback(async () => {
     await refreshEntryState();
