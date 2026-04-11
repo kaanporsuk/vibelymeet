@@ -98,10 +98,18 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         setLoading(false);
         return;
       }
-      const d = data as { error?: string; remainingAttempts?: number };
+      const d = data as {
+        error?: string;
+        remainingAttempts?: number;
+        code?: string;
+      };
       if (d?.error) {
         setError(d.error);
         if (d.remainingAttempts != null) setRemainingAttempts(d.remainingAttempts);
+        if (d.code === 'legacy_verification_code') {
+          setStep('send');
+          setOtp(['', '', '', '', '', '']);
+        }
         setLoading(false);
         return;
       }
