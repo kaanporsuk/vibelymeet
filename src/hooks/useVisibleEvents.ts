@@ -22,7 +22,6 @@ export interface VisibleEvent {
   radius_km: number | null;
   distance_km: number | null;
   is_registered: boolean;
-  is_waitlisted: boolean;
   computed_status: string;
   is_recurring: boolean;
   parent_event_id: string | null;

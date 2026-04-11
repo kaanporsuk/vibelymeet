@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       account_deletion_requests: {
@@ -3465,7 +3490,6 @@ export type Database = {
           id: string
           is_recurring: boolean
           is_registered: boolean
-          is_waitlisted: boolean
           language: string
           latitude: number
           longitude: number
@@ -3612,6 +3636,16 @@ export type Database = {
       update_participant_status: {
         Args: { p_event_id: string; p_status: string }
         Returns: undefined
+      }
+      update_profile_location: {
+        Args: {
+          p_country: string
+          p_lat: number
+          p_lng: number
+          p_location: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       video_date_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
@@ -3765,6 +3799,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
