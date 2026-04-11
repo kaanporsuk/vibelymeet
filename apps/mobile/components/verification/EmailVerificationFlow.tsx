@@ -22,6 +22,84 @@ type EmailVerificationFlowProps = {
   onVerified: () => void;
 };
 
+type FunctionInvokeError = {
+  name?: string;
+  message?: string;
+  details?: string;
+  context?: unknown;
+};
+
+const NETWORK_ERROR_PATTERNS = [
+  /network request failed/i,
+  /failed to fetch/i,
+  /network error/i,
+  /load failed/i,
+];
+
+function isNetworkInvokeError(invokeError: FunctionInvokeError): boolean {
+  const text = `${invokeError.name ?? ''} ${invokeError.message ?? ''} ${invokeError.details ?? ''}`;
+  return invokeError.name === 'FunctionsFetchError' || NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+async function resolveInvokeErrorMessage(
+  invokeError: unknown,
+  data: unknown,
+  networkFallback: string,
+): Promise<string> {
+  const payloadError =
+    typeof data === 'object' && data !== null && typeof (data as { error?: unknown }).error === 'string'
+      ? (data as { error: string }).error
+      : null;
+  if (payloadError) return payloadError;
+  if (!invokeError) return networkFallback;
+
+  const fnError = invokeError as FunctionInvokeError;
+  if (isNetworkInvokeError(fnError)) return networkFallback;
+
+  const context = fnError.context;
+  let statusCode: number | null = null;
+  let serverMessage: string | null = null;
+
+  if (context && typeof context === 'object') {
+    const contextWithStatus = context as { status?: unknown };
+    if (typeof contextWithStatus.status === 'number') statusCode = contextWithStatus.status;
+
+    if (typeof (context as Response).text === 'function') {
+      try {
+        const text = await (context as Response).clone().text();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+            if (typeof parsed.error === 'string') serverMessage = parsed.error;
+            else if (typeof parsed.message === 'string') serverMessage = parsed.message;
+          } catch {
+            serverMessage = text;
+          }
+        }
+      } catch {
+        // Ignore context parse failures and fall back below.
+      }
+    }
+  }
+
+  if (!serverMessage && typeof fnError.details === 'string' && fnError.details.trim().length > 0) {
+    serverMessage = fnError.details;
+  }
+  if (
+    !serverMessage &&
+    typeof fnError.message === 'string' &&
+    fnError.message.trim().length > 0 &&
+    !/non-2xx status code/i.test(fnError.message)
+  ) {
+    serverMessage = fnError.message;
+  }
+
+  if (serverMessage && statusCode) return `${serverMessage} (HTTP ${statusCode})`;
+  if (serverMessage) return serverMessage;
+  if (statusCode) return `Request failed (HTTP ${statusCode}).`;
+  return networkFallback;
+}
+
 export function EmailVerificationFlow({ visible, email, onClose, onVerified }: EmailVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('send');
@@ -52,7 +130,12 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         body: { email: email.trim() },
       });
       if (invokeError) {
-        setError('Failed to send code. Check your connection.');
+        const message = await resolveInvokeErrorMessage(
+          invokeError,
+          data,
+          'Failed to send code. Check your connection.',
+        );
+        setError(message);
         setSending(false);
         return;
       }
@@ -63,8 +146,10 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
       }
       setMessage(`Code sent to ${email.trim()}`);
       setStep('otp');
-    } catch {
-      setError('Network error. Try again.');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0 ? err.message : 'Network error. Try again.';
+      setError(message);
     } finally {
       setSending(false);
     }
@@ -79,7 +164,12 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         body: { email: email.trim(), code },
       });
       if (invokeError) {
-        setError('Verification failed.');
+        const message = await resolveInvokeErrorMessage(
+          invokeError,
+          data,
+          'Verification failed. Check your connection.',
+        );
+        setError(message);
         setLoading(false);
         return;
       }
@@ -95,8 +185,10 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         onVerified();
         onClose();
       }, 1500);
-    } catch {
-      setError('Network error. Try again.');
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.trim().length > 0 ? err.message : 'Network error. Try again.';
+      setError(message);
     } finally {
       setLoading(false);
     }
