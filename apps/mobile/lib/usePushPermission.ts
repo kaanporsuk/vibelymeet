@@ -1,36 +1,45 @@
 /**
- * Push permission for native: expo-notifications is canonical for OS state;
- * OneSignal requestPermission is only used when OS status is undetermined (real system sheet).
+ * Push permission for native: expo-notifications is canonical for OS state and for requesting the system sheet.
+ * Backend / OneSignal subscription sync is separate (see syncPushSubscriptionToBackend, syncBackendAfterPushGrant).
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
-import { getOsPushPermissionState, type OsPushPermissionState } from '@/lib/osPushPermission';
-
-let OneSignal: any = null;
-try {
-  const mod: any = require('react-native-onesignal');
-  OneSignal = mod?.OneSignal ?? mod?.default ?? mod ?? null;
-} catch {
-  OneSignal = null;
-}
+import {
+  getOsPushPermissionState,
+  pushPermDevLog,
+  requestOsPushPermission,
+  type OsPushPermissionState,
+} from '@/lib/osPushPermission';
+import { logOneSignalPushDiagnostics } from '@/lib/onesignal';
 
 export type RequestPushPermissionResult = {
   granted: boolean;
-  /** System already denied push — never call OneSignal.requestPermission; show branded recovery. */
+  /** System already denied push — never call requestPermissionsAsync again; show branded recovery. */
   osDenied: boolean;
 };
 
 export function usePushPermission() {
   const [osStatus, setOsStatus] = useState<OsPushPermissionState | 'unknown'>('unknown');
+  const prevOsRef = useRef<OsPushPermissionState | 'unknown'>('unknown');
+
+  const applyOsState = useCallback((next: OsPushPermissionState) => {
+    const prev = prevOsRef.current;
+    prevOsRef.current = next;
+    pushPermDevLog('applyOsState', { next, prev });
+    setOsStatus(next);
+    if (Platform.OS === 'ios' && prev === 'denied' && next === 'granted') {
+      pushPermDevLog('reconcile: denied -> granted (e.g. return from iOS Settings)');
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
       const next = await getOsPushPermissionState();
-      setOsStatus(next);
+      applyOsState(next);
     } catch {
       setOsStatus('unknown');
     }
-  }, []);
+  }, [applyOsState]);
 
   useEffect(() => {
     void refresh();
@@ -38,39 +47,34 @@ export function usePushPermission() {
 
   useEffect(() => {
     const onChange = (next: AppStateStatus) => {
-      if (next === 'active') {
-        void refresh();
-      }
+      if (next !== 'active') return;
+      void (async () => {
+        pushPermDevLog('AppState -> active: foreground OS permission reconcile (no prompt)');
+        if (Platform.OS === 'ios') {
+          await new Promise((r) => setTimeout(r, 160));
+        }
+        try {
+          const nextState = await getOsPushPermissionState();
+          applyOsState(nextState);
+        } catch {
+          setOsStatus('unknown');
+        }
+      })();
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [refresh]);
+  }, [applyOsState]);
 
   const requestPermission = useCallback(async (): Promise<RequestPushPermissionResult> => {
-    const before = await getOsPushPermissionState();
-    if (before === 'denied') {
-      await refresh();
-      return { granted: false, osDenied: true };
-    }
-    if (before === 'granted') {
-      await refresh();
-      return { granted: true, osDenied: false };
-    }
-    if (!OneSignal?.Notifications) {
-      await refresh();
-      return { granted: false, osDenied: false };
-    }
-    try {
-      const granted = await OneSignal.Notifications.requestPermission(false);
-      await refresh();
-      return { granted, osDenied: false };
-    } catch {
-      await refresh();
-      return { granted: false, osDenied: false };
-    }
+    pushPermDevLog('usePushPermission.requestPermission (delegates to requestOsPushPermission)');
+    const result = await requestOsPushPermission();
+    await refresh();
+    await logOneSignalPushDiagnostics('after requestPermission');
+    return result;
   }, [refresh]);
 
   const openSettings = useCallback(() => {
+    pushPermDevLog('openSettings / recovery path (passive — no OS permission request)');
     if (Platform.OS === 'ios') {
       Linking.openURL('app-settings:');
     } else {
@@ -90,7 +94,7 @@ export function usePushPermission() {
     status: osStatus === 'unknown' ? 'unknown' : osStatus,
     isGranted,
     isDenied,
-    /** True when the OS will show the real permission sheet if we call OneSignal.requestPermission */
+    /** True when the OS will show the real permission sheet if we call requestOsPushPermission */
     canRequestOsPermission,
     isDefault,
     isUnknown,

@@ -21,7 +21,7 @@ import {
   syncBackendAfterPushGrant,
   VIBELY_PUSH_PERMISSION_ASKED_KEY,
 } from '@/lib/requestPushPermissions';
-import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import { getOsPushPermissionState, pushPermDevLog } from '@/lib/osPushPermission';
 import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
 import { usePushPermission } from '@/lib/usePushPermission';
 
@@ -92,6 +92,7 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   }, [visible, pulse]);
 
   const handleNotNow = async () => {
+    if (__DEV__) pushPermDevLog('PushPermissionPrompt: Not now / cancel — dismiss, no OS request');
     await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'skipped');
     onClose();
     onCompleted?.();
@@ -110,6 +111,8 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       await refresh();
       const os = await getOsPushPermissionState();
       if (os === 'denied') {
+        if (__DEV__) pushPermDevLog('PushPermissionPrompt: OS denied — passive recovery only, no requestPermission');
+        await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
         setPhase('deniedRecovery');
         return;
       }
@@ -120,6 +123,9 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
         onCompleted?.();
         return;
       }
+      /** Persist before closing modal so no other effect can re-show preprompt while the system sheet runs. */
+      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
+      if (__DEV__) pushPermDevLog('PushPermissionPrompt: undetermined — close branded modal, then OS sheet');
       onClose();
       await new Promise<void>((resolve) => setTimeout(resolve, DISMISS_BEFORE_OS_PERMISSION_MS));
       await requestPushPermissionsAfterPrompt(userId);

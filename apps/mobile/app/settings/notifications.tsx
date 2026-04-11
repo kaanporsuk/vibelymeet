@@ -23,7 +23,7 @@ import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
-import { syncPushSubscriptionToBackend } from '@/lib/onesignal';
+import { syncBackendAfterPushGrant } from '@/lib/requestPushPermissions';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
 import {
@@ -325,7 +325,7 @@ export default function NotificationsSettingsScreen() {
       return;
     }
     if (result.granted && user?.id) {
-      await syncPushSubscriptionToBackend(user.id);
+      await syncBackendAfterPushGrant(user.id);
     }
     await refresh();
   };

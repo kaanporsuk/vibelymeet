@@ -18,8 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { startOfDay } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import * as Notifications from 'expo-notifications';
-import { PermissionStatus } from 'expo-modules-core';
+import { useFocusEffect } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
 import {
   Avatar,
@@ -50,7 +49,9 @@ import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
-import { VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
+import { shouldOfferDashboardPushPreprompt } from '@/lib/requestPushPermissions';
+import { syncNativePushDeliveryOnForeground } from '@/lib/nativePushForegroundSync';
+import { pushPermDevLog } from '@/lib/osPushPermission';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -133,6 +134,7 @@ export default function DashboardScreen() {
   } = useDeletionRecovery(user?.id);
   const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
+  const pushPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pushGrantedBaselineRef = useRef<boolean | null>(null);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
@@ -314,24 +316,44 @@ export default function DashboardScreen() {
     setInitialPhoneE164(phoneNumber ?? null);
   }, [user?.id]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (__DEV__) pushPermDevLog('dashboard useFocusEffect: refreshPushPermission');
+      void refreshPushPermission();
+    }, [refreshPushPermission])
+  );
+
   useEffect(() => {
     if (!user?.id || onboardingComplete !== true) return;
-    const timer = setTimeout(() => {
+    pushPromptTimerRef.current = setTimeout(() => {
+      pushPromptTimerRef.current = null;
       void (async () => {
         try {
-          const asked = await AsyncStorage.getItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
-          if (asked) return;
-          const { status } = await Notifications.getPermissionsAsync();
-          if (status === PermissionStatus.UNDETERMINED) {
-            setShowPushPermissionPrompt(true);
-          }
+          const offer = await shouldOfferDashboardPushPreprompt();
+          if (!offer) return;
+          if (__DEV__) pushPermDevLog('dashboard: scheduling push preprompt modal (undetermined, never dismissed)');
+          setShowPushPermissionPrompt(true);
         } catch {
           /* ignore */
         }
       })();
     }, 1500);
-    return () => clearTimeout(timer);
+    return () => {
+      if (pushPromptTimerRef.current) {
+        clearTimeout(pushPromptTimerRef.current);
+        pushPromptTimerRef.current = null;
+      }
+    };
   }, [user?.id, onboardingComplete]);
+
+  /** If preprompt is showing, cancel delayed timer so it cannot fire twice. */
+  useEffect(() => {
+    if (!showPushPermissionPrompt) return;
+    if (pushPromptTimerRef.current) {
+      clearTimeout(pushPromptTimerRef.current);
+      pushPromptTimerRef.current = null;
+    }
+  }, [showPushPermissionPrompt]);
 
   /** usePushPermission refreshes on foreground; react to grant transitions for modal + prefs (no separate AppState listener). */
   useEffect(() => {
@@ -344,9 +366,13 @@ export default function DashboardScreen() {
     pushGrantedBaselineRef.current = pushGranted;
     if (!prev && pushGranted) {
       void qc.invalidateQueries({ queryKey: ['notification-preferences'] });
+      if (user?.id) {
+        if (__DEV__) pushPermDevLog('dashboard: OS became granted — silent backend sync');
+        void syncNativePushDeliveryOnForeground(user.id);
+      }
     }
     if (pushGranted) setShowPushPermissionPrompt(false);
-  }, [pushGranted, qc]);
+  }, [pushGranted, qc, user?.id]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

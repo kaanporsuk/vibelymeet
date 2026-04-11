@@ -4,8 +4,11 @@
  */
 import { syncPushWithBackendIfPermissionGranted } from '@/lib/onesignal';
 import { syncNativePushSuppressionWithBackend } from '@/lib/notificationPause';
+import { pushPermDevLog } from '@/lib/osPushPermission';
 
 export async function syncNativePushDeliveryOnForeground(userId: string): Promise<void> {
+  if (__DEV__) pushPermDevLog('syncNativePushDeliveryOnForeground:start', { userId });
   await syncPushWithBackendIfPermissionGranted(userId);
   await syncNativePushSuppressionWithBackend(userId);
+  if (__DEV__) pushPermDevLog('syncNativePushDeliveryOnForeground:done', { userId });
 }
