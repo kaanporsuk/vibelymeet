@@ -4,7 +4,7 @@ import { Mail, Loader2, CheckCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { useEmailVerification } from "@/hooks/useEmailVerification";
+import { isVerifyOtpFailure, useEmailVerification } from "@/hooks/useEmailVerification";
 import {
   Drawer,
   DrawerClose,
@@ -49,9 +49,16 @@ export const EmailVerificationFlow = ({
 
   const handleVerifyOtp = async () => {
     if (otp.length !== 6) return;
-    
-    const success = await verifyOtp(email, otp);
-    if (success) {
+
+    const result = await verifyOtp(email, otp);
+    if (isVerifyOtpFailure(result)) {
+      if (result.needsNewCode) {
+        setStep("email");
+        setOtp("");
+      }
+      return;
+    }
+    if (result.success) {
       setStep("success");
       setTimeout(() => {
         onVerified();

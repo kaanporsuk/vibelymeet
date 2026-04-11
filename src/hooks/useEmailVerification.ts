@@ -3,9 +3,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 
+export type VerifyOtpFailure = { success: false; needsNewCode?: boolean };
+export type VerifyOtpSuccess = { success: true };
+export type VerifyOtpResult = VerifyOtpSuccess | VerifyOtpFailure;
+
+export function isVerifyOtpFailure(r: VerifyOtpResult): r is VerifyOtpFailure {
+  return r.success === false;
+}
+
 interface UseEmailVerificationResult {
   sendOtp: (email: string) => Promise<boolean>;
-  verifyOtp: (email: string, code: string) => Promise<boolean>;
+  verifyOtp: (email: string, code: string) => Promise<VerifyOtpResult>;
   isSending: boolean;
   isVerifying: boolean;
 }
@@ -52,7 +60,7 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
     }
   };
 
-  const verifyOtp = async (email: string, code: string): Promise<boolean> => {
+  const verifyOtp = async (email: string, code: string): Promise<VerifyOtpResult> => {
     setIsVerifying(true);
     try {
       const { data, error } = await supabase.functions.invoke("email-verification/verify", {
@@ -67,16 +75,20 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
           "Couldn’t reach the server. Check your connection and try again.",
         );
         toast.error(message);
-        return false;
+        return { success: false };
       }
 
       if (data?.error) {
+        const codeStr = (data as { code?: string }).code;
         toast.error(data.error);
-        return false;
+        if (codeStr === "legacy_verification_code") {
+          return { success: false, needsNewCode: true };
+        }
+        return { success: false };
       }
 
       toast.success("Current account email verified for your profile.");
-      return true;
+      return { success: true };
     } catch (error) {
       console.error("Verify OTP error:", error);
       const message =
@@ -84,7 +96,7 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
           ? error.message
           : "Couldn’t reach the server. Check your connection and try again.";
       toast.error(message);
-      return false;
+      return { success: false };
     } finally {
       setIsVerifying(false);
     }

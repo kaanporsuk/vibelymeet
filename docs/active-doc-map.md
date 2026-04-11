@@ -48,6 +48,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Rebuild rehearsal evidence log** | `docs/rebuild-rehearsal-log.md` |
 | **Repo hardening / dead-surface closure (dated)** | `docs/repo-hardening-closure-2026-04-11.md` |
 | **Final closure sprint report (branch isolation + ESLint + proof boundaries)** | `docs/hardening-final-closure-sprint-2026-04-11.md` |
+| **Current-email OTP (Edge + web/native parity + secret/HMAC semantics)** | `docs/email-verification-settlement-2026-04-11.md` |
 
 **Singular backlog framing:** for launch closure, the only active backlog/evidence log is `docs/native-final-blocker-matrix.md`. Older sprint boards, deferred backlogs, and parity plans are historical context only unless this map or a canonical doc explicitly promotes them again.
 

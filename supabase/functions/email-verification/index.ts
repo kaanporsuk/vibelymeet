@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
 import {
   normalizeEmailAddress,
   resolveCanonicalAuthEmail,
@@ -10,6 +9,25 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const EMAIL_VERIFICATION_FROM_EMAIL =
   Deno.env.get("EMAIL_VERIFICATION_FROM_EMAIL") ||
   "Vibely <hello@vibelymeet.com>";
+
+/** Preferred secret for new OTP sends (dedicated pepper, else service role). */
+function getOtpHmacSecret(): string | null {
+  return (
+    Deno.env.get("EMAIL_VERIFICATION_OTP_SECRET") ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+    null
+  );
+}
+
+/** All secrets to try at verify time so rows issued with SRK still work after EMAIL_VERIFICATION_OTP_SECRET is added. */
+function otpVerificationSecrets(): string[] {
+  const dedicated = Deno.env.get("EMAIL_VERIFICATION_OTP_SECRET");
+  const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const set = new Set<string>();
+  if (dedicated) set.add(dedicated);
+  if (srk) set.add(srk);
+  return [...set];
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,14 +84,86 @@ function generateOtp(): string {
   return otp.toString();
 }
 
-// Hash OTP code using bcrypt
-async function hashOtp(otp: string): Promise<string> {
-  return await bcrypt.hash(otp);
+const OTP_HASH_PREFIX = "h1:";
+
+function bytesToHex(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) {
+    s += bytes[i]!.toString(16).padStart(2, "0");
+  }
+  return s;
 }
 
-// Verify OTP code against hash
-async function verifyOtpHash(otp: string, hash: string): Promise<boolean> {
-  return await bcrypt.compare(otp, hash);
+function timingSafeEqualUtf8(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) {
+    diff |= ea[i]! ^ eb[i]!;
+  }
+  return diff === 0;
+}
+
+/**
+ * HMAC-SHA256(otp) with a server secret (pepper). Edge-safe (Web Crypto only).
+ * Avoids bcrypt, which uses Workers and crashes on Supabase Edge ("Worker is not defined").
+ */
+async function hmacOtpStoredFormWithSecret(
+  otp: string,
+  secret: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(otp),
+    ),
+  );
+  return `${OTP_HASH_PREFIX}${bytesToHex(sig)}`;
+}
+
+async function hmacOtpStoredForm(otp: string): Promise<string> {
+  const secret = getOtpHmacSecret();
+  if (!secret) {
+    throw new Error("OTP signing is not configured");
+  }
+  return await hmacOtpStoredFormWithSecret(otp, secret);
+}
+
+async function verifyOtpHash(
+  otp: string,
+  stored: string,
+  requestId: string,
+): Promise<boolean> {
+  if (!stored.startsWith(OTP_HASH_PREFIX)) {
+    logStage("verify_otp_stored_format_unknown", {
+      requestId,
+      hint: "legacy_or_corrupt_hash",
+    });
+    return false;
+  }
+  const secrets = otpVerificationSecrets();
+  if (secrets.length === 0) {
+    logStage("verify_otp_hmac_secret_missing", { requestId });
+    return false;
+  }
+  for (const secret of secrets) {
+    try {
+      const expected = await hmacOtpStoredFormWithSecret(otp, secret);
+      if (timingSafeEqualUtf8(expected, stored)) return true;
+    } catch {
+      // try next secret
+    }
+  }
+  return false;
 }
 
 // Send email via Resend API
@@ -185,8 +275,9 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  let requestId: string | undefined;
   try {
-    const requestId = crypto.randomUUID();
+    requestId = crypto.randomUUID();
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     
@@ -273,10 +364,22 @@ const handler = async (req: Request): Promise<Response> => {
 
       const authEmail = canonicalAuthEmail;
 
+      logStage("canonical_email_resolved", {
+        requestId,
+        userId: user.id,
+        canonicalAuthEmail: authEmail,
+        requestedEmail,
+      });
+
       const otp = generateOtp();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      console.log(`Generating OTP for user ${user.id}, email: ${authEmail}`);
+      logStage("otp_generated", {
+        requestId,
+        userId: user.id,
+        // Never log the raw OTP
+        otpLength: otp.length,
+      });
 
       // Delete any existing codes for this user
       const { error: deleteError } = await supabaseAdmin
@@ -296,10 +399,28 @@ const handler = async (req: Request): Promise<Response> => {
         );
       }
 
-      // Hash the OTP before storing
-      const hashedOtp = await hashOtp(otp);
+      logStage("otp_hash_start", { requestId, userId: user.id });
+      let hashedOtp: string;
+      try {
+        hashedOtp = await hmacOtpStoredForm(otp);
+        logStage("otp_hash_success", { requestId, userId: user.id });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logStage("otp_hash_failed", {
+          requestId,
+          userId: user.id,
+          error: msg,
+          reason: msg.includes("not configured") ? "otp_hmac_secret_missing" : "hash_error",
+        });
+        return jsonResponse(
+          {
+            error: "Verification could not be prepared. Please try again later.",
+            code: "otp_hash_failed",
+          },
+          500,
+        );
+      }
 
-      // Insert new verification code (hashed)
       const { error: insertError } = await supabaseAdmin
         .from("email_verifications")
         .insert({
@@ -311,7 +432,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       if (insertError) {
         console.error("Insert error:", insertError);
-        logStage("send_insert_failed", {
+        logStage("otp_row_insert_fail", {
           requestId,
           userId: user.id,
           error: insertError.message,
@@ -321,7 +442,7 @@ const handler = async (req: Request): Promise<Response> => {
           500,
         );
       }
-      logStage("send_insert_success", { requestId, userId: user.id });
+      logStage("otp_row_insert_success", { requestId, userId: user.id });
 
       // Send email
       const resendResult = await sendEmail(authEmail, otp, requestId);
@@ -418,16 +539,43 @@ const handler = async (req: Request): Promise<Response> => {
 
       if (findError) {
         console.error("Find error:", findError);
-        return jsonResponse({ error: "Verification failed" }, 500);
+        logStage("verify_lookup_failed", {
+          requestId,
+          userId: user.id,
+          error: findError.message,
+        });
+        return jsonResponse(
+          {
+            error: "Could not load verification state. Please try again.",
+            code: "verification_lookup_failed",
+          },
+          500,
+        );
       }
 
       if (!verification) {
         return jsonResponse({ error: "Invalid or expired verification code" }, 400);
       }
 
-      // Verify the OTP against the stored hash
-      const isValidCode = await verifyOtpHash(code, verification.code);
-      
+      const storedCode = String(verification.code ?? "");
+      const isLegacyBcryptHash =
+        storedCode.startsWith("$2a$") ||
+        storedCode.startsWith("$2b$") ||
+        storedCode.startsWith("$2y$");
+      if (isLegacyBcryptHash) {
+        logStage("verify_legacy_bcrypt_row", { requestId, userId: user.id });
+        return jsonResponse(
+          {
+            error:
+              "This code was issued before an app update and can’t be checked anymore. Tap Send Code again for a new email.",
+            code: "legacy_verification_code",
+          },
+          400,
+        );
+      }
+
+      const isValidCode = await verifyOtpHash(code, storedCode, requestId);
+
       if (!isValidCode) {
         // Record failed attempt
         await supabaseAdmin
@@ -479,9 +627,25 @@ const handler = async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "Invalid action" }, 400);
 
   } catch (error: unknown) {
-    console.error("Error in email-verification function:", error);
     const message = error instanceof Error ? error.message : "Internal error";
-    return jsonResponse({ error: message }, 500);
+    console.error("Error in email-verification function:", error);
+    logStage("handler_unhandled_error", {
+      requestId: requestId ?? null,
+      error: message,
+      code:
+        message === "Worker is not defined"
+          ? "runtime_worker_unavailable"
+          : "internal_error",
+    });
+    const code =
+      message === "Worker is not defined" ? "runtime_worker_unavailable" : "internal_error";
+    return jsonResponse(
+      {
+        error: "Something went wrong. Please try again.",
+        code,
+      },
+      500,
+    );
   }
 };
 
