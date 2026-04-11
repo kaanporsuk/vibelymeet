@@ -12,6 +12,30 @@ const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
 
 let initialized = false;
 
+/** Dev-only: OneSignal subscription snapshot — not authoritative for OS permission (use expo-notifications). */
+export async function logOneSignalPushDiagnostics(context: string): Promise<void> {
+  if (!__DEV__ || !APP_ID) return;
+  try {
+    const subscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
+    let optedIn: boolean | undefined;
+    try {
+      optedIn = await (OneSignal.User.pushSubscription as { getOptedInAsync?: () => Promise<boolean> })
+        .getOptedInAsync?.();
+    } catch {
+      optedIn = undefined;
+    }
+    console.log(`[Vibely][push][onesignal] ${context}`, { subscriptionId, optedIn });
+  } catch (e) {
+    console.log(`[Vibely][push][onesignal] ${context}`, e);
+  }
+}
+
+function pushSyncDevLog(message: string, extra?: Record<string, unknown>): void {
+  if (!__DEV__) return;
+  if (extra) console.log(`[Vibely][push][sync] ${message}`, extra);
+  else console.log(`[Vibely][push][sync] ${message}`);
+}
+
 export function initOneSignal(): void {
   if (initialized || !APP_ID) return;
   try {
@@ -33,6 +57,7 @@ export function bindOneSignalExternalUser(userId: string): void {
 
 /** Login + subscription id + Supabase upsert (no OS permission prompt). */
 async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
+  pushSyncDevLog('pushSubscriptionToBackend:start', { userId });
   bindOneSignalExternalUser(userId);
   let subscriptionId: string | null = await OneSignal.User.pushSubscription.getIdAsync();
   if (!subscriptionId) {
@@ -52,15 +77,17 @@ async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
     console.warn('[Vibely] Failed to save mobile push id:', error);
     return false;
   }
+  pushSyncDevLog('pushSubscriptionToBackend:ok', { userId, subscriptionId });
   return true;
 }
 
 /**
  * Sync OneSignal subscription ID to notification_preferences after permission is already granted.
- * Does not call requestPermission — use from flows that already prompted (e.g. requestPushPermissionsAfterPrompt).
+ * Does not call requestPermission — use after OS permission is granted (e.g. syncBackendAfterPushGrant).
  */
 export async function syncPushSubscriptionToBackend(userId: string): Promise<boolean> {
   if (!APP_ID) return false;
+  pushSyncDevLog('syncPushSubscriptionToBackend', { userId });
   try {
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
@@ -71,10 +98,11 @@ export async function syncPushSubscriptionToBackend(userId: string): Promise<boo
 
 /**
  * Register this device's push subscription with the backend when OS permission is already granted.
- * Does not prompt — use usePushPermission.requestPermission or requestPushPermissionsAfterPrompt first.
+ * Does not prompt — call only after expo OS permission is granted.
  */
 export async function registerPushWithBackend(userId: string): Promise<boolean> {
   if (!APP_ID) return false;
+  pushSyncDevLog('registerPushWithBackend (sync-only, no OS prompt)', { userId });
   try {
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== PermissionStatus.GRANTED) return false;
@@ -91,6 +119,7 @@ export async function registerPushWithBackend(userId: string): Promise<boolean> 
  */
 export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<boolean> {
   if (!APP_ID) return false;
+  pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
   try {
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== PermissionStatus.GRANTED) return false;

@@ -1,17 +1,30 @@
 /**
- * First-time push flow after in-app prompt: uses expo OS state so we never call
- * OneSignal.requestPermission when the user has already denied (avoids generic SDK “Open Settings” alert).
+ * After in-app prompt: expo OS state + single requestOsPushPermission path (no OneSignal.requestPermission).
+ * Backend sync is separate from requesting OS permission.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
 import { disablePush, syncPushSubscriptionToBackend } from '@/lib/onesignal';
 import { PAUSED_UNTIL_KEY } from '@/lib/notificationPause';
-import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import { getOsPushPermissionState, pushPermDevLog, requestOsPushPermission } from '@/lib/osPushPermission';
 
 export const VIBELY_PUSH_PERMISSION_ASKED_KEY = 'vibely_push_permission_asked';
 
 const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
+
+/**
+ * Dashboard preprompt: only when user has never completed this wizard (no AsyncStorage value)
+ * and OS permission is still undetermined. Denied/granted users must never get the auto modal.
+ */
+export async function shouldOfferDashboardPushPreprompt(): Promise<boolean> {
+  try {
+    const v = await AsyncStorage.getItem(VIBELY_PUSH_PERMISSION_ASKED_KEY);
+    if (v != null && v !== '') return false;
+    return (await getOsPushPermissionState()) === 'undetermined';
+  } catch {
+    return false;
+  }
+}
 
 export type PushPromptResult =
   | { outcome: 'granted' }
@@ -21,6 +34,7 @@ export type PushPromptResult =
 
 /** Shared success path after OS permission is granted (prefs + OneSignal subscription; no prompts). */
 export async function syncBackendAfterPushGrant(userId: string): Promise<void> {
+  if (__DEV__) pushPermDevLog('syncBackendAfterPushGrant', { userId });
   const stored = await AsyncStorage.getItem(PAUSED_UNTIL_KEY);
   const isPaused = !!(stored && new Date(stored) > new Date());
   if (!isPaused) {
@@ -52,7 +66,7 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     return { outcome: 'granted' };
   }
 
-  const granted = await OneSignal.Notifications.requestPermission(false);
+  const { granted } = await requestOsPushPermission();
   if (granted) {
     await syncBackendAfterPushGrant(userId);
     return { outcome: 'granted' };

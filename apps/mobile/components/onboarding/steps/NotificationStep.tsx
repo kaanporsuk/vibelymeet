@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import { NotificationDeniedRecoveryModal } from '@/components/notifications/NotificationDeniedRecovery';
-import { syncBackendAfterPushGrant } from '@/lib/requestPushPermissions';
+import { syncBackendAfterPushGrant, VIBELY_PUSH_PERMISSION_ASKED_KEY } from '@/lib/requestPushPermissions';
 import { usePushPermission } from '@/lib/usePushPermission';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -24,6 +25,7 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
     if (busy) return;
     setBusy(true);
     try {
+      await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
       const result = await requestPermission();
       if (result.osDenied) {
         setShowDeniedRecovery(true);
@@ -46,7 +48,12 @@ export default function NotificationStep({ userId, onNext }: { userId: string; o
         <Text style={{ color: theme.text }}>🎉 You matched with Alex at Friday Night Social!</Text>
       </View>
       <VibelyButton label="Turn on notifications" onPress={ask} variant="gradient" disabled={busy} />
-      <Pressable onPress={onNext}>
+      <Pressable
+        onPress={() => {
+          void AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'skipped');
+          onNext();
+        }}
+      >
         <Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Maybe later</Text>
       </Pressable>
 
