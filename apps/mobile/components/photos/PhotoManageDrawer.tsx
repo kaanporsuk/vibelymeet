@@ -524,7 +524,7 @@ export default function PhotoManageDrawer({
     takeOnePhoto,
     moveItem,
     makeMain,
-    removeAtIndex,
+    removeById,
     retryItem,
     dismissFailedItem,
   } = usePhotoBatchController({
@@ -584,26 +584,38 @@ export default function PhotoManageDrawer({
   draftItemsRef.current = draftItems;
   const handledLaunchActionRef = useRef<number | null>(null);
 
+  /**
+   * Keep a ref to the latest `photos` prop so the open-transition effect always
+   * reads the current server snapshot without needing `photos` in its dep array.
+   * Having `photos` in the dep array caused `resetDraft` to fire on every React
+   * Query background-refetch while the drawer was open, wiping staged deletions.
+   */
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+
   React.useEffect(() => {
-    if (visible) {
-      resetDraft(photos);
-      setSelectedIndex(0);
-      setActiveTileIndex(null);
-      const startFullscreenIndex =
-        fullscreenOnly && typeof initialFullscreenIndex === 'number'
-          ? Math.min(Math.max(0, initialFullscreenIndex), Math.max(0, photos.length - 1))
-          : null;
-      setFullscreenIndex(startFullscreenIndex);
-      setFullscreenPagerLocked(false);
-      setDraggingIndex(null);
-      setPreviewDropIndex(null);
-      setDragTranslation({ tx: 0, ty: 0 });
-      dragStartRectRef.current = null;
-      draggingIndexRef.current = null;
-      previewDropIndexRef.current = null;
-      setAddSourcePicker({ open: false, anchor: null });
-    }
-  }, [visible, photos, fullscreenOnly, initialFullscreenIndex, resetDraft]);
+    if (!visible) return;
+    resetDraft(photosRef.current);
+    setSelectedIndex(0);
+    setActiveTileIndex(null);
+    const latestPhotos = photosRef.current;
+    const startFullscreenIndex =
+      fullscreenOnly && typeof initialFullscreenIndex === 'number'
+        ? Math.min(Math.max(0, initialFullscreenIndex), Math.max(0, latestPhotos.length - 1))
+        : null;
+    setFullscreenIndex(startFullscreenIndex);
+    setFullscreenPagerLocked(false);
+    setDraggingIndex(null);
+    setPreviewDropIndex(null);
+    setDragTranslation({ tx: 0, ty: 0 });
+    dragStartRectRef.current = null;
+    draggingIndexRef.current = null;
+    previewDropIndexRef.current = null;
+    setAddSourcePicker({ open: false, anchor: null });
+  // `photos` is intentionally excluded from deps: photosRef always holds the
+  // latest value, so background React Query refetches (new array reference, same
+  // content) don't trigger resetDraft and wipe staged edits mid-session.
+  }, [visible, fullscreenOnly, initialFullscreenIndex, resetDraft]);
 
   React.useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -715,7 +727,7 @@ export default function PhotoManageDrawer({
   }, [makeMain]);
 
   const handleRemove = useCallback(
-    (index: number) => {
+    (id: string) => {
       show({
         title: 'Remove this photo?',
         message: 'It will disappear from your profile.',
@@ -723,7 +735,9 @@ export default function PhotoManageDrawer({
         primaryAction: {
           label: 'Remove',
           onPress: () => {
-            removeAtIndex(index);
+            // Use id-based removal so the correct item is deleted even if the
+            // items array shifts between the tap and the confirmation press.
+            removeById(id);
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setActiveTileIndex(null);
             setSelectedIndex(0);
@@ -732,7 +746,7 @@ export default function PhotoManageDrawer({
         secondaryAction: { label: 'Keep', onPress: () => {} },
       });
     },
-    [removeAtIndex, show],
+    [removeById, show],
   );
 
   const handleReplace = useCallback((index: number) => {
@@ -1109,7 +1123,7 @@ export default function PhotoManageDrawer({
                 </Pressable>,
                 <Pressable
                   key="remove"
-                  onPress={() => handleRemove(slotIndex)}
+                  onPress={() => item && handleRemove(item.id)}
                   style={({ pressed }) => iconBase(pressed)}
                   accessibilityLabel="Remove"
                   hitSlop={6}

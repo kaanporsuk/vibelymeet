@@ -473,6 +473,10 @@ export function usePhotoBatchController({
     setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
+  const removeById = useCallback((id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
   const retryItem = useCallback(
     async (draftId: string) => {
       const current = itemsRef.current.find((item) => item.id === draftId);
@@ -541,6 +545,7 @@ export function usePhotoBatchController({
     moveItem,
     makeMain,
     removeAtIndex,
+    removeById,
     retryItem,
     dismissFailedItem,
   };
