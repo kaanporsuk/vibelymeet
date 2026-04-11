@@ -106,6 +106,8 @@ interface UserProfile {
   vibes: string[];
   prompts: ProfilePromptData[];
   lookingFor: string | null;
+  /** Mirrors `ProfileData.relationshipIntent` from fetchMyProfile */
+  relationshipIntent: string | null;
   lifestyle: Record<string, string>;
   verified: boolean;
   photoVerified: boolean;
@@ -139,6 +141,7 @@ const initialProfile: UserProfile = {
   vibes: [],
   prompts: [],
   lookingFor: null,
+  relationshipIntent: null,
   lifestyle: {},
   verified: false,
   photoVerified: false,
@@ -356,18 +359,21 @@ const ProfileStudio = () => {
             vibes: data.vibes,
             prompts,
             lookingFor: data.lookingFor,
+            relationshipIntent: data.relationshipIntent,
             lifestyle: data.lifestyle,
             verified: false,
             photoVerified: data.photoVerified || false,
             bunnyVideoUid: data.bunnyVideoUid || null,
             bunnyVideoStatus: data.bunnyVideoStatus || "none",
-            vibeCaption: (data as any).vibeCaption || "",
+            vibeCaption: data.vibeCaption || "",
             stats: data.stats,
             vibeScore: data.vibeScore ?? 0,
             vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
           const stored = data.lifestyle?.meeting_preference;
-          if (stored === "events" || stored === "dates" || stored === "both") setMeetingPref(stored as any);
+          if (stored === "events" || stored === "dates" || stored === "both") {
+            setMeetingPref(stored);
+          }
         }
       } catch (error) {
         console.error("Error loading profile:", error);
@@ -391,7 +397,7 @@ const ProfileStudio = () => {
       prompts: profile.prompts,
       aboutMe: profile.aboutMe,
       tagline: profile.tagline,
-      relationshipIntent: (profile as any).relationshipIntent ?? null,
+      relationshipIntent: profile.relationshipIntent ?? null,
       lookingFor: profile.lookingFor,
       job: profile.job,
       heightCm: profile.heightCm,

@@ -8,7 +8,7 @@ Scope: UX closure only for active event Ready Gate and payment-success surfaces.
   - Added terminal callback de-duplication across realtime and polling paths.
   - Reset terminal guard on `sessionId` changes.
   - Exposed derived `isSnoozed` from server-owned status.
-- `src/pages/ReadyGate.tsx`
+- `src/pages/ReadyGate.tsx` *(file later removed 2026-04-11 — see `docs/repo-hardening-closure-2026-04-11.md`)*
   - Removed local snooze ownership and consume hook-owned `isSnoozed` truth.
 - `src/pages/EventPaymentSuccess.tsx`
   - Added short bounded polling window to refresh `admission_status` after redirect while settlement catches up.

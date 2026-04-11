@@ -1,6 +1,8 @@
 # VIBELY — REBUILD RUNBOOK
 
 > **Canonical for frozen web rebuild only.** This file is not the native launch-closure runbook. For current launch execution, use `docs/active-doc-map.md`.
+>
+> **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  

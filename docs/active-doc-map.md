@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-04-08  
+Date: 2026-04-11  
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -34,12 +34,19 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Role | File |
 |---|---|
 | Preflight | `npm run launch:preflight` + `npm run typecheck` |
+| **Architecture, providers, import boundaries (`@shared/*` vs root `shared/`)** | `docs/vibely-canonical-project-reference.md` |
 | Operator execution sheet | `docs/kaan-launch-closure-execution-sheet.md` |
 | Canonical launch-closure runbook | `docs/native-launch-closure-master-runbook.md` |
 | Active launch backlog and blocker matrix | `docs/native-final-blocker-matrix.md` |
 | Strict release-readiness decision | `docs/phase7-stage5-release-readiness-and-go-nogo.md` |
 | Provider and store setup depth | `docs/native-external-setup-checklist.md` |
 | Phased operator detail | `docs/native-sprint6-launch-closure-runbook.md` |
+| **Web regression harness (static + manual checklist)** | `scripts/run_golden_path_smoke.sh` → `docs/golden-path-regression-runbook.md` |
+| **Web push / OneSignal production verification** | `docs/web-push-production-checklist.md` |
+| **Authenticated proof / rebuild policy** | `docs/authenticated-proof-and-rebuild-plan.md` |
+| **Rebuild rehearsal evidence log** | `docs/rebuild-rehearsal-log.md` |
+| **Repo hardening / dead-surface closure (dated)** | `docs/repo-hardening-closure-2026-04-11.md` |
+| **Final closure sprint report (branch isolation + ESLint + proof boundaries)** | `docs/hardening-final-closure-sprint-2026-04-11.md` |
 
 **Singular backlog framing:** for launch closure, the only active backlog/evidence log is `docs/native-final-blocker-matrix.md`. Older sprint boards, deferred backlogs, and parity plans are historical context only unless this map or a canonical doc explicitly promotes them again.
 
@@ -55,9 +62,10 @@ These remain in-repo for audit history, provenance, or deep context, but they ar
 - `docs/native-sprint-board.md` — historical implementation backlog
 - `docs/native-deferred-runtime-bugs-backlog.md` — historical deferred backlog, not the active launch backlog
 - `docs/native-web-handoff-burndown.md` — historical scope/handoff reference, still cited only for accepted web handoffs
-- `_cursor_context/vibely_rebuild_runbook.md` — canonical for frozen web rebuild only, not native launch closure
+- `_cursor_context/vibely_rebuild_runbook.md` — canonical for frozen web rebuild only, not native launch closure (banner at top notes 2026-04-11 removals)
 - `_cursor_context/vibely_discrepancy_report.md` — historical rebuild audit
-- `_cursor_context/vibely_golden_snapshot_audited (1).md` — archived duplicate copy; use `_cursor_context/vibely_golden_snapshot_audited.md`
+- **Other `_cursor_context/*.md` files** — audit/snapshot provenance; they may still name removed pages (`VideoLobby.tsx`, standalone `ReadyGate.tsx`) or Lovable-era hosting. Do not treat them as current route or deploy truth without cross-checking `docs/repo-hardening-closure-2026-04-11.md` and the live `src/App.tsx` route table.
+- `docs/_archive/historical/vibely_golden_snapshot_audited_duplicate_2026-04-11.md` — archived duplicate copy; use `_cursor_context/vibely_golden_snapshot_audited.md`
 
 ---
 

@@ -14,6 +14,13 @@
 
 Monorepo keeps API and behavior contracts visible and reduces drift between clients.
 
+**Import path ownership (TypeScript):**
+
+- **`@shared/*`** — Resolves to **`supabase/functions/_shared/`** (utilities co-located with Edge Functions: tiers, discovery contracts, profile adapters, etc.). Use for backend-aligned or deploy-bundled shared modules, not for arbitrary UI product logic.
+- **`shared/`** (repo root) — **Cross-app product logic** shared by web and native (e.g. `shared/eventTimingBuckets.ts`, `shared/supabaseFunctionInvokeErrors.ts`). Import via **relative paths** from each app (`../../shared/...` from `src/`, deep relatives from `apps/mobile/`), unless a future alias is introduced deliberately.
+
+Do not place frontend-only domain modules under `supabase/functions/_shared` solely to use the `@shared` alias.
+
 ---
 
 ## 2. Shared backend
@@ -106,6 +113,12 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 **Discovery preferences (Sprint 2):** `profiles.event_discovery_prefs` (jsonb) persists default event-list UI state; **`get_visible_events` is unchanged**. **`get_event_deck`** (migration `20260415100000_get_event_deck_preferred_age.sql`) additionally respects viewer **`preferred_age_min` / `preferred_age_max`** against candidate **`profiles.age`** when age is known; null candidate age is not excluded by that clause. Settings: web **Discovery** drawer from [`Settings`](../src/pages/Settings.tsx); native **`/settings/discovery`**.
 
 **Admin per-gender counts:** **`admin_get_event_confirmed_gender_counts(p_event_id)`** (same migration) — admin-only confirmed counts by normalized profile gender for edit-form warnings only (admission still **aggregate** `max_attendees` / `current_attendees`).
+
+### Email verification (profile trust badge)
+
+- **Canonical address:** `resolveCanonicalAuthEmail` in [`supabase/functions/_shared/verificationSemantics.ts`](../supabase/functions/_shared/verificationSemantics.ts) — prefers `auth.users.email`, then linked-provider `identity_data.email` (including **Apple** / Google / email provider rows). This is the **only** address the `email-verification` Edge Function will send to or accept for OTP when the client passes `email` in the body.
+- **No inbox-first gate for OTP:** the trust flow is **send code → verify code** against that canonical address. Supabase “confirm your email” / magic-link flows are **separate** account-level concerns and must not be confused with this gate.
+- **Runtime proof:** Apple Sign-In on real devices is **not** re-validated in automated CI here; treat in-app verification as **code-aligned** until a fresh QA run is logged.
 
 ---
 

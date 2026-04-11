@@ -128,3 +128,18 @@ Open gap for remote migration-parity replay because the documented helper requir
 - Local rebuildability (install/build/static smoke): yes
 - Full parity-helper replay from this workspace: not yet, due missing local `SUPABASE_DB_URL`
 - Current baseline remains suitable for continued proof/closure work: yes
+
+## 9. Follow-up closure pass — 2026-04-11
+
+- **Git HEAD:** `3e1a2e5521af308bfac7f712b8fe2152d4641a24` (pre-commit snapshot during this pass; amend after your commit).
+- **Node / npm:** `v20.20.1` / `10.8.2`
+- **Commands re-run:** `npm install` (after removing `lovable-tagger`), `npm run typecheck`, `npm run build`.
+- **Results:** typecheck PASS; web build PASS (same Vite chunk-size / dynamic-import notices as before — not regressions from this pass).
+- **Doc alignment:** `docs/repo-hardening-closure-2026-04-11.md` is the dated record for removals and email-verification / shared-invoke truth. The earlier rehearsal baseline in §§1–3 remains historical; **authenticated browser smoke is still not a checked-in automated harness** — see §5–6 above.
+
+## 10. Final closure sprint — `hardening/final-closure-sprint` (2026-04-11)
+
+- **Isolation:** Unrelated product edits were **git stash**’d before this sprint; see `docs/hardening-final-closure-sprint-2026-04-11.md` for paths.
+- **Re-ran:** `npm run typecheck`, `npm run build`, `npm run lint` (warning count 274 → 268 after targeted fixes).
+- **Not re-ran:** Playwright `proof:browser-auth`, fresh smoke bootstrap, Supabase migration parity (`SUPABASE_DB_URL` still absent in typical workspace), Sign in with Apple end-to-end on web/native.
+- **Docs touched this sprint:** `docs/active-doc-map.md`, `docs/vibely-canonical-project-reference.md`, `docs/browser-auth-runtime-proof-results.md` (status banner only), this file, `docs/hardening-final-closure-sprint-2026-04-11.md`, `_cursor_context/vibely_rebuild_runbook.md` (historical banner).

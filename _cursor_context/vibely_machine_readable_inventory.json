@@ -199,8 +199,8 @@
       "access": "protected"
     },
     {
-      "path": "/ready/:id",
-      "page": "ReadyGate",
+      "path": "/ready/:readyId",
+      "page": "ReadyRedirect",
       "access": "protected"
     },
     {
@@ -313,7 +313,7 @@
     "Onboarding.tsx",
     "Premium.tsx",
     "Profile.tsx",
-    "ReadyGate.tsx",
+    "ReadyRedirect.tsx",
     "ResetPassword.tsx",
     "Schedule.tsx",
     "Settings.tsx",
@@ -323,7 +323,6 @@
     "VibeFeed.tsx",
     "VibeStudio.tsx",
     "VideoDate.tsx",
-    "VideoLobby.tsx",
     "admin/AdminDashboard.tsx",
     "admin/AdminLogin.tsx",
     "legal/DeleteAccountWeb.tsx",
@@ -331,9 +330,7 @@
     "legal/TermsOfService.tsx"
   ],
   "page_anomalies": {
-    "unrouted_pages": [
-      "VideoLobby.tsx"
-    ],
+    "unrouted_pages": [],
     "redirect_pages": [],
     "mock_or_noncanonical_pages": [
       "VibeFeed.tsx"
