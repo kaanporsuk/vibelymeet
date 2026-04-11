@@ -12,6 +12,7 @@ import { VibelyText, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { resolveSupabaseFunctionErrorMessage } from '../../../../src/lib/supabaseFunctionInvokeErrors';
 
 type Step = 'send' | 'otp' | 'success';
 
@@ -21,84 +22,6 @@ type EmailVerificationFlowProps = {
   onClose: () => void;
   onVerified: () => void;
 };
-
-type FunctionInvokeError = {
-  name?: string;
-  message?: string;
-  details?: string;
-  context?: unknown;
-};
-
-const NETWORK_ERROR_PATTERNS = [
-  /network request failed/i,
-  /failed to fetch/i,
-  /network error/i,
-  /load failed/i,
-];
-
-function isNetworkInvokeError(invokeError: FunctionInvokeError): boolean {
-  const text = `${invokeError.name ?? ''} ${invokeError.message ?? ''} ${invokeError.details ?? ''}`;
-  return invokeError.name === 'FunctionsFetchError' || NETWORK_ERROR_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-async function resolveInvokeErrorMessage(
-  invokeError: unknown,
-  data: unknown,
-  networkFallback: string,
-): Promise<string> {
-  const payloadError =
-    typeof data === 'object' && data !== null && typeof (data as { error?: unknown }).error === 'string'
-      ? (data as { error: string }).error
-      : null;
-  if (payloadError) return payloadError;
-  if (!invokeError) return networkFallback;
-
-  const fnError = invokeError as FunctionInvokeError;
-  if (isNetworkInvokeError(fnError)) return networkFallback;
-
-  const context = fnError.context;
-  let statusCode: number | null = null;
-  let serverMessage: string | null = null;
-
-  if (context && typeof context === 'object') {
-    const contextWithStatus = context as { status?: unknown };
-    if (typeof contextWithStatus.status === 'number') statusCode = contextWithStatus.status;
-
-    if (typeof (context as Response).text === 'function') {
-      try {
-        const text = await (context as Response).clone().text();
-        if (text) {
-          try {
-            const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-            if (typeof parsed.error === 'string') serverMessage = parsed.error;
-            else if (typeof parsed.message === 'string') serverMessage = parsed.message;
-          } catch {
-            serverMessage = text;
-          }
-        }
-      } catch {
-        // Ignore context parse failures and fall back below.
-      }
-    }
-  }
-
-  if (!serverMessage && typeof fnError.details === 'string' && fnError.details.trim().length > 0) {
-    serverMessage = fnError.details;
-  }
-  if (
-    !serverMessage &&
-    typeof fnError.message === 'string' &&
-    fnError.message.trim().length > 0 &&
-    !/non-2xx status code/i.test(fnError.message)
-  ) {
-    serverMessage = fnError.message;
-  }
-
-  if (serverMessage && statusCode) return `${serverMessage} (HTTP ${statusCode})`;
-  if (serverMessage) return serverMessage;
-  if (statusCode) return `Request failed (HTTP ${statusCode}).`;
-  return networkFallback;
-}
 
 export function EmailVerificationFlow({ visible, email, onClose, onVerified }: EmailVerificationFlowProps) {
   const theme = Colors[useColorScheme()];
@@ -130,10 +53,10 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         body: { email: email.trim() },
       });
       if (invokeError) {
-        const message = await resolveInvokeErrorMessage(
+        const message = await resolveSupabaseFunctionErrorMessage(
           invokeError,
           data,
-          'Failed to send code. Check your connection.',
+          "Couldn't reach the server. Check your connection and try again.",
         );
         setError(message);
         setSending(false);
@@ -144,11 +67,13 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         setSending(false);
         return;
       }
-      setMessage(`Code sent to ${email.trim()}`);
+      setMessage('Verification code sent to your current account email.');
       setStep('otp');
     } catch (err: unknown) {
       const message =
-        err instanceof Error && err.message.trim().length > 0 ? err.message : 'Network error. Try again.';
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : "Couldn't reach the server. Check your connection and try again.";
       setError(message);
     } finally {
       setSending(false);
@@ -164,10 +89,10 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
         body: { email: email.trim(), code },
       });
       if (invokeError) {
-        const message = await resolveInvokeErrorMessage(
+        const message = await resolveSupabaseFunctionErrorMessage(
           invokeError,
           data,
-          'Verification failed. Check your connection.',
+          "Couldn't reach the server. Check your connection and try again.",
         );
         setError(message);
         setLoading(false);
@@ -187,7 +112,9 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
       }, 1500);
     } catch (err: unknown) {
       const message =
-        err instanceof Error && err.message.trim().length > 0 ? err.message : 'Network error. Try again.';
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : "Couldn't reach the server. Check your connection and try again.";
       setError(message);
     } finally {
       setLoading(false);
@@ -228,7 +155,7 @@ export function EmailVerificationFlow({ visible, email, onClose, onVerified }: E
           </VibelyText>
           <VibelyText variant="body" style={[styles.emailDisplay, { color: theme.text }]}>{email || '—'}</VibelyText>
           <VibelyText variant="caption" style={[styles.msg, { color: theme.textSecondary }]}>
-            Confirm this email from your inbox first if you recently changed it.
+            We’ll email a one-time code to this address. If you recently changed your account email, finish that change first.
           </VibelyText>
           {message ? <VibelyText variant="caption" style={[styles.msg, { color: theme.success }]}>{message}</VibelyText> : null}
           {error ? <VibelyText variant="caption" style={[styles.err, { color: theme.danger }]}>{error}</VibelyText> : null}

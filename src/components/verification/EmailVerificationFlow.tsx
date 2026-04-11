@@ -81,7 +81,7 @@ export const EmailVerificationFlow = ({
             Verify Current Email
           </DrawerTitle>
           <DrawerDescription>
-            Add an email verification badge to your profile. This only works after you confirm the email on your account.
+            We’ll send a one-time code to your sign-in email so you can prove you can receive mail. This adds the email badge on your profile.
           </DrawerDescription>
         </DrawerHeader>
 
@@ -114,7 +114,7 @@ export const EmailVerificationFlow = ({
                     className="h-12 rounded-xl glass-card border-border"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Confirm this email from your inbox first if you recently changed it.
+                    If you recently changed your account email, finish that change before verifying here.
                   </p>
                 </div>
 

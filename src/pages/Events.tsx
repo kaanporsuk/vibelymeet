@@ -38,23 +38,38 @@ const LocationPromptBanner = () => {
       const pos = await new Promise<GeolocationPosition>((res, rej) =>
         navigator.geolocation.getCurrentPosition(res, rej)
       );
-      const { lat, lng } = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
 
-      // Reverse geocode to get country
-      let country: string | null = null;
+      // Reverse-geocode to normalized city/country label.
+      let displayLabel = '';
+      let country = '';
       try {
-        const { data: geoData } = await supabase.functions.invoke('geocode', {
-          body: { lat, lng }
-        });
-        country = geoData?.country || null;
-      } catch { /* ignore geocode errors */ }
+        const { data: geoData } = await supabase.functions.invoke('geocode', { body: { lat, lng } });
+        if (geoData && !geoData.error) {
+          const city = typeof geoData.city === 'string' ? geoData.city.trim() : '';
+          country = typeof geoData.country === 'string' ? geoData.country.trim() : '';
+          displayLabel = city && country ? `${city}, ${country}` : (geoData.formatted ?? '');
+        }
+      } catch { /* geocode failure handled below */ }
 
-      await supabase.from("profiles").update({
-        location_data: { lat, lng } as any,
-        ...(country ? { country } : {}),
-      }).eq("id", user.id);
+      if (!displayLabel || !country) {
+        toast.error("Could not match your location to a city. Try again or update location from your profile.");
+        return;
+      }
 
-      // Refresh event lists with new location
+      // Atomic write via RPC — location, location_data, and country together.
+      const { data: rpcResult, error: rpcError } = await supabase.rpc("update_profile_location", {
+        p_user_id: user.id,
+        p_location: displayLabel,
+        p_lat: lat,
+        p_lng: lng,
+        p_country: country,
+      });
+      if (rpcError) throw rpcError;
+      const result = rpcResult as { success?: boolean; error?: string } | null;
+      if (!result?.success) throw new Error(result?.error ?? "location_update_failed");
+
       queryClient.invalidateQueries({ queryKey: ["visible-events"] });
       queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
 
@@ -74,8 +89,8 @@ const LocationPromptBanner = () => {
         <MapPin className="w-4 h-4 text-primary" />
       </div>
       <div className="flex-1">
-        <p className="text-sm font-medium text-foreground">Share your location to see events near you</p>
-        <p className="text-xs text-muted-foreground mt-0.5">We'll show local events matched to your city</p>
+        <p className="text-sm font-medium text-foreground">Enable location to see local and regional events</p>
+        <p className="text-xs text-muted-foreground mt-0.5">Without location access, only global events are shown</p>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => setDismissed(true)}>
@@ -510,8 +525,8 @@ const Events = () => {
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted/50 flex items-center justify-center">
                   <Calendar className="w-8 h-8 text-muted-foreground" />
                 </div>
-                <h3 className="text-lg font-semibold text-foreground mb-1">No events near you yet 💫</h3>
-                <p className="text-sm text-muted-foreground mb-4">But there are events happening in other cities!</p>
+                <h3 className="text-lg font-semibold text-foreground mb-1">No global events right now</h3>
+                <p className="text-sm text-muted-foreground mb-4">Enable location to unlock local and regional events — or go Premium to browse any city.</p>
                 <Button
                   className="bg-gradient-to-r from-primary to-accent gap-2"
                   onClick={() =>

@@ -99,10 +99,10 @@ function LocationPromptBanner({
       </View>
       <View style={locationStyles.copy}>
         <Text style={[locationStyles.title, { color: theme.text }]}>
-          Share your location to see events near you
+          Enable location to see local and regional events
         </Text>
         <Text style={[locationStyles.sub, { color: theme.textSecondary }]}>
-          We'll show local events matched to your city
+          Without location access, only global events are shown
         </Text>
       </View>
       <View style={locationStyles.actions}>
@@ -744,28 +744,44 @@ export default function EventsListScreen() {
       const lat = pos.coords.latitude;
       const lng = pos.coords.longitude;
 
-      let country: string | null = null;
+      // Reverse-geocode to normalized city/country label.
+      let displayLabel = '';
+      let country = '';
       try {
         const { data: geoData, error: geoErr } = await supabase.functions.invoke('geocode', {
           body: { lat, lng },
         });
-        if (!geoErr && geoData && typeof (geoData as { country?: unknown }).country === 'string') {
-          country = (geoData as { country: string }).country;
+        if (!geoErr && geoData) {
+          const city = typeof geoData.city === 'string' ? geoData.city.trim() : '';
+          country = typeof geoData.country === 'string' ? geoData.country.trim() : '';
+          displayLabel = city && country ? `${city}, ${country}` : (geoData.formatted ?? '');
         }
-      } catch {
-        /* match web Events: still persist lat/lng if reverse-geocode fails */
+      } catch { /* geocode failure — handled below */ }
+
+      if (!displayLabel || !country) {
+        Alert.alert(
+          'Location not recognized',
+          'We couldn\'t match your GPS position to a city. Try again in a moment.',
+        );
+        return;
       }
 
-      const { error: upErr } = await supabase
-        .from('profiles')
-        .update({
-          location_data: { lat, lng },
-          ...(country ? { country } : {}),
-        })
-        .eq('id', user.id);
-
-      if (upErr) {
-        if (__DEV__) console.warn('[events] profile location save:', upErr.message);
+      // Atomic write via RPC — location, location_data, and country together.
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc('update_profile_location', {
+        p_user_id: user.id,
+        p_location: displayLabel,
+        p_lat: lat,
+        p_lng: lng,
+        p_country: country,
+      });
+      if (rpcErr) {
+        if (__DEV__) console.warn('[events] update_profile_location:', rpcErr.message);
+        Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
+        return;
+      }
+      const result = rpcResult as { success?: boolean; error?: string } | null;
+      if (!result?.success) {
+        if (__DEV__) console.warn('[events] update_profile_location rpc error:', result?.error);
         Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
         return;
       }

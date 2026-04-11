@@ -51,7 +51,7 @@ import {
 } from "@shared/settingsMembershipDisplay";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
-import { isCurrentEmailVerified } from "@shared/verificationSemantics";
+import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from "@shared/verificationSemantics";
 import { LinkedSignInMethods } from "@/components/settings/LinkedSignInMethods";
 
 interface AccountSettingsDrawerProps {
@@ -105,6 +105,7 @@ export const AccountSettingsDrawer = ({
   const accessDateLine = getSettingsAccessDateLine(membershipDisplay);
   const showElevatedMembership = showSettingsMemberElevated(membershipDisplay);
   const [accountEmailConfirmed, setAccountEmailConfirmed] = useState(false);
+  const [hasAccountEmail, setHasAccountEmail] = useState(false);
   const [profileEmailVerified, setProfileEmailVerified] = useState(false);
   const [portalLoading, setPortalLoading] = useState(false);
   
@@ -127,7 +128,9 @@ export const AccountSettingsDrawer = ({
   useEffect(() => {
     if (!open) return;
     void supabase.auth.getSession().then(({ data: { session } }) => {
-      setAccountEmailConfirmed(!!session?.user?.email_confirmed_at);
+      const emailConfirmed = !!session?.user?.email_confirmed_at;
+      setAccountEmailConfirmed(emailConfirmed);
+      setHasAccountEmail(!!resolveCanonicalAuthEmail(session?.user ?? null));
     });
   }, [open]);
 
@@ -148,8 +151,7 @@ export const AccountSettingsDrawer = ({
           isCurrentEmailVerified({
             emailVerified: !!data.email_verified,
             verifiedEmail: (data.verified_email as string | null | undefined) ?? null,
-            authEmail: user.email,
-            authEmailConfirmed: accountEmailConfirmed,
+            authEmail: resolveCanonicalAuthEmail(user) ?? user.email ?? null,
           }),
         );
         setOnBreak(!!(data.account_paused || data.is_paused));
@@ -163,8 +165,8 @@ export const AccountSettingsDrawer = ({
 
   useEffect(() => {
     if (!open) return;
-    setEmailForVerification(user?.email ?? "");
-  }, [open, user?.email]);
+    setEmailForVerification(resolveCanonicalAuthEmail(user) ?? user?.email ?? "");
+  }, [open, user]);
   
   // Email change state
   const [newEmail, setNewEmail] = useState("");
@@ -278,10 +280,6 @@ export const AccountSettingsDrawer = ({
   const startEmailVerification = () => {
     if (!user?.email) {
       toast.error("Add an email to your account first.");
-      return;
-    }
-    if (!accountEmailConfirmed) {
-      toast.info("Confirm your current account email from your inbox first.");
       return;
     }
     setShowEmailVerification(true);
@@ -490,7 +488,7 @@ export const AccountSettingsDrawer = ({
                 <span className="text-xs font-medium text-emerald-400">Verified</span>
               ) : (
                 <Button size="sm" variant="outline" onClick={startEmailVerification}>
-                  {accountEmailConfirmed ? "Verify email" : "Check inbox"}
+                  {hasAccountEmail ? "Verify email" : "Add email"}
                 </Button>
               )}
             </div>
