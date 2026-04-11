@@ -18,8 +18,30 @@ import { VibelyButton, VibelyText } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type Step = 'capture' | 'preview' | 'submitting' | 'submitted';
+
+/** `fetch(fileUri).blob()` is unreliable on RN (often 0-byte); mirror vibe uploads via base64 read. */
+async function readLocalImageAsBlob(uri: string, mimeHint?: string | null): Promise<Blob> {
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists || info.isDirectory) {
+    throw new Error('Selfie file not found');
+  }
+  if ('size' in info && typeof info.size === 'number' && info.size === 0) {
+    throw new Error('Selfie file is empty');
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const mime = mimeHint?.startsWith('image/') ? mimeHint : 'image/jpeg';
+  const blob = await (await fetch(`data:${mime};base64,${base64}`)).blob();
+  if (!blob.size) {
+    throw new Error('Could not read selfie data');
+  }
+  return blob;
+}
 
 export type PhotoVerificationFlowProps = {
   visible: boolean;
@@ -34,12 +56,14 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<Step>('capture');
   const [selfieUri, setSelfieUri] = useState<string | null>(null);
+  const [selfieMime, setSelfieMime] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) {
       setStep('capture');
       setSelfieUri(null);
+      setSelfieMime(null);
       setError(null);
     }
   }, [visible]);
@@ -59,7 +83,9 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
       quality: 0.85,
     });
     if (result.canceled || !result.assets?.[0]?.uri) return;
-    setSelfieUri(result.assets[0].uri);
+    const asset = result.assets[0];
+    setSelfieUri(asset.uri);
+    setSelfieMime(asset.mimeType ?? null);
     setStep('preview');
   };
 
@@ -72,12 +98,13 @@ export function PhotoVerificationFlow({ visible, onClose, onSubmissionComplete, 
       const user = auth.user;
       if (!user) throw new Error('Not authenticated');
 
-      const blob = await (await fetch(selfieUri)).blob();
+      const blob = await readLocalImageAsBlob(selfieUri, selfieMime);
       const fileName = `${user.id}/${Date.now()}_verification.jpg`;
+      const contentType = blob.type || selfieMime || 'image/jpeg';
 
       const { error: uploadError } = await supabase.storage
         .from('proof-selfies')
-        .upload(fileName, blob, { contentType: blob.type || 'image/jpeg', cacheControl: '3600' });
+        .upload(fileName, blob, { contentType, cacheControl: '3600' });
       if (uploadError) throw uploadError;
 
       const selfieUrl = fileName;
