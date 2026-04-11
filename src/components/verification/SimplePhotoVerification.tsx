@@ -30,8 +30,8 @@ export function SimplePhotoVerification({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [screen, setScreen] = useState<Screen>("intro");
+  /** Data URL shown in preview; same bytes are uploaded (avoids async canvas.toBlob races that produced 0-byte Storage objects). */
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,7 +39,6 @@ export function SimplePhotoVerification({
       stopCamera();
       setScreen("intro");
       setCapturedImage(null);
-      setCapturedBlob(null);
       setCameraError(null);
     }
   }, [open]);
@@ -115,35 +114,31 @@ export function SimplePhotoVerification({
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     setCapturedImage(dataUrl);
 
-    canvas.toBlob(
-      (blob) => {
-        setCapturedBlob(blob);
-      },
-      "image/jpeg",
-      0.9
-    );
-
     stopCamera();
     setScreen("preview");
   };
 
   const handleRetake = () => {
     setCapturedImage(null);
-    setCapturedBlob(null);
     startCamera();
   };
 
   const handleSubmit = async () => {
-    if (!capturedBlob) return;
+    if (!capturedImage?.startsWith("data:image/")) return;
     setScreen("uploading");
 
     try {
+      const blob = await (await fetch(capturedImage)).blob();
+      if (!blob.size) {
+        throw new Error("Selfie data was empty. Please retake the photo.");
+      }
+
       const fileName = `${userId}/${Date.now()}_verification.jpg`;
 
       // Upload to proof-selfies bucket
       const { error: uploadError } = await supabase.storage
         .from("proof-selfies")
-        .upload(fileName, capturedBlob, { contentType: "image/jpeg", cacheControl: "3600" });
+        .upload(fileName, blob, { contentType: "image/jpeg", cacheControl: "3600" });
 
       const selfieUrl = fileName;
       if (uploadError) {

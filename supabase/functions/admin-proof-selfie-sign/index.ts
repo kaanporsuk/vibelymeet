@@ -132,6 +132,27 @@ type SignOutcome =
   | { kind: "direct"; url: string }
   | { kind: "fail"; message: string; shape: ProofSelfieStoredShape };
 
+/** Best-effort size from Storage list metadata (service role). Undefined if unknown. */
+async function proofSelfieObjectSizeBytesFromList(
+  service: ReturnType<typeof createClient>,
+  objectPath: string,
+): Promise<number | undefined> {
+  const i = objectPath.indexOf("/");
+  if (i <= 0) return undefined;
+  const folder = objectPath.slice(0, i);
+  const name = objectPath.slice(i + 1);
+  if (!name) return undefined;
+  const { data: files, error } = await service.storage
+    .from(PROOF_SELFIES_BUCKET)
+    .list(folder, { limit: 200 });
+  if (error || !files?.length) return undefined;
+  const hit = files.find((f) => f.name === name);
+  const meta = hit?.metadata;
+  if (!meta || typeof meta !== "object") return undefined;
+  const size = (meta as Record<string, unknown>).size;
+  return typeof size === "number" ? size : undefined;
+}
+
 async function tryResolveSelfieDisplayUrl(
   service: ReturnType<typeof createClient>,
   raw: string,
@@ -139,6 +160,15 @@ async function tryResolveSelfieDisplayUrl(
   const { objectPath, shape } = resolveProofSelfieObjectPathForSigning(raw);
 
   if (objectPath) {
+    const sizeBytes = await proofSelfieObjectSizeBytesFromList(service, objectPath);
+    if (sizeBytes === 0) {
+      return {
+        kind: "fail",
+        message:
+          "Proof selfie file is empty (0-byte upload). Ask the user to retake and resubmit from the app.",
+        shape,
+      };
+    }
     const { data, error } = await service.storage
       .from(PROOF_SELFIES_BUCKET)
       .createSignedUrl(objectPath, 3600);
