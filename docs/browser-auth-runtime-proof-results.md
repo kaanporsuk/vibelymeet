@@ -3,6 +3,38 @@
 Date: 2026-04-08  
 Branch: `qa/fresh-vibe-upload-processing-proof`
 
+> **Evidence split:** Sections **1–3+** below are the **frozen narrative** from the 2026-04-08 proof branch. **§ “Fresh re-run — 2026-04-11”** is **new** authenticated Playwright output from the **final proof sprint** (runtime only). It does **not** supersede the older matrix for flows that the script did not exercise in 2026-04-11.
+
+---
+
+## Fresh re-run — 2026-04-11 (final proof sprint, runtime only)
+
+| Field | Value |
+|-------|--------|
+| **Command** | `npm run proof:browser-auth` → `node scripts/browser-auth-runtime-proof.mjs` |
+| **Environment** | Local Playwright (headless Chromium + copied macOS Chrome profile); target **production** `https://www.vibelymeet.com` |
+| **Exit code** | **0** |
+| **Auth model** | Existing **email/password (or prior OAuth) session** in the copied Chrome profile — **not** a Sign in with Apple run |
+
+**What this run exercised (from emitted JSON):**
+
+- **Schedule:** Availability UI; save path; intentional forced-failure / rollback / cleanup (`forcedFailureHit: true`, `proof_forced_failure`); screenshots under temp `browser-auth-runtime-proof/`.
+- **Referrals:** `/settings/referrals` loaded; canonical invite URL and copy text present.
+- **Invite landing:** `/auth?ref=…` with `ref` stored.
+- **OneSignal:** Dashboard load; permission state; worker registration; subscription / OneSignal user ids in artifact JSON.
+- **Vibe Studio:** Authenticated shell text sample and screenshot path recorded.
+
+**Explicitly not executed by this harness (no claim of pass/fail):**
+
+- **Sign in with Apple** (web or native)
+- **Email verification:** send OTP, inbox delivery, verify OTP
+- **Native** app (Expo) flows
+- **`npm run proof:smoke-bootstrap`** / **`proof:vibe-upload-processing`** (not re-run in this sprint)
+
+**Operator note:** Full JSON and PNG paths are written to the temp directory printed by the script (typically under the OS temp folder). Treat user id / email in those artifacts as sensitive.
+
+---
+
 ## 1. Summary
 
 This branch keeps the repeatable fresh smoke bootstrap path and closes the last remaining repo-side Vibe Studio browser-proof tail with a reversible real-binary upload and replace harness.

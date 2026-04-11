@@ -1,7 +1,8 @@
 # Vibely Web App — Complete Sitemap & UX Specification
 
 > Generated from `src/App.tsx`, all files under `src/pages/`, and traced through `src/components/`.  
-> **Note:** `src/pages/ReadyGate.tsx` (full-page ready gate) is **not** mounted in the router; `/ready/:id` uses `ReadyRedirect` instead.  
+> **Note:** Legacy full-page ready gate (`ReadyGate.tsx`) was **removed** (2026-04-11): `/ready/:readyId` uses `ReadyRedirect` → event lobby; in-lobby UX is `ReadyGateOverlay`.  
+> **SECTION 1 route table** reconciled with `src/App.tsx` (2026-04-11 closure pass): entry recovery, invite, short event URL, profile preview, settings ticket deep link, ready param name.  
 > **Note:** `ArchiveMatchDialog`, `BlockUserDialog`, and `MuteOptionsSheet` on Matches are rendered but **no UI path sets** `archiveTarget` / `blockTarget` / `muteTarget` — dialogs exist for future use.
 
 ---
@@ -12,8 +13,11 @@
 |-------|-----------|------|--------|----------------------|
 | `/` | `Index` | Public | Full-screen marketing | `Vibely — Live Video Dating` (index.html) |
 | `/auth` | `Auth` | Public | Centered form | Same |
+| `/entry-recovery` | `EntryRecovery` | Protected | Account recovery / reactivation | Same |
+| `/invite` | `InviteRedirect` | Public | Referral attribution → continues to app | Same |
 | `/reset-password` | `ResetPassword` | Public | Centered form | Same |
 | `/onboarding` | `Onboarding` | Protected + onboarding OK | Full-screen wizard | Same |
+| `/event/:eventId` | `EventShortRedirect` | Public | Short event URL → canonical `/events/:id` | Same |
 | `/dashboard` | `Dashboard` | Protected | BottomNav + PullToRefresh | Same |
 | `/home` | `Dashboard` (alias) | Protected | Same | Same |
 | `/events` | `Events` | Protected | BottomNav | Same |
@@ -22,10 +26,12 @@
 | `/matches` | `Matches` | Protected | BottomNav + PullToRefresh | Same |
 | `/chat/:id` | `Chat` | Protected | Full viewport chat | Same |
 | `/profile` | `Profile` | Protected | BottomNav | Same |
+| `/profile/preview` | `ProfilePreview` | Protected | Preview-as-others-see-you | Same |
 | `/settings` | `Settings` | Protected | BottomNav | Same |
 | `/settings/referrals` | `Referrals` | Protected | BottomNav | Same |
+| `/settings/ticket/:id` | `Settings` | Protected | Deep link into ticket thread (same shell) | Same |
 | `/date/:id` | `VideoDate` | Protected | Full-screen video | Same |
-| `/ready/:id` | `ReadyRedirect` → redirects | Protected | — | Same |
+| `/ready/:readyId` | `ReadyRedirect` → lobby / session | Protected | — | Same |
 | `/admin/create-event` | `AdminCreateEvent` | Protected + **admin** | Admin form | Same |
 | `/match-celebration` | `MatchCelebration` | Protected | Demo modal page | Same |
 | `/vibe-studio` | `VibeStudio` | Protected | Dedicated Vibe Video studio surface | Same |
@@ -436,9 +442,6 @@ Large form: theme, date/time, virtual toggle, venue, cover upload (Bunny), capac
 
 ---
 
-### Orphan page (not routed)
-- **`src/pages/ReadyGate.tsx`:** Full-page ready gate UI — **not** linked from `App.tsx`. Production ready gate is `ReadyGateOverlay` inside lobby.
-
 ---
 
 ## SECTION 3: GLOBAL ELEMENTS
@@ -602,8 +605,8 @@ Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAcco
 | `video_date_extended` | Extension used | `session_id` |
 | `credit_used` | VideoDate | `type`, `minutes` |
 | `video_date_ended` | Call end | (see VideoDate.tsx for full payload) |
-| `ready_gate_ready` | `ReadyGate.tsx` (**not routed** — only if wired manually) | `session_id` |
-| `ready_gate_skipped` | Same orphan page | `session_id` |
+| `ready_gate_ready` | *(no current `trackEvent` call in web — verify before relying on this name)* | `session_id` |
+| `ready_gate_skipped` | *(same)* | `session_id` |
 | `credit_purchase_initiated` | Credits pack click | `pack_id` |
 | `credit_purchase_completed` | CreditsSuccess | `pack` |
 | `push_permission_granted` | Push drawer enable | — |

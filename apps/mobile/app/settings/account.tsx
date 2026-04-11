@@ -316,7 +316,7 @@ export default function AccountSettingsScreen() {
       return;
     }
     setShowPhotoVerify(true);
-  }, [photoVerificationState, profile?.avatar_url, profile?.name, profile?.phone_number, show]);
+  }, [photoVerificationState, profile?.avatar_url, show]);
 
   useEffect(() => {
     let cancelled = false;

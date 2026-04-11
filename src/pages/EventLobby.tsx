@@ -312,7 +312,7 @@ const EventLobby = () => {
       return 0;
     });
     return filtered;
-  }, [profiles, deckNonce]);
+  }, [profiles]);
 
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
@@ -704,7 +704,7 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
   const passOpacity = useTransform(x, [-100, 0], [1, 0]);
   const cardOpacity = useTransform(x, [-200, -100, 0, 100, 200], [0.5, 0.8, 1, 0.8, 0.5]);
 
-  const handleDragEnd = (_: any, info: PanInfo) => {
+  const handleDragEnd = (_event: unknown, info: PanInfo) => {
     if (disabled) return;
     const threshold = 100;
     if (info.offset.x > threshold) {

@@ -12,7 +12,7 @@ import { VibelyText, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { supabase } from '@/lib/supabase';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
-import { resolveSupabaseFunctionErrorMessage } from '../../../../src/lib/supabaseFunctionInvokeErrors';
+import { resolveSupabaseFunctionErrorMessage } from '../../../../shared/supabaseFunctionInvokeErrors';
 
 type Step = 'send' | 'otp' | 'success';
 

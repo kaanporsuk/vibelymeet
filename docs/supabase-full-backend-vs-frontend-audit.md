@@ -135,11 +135,11 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 | Issue | Severity |
 |-------|----------|
-| Native skips `get_visible_events` — uses raw `from('events').select(...)` + client filter | **HIGH** — may show wrong scope (city/radius/premium) vs web if RLS differs from RPC logic |
+| ~~Native skips `get_visible_events` — uses raw `from('events').select(...)` + client filter~~ | **Resolved (2026-04):** Native event discovery uses **`get_visible_events`** via [`apps/mobile/lib/eventsApi.ts`](../apps/mobile/lib/eventsApi.ts) with web-parity parameters. This row is kept as historical audit context only. |
 | Native skips `check_premium_status` | **MEDIUM** — intentional if RevenueCat is source of truth; ensure `subscriptions` / RPC stay aligned |
 | `generate_recurring_events` web-only | **LOW** (admin) |
 
-**Recommendations:** Call `get_visible_events` from mobile with same params as web (user id, lat/lng, premium flag) or document that RLS + client filter is equivalent (verify with security review).
+**Recommendations:** Treat [`eventsApi.ts`](../apps/mobile/lib/eventsApi.ts) + [`useVisibleEvents.ts`](../src/hooks/useVisibleEvents.ts) as the discovery contract; re-verify only if those modules change.
 
 ---
 
@@ -160,7 +160,7 @@ Then `grep -rn "from('TABLENAME')" src/` and `apps/mobile/`.
 | **profiles** | Full editor (name, photos, vibes, prompts, lifestyle, geo, etc.) | profileApi updates subset; many reads are partial selects | **MEDIUM:** confirm every web-editable field exists on native edit screen |
 | **matches** | useMatches + realtime | chatApi match channels + lists | Compare archived/expired handling |
 | **messages** | useRealtimeMessages, send-message EF | chatApi + send-message EF | Align reactions, read receipts, video/voice types |
-| **events** | get_visible_events RPC | Direct select + `isEventVisible` | **HIGH** |
+| **events** | get_visible_events RPC | **get_visible_events** via `eventsApi` (see [`eventsApi.ts`](../apps/mobile/lib/eventsApi.ts)) | **Aligned** (was HIGH in original audit; native discovery now uses the RPC) |
 | **event_registrations** | Web lobby flows | lobby.tsx + eventsApi | Compare queue_status updates |
 | **video_sessions** | VideoDate + realtime | videoDateApi + realtime | Parity generally good |
 | **daily_drops** | useDailyDrop + EF + RPC | dailyDropApi | Web has more RPC paths for transitions |

@@ -812,7 +812,7 @@ Using `git diff --name-status fff9438..HEAD`.
   - `src/pages/EventLobby.tsx`
   - `src/pages/Events.tsx`
   - `src/pages/Matches.tsx`
-  - `src/pages/ReadyGate.tsx`
+  - ~~`src/pages/ReadyGate.tsx`~~ *(removed 2026-04-11)*
   - `src/pages/ReadyRedirect.tsx` (new)
   - `src/pages/VideoDate.tsx`
   - `src/pages/VibeFeed.tsx` (deleted)

@@ -478,9 +478,10 @@ const handler = async (req: Request): Promise<Response> => {
 
     return jsonResponse({ error: "Invalid action" }, 400);
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error in email-verification function:", error);
-    return jsonResponse({ error: error.message }, 500);
+    const message = error instanceof Error ? error.message : "Internal error";
+    return jsonResponse({ error: message }, 500);
   }
 };
 

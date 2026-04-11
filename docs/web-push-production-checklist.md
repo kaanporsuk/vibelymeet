@@ -1,5 +1,7 @@
 # Web Push Production Verification Checklist
 
+**Repo check (2026-04-11):** `public/OneSignalSDK.sw.js` delegates to the official **v16** CDN worker (`importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js")`), matching the “Code verification” section below.
+
 ## OneSignal Dashboard (manual)
 
 - [ ] Site URL: `https://vibelymeet.com` (Settings → Platforms → Web)

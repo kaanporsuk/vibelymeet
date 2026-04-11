@@ -44,6 +44,7 @@
     "supabase/functions/_shared/onboardingCompletion.ts",
     "supabase/functions/_shared/matching/videoSessionFlow.ts",
     "supabase/functions/_shared/settingsMembershipDisplay.ts",
-    "supabase/functions/_shared/eventDiscoveryContracts.ts"
+    "supabase/functions/_shared/eventDiscoveryContracts.ts",
+    "supabase/functions/_shared/verificationSemantics.ts"
   ]
 }

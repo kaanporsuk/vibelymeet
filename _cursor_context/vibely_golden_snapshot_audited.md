@@ -5,6 +5,8 @@
 **Supabase project ID:** `schdyxcunwcvddlcshwd` (from `supabase/config.toml`)  
 **Intent:** rebuild-oriented source-of-truth for the web codebase after auth-hardening; reflects current function auth posture and live storage reality.
 
+> **2026-04-11 — Current-repo alignment (live `src/App.tsx`):** **`/ready/:readyId`** mounts **`ReadyRedirect`** (`src/pages/ReadyRedirect.tsx`): it resolves the id against `video_sessions` (or treats it as an event id) and **navigates to the event lobby** — not a standalone full-page ready gate. Legacy **`src/pages/ReadyGate.tsx` was removed**; in-lobby UX is **`ReadyGateOverlay`**. **`src/pages/VideoLobby.tsx` was removed** (unrouted dead surface). Authoritative record: `docs/repo-hardening-closure-2026-04-11.md`. Rows in §4 mix **2026-03-11 audit** baseline with **superseded** entries — **verify routes against `src/App.tsx`** when implementing.
+
 ---
 
 ## 1. What this snapshot is
@@ -83,11 +85,11 @@ This audited snapshot intentionally excludes secret values. It records required 
 - `/profile` → `Profile` — Profile edit and vibe video
 - `/settings` → `Settings` — Account / privacy / notifications
 - `/date/:id` → `VideoDate` — Live video date
-- `/ready/:id` → `ReadyGate` — Legacy standalone ready gate
+- `/ready/:readyId` → `ReadyRedirect` — Deep-link helper: resolves session/event, then **redirects** to `/event/:eventId/lobby` (not a standalone full-page gate; see banner above)
 - `/admin/create-event` → `AdminCreateEvent` — Admin-only create event
 - `/match-celebration` → `MatchCelebration` — Celebration screen
 - `/vibe-studio` → `VibeStudio` — Dedicated vibe-video studio surface
-- `/vibe-feed` → `VibeFeed` — Mock-data video feed
+- **(Historical — not in current `src/App.tsx`)** `/vibe-feed` / `VibeFeed` — described in older audits; **no `VibeFeed` page or route** in the current tree — treat as superseded unless reintroduced.
 - `/schedule` → `Schedule` — Availability + planning hub
 - `/credits` → `Credits` — Credits purchase
 - `/credits/success` → `CreditsSuccess` — Credits checkout success
@@ -100,9 +102,10 @@ This audited snapshot intentionally excludes secret values. It records required 
 
 ### Route anomalies / corrections
 
-- `src/pages/VideoLobby.tsx` exists in the repo but is **not routed** in `src/App.tsx`.
-- `src/pages/VibeStudio.tsx` is now a standalone studio management surface that still reuses `VibeStudioModal` for recording/upload authoring.
-- `src/pages/VibeFeed.tsx` is wired with mock sample media URLs and should be treated as non-production surface unless separately proven.
+- **Removed 2026-04-11:** `src/pages/VideoLobby.tsx` (unrouted dead surface; not present in repo — see `docs/repo-hardening-closure-2026-04-11.md`).
+- **Removed 2026-04-11:** standalone `src/pages/ReadyGate.tsx`; **`/ready/:readyId`** uses `ReadyRedirect` only (see banner above).
+- `src/pages/VibeStudio.tsx` is a standalone studio management surface that still reuses `VibeStudioModal` for recording/upload authoring.
+- **(Historical)** `VibeFeed` / mock feed narratives — **no `VibeFeed.tsx` in current `src/pages/`**; ignore unless the route is added back to `App.tsx`.
 - Admin path `/kaan` is a hardcoded route, not feature-flagged.
 
 ## 5. App wrappers and global runtime surfaces
@@ -329,11 +332,11 @@ Frontend routes tied to payments:
 These are the highest-value corrections verified directly from the frozen repo:
 
 - `forward-geocode` and `push-webhook` are both in config.toml (post-hardening); forward-geocode is JWT + admin + rate limit, push-webhook is secret-protected.
-- `VideoLobby.tsx` exists as an unrouted page and should not be silently ignored during future cleanup.
+- **`VideoLobby.tsx` was removed 2026-04-11** after hardening (documented removal — no silent delete). **`ReadyGate.tsx`** (full page) same; **`ReadyRedirect`** is the `/ready/:readyId` implementation.
 - The production domain is not merely “custom domain TBD”; `vibelymeet.com` is already hard-referenced across multiple runtime surfaces.
 - The checked-in `.env` is incomplete and partially malformed; source inspection is required to derive the true env set.
 - OneSignal and Sentry each have hardcoded runtime config points outside a clean env-only model.
-- `VibeFeed` contains mock/sample media and should not be mistaken for fully wired production functionality.
+- **(Historical)** Older audits referenced a `VibeFeed` mock feed; **no `VibeFeed` route/page** in current `src/` — do not assume that surface exists unless it returns in `App.tsx`.
 
 ## 14. Rebuild notes
 

@@ -75,7 +75,7 @@ export function ReadyGateOverlay({
       });
       onClose();
     },
-    [eventId, userId, show, onClose],
+    [eventId, show, onClose],
   );
 
   const {

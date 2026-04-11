@@ -14,6 +14,13 @@
 
 Monorepo keeps API and behavior contracts visible and reduces drift between clients.
 
+**Import path ownership (TypeScript):**
+
+- **`@shared/*`** — Resolves to **`supabase/functions/_shared/`** (utilities co-located with Edge Functions: tiers, discovery contracts, profile adapters, etc.). Use for backend-aligned or deploy-bundled shared modules, not for arbitrary UI product logic.
+- **`shared/`** (repo root) — **Cross-app product logic** shared by web and native (e.g. `shared/eventTimingBuckets.ts`, `shared/supabaseFunctionInvokeErrors.ts`). Import via **relative paths** from each app (`../../shared/...` from `src/`, deep relatives from `apps/mobile/`), unless a future alias is introduced deliberately.
+
+Do not place frontend-only domain modules under `supabase/functions/_shared` solely to use the `@shared` alias.
+
 ---
 
 ## 2. Shared backend
@@ -78,6 +85,24 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 **RPC:** `get_visible_events` (same for web and native).
 
+### 7.1 Canonical location model (locked)
+
+Post-onboarding, **`location`**, **`location_data`**, and **`country`** on `profiles` are written **only** via the **`update_profile_location`** RPC (not via PostgREST `profiles.update` from app editors). Migrations:
+
+| Migration | Role |
+|-----------|------|
+| **`20260416100000_canonical_location_model.sql`** | Defines **`update_profile_location`**. Tightens **`get_visible_events`**: users with **no effective coordinates** (no device coords and no stored `location_data`) see **no `local`-scoped** rows (removed the old “no coords ⇒ show all local” bypass). |
+| **`20260416110000_regional_events_require_location.sql`** | **`get_visible_events`**: **`regional`** scope now requires a **usable reference point** (`v_effective_lat` / `v_effective_lng` not null), same prerequisite style as **local** — not merely `profiles.country` match with stale text-only location. |
+
+**Visibility summary (after both migrations):**
+
+- **`scope` global or NULL** — always visible (no location required).
+- **No usable location** (no premium browse coords, no device coords, no stored `location_data` lat/lng) — **only global-scoped events**; **zero regional, zero local**.
+- **`scope = regional`** — requires valid coordinates **and** country match / premium browse rules as implemented in the function (see `COMMENT ON FUNCTION public.get_visible_events` in the latest migration file).
+- **`scope = local`** — requires valid coordinates and distance within `radius_km`.
+
+Older migrations (e.g. **`20260325100000_get_visible_events_no_coord_edge_case.sql`**) adjusted radius and edge cases; **20260416100000 / 20260416110000** supersede prior **no-coordinates** behavior for **local** and **regional** visibility.
+
 **Client behavior**
 
 - **Web:** [`src/pages/Events.tsx`](../src/pages/Events.tsx) — non-premium users are forced to **nearby** mode (city browse cleared); premium users can choose **nearby** vs **city** and a **distance (km)**.
@@ -90,7 +115,16 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 
 **Radius vs event scope (server)**
 
-- When `p_filter_radius_km` is set, **local** events are filtered by distance from the effective browse/user point; **global** and **regional** scoped rows are **not** excluded by the user’s radius filter (see latest `get_visible_events` definitions under `supabase/migrations/`, e.g. `20260325100000_get_visible_events_no_coord_edge_case.sql`).
+- When `p_filter_radius_km` is set, **local** events are filtered by distance from the effective browse/user point; **global** and **regional** scoped rows are **not** excluded by the user’s radius filter. For the **current** function body and comments, use the files **`20260416110000_regional_events_require_location.sql`** (latest `get_visible_events` in repo) as source of truth, not older snapshots alone.
+
+### 7.2 Migration history note (operators)
+
+Supabase **`schema_migrations`** on the linked project may list **both**:
+
+- **`20260411134909_remote_history_align.sql`** — placeholder row used to align remote history when a version stamp existed before the matching repo file; and
+- **`20260416100000`** / **`20260416110000`** — the full migration files with the canonical names.
+
+**Do not assume duplicate logic errors** without diffing: the placeholder is `SELECT 1`; the numbered files contain the real DDL. If `supabase migration list` shows two version rows that look like duplicates, treat this as **history alignment**, not a signal to delete rows from `schema_migrations`.
 
 ### Admin lifecycle RPCs (web)
 
@@ -106,6 +140,12 @@ Details: [supabase-cloud-deploy.md](./supabase-cloud-deploy.md).
 **Discovery preferences (Sprint 2):** `profiles.event_discovery_prefs` (jsonb) persists default event-list UI state; **`get_visible_events` is unchanged**. **`get_event_deck`** (migration `20260415100000_get_event_deck_preferred_age.sql`) additionally respects viewer **`preferred_age_min` / `preferred_age_max`** against candidate **`profiles.age`** when age is known; null candidate age is not excluded by that clause. Settings: web **Discovery** drawer from [`Settings`](../src/pages/Settings.tsx); native **`/settings/discovery`**.
 
 **Admin per-gender counts:** **`admin_get_event_confirmed_gender_counts(p_event_id)`** (same migration) — admin-only confirmed counts by normalized profile gender for edit-form warnings only (admission still **aggregate** `max_attendees` / `current_attendees`).
+
+### Email verification (profile trust badge)
+
+- **Canonical address:** `resolveCanonicalAuthEmail` in [`supabase/functions/_shared/verificationSemantics.ts`](../supabase/functions/_shared/verificationSemantics.ts) — prefers `auth.users.email`, then linked-provider `identity_data.email` (including **Apple** / Google / email provider rows). This is the **only** address the `email-verification` Edge Function will send to or accept for OTP when the client passes `email` in the body.
+- **No inbox-first gate for OTP:** the trust flow is **send code → verify code** against that canonical address. Supabase “confirm your email” / magic-link flows are **separate** account-level concerns and must not be confused with this gate.
+- **Runtime proof:** Apple Sign-In on real devices is **not** re-validated in automated CI here; treat in-app verification as **code-aligned** until a fresh QA run is logged.
 
 ---
 
