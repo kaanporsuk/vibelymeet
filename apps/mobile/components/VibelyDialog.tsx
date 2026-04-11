@@ -3,6 +3,7 @@ import {
   Animated,
   Easing,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -81,13 +82,13 @@ export function VibelyDialog({
           toValue: 1,
           duration: 200,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(scale, {
           toValue: 1,
           duration: 200,
           easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ]).start();
     } else {
@@ -96,13 +97,13 @@ export function VibelyDialog({
           toValue: 0,
           duration: 180,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(scale, {
           toValue: 0.95,
           duration: 180,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ]).start(({ finished }) => {
         if (finished) setDisplayed(false);
@@ -156,20 +157,33 @@ export function VibelyDialog({
       animationType="none"
       onRequestClose={onClose}
       statusBarTranslucent
+      presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
     >
-      <Animated.View style={[styles.root, { opacity }]} accessibilityViewIsModal importantForAccessibility="yes">
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss dialog" />
+      {/* Full-screen touch sink: opacity+scale must use useNativeDriver:false so hitSlops match
+          the visual card/buttons (native-driver transforms break touch targeting on some RN builds). */}
+      <View style={styles.modalTouchRoot} pointerEvents="auto">
         <Animated.View
-          style={[
-            styles.cardWrap,
-            {
-              transform: [{ scale }],
-            },
-          ]}
-          accessibilityRole="alert"
+          style={[styles.root, { opacity }]}
           accessibilityViewIsModal
+          importantForAccessibility="yes"
+          pointerEvents="box-none"
         >
-          <Pressable onPress={(e) => e.stopPropagation()} style={styles.cardPressable}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, styles.backdropHit]}
+            onPress={onClose}
+            accessibilityLabel="Dismiss dialog"
+          />
+          <Animated.View
+            style={[
+              styles.cardWrap,
+              {
+                transform: [{ scale }],
+              },
+            ]}
+            accessibilityRole="alert"
+            accessibilityViewIsModal
+            pointerEvents="auto"
+          >
             <View
               style={[
                 styles.card,
@@ -241,14 +255,17 @@ export function VibelyDialog({
                 </Pressable>
               ) : null}
             </View>
-          </Pressable>
+          </Animated.View>
         </Animated.View>
-      </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalTouchRoot: {
+    flex: 1,
+  },
   root: {
     flex: 1,
     backgroundColor: 'rgba(4,6,12,0.74)',
@@ -256,12 +273,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: HORIZONTAL_MARGIN,
   },
+  backdropHit: {
+    zIndex: 0,
+  },
   cardWrap: {
     width: '100%',
     maxWidth: 400,
-  },
-  cardPressable: {
-    width: '100%',
+    zIndex: 2,
+    elevation: 12,
   },
   card: {
     borderRadius: CARD_RADIUS,
